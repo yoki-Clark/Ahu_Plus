@@ -10,17 +10,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.math.roundToInt
 
 @Composable
 fun ScheduleScreen(
@@ -61,7 +70,8 @@ fun ScheduleScreen(
             onBack = onBack,
             onPrevious = { viewModel.onPreviousWeek() },
             onNext = { viewModel.onNextWeek() },
-            onRefresh = { viewModel.onRefresh() }
+            onRefresh = { viewModel.onRefresh() },
+            onSettings = { viewModel.onToggleSettings() }
         )
 
         // ── 内容区 ────────────────────────────────────
@@ -127,7 +137,10 @@ fun ScheduleScreen(
                         selectedWeek = uiState.selectedWeek,
                         currentWeek = uiState.currentWeek,
                         onCourseClick = viewModel::onCourseClicked,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        colWidth = uiState.colWidthDp.dp,
+                        rowHeight = uiState.rowHeightDp.dp,
+                        fontScale = uiState.fontScale,
                     )
                 }
             }
@@ -141,6 +154,20 @@ fun ScheduleScreen(
             onNoteChange = viewModel::onNoteDraftChanged,
             onSave = viewModel::onNoteSave,
             onDismiss = viewModel::onDismissSheet,
+        )
+    }
+
+    // ── 课表显示设置 BottomSheet ────────────────────
+    if (uiState.showSettings) {
+        ScheduleSettingsSheet(
+            colWidthDp = uiState.colWidthDp,
+            rowHeightDp = uiState.rowHeightDp,
+            fontScale = uiState.fontScale,
+            onColWidthChanged = viewModel::onColWidthChanged,
+            onRowHeightChanged = viewModel::onRowHeightChanged,
+            onFontScaleChanged = viewModel::onFontScaleChanged,
+            onReset = viewModel::onResetSettings,
+            onDismiss = { viewModel.onToggleSettings() },
         )
     }
 }
@@ -157,7 +184,8 @@ private fun WeekHeader(
     onBack: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onSettings: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier
@@ -219,6 +247,14 @@ private fun WeekHeader(
 
         Spacer(modifier = Modifier.weight(1f))
 
+        // 课表设置
+        IconButton(onClick = onSettings, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.Filled.Settings,
+                contentDescription = "课表设置",
+                modifier = Modifier.size(20.dp)
+            )
+        }
         // 刷新
         IconButton(onClick = onRefresh, modifier = Modifier.size(36.dp)) {
             Icon(
@@ -227,5 +263,115 @@ private fun WeekHeader(
                 modifier = Modifier.size(20.dp)
             )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScheduleSettingsSheet(
+    colWidthDp: Float,
+    rowHeightDp: Float,
+    fontScale: Float,
+    onColWidthChanged: (Float) -> Unit,
+    onRowHeightChanged: (Float) -> Unit,
+    onFontScaleChanged: (Float) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Text(
+                text = "课表显示设置",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+
+            SettingSlider(
+                label = "课程卡片宽度",
+                value = colWidthDp,
+                valueRange = 48f..80f,
+                steps = 15,
+                valueText = { "${it.roundToInt()} dp" },
+                onValueChange = onColWidthChanged,
+            )
+
+            SettingSlider(
+                label = "课程卡片高度",
+                value = rowHeightDp,
+                valueRange = 44f..72f,
+                steps = 13,
+                valueText = { "${it.roundToInt()} dp" },
+                onValueChange = onRowHeightChanged,
+            )
+
+            SettingSlider(
+                label = "字体缩放",
+                value = fontScale,
+                valueRange = 0.75f..1.5f,
+                steps = 14,
+                valueText = { "%.2fx".format(it) },
+                onValueChange = onFontScaleChanged,
+            )
+
+            TextButton(
+                onClick = onReset,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text("恢复默认")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingSlider(
+    label: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    valueText: (Float) -> String,
+    onValueChange: (Float) -> Unit,
+) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = valueText(value),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            steps = steps,
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }

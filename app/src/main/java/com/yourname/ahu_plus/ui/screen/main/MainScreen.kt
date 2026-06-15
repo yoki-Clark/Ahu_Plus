@@ -29,6 +29,8 @@ import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.CourseRepository
+import com.yourname.ahu_plus.data.repository.ExamRepository
+import com.yourname.ahu_plus.data.repository.GradeRepository
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.MarketRepository
@@ -38,6 +40,10 @@ import com.yourname.ahu_plus.ui.screen.dashboard.DashboardScreen
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListScreen
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel
+import com.yourname.ahu_plus.ui.screen.exam.ExamScreen
+import com.yourname.ahu_plus.ui.screen.exam.ExamViewModel
+import com.yourname.ahu_plus.ui.screen.grade.GradeScreen
+import com.yourname.ahu_plus.ui.screen.grade.GradeViewModel
 import com.yourname.ahu_plus.ui.screen.home.HomeViewModel
 import com.yourname.ahu_plus.ui.screen.market.MarketScreen
 import com.yourname.ahu_plus.ui.screen.market.MarketViewModel
@@ -53,6 +59,8 @@ private const val TAB_PROFILE = 2
 private const val HOME_DASHBOARD = 0
 private const val HOME_SCHEDULE = 1
 private const val HOME_NOTICE_LIST = 2
+private const val HOME_GRADE = 3
+private const val HOME_EXAM = 4
 
 @Composable
 fun MainScreen(
@@ -66,6 +74,8 @@ fun MainScreen(
     jwcNoticeRepository: JwcNoticeRepository,
     studentInfoRepository: StudentInfoRepository,
     courseNoteRepository: CourseNoteRepository,
+    gradeRepository: GradeRepository,
+    examRepository: ExamRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
     /** 仅清除会话并跳转登录(保留凭据/集市token等本地数据) */
@@ -76,19 +86,16 @@ fun MainScreen(
     var selectedTab by rememberSaveable { mutableIntStateOf(TAB_HOME) }
     var homePage by rememberSaveable { mutableIntStateOf(HOME_DASHBOARD) }
 
-    // 系统返回键:优先回退子页面 → 回退到首页 Tab → 交由系统处理(退出)
-    BackHandler(enabled = homePage != HOME_DASHBOARD || selectedTab != TAB_HOME) {
-        when {
-            homePage != HOME_DASHBOARD -> homePage = HOME_DASHBOARD
-            selectedTab != TAB_HOME -> selectedTab = TAB_HOME
-        }
+    // 系统返回键:仅处理首页的子页面回退 (集市/我的子页面由各自 BackHandler 处理)
+    BackHandler(enabled = homePage != HOME_DASHBOARD) {
+        homePage = HOME_DASHBOARD
     }
 
     val cardViewModel = remember {
         HomeViewModel(cardRepository, casAuthRepository, ycardRepository)
     }
     val scheduleViewModel = remember {
-        ScheduleViewModel(jwAuthRepository, courseRepository, courseNoteRepository)
+        ScheduleViewModel(jwAuthRepository, courseRepository, courseNoteRepository, sessionManager)
     }
     val marketViewModel = remember {
         MarketViewModel(marketRepository)
@@ -101,6 +108,12 @@ fun MainScreen(
     }
     val studentInfoViewModel = remember {
         StudentInfoViewModel(studentInfoRepository, sessionManager)
+    }
+    val gradeViewModel = remember {
+        GradeViewModel(jwAuthRepository, gradeRepository)
+    }
+    val examViewModel = remember {
+        ExamViewModel(jwAuthRepository, examRepository)
     }
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -162,12 +175,24 @@ fun MainScreen(
                             viewModel = jwcNoticeListViewModel,
                             onBack = { homePage = HOME_DASHBOARD }
                         )
+                        HOME_GRADE -> GradeScreen(
+                            viewModel = gradeViewModel,
+                            onBack = { homePage = HOME_DASHBOARD },
+                            onNeedsLogin = onReauth
+                        )
+                        HOME_EXAM -> ExamScreen(
+                            viewModel = examViewModel,
+                            onBack = { homePage = HOME_DASHBOARD },
+                            onNeedsLogin = onReauth
+                        )
                         else -> DashboardScreen(
                             viewModel = scheduleViewModel,
                             noticeViewModel = jwcNoticeViewModel,
                             onOpenSchedule = { homePage = HOME_SCHEDULE },
                             onOpenCard = { selectedTab = TAB_PROFILE },
                             onOpenNoticeList = { homePage = HOME_NOTICE_LIST },
+                            onOpenGrade = { homePage = HOME_GRADE },
+                            onOpenExam = { homePage = HOME_EXAM },
                             onNeedsLogin = onReauth
                         )
                     }
@@ -180,6 +205,7 @@ fun MainScreen(
                     scheduleUiState = scheduleUiState,
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
+                    onReauth = onReauth,
                     onLogout = onLogout
                 )
             }

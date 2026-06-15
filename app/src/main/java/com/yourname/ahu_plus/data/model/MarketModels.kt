@@ -11,11 +11,23 @@ data class MarketTopic(
     val node: String = "",
     val isAnon: Int = 0,
     val viewCount: Int = 0,
+    @SerializedName("is_top")
+    val isTop: Int = 0,
     val createTime: String = "",
     val userInfo: MarketUser? = null,
     val schoolSubAddress: String? = null,
     val likeCount: Int = 0,
     val commentCount: Int = 0
+)
+
+/**
+ * 校园身份标识，对应一个 Bearer JWT token。
+ * 每个身份代表一个校区（校园），从 JWT payload 的 `school` 字段自动识别学校名称。
+ */
+data class MarketIdentity(
+    val id: String,
+    val token: String,
+    val school: String? = null
 )
 
 data class MarketUser(

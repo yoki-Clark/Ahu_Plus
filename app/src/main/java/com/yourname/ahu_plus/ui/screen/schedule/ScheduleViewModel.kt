@@ -3,6 +3,7 @@ package com.yourname.ahu_plus.ui.screen.schedule
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
+import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.model.jw.CourseActivity
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
@@ -23,12 +24,24 @@ class ScheduleViewModel(
     private val jwAuthRepository: JwAuthRepository,
     private val courseRepository: CourseRepository,
     private val noteRepository: CourseNoteRepository,
+    private val sessionManager: SessionManager? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScheduleUiState())
     val uiState: StateFlow<ScheduleUiState> = _uiState.asStateFlow()
 
     init {
+        // 从持久化恢复课表布局偏好
+        val sm = sessionManager
+        if (sm != null) {
+            _uiState.update {
+                it.copy(
+                    colWidthDp = sm.getScheduleColWidth(),
+                    rowHeightDp = sm.getScheduleRowHeight(),
+                    fontScale = sm.getScheduleFontScale(),
+                )
+            }
+        }
         viewModelScope.launch {
             loadScheduleData()
         }
@@ -39,6 +52,7 @@ class ScheduleViewModel(
      */
     private suspend fun loadScheduleData() {
         _uiState.update { it.copy(isLoading = true, error = null) }
+        val wasLoaded = _uiState.value.allActivities.isNotEmpty()
         try {
             withContext(Dispatchers.IO) {
                 // Step 1: 认证
@@ -47,7 +61,8 @@ class ScheduleViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            needsLogin = true,
+                            // 仅当本地无数据时才触发 needsLogin，避免刷新时跳转登录页
+                            needsLogin = !wasLoaded,
                             error = "教务处认证失败: ${authResult.exceptionOrNull()?.message}"
                         )
                     }
@@ -117,6 +132,36 @@ class ScheduleViewModel(
     fun onRefresh() {
         viewModelScope.launch {
             loadScheduleData()
+        }
+    }
+
+    // ── 课表显示设置 ─────────────────────────────────
+
+    fun onToggleSettings() {
+        _uiState.update { it.copy(showSettings = !it.showSettings) }
+    }
+
+    fun onColWidthChanged(value: Float) {
+        _uiState.update { it.copy(colWidthDp = value) }
+        viewModelScope.launch { sessionManager?.saveScheduleColWidth(value) }
+    }
+
+    fun onRowHeightChanged(value: Float) {
+        _uiState.update { it.copy(rowHeightDp = value) }
+        viewModelScope.launch { sessionManager?.saveScheduleRowHeight(value) }
+    }
+
+    fun onFontScaleChanged(value: Float) {
+        _uiState.update { it.copy(fontScale = value) }
+        viewModelScope.launch { sessionManager?.saveScheduleFontScale(value) }
+    }
+
+    fun onResetSettings() {
+        _uiState.update { it.copy(colWidthDp = 64f, rowHeightDp = 56f, fontScale = 1.0f) }
+        viewModelScope.launch {
+            sessionManager?.saveScheduleColWidth(64f)
+            sessionManager?.saveScheduleRowHeight(56f)
+            sessionManager?.saveScheduleFontScale(1.0f)
         }
     }
 
@@ -190,6 +235,12 @@ data class ScheduleUiState(
 
     /** 当前展示的课程详情 (null 表示 BottomSheet 不显示) */
     val selectedCourseDetail: CourseDetailUiModel? = null,
+
+    // ── 课表显示设置 ─────────────────────────────────
+    val colWidthDp: Float = 64f,
+    val rowHeightDp: Float = 56f,
+    val fontScale: Float = 1.0f,
+    val showSettings: Boolean = false,
 )
 
 /**

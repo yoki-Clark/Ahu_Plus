@@ -4,15 +4,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.model.MarketComment
 import com.yourname.ahu_plus.data.model.MarketCommentReplies
+import com.yourname.ahu_plus.data.model.MarketIdentity
 import com.yourname.ahu_plus.data.model.MarketNode
 import com.yourname.ahu_plus.data.model.MarketNotice
 import com.yourname.ahu_plus.data.model.MarketTopic
+import com.yourname.ahu_plus.data.remote.market.MarketApi
 import com.yourname.ahu_plus.data.repository.MarketRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class MarketViewModel(
     private val repository: MarketRepository
@@ -22,19 +25,34 @@ class MarketViewModel(
     val uiState: StateFlow<MarketUiState> = _uiState.asStateFlow()
 
     init {
-        refreshIdentityState()
-        if (_uiState.value.hasSavedIdentity) refreshTopics()
+        refreshSettingsState()
+        if (_uiState.value.identities.isNotEmpty()) refreshTopics()
+    }
+
+    fun refreshSettingsState() {
+        val identities = repository.getAllIdentities()
+        val selectedIds = repository.getSelectedIdentityIds()
+        val blockPinned = repository.getBlockPinned()
+        val blockKeywords = repository.getBlockKeywords()
+        val filterNodeIds = repository.getFilterNodeIds()
+        val identityCount = identities.size
+        _uiState.update {
+            it.copy(
+                identities = identities,
+                selectedIdentityIds = selectedIds,
+                blockPinned = blockPinned,
+                blockKeywords = blockKeywords,
+                filterNodeIds = filterNodeIds,
+                hasSavedIdentity = identityCount > 0,
+                school = identities.firstOrNull { it.id in selectedIds }?.school
+                    ?: identities.firstOrNull()?.school,
+                identityInput = ""
+            )
+        }
     }
 
     fun refreshIdentityState() {
-        val saved = repository.getSavedIdentity().orEmpty()
-        _uiState.update {
-            it.copy(
-                identityInput = saved,
-                hasSavedIdentity = saved.isNotBlank(),
-                school = MarketRepository.schoolFromIdentity(saved)
-            )
-        }
+        refreshSettingsState()
     }
 
     fun onIdentityInputChanged(value: String) {
@@ -49,14 +67,25 @@ class MarketViewModel(
         }
 
         viewModelScope.launch {
-            val normalized = MarketRepository.normalizeIdentity(value)
-            repository.saveIdentity(normalized)
+            val normalized = MarketApi.normalizeIdentity(value)
+            val school = MarketApi.schoolFromIdentity(normalized)
+            val identity = MarketIdentity(
+                id = UUID.randomUUID().toString(),
+                token = normalized,
+                school = school
+            )
+            val updated = _uiState.value.identities + identity
+            repository.saveMarketIdentities(updated)
+            val updatedSelected = _uiState.value.selectedIdentityIds + identity.id
+            repository.setSelectedIdentityIds(updatedSelected)
             _uiState.update {
                 it.copy(
-                    identityInput = normalized,
+                    identities = updated,
+                    selectedIdentityIds = updatedSelected,
                     hasSavedIdentity = true,
-                    school = MarketRepository.schoolFromIdentity(normalized),
-                    saveMessage = "已保存",
+                    school = school,
+                    identityInput = "",
+                    saveMessage = "已添加 ${school ?: "新校区"}",
                     identityError = null
                 )
             }
@@ -66,6 +95,8 @@ class MarketViewModel(
 
     fun clearIdentity() {
         viewModelScope.launch {
+            repository.saveMarketIdentities(emptyList())
+            repository.setSelectedIdentityIds(emptySet())
             repository.clearIdentity()
             _uiState.update {
                 MarketUiState(saveMessage = "已清除")
@@ -98,35 +129,253 @@ class MarketViewModel(
         }
     }
 
-    private suspend fun loadTopicsPage(page: Int, append: Boolean) {
-        repository.getTopics(page).fold(
-            onSuccess = { topics ->
-                _uiState.update { state ->
-                    val merged = if (append) {
-                        (state.topics + topics).distinctBy { it.id }
-                    } else {
-                        topics
+    // ── 设置页面 ────────────────────────────────────────
+
+    fun openSettings() {
+        refreshSettingsState()
+        _uiState.update { it.copy(showSettings = true) }
+    }
+
+    fun closeSettings() {
+        _uiState.update { it.copy(showSettings = false) }
+    }
+
+    // ── 搜索 ────────────────────────────────────────────
+
+    fun openSearch() {
+        _uiState.update {
+            it.copy(
+                isSearching = true,
+                searchQuery = "",
+                searchResults = emptyList(),
+                searchError = null
+            )
+        }
+    }
+
+    fun closeSearch() {
+        _uiState.update {
+            it.copy(
+                isSearching = false,
+                searchQuery = "",
+                searchResults = emptyList(),
+                searchError = null,
+                searchLoading = false
+            )
+        }
+    }
+
+    fun onSearchQueryChanged(value: String) {
+        _uiState.update { it.copy(searchQuery = value, searchError = null) }
+    }
+
+    fun submitSearch() {
+        val query = _uiState.value.searchQuery.trim()
+        if (query.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(searchLoading = true, searchError = null) }
+            repository.searchTopics(query, page = 1).fold(
+                onSuccess = { results ->
+                    _uiState.update {
+                        it.copy(
+                            searchLoading = false,
+                            searchResults = results,
+                            searchError = null
+                        )
                     }
-                    state.copy(
-                        topics = merged,
-                        currentPage = page,
-                        hasMoreTopics = topics.isNotEmpty(),
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = null
-                    )
+                },
+                onFailure = { e ->
+                    _uiState.update {
+                        it.copy(
+                            searchLoading = false,
+                            searchError = e.message ?: "搜索失败"
+                        )
+                    }
                 }
-            },
-            onFailure = { e ->
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = e.message ?: "集市加载失败"
-                    )
-                }
+            )
+        }
+    }
+
+    // ── 多校园管理 ──────────────────────────────────────
+
+    fun removeIdentity(id: String) {
+        viewModelScope.launch {
+            val updated = _uiState.value.identities.filter { it.id != id }
+            repository.saveMarketIdentities(updated)
+            val updatedSelected = _uiState.value.selectedIdentityIds - id
+            repository.setSelectedIdentityIds(updatedSelected)
+            _uiState.update {
+                it.copy(
+                    identities = updated,
+                    selectedIdentityIds = updatedSelected,
+                    hasSavedIdentity = updated.isNotEmpty(),
+                    school = updated.firstOrNull { i -> i.id in updatedSelected }?.school
+                        ?: updated.firstOrNull()?.school
+                )
             }
-        )
+            refreshTopics()
+        }
+    }
+
+    fun toggleIdentitySelection(id: String, selected: Boolean) {
+        viewModelScope.launch {
+            val updatedSelected = if (selected) {
+                _uiState.value.selectedIdentityIds + id
+            } else {
+                _uiState.value.selectedIdentityIds - id
+            }.takeIf { it.isNotEmpty() } ?: run {
+                _uiState.update { it.copy(identityError = "至少需要选择一个校区") }
+                return@launch
+            }
+            repository.setSelectedIdentityIds(updatedSelected)
+            _uiState.update { it.copy(selectedIdentityIds = updatedSelected) }
+            refreshTopics()
+        }
+    }
+
+    /** 一键选中所有已保存的校区身份 */
+    fun selectAllIdentities() {
+        viewModelScope.launch {
+            val allIds = _uiState.value.identities.map { it.id }.toSet()
+            if (allIds.isEmpty() || allIds == _uiState.value.selectedIdentityIds) return@launch
+            repository.setSelectedIdentityIds(allIds)
+            _uiState.update {
+                it.copy(
+                    selectedIdentityIds = allIds,
+                    school = _uiState.value.identities.firstOrNull()?.school
+                )
+            }
+            refreshTopics()
+        }
+    }
+
+    // ── 屏蔽置顶 ────────────────────────────────────────
+
+    fun setBlockPinned(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setBlockPinned(enabled)
+            _uiState.update { it.copy(blockPinned = enabled) }
+        }
+    }
+
+    // ── 屏蔽词 ──────────────────────────────────────────
+
+    fun onKeywordInputChanged(value: String) {
+        _uiState.update { it.copy(keywordInput = value) }
+    }
+
+    fun addBlockKeyword() {
+        val keyword = _uiState.value.keywordInput.trim()
+        if (keyword.isBlank()) return
+        viewModelScope.launch {
+            val updated = _uiState.value.blockKeywords + keyword
+            repository.saveBlockKeywords(updated)
+            _uiState.update { it.copy(blockKeywords = updated, keywordInput = "") }
+        }
+    }
+
+    fun removeBlockKeyword(keyword: String) {
+        viewModelScope.launch {
+            val updated = _uiState.value.blockKeywords - keyword
+            repository.saveBlockKeywords(updated)
+            _uiState.update { it.copy(blockKeywords = updated) }
+        }
+    }
+
+    // ── 板块筛选 ────────────────────────────────────────
+
+    fun toggleFilterNode(nodeId: Long) {
+        val current = _uiState.value.filterNodeIds
+        val updated = if (nodeId in current) current - nodeId else current + nodeId
+        viewModelScope.launch {
+            repository.saveFilterNodeIds(updated)
+            _uiState.update { it.copy(filterNodeIds = updated) }
+        }
+    }
+
+    fun clearFilterNodes() {
+        viewModelScope.launch {
+            repository.saveFilterNodeIds(emptyList())
+            _uiState.update { it.copy(filterNodeIds = emptyList()) }
+        }
+    }
+
+    // ── 核心加载逻辑（多校园 + 客户端过滤） ──────────────────
+
+    private suspend fun loadTopicsPage(page: Int, append: Boolean) {
+        val state = _uiState.value
+        val selectedIdentities = state.identities
+            .filter { it.id in state.selectedIdentityIds }
+
+        // 兼容：若多身份列表为空，回退旧单身份
+        val tokensToFetch = selectedIdentities.map { it.token }.ifEmpty {
+            listOfNotNull(repository.getSavedIdentity()?.takeIf { it.isNotBlank() })
+        }
+
+        if (tokensToFetch.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    isLoadingMore = false,
+                    error = "请先添加并选择校园身份"
+                )
+            }
+            return
+        }
+
+        try {
+            val (topics, schoolMap) = if (tokensToFetch.size == 1) {
+                val t = repository.getTopics(page).getOrThrow()
+                val singleSchool = selectedIdentities.firstOrNull()?.school
+                val map = if (singleSchool != null) t.associate { it.id to singleSchool } else emptyMap()
+                Pair(t, map)
+            } else {
+                repository.getTopicsMulti(selectedIdentities, page).getOrThrow()
+            }
+
+            // 客户端过滤
+            val nodeIdByName = MarketApi.DEFAULT_NODES.associate { it.name to it.id }
+            val filtered = topics.filter { topic ->
+                // 屏蔽置顶
+                if (state.blockPinned && topic.isTop == 1) return@filter false
+                // 板块筛选
+                if (state.filterNodeIds.isNotEmpty()) {
+                    val topicNodeId = nodeIdByName[topic.node] ?: 0L
+                    if (topicNodeId !in state.filterNodeIds) return@filter false
+                }
+                // 屏蔽词
+                if (state.blockKeywords.isNotEmpty()) {
+                    state.blockKeywords.none { kw ->
+                        topic.title.contains(kw, ignoreCase = true) ||
+                            topic.content.contains(kw, ignoreCase = true)
+                    }
+                } else true
+            }
+            val merged = if (append) {
+                (state.topics + filtered).distinctBy { it.id }
+            } else {
+                filtered
+            }
+            _uiState.update { s ->
+                s.copy(
+                    topics = merged,
+                    topicSchoolMap = if (append) s.topicSchoolMap + schoolMap else schoolMap,
+                    currentPage = page,
+                    hasMoreTopics = topics.isNotEmpty(),
+                    isLoading = false,
+                    isLoadingMore = false,
+                    error = null
+                )
+            }
+        } catch (e: Exception) {
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    isLoadingMore = false,
+                    error = e.message ?: "集市加载失败"
+                )
+            }
+        }
     }
 
     fun openTopic(topic: MarketTopic) {
@@ -292,10 +541,10 @@ class MarketViewModel(
             _uiState.update { it.copy(identityError = "请先填写集市 API 身份字段") }
             return
         }
-        val nodes = MarketRepository.DEFAULT_NODES
+        val nodes = MarketApi.DEFAULT_NODES
         val current = _uiState.value
         val preferredNode = if (current.composeNodeId > 0L) current.composeNodeId
-            else MarketRepository.DEFAULT_NODE_ID
+            else MarketApi.DEFAULT_NODE_ID
         _uiState.update {
             it.copy(
                 showCompose = true,
@@ -656,6 +905,7 @@ data class MarketUiState(
     val saveMessage: String? = null,
     val identityError: String? = null,
     val topics: List<MarketTopic> = emptyList(),
+    val topicSchoolMap: Map<Long, String> = emptyMap(),
     val currentPage: Int = 0,
     val hasMoreTopics: Boolean = true,
     val isLoading: Boolean = false,
@@ -703,7 +953,21 @@ data class MarketUiState(
     val hasMoreNotices: Boolean = true,
     val noticesLoading: Boolean = false,
     val noticesLoadingMore: Boolean = false,
-    val noticesError: String? = null
+    val noticesError: String? = null,
+    // ── 集市设置 ──────────────────────────────────
+    val showSettings: Boolean = false,
+    val identities: List<MarketIdentity> = emptyList(),
+    val selectedIdentityIds: Set<String> = emptySet(),
+    val blockPinned: Boolean = false,
+    val blockKeywords: List<String> = emptyList(),
+    val keywordInput: String = "",
+    val filterNodeIds: List<Long> = emptyList(),
+    // ── 搜索 ─────────────────────────────────────
+    val isSearching: Boolean = false,
+    val searchQuery: String = "",
+    val searchResults: List<MarketTopic> = emptyList(),
+    val searchLoading: Boolean = false,
+    val searchError: String? = null
 )
 
 /**

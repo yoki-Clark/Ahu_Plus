@@ -28,6 +28,8 @@ import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.CourseRepository
+import com.yourname.ahu_plus.data.repository.ExamRepository
+import com.yourname.ahu_plus.data.repository.GradeRepository
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.MarketRepository
@@ -52,6 +54,8 @@ fun AppNavigation(
     jwcNoticeRepository: JwcNoticeRepository,
     studentInfoRepository: StudentInfoRepository,
     courseNoteRepository: CourseNoteRepository,
+    gradeRepository: GradeRepository,
+    examRepository: ExamRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit
 ) {
@@ -142,6 +146,8 @@ fun AppNavigation(
                 jwcNoticeRepository = jwcNoticeRepository,
                 studentInfoRepository = studentInfoRepository,
                 courseNoteRepository = courseNoteRepository,
+                gradeRepository = gradeRepository,
+                examRepository = examRepository,
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
                 onReauth = {

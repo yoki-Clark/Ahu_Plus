@@ -7,6 +7,8 @@ import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.CourseRepository
+import com.yourname.ahu_plus.data.repository.ExamRepository
+import com.yourname.ahu_plus.data.repository.GradeRepository
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.MarketRepository
@@ -36,6 +38,10 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var studentInfoRepository: StudentInfoRepository
         private set
+    lateinit var gradeRepository: GradeRepository
+        private set
+    lateinit var examRepository: ExamRepository
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -60,6 +66,9 @@ class AhuPlusApplication : Application() {
         marketRepository = MarketRepository(sessionManager)
         jwcNoticeRepository = JwcNoticeRepository()
         studentInfoRepository = StudentInfoRepository(sessionManager, casAuthRepository)
+        // 成绩 / 考试 复用 JwAuthRepository 的 CookieJar
+        gradeRepository = GradeRepository(jwAuthRepository)
+        examRepository = ExamRepository(jwAuthRepository)
     }
 
     /**

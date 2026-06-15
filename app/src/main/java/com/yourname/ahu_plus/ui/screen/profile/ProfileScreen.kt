@@ -1,5 +1,6 @@
 package com.yourname.ahu_plus.ui.screen.profile
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -68,6 +69,7 @@ import com.yourname.ahu_plus.data.model.StudentInfoCodeLookup
 import com.yourname.ahu_plus.data.model.StudentInfoField
 import com.yourname.ahu_plus.ui.screen.home.HomeViewModel
 import com.yourname.ahu_plus.ui.screen.market.MarketIdentityEditor
+import com.yourname.ahu_plus.ui.screen.market.MarketSettingsScreen
 import com.yourname.ahu_plus.ui.screen.market.MarketViewModel
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleUiState
 import java.text.DecimalFormat
@@ -84,6 +86,7 @@ fun ProfileScreen(
     scheduleUiState: ScheduleUiState,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    onReauth: () -> Unit,
     onLogout: () -> Unit
 ) {
     var showBills by rememberSaveable { mutableStateOf(false) }
@@ -95,13 +98,14 @@ fun ProfileScreen(
     val studentInfoUiState by studentInfoViewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(cardUiState.needsLogin) {
-        if (cardUiState.needsLogin) onLogout()
+        if (cardUiState.needsLogin) onReauth()
     }
     LaunchedEffect(studentInfoUiState.needsLogin) {
-        if (studentInfoUiState.needsLogin) onLogout()
+        if (studentInfoUiState.needsLogin) onReauth()
     }
 
     if (showBills) {
+        BackHandler(enabled = true) { showBills = false }
         BillDetailScreen(
             bills = cardUiState.bills,
             isLoading = cardUiState.billsLoading,
@@ -110,20 +114,30 @@ fun ProfileScreen(
             onRefresh = cardViewModel::onRefresh
         )
     } else if (showMarketSettings) {
-        MarketIdentitySettingsScreen(
+        BackHandler(enabled = true) { showMarketSettings = false }
+        MarketSettingsScreen(
             uiState = marketUiState,
+            onBack = { showMarketSettings = false },
             onIdentityChanged = marketViewModel::onIdentityInputChanged,
-            onSave = marketViewModel::saveIdentity,
-            onClear = marketViewModel::clearIdentity,
-            onBack = { showMarketSettings = false }
+            onAddIdentity = marketViewModel::saveIdentity,
+            onClearIdentities = marketViewModel::clearIdentity,
+            onRemoveIdentity = marketViewModel::removeIdentity,
+            onToggleIdentitySelection = marketViewModel::toggleIdentitySelection,
+            onBlockPinnedChanged = marketViewModel::setBlockPinned,
+            onKeywordInputChanged = marketViewModel::onKeywordInputChanged,
+            onAddKeyword = marketViewModel::addBlockKeyword,
+            onRemoveKeyword = marketViewModel::removeBlockKeyword,
+            onToggleFilterNode = marketViewModel::toggleFilterNode
         )
     } else if (showStudentInfo) {
+        BackHandler(enabled = true) { showStudentInfo = false }
         StudentInfoDetailScreen(
             uiState = studentInfoUiState,
             onBack = { showStudentInfo = false },
             onRefresh = studentInfoViewModel::refreshStudentInfo
         )
     } else if (showSettings) {
+        BackHandler(enabled = true) { showSettings = false }
         AppSettingsScreen(
             themeMode = themeMode,
             onThemeModeChange = onThemeModeChange,
@@ -142,7 +156,7 @@ fun ProfileScreen(
             balanceLoading = cardUiState.isLoading,
             balanceError = cardUiState.error,
             timestamp = cardUiState.timestamp,
-            marketSchool = marketUiState.school,
+            identityCount = marketUiState.identities.size,
             hasMarketIdentity = marketUiState.hasSavedIdentity,
             onRefresh = {
                 cardViewModel.onRefresh()
@@ -170,7 +184,7 @@ private fun ProfileHomeScreen(
     balanceLoading: Boolean,
     balanceError: String?,
     timestamp: Long,
-    marketSchool: String?,
+    identityCount: Int,
     hasMarketIdentity: Boolean,
     onRefresh: () -> Unit,
     onOpenBills: () -> Unit,
@@ -229,11 +243,11 @@ private fun ProfileHomeScreen(
             item {
                 ProfileSection {
                     SettingsRow(
-                        title = "集市身份字段",
+                        title = "集市设置",
                         description = if (hasMarketIdentity) {
-                            marketSchool?.let { "已配置：$it" } ?: "已配置，可在这里修改"
+                            "已配置 $identityCount 个校区，点击管理"
                         } else {
-                            "未配置，填写后即可浏览校园集市"
+                            "添加校园集市身份，支持多校区"
                         },
                         iconColor = Color(0xFFB7791F),
                         icon = { Icon(Icons.Filled.Storefront, contentDescription = null) },
@@ -625,58 +639,6 @@ private fun StudentInfoRow(field: StudentInfoField) {
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MarketIdentitySettingsScreen(
-    uiState: com.yourname.ahu_plus.ui.screen.market.MarketUiState,
-    onIdentityChanged: (String) -> Unit,
-    onSave: () -> Unit,
-    onClear: () -> Unit,
-    onBack: () -> Unit
-) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("集市身份字段") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                MarketIdentityEditor(
-                    uiState = uiState,
-                    onIdentityChanged = onIdentityChanged,
-                    onSave = onSave,
-                    onClear = onClear
-                )
-            }
-            item {
-                Text(
-                    text = "字段保存后，集市页会自动隐藏输入框。字段失效时可回到这里重新粘贴。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            item { Spacer(modifier = Modifier.height(80.dp)) }
-        }
     }
 }
 

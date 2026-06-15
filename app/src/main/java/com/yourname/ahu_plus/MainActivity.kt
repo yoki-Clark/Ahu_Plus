@@ -38,6 +38,8 @@ class MainActivity : ComponentActivity() {
                     jwcNoticeRepository = app.jwcNoticeRepository,
                     studentInfoRepository = app.studentInfoRepository,
                     courseNoteRepository = app.courseNoteRepository,
+                    gradeRepository = app.gradeRepository,
+                    examRepository = app.examRepository,
                     themeMode = themeMode,
                     onThemeModeChange = { newThemeMode ->
                         coroutineScope.launch {

@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
@@ -43,15 +44,8 @@ val CourseColors = listOf(
     Color(0xFF1F7A8C)
 )
 
-// ── 布局常量 (优化后:更紧凑) ─────────────────────────────
-// 用户反馈"每个的宽度还是要再缩短"——
-//   DAY_COL_WIDTH  102.dp → 72.dp  (节省约 29%)
-//   TIME_COL_WIDTH 64.dp  → 40.dp  (与列宽比例更协调)
-//   ROW_HEIGHT     60.dp  → 56.dp
-//   HEADER_HEIGHT  44.dp  → 40.dp
+// ── 布局常量 (可经设置面板调整) ──────────────────────────
 private val TIME_COL_WIDTH = 40.dp
-private val DAY_COL_WIDTH = 72.dp
-private val ROW_HEIGHT = 56.dp
 private val HEADER_HEIGHT = 40.dp
 
 private val DAY_LABELS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -63,7 +57,10 @@ fun WeekGrid(
     selectedWeek: Int,
     currentWeek: Int,
     onCourseClick: (CourseDisplayItem) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    colWidth: Dp = 64.dp,
+    rowHeight: Dp = 56.dp,
+    fontScale: Float = 1.0f,
 ) {
     val sortedUnits = remember(unitTimes) {
         unitTimes.filter { it.indexNo != null }.sortedBy { it.indexNo }
@@ -81,8 +78,8 @@ fun WeekGrid(
     val horScroll = rememberScrollState()
     val verScroll = rememberScrollState()
 
-    val gridWidth = DAY_COL_WIDTH * 7
-    val bodyHeight = ROW_HEIGHT * totalRows
+    val gridWidth = colWidth * 7
+    val bodyHeight = rowHeight * totalRows
     val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
 
     val groupedItems = remember(displayItems) {
@@ -110,7 +107,7 @@ fun WeekGrid(
             ) {
                 Text(
                     text = "时间",
-                    fontSize = 12.sp,
+                    fontSize = (12 * fontScale).sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -126,7 +123,9 @@ fun WeekGrid(
                         DayHeaderCell(
                             label = DAY_LABELS[d - 1],
                             isToday = isCurrentWeek && d == todayDayOfWeek,
-                            lineColor = lineColor
+                            lineColor = lineColor,
+                            colWidth = colWidth,
+                            fontScale = fontScale,
                         )
                     }
                 }
@@ -147,7 +146,9 @@ fun WeekGrid(
                     TimeCell(
                         unit = unitMap[u],
                         fallbackUnit = u,
-                        lineColor = lineColor
+                        lineColor = lineColor,
+                        rowHeight = rowHeight,
+                        fontScale = fontScale,
                     )
                 }
             }
@@ -164,8 +165,8 @@ fun WeekGrid(
                             val isToday = isCurrentWeek && d == todayDayOfWeek
                             Box(
                                 modifier = Modifier
-                                    .offset(DAY_COL_WIDTH * (d - 1), ROW_HEIGHT * row)
-                                    .size(DAY_COL_WIDTH, ROW_HEIGHT)
+                                    .offset(colWidth * (d - 1), rowHeight * row)
+                                    .size(colWidth, rowHeight)
                                     .background(
                                         when {
                                             isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.045f)
@@ -192,12 +193,12 @@ fun WeekGrid(
                         } else {
                             0
                         }
-                        val overlapW = DAY_COL_WIDTH / overlapCount
+                        val overlapW = colWidth / overlapCount
 
-                        val x = DAY_COL_WIDTH * col + overlapW * overlapIdx + 3.dp
-                        val y = ROW_HEIGHT * rowStart + 3.dp
+                        val x = colWidth * col + overlapW * overlapIdx + 3.dp
+                        val y = rowHeight * rowStart + 3.dp
                         val w = overlapW - 6.dp
-                        val h = ROW_HEIGHT * rowSpan - 6.dp
+                        val h = rowHeight * rowSpan - 6.dp
 
                         CourseCard(
                             item = item,
@@ -205,7 +206,8 @@ fun WeekGrid(
                             onClick = { onCourseClick(item) },
                             modifier = Modifier
                                 .offset(x, y)
-                                .size(w.coerceAtLeast(0.dp), h.coerceAtLeast(0.dp))
+                                .size(w.coerceAtLeast(0.dp), h.coerceAtLeast(0.dp)),
+                            fontScale = fontScale,
                         )
                     }
                 }
@@ -218,11 +220,13 @@ fun WeekGrid(
 private fun DayHeaderCell(
     label: String,
     isToday: Boolean,
-    lineColor: Color
+    lineColor: Color,
+    colWidth: Dp,
+    fontScale: Float,
 ) {
     Box(
         modifier = Modifier
-            .width(DAY_COL_WIDTH)
+            .width(colWidth)
             .height(HEADER_HEIGHT)
             .background(
                 if (isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
@@ -234,7 +238,7 @@ private fun DayHeaderCell(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = label,
-                fontSize = 13.sp,
+                fontSize = (13 * fontScale).sp,
                 fontWeight = if (isToday) FontWeight.Bold else FontWeight.SemiBold,
                 color = if (isToday) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurface
@@ -242,9 +246,9 @@ private fun DayHeaderCell(
             if (isToday) {
                 Text(
                     text = "今天",
-                    fontSize = 9.sp,
+                    fontSize = (9 * fontScale).sp,
                     color = MaterialTheme.colorScheme.primary,
-                    lineHeight = 10.sp
+                    lineHeight = (10 * fontScale).sp
                 )
             }
         }
@@ -255,12 +259,14 @@ private fun DayHeaderCell(
 private fun TimeCell(
     unit: CourseUnit?,
     fallbackUnit: Int,
-    lineColor: Color
+    lineColor: Color,
+    rowHeight: Dp,
+    fontScale: Float,
 ) {
     Box(
         modifier = Modifier
             .width(TIME_COL_WIDTH)
-            .height(ROW_HEIGHT)
+            .height(rowHeight)
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f))
             .border(0.5.dp, lineColor)
             .padding(horizontal = 4.dp),
@@ -272,7 +278,7 @@ private fun TimeCell(
         ) {
             Text(
                 text = "${unit?.indexNo ?: fallbackUnit}",
-                fontSize = 13.sp,
+                fontSize = (13 * fontScale).sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -281,16 +287,16 @@ private fun TimeCell(
             if (start.isNotBlank()) {
                 Text(
                     text = start,
-                    fontSize = 9.sp,
-                    lineHeight = 11.sp,
+                    fontSize = (9 * fontScale).sp,
+                    lineHeight = (11 * fontScale).sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
                 )
             }
             if (end.isNotBlank()) {
                 Text(
                     text = end,
-                    fontSize = 9.sp,
-                    lineHeight = 11.sp,
+                    fontSize = (9 * fontScale).sp,
+                    lineHeight = (11 * fontScale).sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
                 )
             }
@@ -303,7 +309,8 @@ private fun CourseCard(
     item: CourseDisplayItem,
     compact: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
+    fontScale: Float = 1.0f,
 ) {
     val bg = CourseColors[item.colorIndex % CourseColors.size]
 
@@ -321,33 +328,32 @@ private fun CourseCard(
         ) {
             Text(
                 text = item.courseName,
-                fontSize = 10.sp,
+                fontSize = (10 * fontScale).sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
                 maxLines = if (compact) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 12.sp
+                lineHeight = (12 * fontScale).sp
             )
 
             if (!item.room.isNullOrBlank()) {
                 Text(
                     text = item.room,
-                    fontSize = 9.sp,
+                    fontSize = (9 * fontScale).sp,
                     color = Color.White.copy(alpha = 0.9f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 10.sp
+                    softWrap = true,
+                    lineHeight = (10 * fontScale).sp
                 )
             }
 
             if (!compact && item.teacherNames.isNotBlank()) {
                 Text(
                     text = item.teacherNames,
-                    fontSize = 9.sp,
+                    fontSize = (9 * fontScale).sp,
                     color = Color.White.copy(alpha = 0.82f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 10.sp
+                    lineHeight = (10 * fontScale).sp
                 )
             }
         }

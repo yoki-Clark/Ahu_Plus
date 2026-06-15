@@ -96,6 +96,7 @@ fun CourseDetailSheet(
                 lessonDetail?.compulsorysStr
             )
             DetailRow("周次", detail.item.weeksStr ?: detail.item.weekIndexes.toString())
+            DetailRow("排课周次", lessonDetail?.scheduleWeeksInfo)
             DetailRow(
                 "上课时间",
                 buildString {

@@ -19,18 +19,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Grade
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,7 +55,10 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -80,6 +89,8 @@ fun DashboardScreen(
     onOpenSchedule: () -> Unit,
     onOpenCard: () -> Unit,
     onOpenNoticeList: () -> Unit,
+    onOpenGrade: () -> Unit,
+    onOpenExam: () -> Unit,
     onNeedsLogin: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -129,7 +140,10 @@ fun DashboardScreen(
                 item {
                     AppDock(
                         onOpenSchedule = onOpenSchedule,
-                        onOpenCard = onOpenCard
+                        onOpenCard = onOpenCard,
+                        onOpenGrade = onOpenGrade,
+                        onOpenExam = onOpenExam,
+                        onOpenNoticeList = onOpenNoticeList
                     )
                 }
 
@@ -479,7 +493,6 @@ private fun TodayCourseCard(
     onOpenSchedule: () -> Unit,
     onRefresh: () -> Unit
 ) {
-    val studentName = uiState.studentName?.takeIf { it.isNotBlank() } ?: "同学"
     val todayItems = remember(
         uiState.allActivities,
         uiState.currentWeek,
@@ -497,116 +510,152 @@ private fun TodayCourseCard(
     }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer
         ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.CalendarMonth,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimary
-                    )
-                }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 12.dp)
-                ) {
-                    Text(
-                        text = "今天的课",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
-                    )
-                    Text(
-                        text = "${studentName}同学",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+        Column {
+            // 顶部彩色条 + 标签 —— 与下方正文区视觉分割
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.primary)
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.Schedule,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "下节课",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+                if (nextCourse != null) {
+                    Spacer(modifier = Modifier.weight(1f))
+                    CountdownChip(course = nextCourse, unitTimes = uiState.unitTimes)
                 }
             }
 
-            when {
-                uiState.isLoading && uiState.allActivities.isEmpty() -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.dp
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                when {
+                    uiState.isLoading && uiState.allActivities.isEmpty() -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Text(
+                                text = "正在同步课表...",
+                                modifier = Modifier.padding(start = 10.dp),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+
+                    uiState.error != null && uiState.allActivities.isEmpty() -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = uiState.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            FilledTonalButton(onClick = onRefresh) {
+                                Text("重新加载课表")
+                            }
+                        }
+                    }
+
+                    nextCourse != null -> {
+                        CourseSummary(
+                            course = nextCourse,
+                            unitTimes = uiState.unitTimes
                         )
+                    }
+
+                    else -> {
                         Text(
-                            text = "正在同步课表...",
-                            modifier = Modifier.padding(start = 10.dp),
+                            text = if (todayItems.isEmpty()) "今天没课啦，可以慢慢安排自己的时间。"
+                            else "今天后面没课啦，剩下的时间归你。",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
                 }
 
-                uiState.error != null && uiState.allActivities.isEmpty() -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = uiState.error,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        FilledTonalButton(onClick = onRefresh) {
-                            Text("重新加载课表")
-                        }
-                    }
-                }
-
-                nextCourse != null -> {
-                    CourseSummary(
-                        course = nextCourse,
-                        unitTimes = uiState.unitTimes
-                    )
-                }
-
-                else -> {
-                    Text(
-                        text = if (todayItems.isEmpty()) "今天没课啦，可以慢慢安排自己的时间。"
-                        else "今天后面没课啦，剩下的时间归你。",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpenSchedule)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpenSchedule)
                 ) {
-                    Text(
-                        text = "查看完整课表",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(Icons.Filled.ChevronRight, contentDescription = null)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "查看完整课表",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(Icons.Filled.ChevronRight, contentDescription = null)
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CountdownChip(
+    course: CourseDisplayItem,
+    unitTimes: List<CourseUnit>
+) {
+    val minutes = courseStartMinutes(course, unitTimes) ?: return
+
+    // 每 30 秒 tick 一次，驱动倒计时动态刷新
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            tick++
+        }
+    }
+    @Suppress("UNUSED_EXPRESSION") tick // 读取 tick 确保 LaunchedEffect 触发重组
+
+    val now = LocalTime.now()
+    val diff = minutes - (now.hour * 60 + now.minute)
+    val (label, color) = when {
+        diff < 0 -> "已开始" to MaterialTheme.colorScheme.error
+        diff < 60 -> "${diff} 分钟后" to MaterialTheme.colorScheme.error
+        diff < 180 -> "${diff / 60} 小时后" to MaterialTheme.colorScheme.tertiary
+        else -> "${diff / 60}h${diff % 60}m" to MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f)
+    }
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = color.copy(alpha = 0.20f)
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimary,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
@@ -619,24 +668,69 @@ private fun CourseSummary(
     val roomText = course.room?.takeIf { it.isNotBlank() } ?: "教室待定"
     val teacherText = course.teacherNames.takeIf { it.isNotBlank() } ?: "教师待定"
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 课程名 —— 整张卡的视觉焦点
         Text(
-            text = "接下来是 ${course.courseName}",
+            text = course.courseName,
             style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.onPrimaryContainer
         )
-        Text(
-            text = "$timeText · $roomText",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer
+        // 时间 / 地点 —— 同一行带图标
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            InfoIconText(
+                icon = Icons.Filled.AccessTime,
+                text = timeText,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            InfoIconText(
+                icon = Icons.Filled.LocationOn,
+                text = roomText,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+        // 教师 —— 单独一行，弱化
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.Person,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = teacherText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun InfoIconText(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    tint: Color
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = tint.copy(alpha = 0.75f)
         )
+        Spacer(modifier = Modifier.width(4.dp))
         Text(
-            text = teacherText,
+            text = text,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.68f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            color = tint,
+            fontWeight = FontWeight.Medium
         )
     }
 }
@@ -644,7 +738,10 @@ private fun CourseSummary(
 @Composable
 private fun AppDock(
     onOpenSchedule: () -> Unit,
-    onOpenCard: () -> Unit
+    onOpenCard: () -> Unit,
+    onOpenGrade: () -> Unit,
+    onOpenExam: () -> Unit,
+    onOpenNoticeList: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
@@ -665,6 +762,27 @@ private fun AppDock(
                 Icon(Icons.Filled.CalendarMonth, contentDescription = null)
             }
             AppDockItem(
+                title = "成绩",
+                iconColor = Color(0xFFE53935),
+                onClick = onOpenGrade,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Filled.Grade, contentDescription = null)
+            }
+            AppDockItem(
+                title = "考试",
+                iconColor = Color(0xFFFB8C00),
+                onClick = onOpenExam,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Filled.EventNote, contentDescription = null)
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AppDockItem(
                 title = "校园卡",
                 iconColor = Color(0xFF2A9D8F),
                 onClick = onOpenCard,
@@ -673,13 +791,15 @@ private fun AppDock(
                 Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null)
             }
             AppDockItem(
-                title = "更多",
+                title = "通告",
                 iconColor = Color(0xFF6C63FF),
-                onClick = {},
+                onClick = onOpenNoticeList,
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(Icons.Filled.GridView, contentDescription = null)
+                Icon(Icons.Filled.Campaign, contentDescription = null)
             }
+            // 占位
+            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }
