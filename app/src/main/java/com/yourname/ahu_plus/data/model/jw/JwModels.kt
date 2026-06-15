@@ -1,0 +1,244 @@
+package com.yourname.ahu_plus.data.model.jw
+
+import com.google.gson.annotations.SerializedName
+
+/**
+ * print-data API 响应体。
+ * 对应 POST/GET https://jw.ahu.edu.cn/student/for-std/course-table/semester/{id}/print-data
+ */
+data class PrintDataResponse(
+    @SerializedName("studentTableVms") val studentTableVms: List<StudentTable>?,
+    @SerializedName("timeTableLayout") val timeTableLayout: TimeTableLayout?,
+    @SerializedName("arrangedLessonSearchVms") val arrangedLessonSearchVms: List<ArrangedLesson>?,
+    @SerializedName("lessonSearchVms") val lessonSearchVms: List<Any>?
+)
+
+data class StudentTable(
+    val id: Int?,
+    val name: String?,
+    val code: String?,
+    val grade: String?,
+    val department: String?,
+    val major: String?,
+    @SerializedName("adminclass") val adminclass: String?,
+    val credits: Double?,
+    val activities: List<CourseActivity>?
+)
+
+data class CourseActivity(
+    @SerializedName("lessonId") val lessonId: Long?,
+    @SerializedName("lessonCode") val lessonCode: String?,
+    @SerializedName("lessonName") val lessonName: String?,
+    @SerializedName("courseCode") val courseCode: String?,
+    @SerializedName("courseName") val courseName: String?,
+    @SerializedName("weeksStr") val weeksStr: String?,
+    @SerializedName("weekIndexes") val weekIndexes: List<Int>?,
+    val room: String?,
+    val building: String?,
+    val campus: String?,
+    val weekday: Int?,
+    @SerializedName("startUnit") val startUnit: Int?,
+    @SerializedName("endUnit") val endUnit: Int?,
+    val teachers: List<String>?,
+    @SerializedName("teacherNames") val teacherNames: List<String>?,
+    @SerializedName("courseType") val courseType: CourseTypeInfo?,
+    val credits: Double?,
+    @SerializedName("startTime") val startTime: String?,
+    @SerializedName("endTime") val endTime: String?,
+    @SerializedName("periodInfo") val periodInfo: PeriodInfo?,
+    @SerializedName("stdCount") val stdCount: Int?,
+    @SerializedName("limitCount") val limitCount: Int?
+)
+
+data class CourseTypeInfo(
+    @SerializedName("nameZh") val nameZh: String?,
+    @SerializedName("nameEn") val nameEn: String?,
+    val id: Int?,
+    val code: String?,
+    val name: String?
+)
+
+data class PeriodInfo(
+    val total: Int?,
+    val weeks: Double?,
+    val theory: Int?,
+    @SerializedName("theoryUnit") val theoryUnit: String?,
+    val practice: Int?,
+    val experiment: Int?,
+    @SerializedName("periodsPerWeek") val periodsPerWeek: Int?
+)
+
+/**
+ * 时间布局 —— 节次定义（第1节 08:00-08:45 等）
+ */
+data class TimeTableLayout(
+    val id: Int?,
+    @SerializedName("nameZh") val nameZh: String?,
+    @SerializedName("courseUnitList") val courseUnitList: List<CourseUnit>?,
+    @SerializedName("minIndexNo") val minIndexNo: Int?,
+    @SerializedName("maxIndexNo") val maxIndexNo: Int?
+)
+
+data class CourseUnit(
+    @SerializedName("nameZh") val nameZh: String?,
+    val indexNo: Int?,
+    @SerializedName("startTime") val startTime: Int?,
+    @SerializedName("endTime") val endTime: Int?,
+    @SerializedName("dayPart") val dayPart: String?,
+    val name: String?
+) {
+    /** 格式化时间，例如 "08:00" */
+    fun startTimeStr(): String {
+        val t = startTime ?: return ""
+        val h = t / 100
+        val m = t % 100
+        return "%02d:%02d".format(h, m)
+    }
+
+    fun endTimeStr(): String {
+        val t = endTime ?: return ""
+        val h = t / 100
+        val m = t % 100
+        return "%02d:%02d".format(h, m)
+    }
+}
+
+/**
+ * 统一展示模型 —— 供 WeekGrid UI 使用
+ */
+data class CourseDisplayItem(
+    val lessonId: Long,
+    val courseName: String,
+    val courseCode: String?,
+    val teacherNames: String,
+    val room: String?,
+    val weekday: Int,
+    val startUnit: Int,
+    val endUnit: Int,
+    val weekIndexes: List<Int>,
+    val weeksStr: String?,
+    val startTime: String?,
+    val endTime: String?,
+    val courseType: String?,
+    val credits: Double?,
+    val campus: String?,
+    /** 用于着色 —— 由 courseName.hashCode() 映射到颜色调色板索引 */
+    val colorIndex: Int,
+    /**
+     * 教务处增强数据 (考核方式 / 排课文本 / 修读类别 等)。
+     * 仅在课程详情弹窗使用,不参与网格渲染。
+     * 默认 null 以兼容旧调用方。
+     */
+    val lessonDetail: GetDataLesson? = null,
+)
+
+// ── get-data 端点（arrangedLessonSearchVms）的轻量模型 ──────
+
+data class ArrangedLesson(
+    val id: Long?,
+    @SerializedName("course") val course: ArrangedCourse?,
+    @SerializedName("teacherAssignmentList") val teacherAssignmentList: List<TeacherAssignment>?,
+    @SerializedName("scheduleText") val scheduleText: ScheduleText?,
+    @SerializedName("suggestScheduleWeeks") val suggestScheduleWeeks: List<Int>?,
+    @SerializedName("stdCount") val stdCount: Int?,
+    @SerializedName("limitCount") val limitCount: Int?
+)
+
+data class ArrangedCourse(
+    @SerializedName("nameZh") val nameZh: String?,
+    val code: String?,
+    val credits: Double?
+)
+
+data class TeacherAssignment(
+    @SerializedName("teacher") val teacher: TeacherInfo?,
+    @SerializedName("person") val person: PersonInfo?
+) {
+    fun teacherName(): String = person?.nameZh ?: teacher?.person?.nameZh ?: ""
+}
+
+data class TeacherInfo(
+    val person: PersonInfo?
+)
+
+data class PersonInfo(
+    @SerializedName("nameZh") val nameZh: String?
+)
+
+data class ScheduleText(
+    @SerializedName("dateTimePlacePersonText") val dateTimePlacePersonText: StringText?,
+    @SerializedName("dateTimePlaceText") val dateTimePlaceText: StringText?,
+    @SerializedName("dateTimeText") val dateTimeText: StringText?
+)
+
+data class StringText(
+    @SerializedName("textZh") val textZh: String?,
+    val text: String?
+)
+
+// ── get-data 端点完整响应 ────────────────────────────────
+
+data class GetDataResponse(
+    val lessons: List<GetDataLesson>?,
+    val lessonIds: List<Long>?,
+    @SerializedName("semester") val semester: SemesterInfo?,
+    @SerializedName("currentWeek") val currentWeek: Int?,
+    @SerializedName("weekIndices") val weekIndices: List<Int>?,
+    @SerializedName("timeTableLayoutId") val timeTableLayoutId: Int?
+)
+
+data class GetDataLesson(
+    val id: Long?,
+    @SerializedName("nameZh") val nameZh: String?,
+    val code: String?,
+    @SerializedName("course") val course: ArrangedCourse?,
+    @SerializedName("scheduleText") val scheduleText: ScheduleText?,
+    @SerializedName("teacherAssignmentList") val teacherAssignmentList: List<TeacherAssignment>?,
+    @SerializedName("suggestScheduleWeeks") val suggestScheduleWeeks: List<Int>?,
+    @SerializedName("courseType") val courseType: CourseTypeInfo?,
+    val credits: Double?,
+    @SerializedName("campus") val campus: CampusInfo?,
+    @SerializedName("scheduleWeeksInfo") val scheduleWeeksInfo: String?,
+    @SerializedName("compulsorysStr") val compulsorysStr: String?,
+    @SerializedName("examMode") val examMode: ExamModeInfo?,
+    @SerializedName("stdCount") val stdCount: Int?,
+    @SerializedName("limitCount") val limitCount: Int?
+)
+
+data class SemesterInfo(
+    val id: Int?,
+    @SerializedName("nameZh") val nameZh: String?,
+    val code: String?,
+    @SerializedName("schoolYear") val schoolYear: String?,
+    @SerializedName("startDate") val startDate: String?,
+    @SerializedName("endDate") val endDate: String?,
+    val season: String?
+)
+
+data class CampusInfo(
+    val id: Int?,
+    @SerializedName("nameZh") val nameZh: String?
+)
+
+data class ExamModeInfo(
+    val id: Int?,
+    @SerializedName("nameZh") val nameZh: String?,
+    val code: String?,
+    val name: String?
+)
+
+/**
+ * 课程表统一数据，由 CourseRepository 合并返回
+ */
+data class ScheduleData(
+    val studentName: String?,
+    val className: String?,
+    val department: String?,
+    val credits: Double?,
+    val activities: List<CourseActivity>,
+    val unitTimes: List<CourseUnit>,
+    val semester: SemesterInfo?,
+    val currentWeek: Int,
+    val weekIndices: List<Int>,
+    val lessons: List<GetDataLesson>?
+)
