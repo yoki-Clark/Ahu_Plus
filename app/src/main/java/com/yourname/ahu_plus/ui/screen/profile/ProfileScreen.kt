@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Assessment
@@ -144,6 +145,7 @@ fun ProfileScreen(
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showUtilities by rememberSaveable { mutableStateOf(false) }
     var showCardAnalytics by rememberSaveable { mutableStateOf(false) }
+    var showXzxx by rememberSaveable { mutableStateOf(false) }
     val cardUiState by cardViewModel.uiState.collectAsStateWithLifecycle()
     val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -312,6 +314,9 @@ fun ProfileScreen(
             onOpenAcademicWarning = { showAcademicWarning = true },
             onOpenFinance = { showFinance = true },
         )
+    } else if (showXzxx) {
+        BackHandler(enabled = true) { showXzxx = false }
+        XzxxScreen(onBack = { showXzxx = false })
     } else if (showSettings) {
         BackHandler(enabled = true) { showSettings = false }
         AppSettingsScreen(
@@ -377,6 +382,7 @@ fun ProfileScreen(
             onOpenMarketSettings = { showMarketSettings = true },
             themeMode = themeMode,
             onOpenSettings = { showSettings = true },
+            onOpenXzxx = { showXzxx = true },
             onLogout = onLogout
         )
     }
@@ -433,6 +439,7 @@ private fun ProfileHomeScreen(
     onOpenMarketSettings: () -> Unit,
     themeMode: AppThemeMode,
     onOpenSettings: () -> Unit,
+    onOpenXzxx: () -> Unit,
     onLogout: () -> Unit
 ) {
     val displayName = studentName?.takeIf { it.isNotBlank() } ?: "未命名同学"
@@ -536,6 +543,14 @@ private fun ProfileHomeScreen(
                         iconColor = Color(0xFF2F80ED),
                         icon = { Icon(Icons.Filled.WaterDrop, contentDescription = null) },
                         onClick = onOpenBathroom
+                    )
+                    HorizontalDivider()
+                    SettingsRow(
+                        title = "校长信箱",
+                        description = "向校长反映问题、提交建议与诉求",
+                        iconColor = Color(0xFF6C63FF),
+                        icon = { Icon(Icons.Filled.Email, contentDescription = null) },
+                        onClick = onOpenXzxx
                     )
                 }
             }
