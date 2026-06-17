@@ -26,7 +26,7 @@ import com.yourname.ahu_plus.data.local.AppThemeMode
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.repository.AdwmhCardRepository
-import com.yourname.ahu_plus.data.repository.AttendanceRepository
+import com.yourname.ahu_plus.data.repository.KqAttendanceRepository
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.CourseRepository
@@ -60,7 +60,7 @@ fun AppNavigation(
     gradeRepository: GradeRepository,
     examRepository: ExamRepository,
     financeRepository: FinanceRepository,
-    attendanceRepository: AttendanceRepository,
+    attendanceRepository: KqAttendanceRepository,
     adwmhCardRepository: AdwmhCardRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit

@@ -56,7 +56,7 @@ import com.yourname.ahu_plus.ui.screen.exam.ExamViewModel
 import com.yourname.ahu_plus.ui.screen.grade.GradeScreen
 import com.yourname.ahu_plus.ui.screen.grade.GradeViewModel
 import com.yourname.ahu_plus.ui.screen.home.HomeViewModel
-import com.yourname.ahu_plus.ui.screen.profile.AttendanceListScreen
+import com.yourname.ahu_plus.ui.screen.attendance.AttendanceScreen
 import com.yourname.ahu_plus.ui.screen.profile.AttendanceViewModel
 import com.yourname.ahu_plus.ui.screen.profile.BathroomUtilityDetailScreen
 import com.yourname.ahu_plus.ui.screen.profile.BillDetailScreen
@@ -228,18 +228,15 @@ fun AppHubScreen(
         PAGE_MY_INFO_HUB -> MyInfoHubScreen(
             studentInfoUiState = studentInfoUiState,
             financeUiState = financeUiState,
-            attendanceUiState = attendanceUiState,
             onBack = { currentPage = null },
             onRefreshAll = {
                 studentInfoViewModel.refreshStudentInfo()
                 financeViewModel.refreshFinance()
-                attendanceViewModel.refreshAttendance()
             },
             onOpenBasicInfo = { currentPage = PAGE_STUDENT_BASIC_INFO },
             onOpenHousing = { currentPage = PAGE_HOUSING_INFO },
             onOpenAcademicWarning = { currentPage = PAGE_ACADEMIC_WARNING },
             onOpenFinance = { currentPage = PAGE_FINANCE },
-            onOpenAttendance = { currentPage = PAGE_ATTENDANCE }
         )
         PAGE_STUDENT_BASIC_INFO -> CategoryDetailScreen(
             title = "学生基本信息",
@@ -273,9 +270,9 @@ fun AppHubScreen(
             onBack = { currentPage = PAGE_MY_INFO_HUB },
             onRefresh = financeViewModel::refreshFinance
         )
-        PAGE_ATTENDANCE -> AttendanceListScreen(
+        PAGE_ATTENDANCE -> AttendanceScreen(
             uiState = attendanceUiState,
-            onBack = { currentPage = PAGE_MY_INFO_HUB },
+            onBack = { currentPage = null },
             onRefresh = attendanceViewModel::refreshAttendance
         )
         else -> AppHubPage(

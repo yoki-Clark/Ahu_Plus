@@ -79,7 +79,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.local.AppThemeMode
-import com.yourname.ahu_plus.data.model.AttendanceRecord
 import com.yourname.ahu_plus.data.model.BillRecord
 import com.yourname.ahu_plus.data.model.FinanceSummary
 import com.yourname.ahu_plus.data.model.StudentInfo
@@ -117,7 +116,6 @@ fun ProfileScreen(
     marketViewModel: MarketViewModel,
     studentInfoViewModel: StudentInfoViewModel,
     financeViewModel: FinanceViewModel,
-    attendanceViewModel: AttendanceViewModel,
     scheduleUiState: ScheduleUiState,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
@@ -141,7 +139,6 @@ fun ProfileScreen(
     var showHousingInfo by rememberSaveable { mutableStateOf(false) }
     var showAcademicWarning by rememberSaveable { mutableStateOf(false) }
     var showFinance by rememberSaveable { mutableStateOf(false) }
-    var showAttendance by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showUtilities by rememberSaveable { mutableStateOf(false) }
     var showCardAnalytics by rememberSaveable { mutableStateOf(false) }
@@ -154,7 +151,6 @@ fun ProfileScreen(
 
     val studentInfoUiState by studentInfoViewModel.uiState.collectAsStateWithLifecycle()
     val financeUiState by financeViewModel.uiState.collectAsStateWithLifecycle()
-    val attendanceUiState by attendanceViewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(studentInfoUiState.info) {
         cardViewModel.applyStudentInfoPrefill(studentInfoUiState.info)
@@ -172,7 +168,6 @@ fun ProfileScreen(
         when (profileSubPage) {
             "myInfoHub" -> showMyInfoHub = true
             "finance" -> showFinance = true
-            "attendance" -> showAttendance = true
             "settings" -> showSettings = true
             "cardAnalytics" -> showCardAnalytics = true
         }
@@ -300,30 +295,20 @@ fun ProfileScreen(
             onBack = { showFinance = false; showMyInfoHub = true },
             onRefresh = financeViewModel::refreshFinance
         )
-    } else if (showAttendance) {
-        BackHandler(enabled = true) { showAttendance = false; showMyInfoHub = true }
-        AttendanceListScreen(
-            uiState = attendanceUiState,
-            onBack = { showAttendance = false; showMyInfoHub = true },
-            onRefresh = attendanceViewModel::refreshAttendance
-        )
     } else if (showMyInfoHub) {
         BackHandler(enabled = true) { showMyInfoHub = false }
         MyInfoHubScreen(
             studentInfoUiState = studentInfoUiState,
             financeUiState = financeUiState,
-            attendanceUiState = attendanceUiState,
             onBack = { showMyInfoHub = false },
             onRefreshAll = {
                 studentInfoViewModel.refreshStudentInfo()
                 financeViewModel.refreshFinance()
-                attendanceViewModel.refreshAttendance()
             },
             onOpenBasicInfo = { showStudentBasicInfo = true },
             onOpenHousing = { showHousingInfo = true },
             onOpenAcademicWarning = { showAcademicWarning = true },
             onOpenFinance = { showFinance = true },
-            onOpenAttendance = { showAttendance = true }
         )
     } else if (showSettings) {
         BackHandler(enabled = true) { showSettings = false }
@@ -350,7 +335,6 @@ fun ProfileScreen(
                 s.scholarship.size + s.grant.size + s.hardshipGrant.size +
                     s.workStudy.size + s.loan.size + s.arrearsStatus.size
             } ?: 0,
-            attendanceTotal = attendanceUiState.summary?.total ?: 0,
             balance = cardUiState.balance,
             balanceLoading = cardUiState.isLoading,
             balanceError = cardUiState.error,
@@ -404,7 +388,6 @@ private fun ProfileHomeScreen(
     className: String?,
     hasStudentInfo: Boolean,
     financeItemCount: Int,
-    attendanceTotal: Int,
     balance: Double,
     balanceLoading: Boolean,
     balanceError: String?,
@@ -545,7 +528,7 @@ private fun ProfileHomeScreen(
                 ProfileSection {
                     SettingsRow(
                         title = "我的信息",
-                        description = buildMyInfoDescription(hasStudentInfo, financeItemCount, attendanceTotal),
+                        description = buildMyInfoDescription(hasStudentInfo, financeItemCount),
                         iconColor = Color(0xFF2F80ED),
                         icon = { Icon(Icons.Filled.Info, contentDescription = null) },
                         onClick = onOpenMyInfoHub
@@ -605,14 +588,12 @@ private fun ProfileHomeScreen(
 
 private fun buildMyInfoDescription(
     hasStudentInfo: Boolean,
-    financeItemCount: Int,
-    attendanceTotal: Int
+    financeItemCount: Int
 ): String {
     val parts = mutableListOf<String>()
     if (hasStudentInfo) parts.add("基本信息")
     if (financeItemCount > 0) parts.add("财务")
-    if (attendanceTotal > 0) parts.add("考勤")
-    return if (parts.isEmpty()) "学生基本信息、住宿、财务、考勤等" else parts.joinToString("、") + "等"
+    return if (parts.isEmpty()) "学生基本信息、住宿、财务等" else parts.joinToString("、") + "等"
 }
 
 @Composable
@@ -857,14 +838,12 @@ private fun AppThemeMode.descriptionText(): String = when (this) {
 fun MyInfoHubScreen(
     studentInfoUiState: StudentInfoUiState,
     financeUiState: FinanceUiState,
-    attendanceUiState: AttendanceUiState,
     onBack: () -> Unit,
     onRefreshAll: () -> Unit,
     onOpenBasicInfo: () -> Unit,
     onOpenHousing: () -> Unit,
     onOpenAcademicWarning: () -> Unit,
-    onOpenFinance: () -> Unit,
-    onOpenAttendance: () -> Unit
+    onOpenFinance: () -> Unit
 ) {
     val info = studentInfoUiState.info
     val basicCount = info?.basicFields?.size ?: 0
@@ -874,8 +853,7 @@ fun MyInfoHubScreen(
         s.scholarship.size + s.grant.size + s.hardshipGrant.size +
             s.workStudy.size + s.loan.size + s.arrearsStatus.size
     } ?: 0
-    val attendanceTotal = attendanceUiState.summary?.total ?: 0
-    val isRefreshing = studentInfoUiState.isLoading || financeUiState.isLoading || attendanceUiState.isLoading
+    val isRefreshing = studentInfoUiState.isLoading || financeUiState.isLoading
 
     Scaffold(
         topBar = {
@@ -934,14 +912,7 @@ fun MyInfoHubScreen(
                             iconColor = Color(0xFFB7791F),
                             onClick = onOpenFinance
                         )
-                        HorizontalDivider()
-                        MyInfoHubRow(
-                            title = "考勤记录",
-                            summary = if (attendanceTotal > 0) "$attendanceTotal 条记录" else "暂无记录",
-                            icon = Icons.Filled.EventBusy,
-                            iconColor = Color(0xFFE74C3C),
-                            onClick = onOpenAttendance
-                        )
+
                     }
                 }
             }
@@ -1086,7 +1057,7 @@ fun CategoryDetailScreen(
 }
 
 @Composable
-private fun StudentInfoFooter(
+fun StudentInfoFooter(
     lastUpdatedAt: Long,
     isLoading: Boolean,
     error: String?,
@@ -1384,7 +1355,7 @@ private fun BalanceCard(
 }
 
 @Composable
-private fun ProfileSection(content: @Composable () -> Unit) {
+fun ProfileSection(content: @Composable () -> Unit) {
     Card(
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -2357,218 +2328,3 @@ private fun FinanceEmptyWithUpdate(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AttendanceListScreen(
-    uiState: AttendanceUiState,
-    onBack: () -> Unit,
-    onRefresh: () -> Unit
-) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("考勤记录") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onRefresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            when {
-                uiState.isLoading && uiState.summary == null -> {
-                    item { LoadingBlock("正在加载考勤记录...") }
-                }
-                uiState.error != null && uiState.summary == null -> {
-                    item { ErrorBlock(error = uiState.error, onRefresh = onRefresh) }
-                }
-                uiState.summary == null -> {
-                    item {
-                        ProfileSection {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 36.dp, horizontal = 20.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.EventBusy,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "本地暂无考勤记录",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = "点击下方按钮从学生一张表同步",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Button(
-                                    onClick = onRefresh,
-                                    enabled = !uiState.isLoading,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("更新数据")
-                                }
-                            }
-                        }
-                    }
-                }
-                else -> {
-                    val records = uiState.summary.records
-                    if (records.isEmpty()) {
-                        item { EmptyBlock("暂无缺勤记录") }
-                    } else {
-                        items(
-                            items = records,
-                            key = { it.resourceId.ifBlank { it.hashCode().toString() } }
-                        ) { record ->
-                            AttendanceRow(record = record)
-                        }
-                    }
-                    item {
-                        StudentInfoFooter(
-                            lastUpdatedAt = uiState.lastUpdatedAt,
-                            isLoading = uiState.isLoading,
-                            error = uiState.error,
-                            onRefresh = onRefresh
-                        )
-                    }
-                }
-            }
-            item { Spacer(modifier = Modifier.height(80.dp)) }
-        }
-    }
-}
-
-@Composable
-private fun AttendanceRow(record: AttendanceRecord) {
-    // 颜色由状态决定：正常=绿色，缺勤/迟到/早退/旷课=红色/黄色
-    val isAbsent = record.attendanceType?.let {
-        it.contains("旷") || it.contains("迟到") || it.contains("早退") || it.contains("缺")
-    } ?: (record.status?.let { s -> s != "正常" } ?: false)
-    val typeColor = when {
-        isAbsent && (record.attendanceType?.contains("旷") == true) -> MaterialTheme.colorScheme.error
-        isAbsent -> Color(0xFFE0A100)
-        else -> Color(0xFF27AE60) // 正常出勤=绿色
-    }
-    val badgeText = when {
-        !record.attendanceType.isNullOrBlank() -> record.attendanceType.take(1)
-        record.status == "正常" -> "到"
-        !record.status.isNullOrBlank() -> record.status.take(1)
-        else -> "到"
-    }
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(typeColor.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = badgeText,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = typeColor
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(
-                    text = record.courseName?.ifBlank { "未命名课程" } ?: "未命名课程",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                // 第一行副标题：日期 · 节次 · 教室
-                Text(
-                    text = listOfNotNull(
-                        record.classDate?.ifBlank { null },
-                        record.classPeriod?.ifBlank { null }?.let { "第${it}节" },
-                        record.classroom?.ifBlank { null }
-                    ).joinToString(" · ").ifBlank { "日期未知" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                // 第二行副标题：教师 · 状态
-                val detailLine = listOfNotNull(
-                    record.teacherName?.ifBlank { null }?.let { "教师:${it}" },
-                    record.status?.ifBlank { null },
-                    record.source?.ifBlank { null }
-                ).joinToString(" · ")
-                if (detailLine.isNotBlank()) {
-                    Text(
-                        text = detailLine,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-            val statusText = record.attendanceType?.takeIf { it.isNotBlank() }
-                ?: record.status?.takeIf { it.isNotBlank() && it != "正常" }
-            if (!statusText.isNullOrBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = typeColor.copy(alpha = 0.14f)
-                ) {
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = typeColor,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun formatShortTime(timestamp: Long): String {
-    if (timestamp <= 0) return "—"
-    return try {
-        SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
-    } catch (_: Exception) {
-        "—"
-    }
-}

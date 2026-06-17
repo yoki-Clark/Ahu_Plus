@@ -32,7 +32,7 @@ import com.yourname.ahu_plus.data.local.AppThemeMode
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.repository.AdwmhCardRepository
-import com.yourname.ahu_plus.data.repository.AttendanceRepository
+import com.yourname.ahu_plus.data.repository.KqAttendanceRepository
 import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.CourseRepository
@@ -96,7 +96,7 @@ fun MainScreen(
     gradeRepository: GradeRepository,
     examRepository: ExamRepository,
     financeRepository: FinanceRepository,
-    attendanceRepository: AttendanceRepository,
+    attendanceRepository: KqAttendanceRepository,
     adwmhCardRepository: AdwmhCardRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
@@ -173,7 +173,7 @@ fun MainScreen(
         AttendanceViewModel(attendanceRepository, sessionManager)
     }
     val trainingPlanViewModel = remember {
-        TrainingPlanViewModel(jwAuthRepository, app.trainingPlanRepository, sessionManager)
+        TrainingPlanViewModel(jwAuthRepository, app.trainingPlanRepository, app.programCompletionRepository, sessionManager)
     }
     val emptyClassroomViewModel = remember {
         EmptyClassroomViewModel(jwAuthRepository, app.emptyClassroomRepository, sessionManager)
@@ -373,7 +373,6 @@ fun MainScreen(
                     marketViewModel = marketViewModel,
                     studentInfoViewModel = studentInfoViewModel,
                     financeViewModel = financeViewModel,
-                    attendanceViewModel = attendanceViewModel,
                     scheduleUiState = scheduleUiState,
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
