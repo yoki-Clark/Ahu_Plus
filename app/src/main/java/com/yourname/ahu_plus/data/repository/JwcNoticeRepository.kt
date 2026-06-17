@@ -1,10 +1,13 @@
 package com.yourname.ahu_plus.data.repository
 
 import com.yourname.ahu_plus.data.model.JwcNotice
+import com.yourname.ahu_plus.data.model.JwcNoticeAttachment
 import com.yourname.ahu_plus.data.model.JwcNoticeDetail
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.URI
+import java.net.URLDecoder
 
 class JwcNoticeRepository(
     private val baseUrl: String = "https://jwc.ahu.edu.cn",
@@ -114,6 +117,11 @@ class JwcNoticeRepository(
         private val tagRegex = Regex("""<[^>]+>""")
         private val whitespaceLineRegex = Regex("""[ \t\x0B\f\r]+""")
         private val blankLinesRegex = Regex("""\n{3,}""")
+        private val attachmentExtensionRegex = Regex(
+            """\.(pdf|docx?|xlsx?|pptx?|zip|rar|7z|txt|wps|et|jpg|jpeg|png)(?:[?#].*)?$""",
+            RegexOption.IGNORE_CASE
+        )
+        private val attachmentHintRegex = Regex("""(附件|下载|download|_upload|/upload/)""", RegexOption.IGNORE_CASE)
         // 匹配分页区里的 list{N}.htm 链接,用于从 HTML 中检测可用的下一页/最大页
         private val paginationListRegex = Regex(
             """href=["']([^"']*?list(\d+)\.htm)["']""",
@@ -178,12 +186,14 @@ class JwcNoticeRepository(
                 ?.takeIf { it.isNotBlank() }
                 ?: plainText(html).take(1000)
             val parsedDate = dateRegex.find(html)?.value ?: fallback.date.takeIf { it.isNotBlank() }
+            val attachments = parseAttachments(articleHtml ?: html, fallback.url)
 
             return JwcNoticeDetail(
                 title = parsedTitle?.takeIf { it.isNotBlank() } ?: fallback.title,
                 date = parsedDate,
                 content = content,
-                url = fallback.url
+                url = fallback.url,
+                attachments = attachments
             )
         }
 
@@ -191,9 +201,55 @@ class JwcNoticeRepository(
             if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
                 return pathOrUrl
             }
-            val normalizedBase = baseUrl.trimEnd('/')
-            val normalizedPath = if (pathOrUrl.startsWith("/")) pathOrUrl else "/$pathOrUrl"
-            return normalizedBase + normalizedPath
+            return runCatching {
+                val base = if (baseUrl.endsWith(".htm", ignoreCase = true) ||
+                    baseUrl.endsWith(".html", ignoreCase = true)
+                ) {
+                    URI(baseUrl)
+                } else {
+                    URI(baseUrl.trimEnd('/') + "/")
+                }
+                base.resolve(pathOrUrl).toString()
+            }.getOrElse {
+                val normalizedBase = baseUrl.trimEnd('/')
+                val normalizedPath = if (pathOrUrl.startsWith("/")) pathOrUrl else "/$pathOrUrl"
+                normalizedBase + normalizedPath
+            }
+        }
+
+        private fun parseAttachments(html: String, pageUrl: String): List<JwcNoticeAttachment> {
+            return anchorRegex.findAll(html)
+                .mapNotNull { anchor ->
+                    val href = htmlDecode(anchor.groupValues[1]).trim()
+                    if (href.isBlank() || href.startsWith("#") || href.startsWith("javascript:", true)) {
+                        return@mapNotNull null
+                    }
+                    val label = plainText(anchor.groups[2]?.value.orEmpty().ifBlank { anchor.groupValues[3] })
+                    val absoluteUrl = absolutize(href, pageUrl)
+                    val hrefWithoutQuery = href.substringBefore('?').substringBefore('#')
+                    val looksLikeAttachment = attachmentExtensionRegex.containsMatchIn(hrefWithoutQuery) ||
+                        attachmentHintRegex.containsMatchIn(href) ||
+                        attachmentHintRegex.containsMatchIn(label)
+                    if (!looksLikeAttachment) {
+                        null
+                    } else {
+                        JwcNoticeAttachment(
+                            name = label.ifBlank { fileNameFromUrl(absoluteUrl) },
+                            url = absoluteUrl
+                        )
+                    }
+                }
+                .distinctBy { it.url }
+                .toList()
+        }
+
+        private fun fileNameFromUrl(url: String): String {
+            val rawName = runCatching {
+                URI(url).path.substringAfterLast('/')
+            }.getOrDefault(url.substringBefore('?').substringAfterLast('/'))
+            return runCatching {
+                URLDecoder.decode(rawName, Charsets.UTF_8.name())
+            }.getOrDefault(rawName).ifBlank { "attachment" }
         }
 
         private fun plainText(html: String): String {
