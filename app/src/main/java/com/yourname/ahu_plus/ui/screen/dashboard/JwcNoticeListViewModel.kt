@@ -3,6 +3,7 @@ package com.yourname.ahu_plus.ui.screen.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.model.JwcNotice
+import com.yourname.ahu_plus.data.model.JwcNoticeDetail
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,7 +94,7 @@ class JwcNoticeListViewModel(
                 } else {
                     // 拼接前按 url 去重,避免同一篇被重复展示
                     val existing = prev.notices.map { it.url }.toHashSet()
-                    parsed.filterNot { it.url in existing }
+                    prev.notices + parsed.filterNot { it.url in existing }
                 }
                 prev.copy(
                     notices = merged,
@@ -119,8 +120,69 @@ class JwcNoticeListViewModel(
         }
     }
 
-    /** 列表项点击:交给 UI 层去打开浏览器,这里只暴露原始 URL。 */
-    fun noticeUrl(notice: JwcNotice): String = notice.url
+    /** 列表项点击后在模块内打开详情,由隐藏 WebView 拉取正文 HTML。 */
+    fun openNotice(notice: JwcNotice) {
+        val detailState = _uiState.value.details[notice.url]
+        _uiState.update {
+            it.copy(
+                selectedNotice = notice,
+                detailFetchUrl = if (detailState is NoticeDetailState.Success) null else notice.url,
+                detailFetchKey = if (detailState is NoticeDetailState.Success) {
+                    it.detailFetchKey
+                } else {
+                    it.detailFetchKey + 1
+                },
+                details = if (detailState is NoticeDetailState.Success) {
+                    it.details
+                } else {
+                    it.details + (notice.url to NoticeDetailState.Loading)
+                }
+            )
+        }
+    }
+
+    fun closeNotice() {
+        _uiState.update { it.copy(selectedNotice = null, detailFetchUrl = null) }
+    }
+
+    fun retryDetail() {
+        val notice = _uiState.value.selectedNotice ?: return
+        _uiState.update {
+            it.copy(
+                detailFetchUrl = notice.url,
+                detailFetchKey = it.detailFetchKey + 1,
+                details = it.details + (notice.url to NoticeDetailState.Loading)
+            )
+        }
+    }
+
+    fun onDetailHtmlLoaded(url: String, html: String) {
+        if (url != _uiState.value.detailFetchUrl) return
+        viewModelScope.launch {
+            val notice = _uiState.value.selectedNotice?.takeIf { it.url == url }
+                ?: _uiState.value.notices.firstOrNull { it.url == url }
+                ?: return@launch
+            val detail: JwcNoticeDetail = withContext(Dispatchers.Default) {
+                JwcNoticeRepository.parseNoticeDetail(html, notice)
+            }
+            _uiState.update {
+                it.copy(
+                    detailFetchUrl = null,
+                    details = it.details + (url to NoticeDetailState.Success(detail))
+                )
+            }
+        }
+    }
+
+    fun onDetailHtmlError(url: String, message: String) {
+        if (url != _uiState.value.detailFetchUrl) return
+        _uiState.update {
+            it.copy(
+                detailFetchUrl = null,
+                details = it.details + (url to NoticeDetailState.Error(message))
+            )
+        }
+    }
 
     private fun pageFromUrl(url: String): Int {
         val match = Regex("""list(\d+)\.htm""", RegexOption.IGNORE_CASE).find(url)
@@ -136,5 +198,9 @@ data class JwcNoticeListUiState(
     val currentPage: Int = 0,
     val hasMore: Boolean = true,
     val noticeFetchUrl: String? = null,
-    val noticeFetchKey: Int = 0
+    val noticeFetchKey: Int = 0,
+    val selectedNotice: JwcNotice? = null,
+    val details: Map<String, NoticeDetailState> = emptyMap(),
+    val detailFetchUrl: String? = null,
+    val detailFetchKey: Int = 0
 )

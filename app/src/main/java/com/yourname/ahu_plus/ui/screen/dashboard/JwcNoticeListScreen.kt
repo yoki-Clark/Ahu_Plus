@@ -1,11 +1,18 @@
 package com.yourname.ahu_plus.ui.screen.dashboard
 
+import android.app.DownloadManager
+import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Environment
+import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,9 +29,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,6 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,13 +57,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.JwcNotice
+import com.yourname.ahu_plus.data.model.JwcNoticeAttachment
+import com.yourname.ahu_plus.data.model.JwcNoticeDetail
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.util.BrowserOpener
 import org.json.JSONArray
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,18 +76,39 @@ fun JwcNoticeListScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val selectedNotice = uiState.selectedNotice
+
+    BackHandler(enabled = selectedNotice != null) {
+        viewModel.closeNotice()
+    }
 
     Scaffold(
         topBar = {
             AhuTopAppBar(
-                title = { Text("通知公告") },
+                title = { Text(if (selectedNotice == null) "通知公告" else "通知详情") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = {
+                            if (selectedNotice == null) {
+                                onBack()
+                            } else {
+                                viewModel.closeNotice()
+                            }
+                        }
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
-                    IconButton(onClick = viewModel::loadFirstPage) {
+                    IconButton(
+                        onClick = {
+                            if (selectedNotice == null) {
+                                viewModel.loadFirstPage()
+                            } else {
+                                viewModel.retryDetail()
+                            }
+                        }
+                    ) {
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
                 }
@@ -87,14 +121,22 @@ fun JwcNoticeListScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            NoticeListBody(
-                uiState = uiState,
-                onOpen = { notice -> BrowserOpener.open(context, viewModel.noticeUrl(notice)) },
-                onLoadMore = viewModel::loadNextPage,
-                onRetry = viewModel::loadFirstPage
-            )
+            if (selectedNotice == null) {
+                NoticeListBody(
+                    uiState = uiState,
+                    onOpen = viewModel::openNotice,
+                    onLoadMore = viewModel::loadNextPage,
+                    onRetry = viewModel::loadFirstPage
+                )
+            } else {
+                NoticeDetailBody(
+                    notice = selectedNotice,
+                    detailState = uiState.details[selectedNotice.url],
+                    onRetry = viewModel::retryDetail,
+                    onDownload = { attachment -> downloadJwcAttachment(context, attachment) }
+                )
+            }
 
-            // 离屏 WebView:负责拉取分页 HTML,避开教务处 JS 反爬
             val fetchUrl = uiState.noticeFetchUrl
             if (fetchUrl != null) {
                 JwcListHtmlLoader(
@@ -102,6 +144,16 @@ fun JwcNoticeListScreen(
                     reloadKey = uiState.noticeFetchKey,
                     onHtml = viewModel::onNoticeHtmlLoaded,
                     onError = viewModel::onNoticeHtmlError
+                )
+            }
+
+            val detailFetchUrl = uiState.detailFetchUrl
+            if (detailFetchUrl != null) {
+                JwcListHtmlLoader(
+                    url = detailFetchUrl,
+                    reloadKey = uiState.detailFetchKey,
+                    onHtml = viewModel::onDetailHtmlLoaded,
+                    onError = viewModel::onDetailHtmlError
                 )
             }
         }
@@ -117,7 +169,6 @@ private fun NoticeListBody(
 ) {
     val listState = rememberLazyListState()
 
-    // 滚到倒数第 3 项以内就触发加载下一页,避免用户看到列表空洞
     val shouldLoadMore by remember {
         derivedStateOf {
             val total = listState.layoutInfo.totalItemsCount
@@ -142,40 +193,13 @@ private fun NoticeListBody(
         when {
             uiState.isLoading && uiState.notices.isEmpty() -> {
                 item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 80.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                        Text(
-                            text = "正在加载通知公告...",
-                            modifier = Modifier.padding(start = 10.dp)
-                        )
-                    }
+                    LoadingRow(text = "正在加载通知公告...")
                 }
             }
 
             uiState.error != null && uiState.notices.isEmpty() -> {
                 item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 80.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = uiState.error,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        FilledTonalButton(onClick = onRetry) {
-                            Text("重新加载")
-                        }
-                    }
+                    ErrorBlock(message = uiState.error, onRetry = onRetry)
                 }
             }
 
@@ -185,40 +209,19 @@ private fun NoticeListBody(
                 }
                 if (uiState.isLoadingMore || (uiState.hasMore && uiState.notices.isNotEmpty() && !uiState.isLoading)) {
                     item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Text(
-                                    text = "加载下一页...",
-                                    modifier = Modifier.padding(start = 10.dp),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                        LoadingRow(text = "加载下一页...", compact = true)
                     }
                 } else if (!uiState.hasMore && uiState.notices.isNotEmpty()) {
                     item {
-                        Box(
+                        Text(
+                            text = "已经到底了",
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "已经到底啦",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -276,9 +279,214 @@ private fun NoticeRow(
     }
 }
 
-/**
- * 离屏 WebView:只为拉取 HTML 绕过教务处 JS 反爬,正常情况下 UI 看不到。
- */
+@Composable
+private fun NoticeDetailBody(
+    notice: JwcNotice,
+    detailState: NoticeDetailState?,
+    onRetry: () -> Unit,
+    onDownload: (JwcNoticeAttachment) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(vertical = 16.dp)
+    ) {
+        item {
+            NoticeDetailHeader(notice = notice)
+        }
+
+        when (detailState) {
+            null, NoticeDetailState.Loading -> {
+                item {
+                    LoadingRow(text = "正在加载通知详情...")
+                }
+            }
+
+            is NoticeDetailState.Error -> {
+                item {
+                    ErrorBlock(message = detailState.message, onRetry = onRetry)
+                }
+            }
+
+            is NoticeDetailState.Success -> {
+                item {
+                    NoticeDetailContent(detail = detailState.detail)
+                }
+                if (detailState.detail.attachments.isNotEmpty()) {
+                    item {
+                        SectionTitle(text = "附件")
+                    }
+                    items(items = detailState.detail.attachments, key = { it.url }) { attachment ->
+                        AttachmentRow(
+                            attachment = attachment,
+                            onDownload = { onDownload(attachment) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoticeDetailHeader(notice: JwcNotice) {
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = notice.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (notice.date.isNotBlank()) {
+                Text(
+                    text = notice.date,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoticeDetailContent(detail: JwcNoticeDetail) {
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        SelectionContainer {
+            Text(
+                text = detail.content.ifBlank { "未读取到正文内容" },
+                modifier = Modifier.padding(16.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface
+    )
+}
+
+@Composable
+private fun AttachmentRow(
+    attachment: JwcNoticeAttachment,
+    onDownload: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onDownload)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.AttachFile,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp)
+            ) {
+                Text(
+                    text = attachment.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = attachment.url,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = "下载"
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoadingRow(
+    text: String,
+    compact: Boolean = false
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = if (compact) 0.dp else 80.dp, bottom = if (compact) 0.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(if (compact) 18.dp else 22.dp),
+            strokeWidth = 2.dp
+        )
+        Text(
+            text = text,
+            modifier = Modifier.padding(start = 10.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ErrorBlock(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 80.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = message,
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center
+        )
+        FilledTonalButton(onClick = onRetry) {
+            Text("重新加载")
+        }
+    }
+}
+
 @Composable
 private fun JwcListHtmlLoader(
     url: String,
@@ -297,9 +505,7 @@ private fun JwcListHtmlLoader(
                 settings.cacheMode = WebSettings.LOAD_DEFAULT
                 settings.loadsImagesAutomatically = false
                 settings.blockNetworkImage = true
-                settings.userAgentString =
-                    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+                settings.userAgentString = JWC_WEBVIEW_USER_AGENT
                 webViewClient = object : WebViewClient() {
                     private var pageStartTime = 0L
 
@@ -339,6 +545,60 @@ private fun JwcListHtmlLoader(
     )
 }
 
+private fun downloadJwcAttachment(
+    context: Context,
+    attachment: JwcNoticeAttachment
+) {
+    val uri = Uri.parse(attachment.url)
+    if (uri.scheme !in setOf("http", "https")) {
+        Toast.makeText(context, "附件链接无效", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val fileName = resolveDownloadFileName(attachment, uri)
+    val request = DownloadManager.Request(uri)
+        .setTitle(fileName)
+        .setDescription("安徽大学教务处附件")
+        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        .setAllowedOverMetered(true)
+        .setAllowedOverRoaming(true)
+        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+        .addRequestHeader("User-Agent", JWC_WEBVIEW_USER_AGENT)
+
+    CookieManager.getInstance().getCookie(attachment.url)
+        ?.takeIf { it.isNotBlank() }
+        ?.let { request.addRequestHeader("Cookie", it) }
+
+    runCatching {
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        manager.enqueue(request)
+    }.onSuccess {
+        Toast.makeText(context, "已开始下载：$fileName", Toast.LENGTH_SHORT).show()
+    }.onFailure { error ->
+        Toast.makeText(context, error.message ?: "下载启动失败", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun resolveDownloadFileName(
+    attachment: JwcNoticeAttachment,
+    uri: Uri
+): String {
+    val urlName = Uri.decode(uri.lastPathSegment.orEmpty()).substringAfterLast('/')
+    val rawName = attachment.name.trim().ifBlank { urlName }.ifBlank { "jwc_attachment" }
+    val sanitized = rawName
+        .replace(Regex("""[\\/:*?"<>|]"""), "_")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+        .take(120)
+        .ifBlank { "jwc_attachment" }
+    val urlExtension = urlName.substringAfterLast('.', missingDelimiterValue = "")
+    return if (sanitized.contains('.') || urlExtension.isBlank() || urlExtension.length > 8) {
+        sanitized
+    } else {
+        "$sanitized.$urlExtension"
+    }
+}
+
 private fun currentRequestUrl(webView: WebView): String {
     return (webView.tag as? String)?.substringBeforeLast("#") ?: webView.url.orEmpty()
 }
@@ -353,8 +613,7 @@ private fun extractListHtml(
     webView.evaluateJavascript(
         """
             (function() {
-              var block = document.querySelector('.news_list, #wp_news_w14, .wp_articlecontent, .article');
-              return (block ? block.outerHTML : document.documentElement.outerHTML);
+              return document.documentElement.outerHTML;
             })();
         """.trimIndent()
     ) { encoded ->
@@ -384,3 +643,7 @@ private fun decodeJsString(value: String?): String {
     if (value.isNullOrBlank() || value == "null") return ""
     return runCatching { JSONArray("[$value]").getString(0) }.getOrDefault(value)
 }
+
+private const val JWC_WEBVIEW_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"

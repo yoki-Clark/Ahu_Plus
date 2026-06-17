@@ -73,6 +73,36 @@ class JwcNoticeRepositoryTest {
     }
 
     @Test
+    fun `parseNoticeDetail extracts downloadable attachments`() {
+        val html = """
+            <html>
+              <body>
+                <h1 class="arti_title">Attachment notice</h1>
+                <div class="wp_articlecontent">
+                  <p>Please download the file.</p>
+                  <p><a href="/_upload/article/files/aa/bb/example.docx">Attachment 1: example.docx</a></p>
+                  <p><a href="https://example.com/not-a-file.htm">Related page</a></p>
+                </div>
+              </body>
+            </html>
+        """.trimIndent()
+        val fallback = JwcNotice(
+            title = "Fallback",
+            date = "2026-06-09",
+            url = "https://jwc.ahu.edu.cn/2026/0610/c10314a394111/page.htm"
+        )
+
+        val detail = JwcNoticeRepository.parseNoticeDetail(html, fallback)
+
+        assertEquals(1, detail.attachments.size)
+        assertEquals("Attachment 1: example.docx", detail.attachments[0].name)
+        assertEquals(
+            "https://jwc.ahu.edu.cn/_upload/article/files/aa/bb/example.docx",
+            detail.attachments[0].url
+        )
+    }
+
+    @Test
     fun `getNotices requests homepage and returns parsed list`() = runBlocking {
         val server = MockWebServer()
         server.enqueue(
@@ -146,5 +176,23 @@ class JwcNoticeRepositoryTest {
         assertEquals("https://jwc.ahu.edu.cn/10314/list2.htm", repo.listUrl(2))
         assertEquals("https://jwc.ahu.edu.cn/10314/list5.htm", repo.listUrl(5))
         assertEquals("https://jwc.ahu.edu.cn/10314/list.htm", repo.listUrl(0))
+    }
+
+    @Test
+    fun `parseNextPagePath recognizes jwc list2 absolute href`() {
+        val html = """
+            <html>
+              <body>
+                <ul class="news_list clearfix">
+                  <li class="news n1 clearfix"><a href="/2026/0615/c10314a394874/page.htm">通知一</a></li>
+                </ul>
+                <div class="wp_paging">
+                  <a href="https://jwc.ahu.edu.cn/10314/list2.htm">下一页</a>
+                </div>
+              </body>
+            </html>
+        """.trimIndent()
+
+        assertEquals("https://jwc.ahu.edu.cn/10314/list2.htm", JwcNoticeRepository.parseNextPagePath(html))
     }
 }
