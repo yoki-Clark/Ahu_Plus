@@ -58,8 +58,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yourname.ahu_plus.data.model.jw.CompletionCourse
 import com.yourname.ahu_plus.data.model.jw.CompletionSummary
 import com.yourname.ahu_plus.data.model.jw.PlanCourse
+import com.yourname.ahu_plus.data.model.jw.PlanCourseInfo
+import com.yourname.ahu_plus.data.model.jw.PlanEnumValue
 import com.yourname.ahu_plus.data.model.jw.PlanModuleNode
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 
@@ -137,7 +140,8 @@ fun TrainingPlanScreen(
                             summary = if (uiState.hasOfficialCompletion) uiState.officialSummary else null,
                             moduleCount = uiState.totalModuleCount,
                             totalCourses = allCourses,
-                            creditByModule = uiState.creditBySubModule
+                            creditByModule = uiState.creditBySubModule,
+                            moduleCompletion = if (uiState.hasOfficialCompletion) uiState.moduleCompletion else emptyMap()
                         )
                     }
 
@@ -150,6 +154,7 @@ fun TrainingPlanScreen(
                             passedCodes = uiState.passedCourseCodes,
                             inProgressCodes = uiState.inProgressCourseCodes,
                             failedCodes = uiState.failedCourseCodes,
+                            unmatchedCourses = uiState.unmatchedCompletionCourses,
                             onToggleNode = { viewModel.toggleExpand(it) }
                         )
                     }
@@ -169,7 +174,8 @@ private fun OverviewCard(
     summary: CompletionSummary?,
     moduleCount: Int,
     totalCourses: Int,
-    creditByModule: Map<String, Double>
+    creditByModule: Map<String, Double>,
+    moduleCompletion: Map<String, Double>
 ) {
     val hasCompletion = summary != null
     val progress = if (hasCompletion) summary!!.completionProgress else -1f
@@ -234,8 +240,9 @@ private fun OverviewCard(
                 Spacer(modifier = Modifier.height(14.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f))
                 Spacer(modifier = Modifier.height(10.dp))
-                val maxCredit = creditByModule.values.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
-                creditByModule.entries.forEach { (name, credit) ->
+                creditByModule.entries.forEach { (name, required) ->
+                    val completed = moduleCompletion[name] ?: 0.0
+                    val modProgress = if (required > 0) (completed / required).toFloat().coerceIn(0f, 1f) else -1f
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -249,20 +256,30 @@ private fun OverviewCard(
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        LinearProgressIndicator(
-                            progress = { (credit / maxCredit).toFloat().coerceIn(0f, 1f) },
-                            modifier = Modifier.width(80.dp).height(8.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "${credit.toInt()}学分",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.width(44.dp)
-                        )
+                        if (modProgress >= 0f) {
+                            LinearProgressIndicator(
+                                progress = { modProgress },
+                                modifier = Modifier.width(60.dp).height(8.dp),
+                                color = if (modProgress >= 1f) PassedGreen else MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "${completed.toInt()}/${required.toInt()}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (modProgress >= 1f) PassedGreen else MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.width(44.dp)
+                            )
+                        } else {
+                            Text(
+                                text = "${required.toInt()}学分",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.width(44.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -280,6 +297,7 @@ private fun ModuleCard(
     passedCodes: Set<String>,
     inProgressCodes: Set<String>,
     failedCodes: Set<String>,
+    unmatchedCourses: List<com.yourname.ahu_plus.data.model.jw.CompletionCourse>,
     onToggleNode: (Int) -> Unit
 ) {
     val moduleId = module.id ?: module.hashCode()
@@ -291,6 +309,20 @@ private fun ModuleCard(
     val courseCount = module.courseCount
     val totalCourseCount = countAllCourses(module)
     val sumCredits = module.sumChildrenRequiredCreditsOrZero?.toDoubleOrNull()
+
+    // 计算本模块的完成进度
+    val compStats = computeModuleCompletion(module, passedCodes, inProgressCodes, failedCodes)
+    // 通识选修等柔性模块：加上未匹配课程的学分
+    val displayName = module.displayName
+    val extraPassed = if (displayName.contains("通识选修") || displayName.contains("选修")) {
+        unmatchedCourses.filter { it.isPassed }.sumOf { it.credits ?: 0.0 }
+    } else 0.0
+    val extraTaking = if (displayName.contains("通识选修") || displayName.contains("选修")) {
+        unmatchedCourses.filter { it.isTaking }.sumOf { it.credits ?: 0.0 }
+    } else 0.0
+    val totalPassed = compStats.passedCredits + extraPassed
+    val effectiveRequired = reqCredits ?: sumCredits ?: 0.0
+    val moduleProgress = if (effectiveRequired > 0) (totalPassed / effectiveRequired).toFloat().coerceIn(0f, 1f) else -1f
 
     Card(
         shape = RoundedCornerShape(8.dp),
@@ -331,9 +363,13 @@ private fun ModuleCard(
                         style = if (depth == 0) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyLarge,
                         fontWeight = if (depth == 0) FontWeight.Bold else FontWeight.Medium
                     )
-                    // Credit & course info
+                    // Credit & course info with completion
                     val infoParts = mutableListOf<String>()
-                    reqCredits?.let { infoParts.add("要求 ${it.toInt()} 学分") }
+                    if (effectiveRequired > 0) {
+                        infoParts.add("${totalPassed.toInt()}/${effectiveRequired.toInt()} 学分")
+                    } else {
+                        reqCredits?.let { infoParts.add("要求 ${it.toInt()} 学分") }
+                    }
                     reqCourseNum?.let { infoParts.add("至少 ${it} 门") }
                     creditsUpper?.let { infoParts.add("上限 ${it.toInt()} 学分") }
                     if (totalCourseCount > 0) infoParts.add("共 $totalCourseCount 门课")
@@ -344,6 +380,25 @@ private fun ModuleCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                    // 模块迷你进度条
+                    if (moduleProgress >= 0f && effectiveRequired > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            LinearProgressIndicator(
+                                progress = { moduleProgress },
+                                modifier = Modifier.weight(1f).height(4.dp),
+                                color = if (moduleProgress >= 1f) PassedGreen else MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "${(moduleProgress * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
                 if (hasContent) {
@@ -385,8 +440,51 @@ private fun ModuleCard(
                         passedCodes = passedCodes,
                         inProgressCodes = inProgressCodes,
                         failedCodes = failedCodes,
+                        unmatchedCourses = unmatchedCourses,
                         onToggleNode = onToggleNode
                     )
+                }
+
+                // 显示未匹配课程（通识选修等无固定课程列表的模块）
+                val showUnmatched = unmatchedCourses.isNotEmpty() &&
+                    (displayName.contains("通识选修") || displayName.contains("选修"))
+                if (showUnmatched) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "已选课程",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    unmatchedCourses.forEachIndexed { index, cc ->
+                        val status = when {
+                            cc.isPassed -> CourseCompletion.PASSED
+                            cc.isTaking -> CourseCompletion.IN_PROGRESS
+                            cc.isFailed -> CourseCompletion.FAILED
+                            else -> CourseCompletion.NOT_TAKEN
+                        }
+                        // Use a simplified course card
+                        val fakePlanCourse = PlanCourse(
+                            course = com.yourname.ahu_plus.data.model.jw.PlanCourseInfo(
+                                nameZh = cc.nameZh, code = cc.code, credits = cc.credits
+                            ),
+                            courseProperty = if (cc.compulsory == true)
+                                com.yourname.ahu_plus.data.model.jw.PlanEnumValue(nameZh = "必修")
+                            else com.yourname.ahu_plus.data.model.jw.PlanEnumValue(nameZh = "选修"),
+                            examMode = null
+                        )
+                        CourseCard(
+                            course = fakePlanCourse,
+                            index = index,
+                            passedCodes = if (status == CourseCompletion.PASSED) setOf(cc.code ?: "") else emptySet(),
+                            inProgressCodes = if (status == CourseCompletion.IN_PROGRESS) setOf(cc.code ?: "") else emptySet(),
+                            failedCodes = if (status == CourseCompletion.FAILED) setOf(cc.code ?: "") else emptySet()
+                        )
+                        if (index < unmatchedCourses.lastIndex) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                    }
                 }
             }
         }
@@ -671,6 +769,55 @@ private fun countAllCourses(module: PlanModuleNode): Int {
     var count = module.planCourses?.size ?: 0
     module.children?.forEach { count += countAllCourses(it) }
     return count
+}
+
+data class ModuleCompStats(
+    val passedCredits: Double = 0.0,
+    val takingCredits: Double = 0.0,
+    val failedCredits: Double = 0.0,
+    val passedCount: Int = 0,
+    val takingCount: Int = 0,
+    val failedCount: Int = 0,
+    val unrepairedCount: Int = 0
+)
+
+/** 递归计算模块下的完成统计（含子模块） */
+private fun computeModuleCompletion(
+    module: PlanModuleNode,
+    passedCodes: Set<String>,
+    inProgressCodes: Set<String>,
+    failedCodes: Set<String>
+): ModuleCompStats {
+    var passedCredits = 0.0
+    var takingCredits = 0.0
+    var failedCredits = 0.0
+    var passedCount = 0
+    var takingCount = 0
+    var failedCount = 0
+    var unrepairedCount = 0
+
+    module.planCourses?.forEach { course ->
+        val code = course.displayCode
+        val credits = course.displayCredits
+        when {
+            code in passedCodes -> { passedCredits += credits; passedCount++ }
+            code in failedCodes -> { failedCredits += credits; failedCount++ }
+            code in inProgressCodes -> { takingCredits += credits; takingCount++ }
+            else -> unrepairedCount++
+        }
+    }
+    module.children?.forEach { child ->
+        val childStats = computeModuleCompletion(child, passedCodes, inProgressCodes, failedCodes)
+        passedCredits += childStats.passedCredits
+        takingCredits += childStats.takingCredits
+        failedCredits += childStats.failedCredits
+        passedCount += childStats.passedCount
+        takingCount += childStats.takingCount
+        failedCount += childStats.failedCount
+        unrepairedCount += childStats.unrepairedCount
+    }
+
+    return ModuleCompStats(passedCredits, takingCredits, failedCredits, passedCount, takingCount, failedCount, unrepairedCount)
 }
 
 // ── 通用状态组件 ──────────────────────────────────────────────────────

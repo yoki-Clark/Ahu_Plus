@@ -97,32 +97,47 @@ class ProgramCompletionRepository(
     // ── HTML 解析 ────────────────────────────────────────────────
 
     /**
-     * 从 HTML 内嵌 JS 中提取 allCourseList 数组（培养方案内课程+完成状态）。
+     * 从 HTML 内嵌 JS 中提取 **所有** allCourseList 数组并去重合并。
+     * 页面中每个模块区域各有一个 allCourseList，需要全部汇总。
      */
     private fun parseAllCourseList(html: String): List<CompletionCourse> {
         val key = "allCourseList':["
-        val idx = html.indexOf(key)
-        if (idx < 0) {
-            Log.w(TAG, "未找到 allCourseList")
-            return emptyList()
+        val allCourses = mutableListOf<CompletionCourse>()
+        val seenCodes = mutableSetOf<String>()
+
+        var searchFrom = 0
+        while (true) {
+            val idx = html.indexOf(key, searchFrom)
+            if (idx < 0) break
+
+            val start = idx + key.length - 1
+            val end = findMatchingBracket(html, start)
+            if (end < 0) {
+                searchFrom = idx + key.length
+                continue
+            }
+
+            val raw = html.substring(start, end + 1)
+            val json = jsToJson(raw)
+            try {
+                val type = object : TypeToken<List<CompletionCourse>>() {}.getType()
+                val list: List<CompletionCourse> = gson.fromJson(json, type)
+                for (c in list) {
+                    val code = c.code ?: continue
+                    if (seenCodes.add(code)) {
+                        allCourses.add(c)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "allCourseList 解析失败: ${e.message}")
+            }
+            searchFrom = end + 1
         }
 
-        val start = idx + key.length - 1 // position of '['
-        val end = findMatchingBracket(html, start)
-        if (end < 0) {
-            Log.w(TAG, "无法匹配 allCourseList 的结束括号")
-            return emptyList()
+        if (allCourses.isEmpty()) {
+            Log.w(TAG, "未找到任何 allCourseList")
         }
-
-        val raw = html.substring(start, end + 1)
-        val json = jsToJson(raw)
-        return try {
-            val type = object : TypeToken<List<CompletionCourse>>() {}.getType()
-            gson.fromJson<List<CompletionCourse>>(json, type)
-        } catch (e: Exception) {
-            Log.e(TAG, "allCourseList JSON 解析失败", e)
-            emptyList()
-        }
+        return allCourses
     }
 
     /** 从已解析的 allCourseList 计算学分汇总 */
@@ -157,13 +172,10 @@ class ProgramCompletionRepository(
 
     // ── 辅助 ────────────────────────────────────────────────────
 
-    /** JS 对象转 JSON：单引号→双引号，处理 \$type/\$name */
+    /** JS 对象转 JSON：单引号→双引号，null 去引号 */
     private fun jsToJson(js: String): String {
-        val D = "${'$'}"
         return js
             .replace("'", "\"")
-            .replace("\"${D}type\"", "\"\\${D}type\"")
-            .replace("\"${D}name\"", "\"\\${D}name\"")
             .let { Regex("\"null\"").replace(it, "null") }
     }
 

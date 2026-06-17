@@ -159,10 +159,40 @@ class TrainingPlanViewModel(
         val takingCodes = courses.filter { it.isTaking }.mapNotNull { it.code }.toSet()
         val failedCodes = courses.filter { it.isFailed }.mapNotNull { it.code }.toSet()
 
-        _uiState.update {
-            it.copy(
+        // code → credits 映射
+        val codeCredits = courses.filter { it.code != null }.associate { it.code!! to (it.credits ?: 0.0) }
+
+        _uiState.update { state ->
+            // 收集培养方案中所有课程代码
+            val allPlanCodes = mutableSetOf<String>()
+            fun collectCodes(node: PlanModuleNode) {
+                node.planCourses?.forEach { c -> c.course?.code?.let { allPlanCodes.add(it) } }
+                node.children?.forEach { collectCodes(it) }
+            }
+            state.topModules.forEach { collectCodes(it) }
+
+            // 已通过但不在培养方案中的课程代码（如通识选修的 TX 课程）
+            val unmatchedPassed = passedCodes - allPlanCodes
+            var unmatchedPassedCredits = 0.0
+            unmatchedPassed.forEach { code -> unmatchedPassedCredits += codeCredits[code] ?: 0.0 }
+            // 同样收集未匹配的修读中/挂科/未修课程
+            val allUnmatchedCodes = (passedCodes + takingCodes + failedCodes) - allPlanCodes
+            val unmatchedCourses = courses.filter { it.code in allUnmatchedCodes }
+
+            // 计算每模块完成学分，未匹配的归入「通识选修」
+            val moduleCompletion = computeModuleCompletion(
+                state.topModules, passedCodes, takingCodes, failedCodes, codeCredits
+            )
+            // 把未匹配学分加到通识选修
+            val adjustedCompletion = moduleCompletion.toMutableMap()
+            val flexModule = "通识选修"
+            if (unmatchedPassedCredits > 0 && flexModule in adjustedCompletion) {
+                adjustedCompletion[flexModule] = (adjustedCompletion[flexModule] ?: 0.0) + unmatchedPassedCredits
+            }
+
+            state.copy(
                 officialSummary = summary.copy(
-                    requiredCredits = it.totalRequiredCredits,
+                    requiredCredits = state.totalRequiredCredits,
                     passedCount = passedCodes.size,
                     takingCount = takingCodes.size,
                     unrepairedCount = courses.count { c -> c.isUnrepaired },
@@ -171,10 +201,43 @@ class TrainingPlanViewModel(
                 passedCourseCodes = passedCodes,
                 inProgressCourseCodes = takingCodes,
                 failedCourseCodes = failedCodes,
+                moduleCompletion = adjustedCompletion,
+                unmatchedCompletionCourses = unmatchedCourses,
                 hasOfficialCompletion = true,
                 isLoading = false
             )
         }
+    }
+
+    /** 递归计算每个模块的已通过学分（深度遍历子树） */
+    private fun computeModuleCompletion(
+        modules: List<PlanModuleNode>,
+        passedCodes: Set<String>,
+        takingCodes: Set<String>,
+        failedCodes: Set<String>,
+        codeCredits: Map<String, Double>
+    ): Map<String, Double> {
+        val result = mutableMapOf<String, Double>()
+        for (m in modules) {
+            result[m.type?.nameZh ?: continue] = sumPassedRecursive(m, passedCodes, codeCredits)
+        }
+        return result
+    }
+
+    private fun sumPassedRecursive(
+        node: PlanModuleNode,
+        passedCodes: Set<String>,
+        codeCredits: Map<String, Double>
+    ): Double {
+        var sum = 0.0
+        node.planCourses?.forEach { c ->
+            val code = c.course?.code ?: return@forEach
+            if (code in passedCodes) sum += codeCredits[code] ?: c.displayCredits
+        }
+        node.children?.forEach { child ->
+            sum += sumPassedRecursive(child, passedCodes, codeCredits)
+        }
+        return sum
     }
 
     /** 兜底：从成绩数据粗略判断已修 */
@@ -233,7 +296,11 @@ data class TrainingPlanUiState(
     val officialSummary: CompletionSummary = CompletionSummary(),
     val passedCourseCodes: Set<String> = emptySet(),
     val inProgressCourseCodes: Set<String> = emptySet(),
-    val failedCourseCodes: Set<String> = emptySet()
+    val failedCourseCodes: Set<String> = emptySet(),
+    /** 模块名 → 已通过学分 */
+    val moduleCompletion: Map<String, Double> = emptyMap(),
+    /** 未匹配到培养方案课程的完成数据（如通识选修的 TX 课程） */
+    val unmatchedCompletionCourses: List<CompletionCourse> = emptyList()
 ) {
     val totalModuleCount: Int get() = topModules.size
     val completionProgress: Float
