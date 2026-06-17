@@ -105,7 +105,7 @@ class CasAuthRepository(
      */
     suspend fun login(username: String, password: String): Result<Unit> {
         return try {
-            Log.e(TAG, "开始 CAS 登录: user=$username")
+            Log.i(TAG, "开始 CAS 登录")
             clearCookies()
 
             // Step 1: 获取 lt 和 execution
@@ -115,18 +115,16 @@ class CasAuthRepository(
             val encrypted = DES.strEnc(username + password + lt, "1", "2", "3")
             val ul = username.length
             val pl = password.length
-            Log.e(TAG, "加密结果: ${encrypted.take(40)}...")
-
             // Step 3: device 预验证
             performDeviceAuth(encrypted, ul, pl)
 
             // Step 4: 提交登录表单 → CASTGC
             val castgc = submitLoginForm(encrypted, ul, pl, lt, execution)
-            Log.e(TAG, "获取到 CASTGC: ${castgc.take(20)}...")
+            Log.i(TAG, "CAS 登录票据获取成功")
 
             // Step 5: CASTGC → ST ticket
             val ticket = exchangeForServiceTicket()
-            Log.e(TAG, "获取到 ST: $ticket")
+            Log.i(TAG, "CAS 服务票据获取成功")
 
             // Step 6: ST → JSESSIONID
             val jsessionid = exchangeForJsessionid(ticket)
@@ -267,7 +265,7 @@ class CasAuthRepository(
                 ?: throw CasAuthException("未找到 lt 字段")
             val execution = Regex("""name="execution"\s+value="([^"]+)"""").find(html)?.groupValues?.get(1)
                 ?: throw CasAuthException("未找到 execution 字段")
-            Log.e(TAG, "lt=$lt, execution=$execution")
+            Log.d(TAG, "CAS login page parsed")
             return Pair(lt, execution)
         }
     }
@@ -293,7 +291,6 @@ class CasAuthRepository(
 
         client.newCall(request).execute().use { response ->
             val body = response.body?.string() ?: ""
-            Log.e(TAG, "device 响应: $body")
             val json = JsonParser.parseString(body).asJsonObject
             val info = json.get("info")?.asString ?: ""
             when (info) {

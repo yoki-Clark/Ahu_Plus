@@ -22,7 +22,7 @@ class CardRepository(
         extraInterceptors = listOf(
             okhttp3.Interceptor { chain ->
                 val req = chain.request()
-                Log.e(TAG, ">>> ${req.method} ${req.url} Cookie=${req.header("Cookie")}")
+                Log.d(TAG, "portal ${req.method} ${req.url.encodedPath}")
                 chain.proceed(req)
             }
         )
@@ -58,7 +58,7 @@ class CardRepository(
             portalClient.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 val code = response.code
-                Log.e(TAG, "HTTP $code, body[:300]=${body.take(300)}")
+                Log.d(TAG, "portal balance HTTP $code, bytes=${body.length}")
 
                 if (code != 200) {
                     return@withContext Result.failure(Exception("server error HTTP $code"))

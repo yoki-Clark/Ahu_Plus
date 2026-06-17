@@ -142,7 +142,7 @@ class HomeViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(billsLoading = true) }
             withContext(Dispatchers.IO) {
-                ycardRepository.getAllBills().fold(
+                withYcardRelogin { ycardRepository.getAllBills() }.fold(
                     onSuccess = { records ->
                         _uiState.update { it.copy(bills = records, billsLoading = false, billsError = null) }
                     },
@@ -167,7 +167,7 @@ class HomeViewModel(
             }
             _uiState.update { it.copy(bathroomLoading = true, bathroomError = null) }
             withContext(Dispatchers.IO) {
-                ycardRepository.getBathroomBalance(phone).fold(
+                withYcardRelogin { ycardRepository.getBathroomBalance(phone) }.fold(
                     onSuccess = { data ->
                         _uiState.update { it.copy(bathroomData = data, bathroomLoading = false) }
                     },
@@ -233,7 +233,7 @@ class HomeViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(internetLoading = true, internetError = null) }
             withContext(Dispatchers.IO) {
-                ycardRepository.getInternetBalance().fold(
+                withYcardRelogin { ycardRepository.getInternetBalance() }.fold(
                     onSuccess = { data ->
                         _uiState.update {
                             it.copy(internetData = data, internetLoading = false)
@@ -296,7 +296,7 @@ class HomeViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(internetBillsLoading = true, internetBillsError = null) }
             withContext(Dispatchers.IO) {
-                ycardRepository.getInternetBills(row = 20).fold(
+                withYcardRelogin { ycardRepository.getInternetBills(row = 20) }.fold(
                     onSuccess = { response ->
                         _uiState.update {
                             it.copy(
@@ -373,12 +373,14 @@ class HomeViewModel(
             }
             _uiState.update(loadingUpdater)
             withContext(Dispatchers.IO) {
-                ycardRepository.getElectricityBalance(
+                withYcardRelogin {
+                    ycardRepository.getElectricityBalance(
                     feeitemid = feeitemid,
                     building = config.building,
                     floor = config.floor,
                     room = config.room
-                ).fold(
+                    )
+                }.fold(
                     onSuccess = { data ->
                         _uiState.update { s -> stateUpdater(s, data, null) }
                     },
@@ -433,28 +435,32 @@ class HomeViewModel(
         range: ElectricityBillRange
     ): Result<List<ElectricityDailyRecord>> {
         if (range == ElectricityBillRange.SEVEN_DAYS) {
-            return ycardRepository.getElectricityBills(
-                feeitemid = feeitemid,
-                building = config.building,
-                floor = config.floor,
-                room = config.room,
-                startDate = endDate.minusDays(7).toString(),
-                endDate = endDate.toString()
-            )
+            return withYcardRelogin {
+                ycardRepository.getElectricityBills(
+                    feeitemid = feeitemid,
+                    building = config.building,
+                    floor = config.floor,
+                    room = config.room,
+                    startDate = endDate.minusDays(7).toString(),
+                    endDate = endDate.toString()
+                )
+            }
         }
 
         val allRecords = mutableListOf<ElectricityDailyRecord>()
         repeat(4) { index ->
             val chunkEnd = endDate.minusDays((index * 7).toLong())
             val chunkStart = chunkEnd.minusDays(7)
-            val result = ycardRepository.getElectricityBills(
-                feeitemid = feeitemid,
-                building = config.building,
-                floor = config.floor,
-                room = config.room,
-                startDate = chunkStart.toString(),
-                endDate = chunkEnd.toString()
-            )
+            val result = withYcardRelogin {
+                ycardRepository.getElectricityBills(
+                    feeitemid = feeitemid,
+                    building = config.building,
+                    floor = config.floor,
+                    room = config.room,
+                    startDate = chunkStart.toString(),
+                    endDate = chunkEnd.toString()
+                )
+            }
             result.fold(
                 onSuccess = { allRecords += it },
                 onFailure = { return Result.failure(it) }
@@ -466,6 +472,31 @@ class HomeViewModel(
                 .distinctBy { it.date to it.degreeText }
                 .sortedByDescending { it.date }
         )
+    }
+
+    private suspend fun <T> withYcardRelogin(request: suspend () -> Result<T>): Result<T> {
+        val first = request()
+        if (!first.isYcardAuthExpired()) return first
+
+        val username = sessionManager.getUsername()
+        val password = sessionManager.getPassword()
+        if (username.isNullOrBlank() || password.isNullOrBlank()) return first
+
+        Log.w("HomeVM", "ycard 请求认证过期，尝试重新登录后重试")
+        casAuthRepository.ensureValidSession()
+        val login = ycardRepository.login(username, password)
+        if (login.isFailure) {
+            return Result.failure(login.exceptionOrNull() ?: Exception("登录状态过期，请重新登录"))
+        }
+        return request()
+    }
+
+    private fun Result<*>.isYcardAuthExpired(): Boolean {
+        val message = exceptionOrNull()?.message.orEmpty()
+        return message.contains("HTTP 401") ||
+            message.contains("HTTP 403") ||
+            message.contains("未登录 ycard") ||
+            message.contains("登录状态过期")
     }
 
 

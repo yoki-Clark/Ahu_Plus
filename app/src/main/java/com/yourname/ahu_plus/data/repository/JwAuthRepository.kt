@@ -104,7 +104,7 @@ class JwAuthRepository(
             val savedSession = sessionManager.getJwSessionId()
             val savedPstSid = sessionManager.getJwPstSid()
             if (!savedSession.isNullOrBlank() && !savedPstSid.isNullOrBlank()) {
-                Log.e(TAG, "使用已保存的 JW session: ${savedSession.take(16)}...")
+                Log.i(TAG, "使用已保存的 JW session")
                 saveToCookieStore(JW_HOST, "SESSION", savedSession)
                 saveToCookieStore(JW_HOST, "__pstsid__", savedPstSid)
                 return Result.success(Unit)
@@ -143,14 +143,14 @@ class JwAuthRepository(
 
         val location1 = jwSsoResponse.header("Location") ?: ""
         jwSsoResponse.use { /* auto close */ }
-        Log.e(TAG, "JW SSO → 302 Location: ${location1.take(80)}...")
+        Log.d(TAG, "JW SSO HTTP ${jwSsoResponse.code}")
 
         if (!location1.contains("cas/login")) {
             // 可能已经有有效 session：302 到 JW 首页，或 200 返回页面
             if (jwSsoResponse.code == 200 || jwSsoResponse.code in 300..399) {
                 val session = jwCookieStore[JW_HOST]?.find { it.name == "SESSION" }?.value
                 if (session != null) {
-                    Log.e(TAG, "JW 已有有效 session (HTTP ${jwSsoResponse.code} → ${location1.take(60)})")
+                    Log.i(TAG, "JW 已有有效 session")
                     persistSession(session)
                     sessionManager.saveJwSession(session, "")
                     return
@@ -164,7 +164,7 @@ class JwAuthRepository(
                         .build()).execute().use {
                             val session2 = jwCookieStore[JW_HOST]?.find { it.name == "SESSION" }?.value
                             if (session2 != null) {
-                                Log.e(TAG, "跟随 JW 重定向后获取到 session: ${session2.take(16)}...")
+                                Log.i(TAG, "跟随 JW 重定向后获取到 session")
                                 persistSession(session2)
                                 sessionManager.saveJwSession(session2, "")
                                 return
@@ -188,7 +188,7 @@ class JwAuthRepository(
             .header("Cookie", "CASTGC=$castgc")
             .build()).execute().use {
             val location2 = it.header("Location") ?: ""
-            Log.e(TAG, "CAS (with CASTGC) → 302 Location: ${location2.take(80)}...")
+            Log.d(TAG, "CAS ticket redirect HTTP ${it.code}")
 
             // Step C: 跟随 ticket 重定向到 JW(必须带 CASTGC 验证)
             if (!location2.contains("ticket=")) {
@@ -205,7 +205,7 @@ class JwAuthRepository(
         val session = jwCookieStore[JW_HOST]?.find { it.name == "SESSION" }?.value
             ?: throw JwAuthException("未获取到 JW SESSION cookie")
 
-        Log.e(TAG, "获取到 SESSION: ${session.take(16)}...")
+        Log.i(TAG, "获取到 JW SESSION")
         sessionManager.saveJwSession(session, "")
     }
 
@@ -240,7 +240,7 @@ class JwAuthRepository(
         val password = sessionManager.getPassword()
             ?: throw JwAuthException("没有保存的凭据，无法自动登录教务处")
 
-        Log.e(TAG, "执行完整 CAS 登录: user=$username")
+        Log.i(TAG, "执行完整 CAS 登录")
 
         // Step 1: 获取 lt + execution
         val (lt, execution) = fetchLoginPageFb()
@@ -255,7 +255,7 @@ class JwAuthRepository(
 
         // Step 4: 提交登录表单 → CASTGC
         val castgc = submitLoginFormFb(encrypted, ul, pl, lt, execution)
-        Log.e(TAG, "回退: 获取到 CASTGC: ${castgc.take(20)}...")
+        Log.i(TAG, "回退 CAS 登录票据获取成功")
 
         // 把 CASTGC 同步到 CasAuthRepository 的 cookieStore(共享)
         val oneHostCookies = casAuthRepository.cookieStore
@@ -266,12 +266,12 @@ class JwAuthRepository(
 
         // Step 5: CASTGC → ST ticket (jw service)
         val ticket = exchangeForTicketFb(castgc)
-        Log.e(TAG, "回退: 获取到 ST: $ticket")
+        Log.i(TAG, "回退 CAS 服务票据获取成功")
 
         // Step 6: ST → JW SESSION
         val session = exchangeTicketForSessionFb(ticket)
 
-        Log.e(TAG, "回退: 获取到 SESSION: ${session.take(16)}...")
+        Log.i(TAG, "回退获取到 JW SESSION")
         sessionManager.saveJwSession(session, "")
     }
 
@@ -377,11 +377,10 @@ class JwAuthRepository(
             .url(url)
             .header("User-Agent", UA)
             .build()).execute().use { response ->
-            val finalUrl = response.request.url.toString()
-            Log.e(TAG, "ST → JW final URL: ${finalUrl.take(100)}")
+            Log.d(TAG, "ST to JW final HTTP ${response.code}")
             val session = jwCookieStore[JW_HOST]?.find { it.name == "SESSION" }?.value
                 ?: throw JwAuthException("未获取到 JW SESSION")
-            Log.e(TAG, "获取到 SESSION: ${session.take(16)}... (final: ${finalUrl.take(60)})")
+            Log.i(TAG, "获取到 JW SESSION")
             return session
         }
     }

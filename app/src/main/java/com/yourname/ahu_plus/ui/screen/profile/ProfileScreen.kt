@@ -86,7 +86,9 @@ import com.yourname.ahu_plus.data.model.StudentInfoCodeLookup
 import com.yourname.ahu_plus.data.model.StudentInfoField
 import com.yourname.ahu_plus.data.repository.AdwmhQrCode
 import com.yourname.ahu_plus.ui.components.AhuInfoRow
+import com.yourname.ahu_plus.ui.components.AhuSectionHeader
 import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.components.AhuStatusCard
 import com.yourname.ahu_plus.data.local.ElectricityRoomConfig
 import com.yourname.ahu_plus.data.model.ElectricityDailyRecord
 import com.yourname.ahu_plus.data.model.ElectricityUiData
@@ -502,6 +504,13 @@ private fun ProfileHomeScreen(
             }
 
             item {
+                AhuSectionHeader(
+                    title = "校园卡",
+                    subtitle = "余额、账单与支付码"
+                )
+            }
+
+            item {
                 BalanceCard(
                     balance = balance,
                     isLoading = balanceLoading,
@@ -509,6 +518,13 @@ private fun ProfileHomeScreen(
                     timestamp = timestamp,
                     qrAuthUrl = qrAuthUrl,
                     onClick = onOpenBills
+                )
+            }
+
+            item {
+                AhuSectionHeader(
+                    title = "校园服务",
+                    subtitle = "常用查询入口"
                 )
             }
 
@@ -522,6 +538,13 @@ private fun ProfileHomeScreen(
                         onClick = onOpenBathroom
                     )
                 }
+            }
+
+            item {
+                AhuSectionHeader(
+                    title = "个人中心",
+                    subtitle = "档案、集市与应用设置"
+                )
             }
 
             item {
@@ -1535,6 +1558,12 @@ fun WaterElectricityUtilityDetailScreen(
         }
     ) {
         item {
+            AhuStatusCard(
+                text = "自动更新依赖学生信息里的手机号和宿舍数据。更换宿舍或余额无法自动刷新时，请先更新学生信息，再回到这里刷新余额。",
+                modifier = Modifier.padding(bottom = 2.dp)
+            )
+        }
+        item {
             ClickableUtilityCard(onClick = { selectedUtility = "bathroom" }) {
                 BathroomBalanceCard(
                     data = bathroomData,
@@ -1573,16 +1602,6 @@ fun WaterElectricityUtilityDetailScreen(
                     isLoading = internetLoading,
                     error = internetError,
                     onRetry = onRefreshInternetBalance
-                )
-            }
-        }
-        item {
-            ProfileSection {
-                Text(
-                    text = "提醒：如果想要实现自动获取数据，请先去更新「我的信息」里的学生基本信息和住宿数据。",
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -2091,36 +2110,22 @@ fun BillRow(bill: BillRecord) {
 
 @Composable
 fun LoadingBlock(text: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 80.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        CircularProgressIndicator(modifier = Modifier.size(30.dp))
-        Text(text = text, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+    AhuStatusCard(
+        text = text,
+        loading = true,
+        modifier = Modifier.padding(vertical = 12.dp)
+    )
 }
 
 @Composable
 fun ErrorBlock(error: String, onRefresh: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 80.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Text(
-            text = error,
-            color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        TextButton(onClick = onRefresh) {
-            Text("重试")
-        }
-    }
+    AhuStatusCard(
+        text = error,
+        tone = MaterialTheme.colorScheme.error,
+        actionText = "重试",
+        onAction = onRefresh,
+        modifier = Modifier.padding(vertical = 12.dp)
+    )
 }
 
 @Composable
@@ -2327,4 +2332,3 @@ private fun FinanceEmptyWithUpdate(
         }
     }
 }
-

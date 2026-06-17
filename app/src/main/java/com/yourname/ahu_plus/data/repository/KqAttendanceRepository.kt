@@ -83,8 +83,9 @@ class KqAttendanceRepository(
             Log.e(TAG, "开始获取考勤数据...")
             ensureLoggedIn()
 
-            val jwt = cachedJwt
+            var jwt = cachedJwt
                 ?: return@withContext Result.failure(Exception("考勤认证失败"))
+            var authRetryUsed = false
 
             val startDate = "2026-03-02"
             val endDate = "2026-07-19"
@@ -125,11 +126,17 @@ class KqAttendanceRepository(
                 Log.e(TAG, "考勤 API page=$currentPage HTTP $code")
 
                 if (code == 401 || code == 403) {
-                    Log.e(TAG, "JWT 失效,重新登录")
+                    if (authRetryUsed) {
+                        return@withContext Result.failure(Exception("考勤认证失效，请重新登录后再试"))
+                    }
+                    Log.w(TAG, "考勤 JWT 失效，重新登录后重试")
+                    authRetryUsed = true
                     cachedJwt = null
                     cookieStore.clear()
                     ensureLoggedIn()
-                    continue // 用新 JWT 重试
+                    jwt = cachedJwt
+                        ?: return@withContext Result.failure(Exception("考勤认证失败"))
+                    continue
                 }
 
                 if (code != 200) {
@@ -198,8 +205,6 @@ class KqAttendanceRepository(
             ?.find { it.name == "CASTGC" }?.value
             ?: throw Exception("未找到 CASTGC")
 
-        Log.e(TAG, "CASTGC: ${castgc.take(20)}...")
-
         // Step 1: CASTGC → ST
         val casLoginUrl = "$CAS_BASE/login?service=${java.net.URLEncoder.encode(KQCARD_SERVICE_URL, "UTF-8")}"
         val stTicket = client.newCall(Request.Builder()
@@ -215,8 +220,6 @@ class KqAttendanceRepository(
             Regex("""ticket=(ST-[^&"]+)""").find(location)?.groupValues?.get(1)
                 ?: throw Exception("未找到 ST ticket: ${location.take(200)}")
         }
-        Log.e(TAG, "ST: ${stTicket.take(30)}...")
-
         // Step 2: ST → JWT (OAuth2 code exchange)
         val jwt = client.newCall(Request.Builder()
             .url("$KQCARD_SERVICE_URL?code=$stTicket")
@@ -230,8 +233,6 @@ class KqAttendanceRepository(
             Regex("""token=([^&"]+)""").find(location)?.groupValues?.get(1)
                 ?: throw Exception("未找到 token: ${location.take(200)}")
         }
-        Log.e(TAG, "JWT: ${jwt.take(40)}...")
-
         cachedJwt = jwt
         Log.e(TAG, "kqcard 认证成功")
     }

@@ -4,7 +4,7 @@ import com.google.gson.annotations.SerializedName
 
 /**
  * 培养方案 API 响应模型。
- * 端点: GET /student/for-std/credit-certification-apply/other_apply/get-all-course-module?programId=3000
+ * 端点: GET /student/for-std/credit-certification-apply/other_apply/get-all-course-module?programId={currentUserProgramId}
  * 递归树结构：根节点包含 children（模块组），每个模块可再嵌套子模块和课程。
  */
 

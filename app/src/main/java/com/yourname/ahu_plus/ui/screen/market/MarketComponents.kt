@@ -83,6 +83,7 @@ import com.yourname.ahu_plus.data.model.MarketIdentity
 import com.yourname.ahu_plus.data.model.MarketTopic
 import com.yourname.ahu_plus.data.model.MarketUser
 import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.components.AhuTag
 import com.yourname.ahu_plus.ui.theme.MarketColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -217,26 +218,15 @@ internal fun TopicMetaHeader(topic: MarketTopic, school: String? = null) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(
+                AhuTag(
                     text = topic.node.ifBlank { "集市" },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
+                    color = MaterialTheme.colorScheme.primary
                 )
                 if (school != null) {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                    ) {
-                        Text(
-                            text = school,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    AhuTag(
+                        text = school,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
                 }
             }
         }
@@ -401,8 +391,8 @@ private fun TopCommentsPreview(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .clip(AhuShapes.Card)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -445,7 +435,7 @@ internal fun StaggerMarketTopicCard(
     school: String? = null
 ) {
     Card(
-        shape = RoundedCornerShape(10.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
@@ -595,7 +585,7 @@ internal fun MarketTopicDetailCard(
     onImageClick: (String, Int) -> Unit = { _, _ -> }
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
@@ -625,7 +615,7 @@ private fun TopicImageGrid(
     val visible = imgs.filter { it.isNotBlank() }
     if (visible.isEmpty()) return
 
-    val corner = RoundedCornerShape(10.dp)
+    val corner = AhuShapes.Card
     val singleHeight = if (detail) 260.dp else 190.dp
     when (visible.size) {
         1 -> TopicImage(
@@ -713,7 +703,7 @@ internal fun IdentityCard(
     var showIdentity by rememberSaveable { mutableStateOf(false) }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = modifier.fillMaxWidth()
@@ -853,7 +843,7 @@ fun CompactIdentityCard(
     val firstIdentity = uiState.identities.firstOrNull()
 
     Card(
-        shape = RoundedCornerShape(10.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = modifier.fillMaxWidth()
@@ -960,7 +950,7 @@ private fun IdentityInputDialog(
         properties = DialogProperties()
     ) {
         Card(
-            shape = RoundedCornerShape(14.dp),
+            shape = AhuShapes.Card,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier.fillMaxWidth()
         ) {

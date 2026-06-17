@@ -46,7 +46,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private var cachedBlockKeywords: List<String> = emptyList()
     private var cachedFilterNodeIds: List<Long> = emptyList()
     // 集市功能总开关 (true = 启用，底部导航显示 3 项；false = 禁用，仅 2 项)
-    private var cachedMarketEnabled: Boolean = true
+    private var cachedMarketEnabled: Boolean = false
     // 集市列表布局模式 ("list" 单列 / "stagger" 小红书双列瀑布)
     private var cachedMarketListLayoutMode: String = "list"
     private var cachedScheduleColWidth: Float = 64f
@@ -90,6 +90,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private var cachedAdwmhSessionId: String? = null
     private var cachedTrainingPlanJson: String? = null
     private var cachedTrainingPlanUpdatedAt: Long = 0L
+    private var cachedTrainingPlanCacheVersion: Long = 0L
     private var cachedEmptyClassroomJson: String? = null
     private var cachedEmptyClassroomKey: String? = null
     private var cachedEmptyClassroomUpdatedAt: Long = 0L
@@ -148,7 +149,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedBlockKeywords = parseStringList(prefs[MARKET_BLOCK_KEYWORDS_KEY])
         cachedFilterNodeIds = parseLongList(prefs[MARKET_FILTER_NODES_KEY])
         // 集市功能总开关: 缺省 true,保持向后兼容 (老用户默认启用)
-        cachedMarketEnabled = (prefs[MARKET_ENABLED_KEY] ?: "true") == "true"
+        cachedMarketEnabled = (prefs[MARKET_ENABLED_KEY] ?: "false") == "true"
         // 列表布局模式: 缺省 "list" (单列)
         cachedMarketListLayoutMode = prefs[MARKET_LIST_LAYOUT_KEY] ?: "list"
 
@@ -193,14 +194,15 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedAdwmhSessionId = prefs[ADWMH_SESSION_KEY]
         cachedTrainingPlanJson = prefs[TRAINING_PLAN_JSON_KEY]
         cachedTrainingPlanUpdatedAt = prefs[TRAINING_PLAN_UPDATED_AT_KEY] ?: 0L
+        cachedTrainingPlanCacheVersion = prefs[TRAINING_PLAN_CACHE_VERSION_KEY] ?: 0L
         cachedEmptyClassroomJson = prefs[EMPTY_CLASSROOM_JSON_KEY]
         cachedEmptyClassroomKey = prefs[EMPTY_CLASSROOM_KEY_KEY]
         cachedEmptyClassroomUpdatedAt = prefs[EMPTY_CLASSROOM_UPDATED_AT_KEY] ?: 0L
 
         initialized = true
         Log.i(
-            TAG, "init done: session=${cachedSessionId?.take(8)}... " +
-                "jw=${cachedJwSessionId?.take(8)}... user=$cachedUsername " +
+            TAG, "init done: session=${cachedSessionId != null} " +
+                "jw=${cachedJwSessionId != null} user=${cachedUsername != null} " +
                 "identities=${cachedMarketIdentities.size}"
         )
         return cachedSessionId
@@ -271,7 +273,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
             preferences[USERNAME_KEY] = username
             preferences[PASSWORD_KEY] = password
         }
-        Log.i(TAG, "凭据已保存: user=$username")
+        Log.i(TAG, "凭据已保存")
     }
 
     fun getUsername(): String? = cachedUsername
@@ -758,16 +760,19 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     // ── 培养方案完成进度缓存 ──────────────────────────
 
-    fun getTrainingPlanJson(): String? = cachedTrainingPlanJson
+    fun getTrainingPlanJson(): String? =
+        cachedTrainingPlanJson.takeIf { cachedTrainingPlanCacheVersion >= TRAINING_PLAN_CACHE_VERSION }
 
     fun getTrainingPlanUpdatedAt(): Long = cachedTrainingPlanUpdatedAt
 
     suspend fun saveTrainingPlanJson(json: String) {
         cachedTrainingPlanJson = json
         cachedTrainingPlanUpdatedAt = System.currentTimeMillis()
+        cachedTrainingPlanCacheVersion = TRAINING_PLAN_CACHE_VERSION
         appDataStore.dataStore.edit { preferences ->
             preferences[TRAINING_PLAN_JSON_KEY] = json
             preferences[TRAINING_PLAN_UPDATED_AT_KEY] = cachedTrainingPlanUpdatedAt
+            preferences[TRAINING_PLAN_CACHE_VERSION_KEY] = TRAINING_PLAN_CACHE_VERSION
         }
     }
 
@@ -802,13 +807,15 @@ class SessionManager(private val appDataStore: AppDataStore) {
     suspend fun clearTrainingPlanJson() {
         cachedTrainingPlanJson = null
         cachedTrainingPlanUpdatedAt = 0L
+        cachedTrainingPlanCacheVersion = 0L
         appDataStore.dataStore.edit { preferences ->
             preferences.remove(TRAINING_PLAN_JSON_KEY)
             preferences.remove(TRAINING_PLAN_UPDATED_AT_KEY)
+            preferences.remove(TRAINING_PLAN_CACHE_VERSION_KEY)
         }
     }
 
-    /** 清除所有数据(session + 凭据 + JW session + 集市设置) — 用户主动退出登录时调用 */
+    /** Clear the signed-in account and account-scoped caches, while preserving app settings and market identities. */
     suspend fun clearAuthData() {
         cachedSessionId = null
         cachedJwSessionId = null
@@ -817,7 +824,38 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedPassword = null
         cachedStudentInfoJson = null
         cachedStudentInfoUpdatedAt = 0L
+        cachedScheduleJson = null
+        cachedScheduleUpdatedAt = 0L
+        cachedGradesJson = null
+        cachedGpaMetadataJson = null
+        cachedGradesUpdatedAt = 0L
+        cachedExamsJson = null
+        cachedExamsUpdatedAt = 0L
+        cachedFinanceJson = null
+        cachedFinanceUpdatedAt = 0L
+        cachedAttendanceJson = null
+        cachedAttendanceUpdatedAt = 0L
+        cachedKqcardAttendanceJson = null
+        cachedKqcardAttendanceUpdatedAt = 0L
+        cachedUserScheduleJson = null
+        cachedAssessmentJson = null
+        cachedAssessmentUpdatedAt = 0L
+        cachedRecordIndexJson = null
+        cachedRecordIndexUpdatedAt = 0L
+        cachedHomeworkJson = null
+        cachedHomeworkUpdatedAt = 0L
+        cachedUserTasksJson = null
+        cachedUserTasksUpdatedAt = 0L
+        cachedBathroomPhone = null
+        cachedAcConfig = ElectricityRoomConfig()
+        cachedLightingConfig = ElectricityRoomConfig()
         cachedAdwmhSessionId = null
+        cachedTrainingPlanJson = null
+        cachedTrainingPlanUpdatedAt = 0L
+        cachedTrainingPlanCacheVersion = 0L
+        cachedEmptyClassroomJson = null
+        cachedEmptyClassroomKey = null
+        cachedEmptyClassroomUpdatedAt = 0L
         appDataStore.dataStore.edit { preferences ->
             preferences.remove(SESSION_KEY)
             preferences.remove(JW_SESSION_KEY)
@@ -826,7 +864,38 @@ class SessionManager(private val appDataStore: AppDataStore) {
             preferences.remove(PASSWORD_KEY)
             preferences.remove(STUDENT_INFO_KEY)
             preferences.remove(STUDENT_INFO_UPDATED_AT_KEY)
+            preferences.remove(SCHEDULE_JSON_KEY)
+            preferences.remove(SCHEDULE_UPDATED_AT_KEY)
+            preferences.remove(GRADES_JSON_KEY)
+            preferences.remove(GPA_METADATA_JSON_KEY)
+            preferences.remove(GRADES_UPDATED_AT_KEY)
+            preferences.remove(EXAMS_JSON_KEY)
+            preferences.remove(EXAMS_UPDATED_AT_KEY)
+            preferences.remove(FINANCE_JSON_KEY)
+            preferences.remove(FINANCE_UPDATED_AT_KEY)
+            preferences.remove(ATTENDANCE_JSON_KEY)
+            preferences.remove(ATTENDANCE_UPDATED_AT_KEY)
+            preferences.remove(KQCARD_ATTENDANCE_JSON_KEY)
+            preferences.remove(KQCARD_ATTENDANCE_UPDATED_AT_KEY)
+            preferences.remove(USER_SCHEDULE_JSON_KEY)
+            preferences.remove(ASSESSMENT_JSON_KEY)
+            preferences.remove(ASSESSMENT_UPDATED_AT_KEY)
+            preferences.remove(RECORD_INDEX_JSON_KEY)
+            preferences.remove(RECORD_INDEX_UPDATED_AT_KEY)
+            preferences.remove(HOMEWORK_JSON_KEY)
+            preferences.remove(HOMEWORK_UPDATED_AT_KEY)
+            preferences.remove(USER_TASKS_JSON_KEY)
+            preferences.remove(USER_TASKS_UPDATED_AT_KEY)
+            preferences.remove(BATHROOM_PHONE_KEY)
+            preferences.remove(AC_CONFIG_KEY)
+            preferences.remove(LIGHTING_CONFIG_KEY)
             preferences.remove(ADWMH_SESSION_KEY)
+            preferences.remove(TRAINING_PLAN_JSON_KEY)
+            preferences.remove(TRAINING_PLAN_UPDATED_AT_KEY)
+            preferences.remove(TRAINING_PLAN_CACHE_VERSION_KEY)
+            preferences.remove(EMPTY_CLASSROOM_JSON_KEY)
+            preferences.remove(EMPTY_CLASSROOM_KEY_KEY)
+            preferences.remove(EMPTY_CLASSROOM_UPDATED_AT_KEY)
         }
     }
 
@@ -845,7 +914,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedBlockPinned = false
         cachedBlockKeywords = emptyList()
         cachedFilterNodeIds = emptyList()
-        cachedMarketEnabled = true
+        cachedMarketEnabled = false
         cachedMarketListLayoutMode = "list"
         cachedScheduleColWidth = 64f
         cachedScheduleRowHeight = 56f
@@ -884,6 +953,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedAcConfig = ElectricityRoomConfig()
         cachedLightingConfig = ElectricityRoomConfig()
         cachedAdwmhSessionId = null
+        cachedTrainingPlanJson = null
+        cachedTrainingPlanUpdatedAt = 0L
+        cachedTrainingPlanCacheVersion = 0L
         // 一次 edit 完成所有删除，避免多次 DataStore 序列化/写入
         appDataStore.dataStore.edit { preferences ->
             preferences.remove(SESSION_KEY)
@@ -936,6 +1008,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
             preferences.remove(AC_CONFIG_KEY)
             preferences.remove(LIGHTING_CONFIG_KEY)
             preferences.remove(ADWMH_SESSION_KEY)
+            preferences.remove(TRAINING_PLAN_JSON_KEY)
+            preferences.remove(TRAINING_PLAN_UPDATED_AT_KEY)
+            preferences.remove(TRAINING_PLAN_CACHE_VERSION_KEY)
         }
         Log.i(TAG, "所有会话和凭据已清除")
     }
@@ -997,6 +1072,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private val ADWMH_SESSION_KEY = stringPreferencesKey("adwmh_jsessionid")
     private val TRAINING_PLAN_JSON_KEY = stringPreferencesKey("training_plan_json")
     private val TRAINING_PLAN_UPDATED_AT_KEY = longPreferencesKey("training_plan_updated_at")
+    private val TRAINING_PLAN_CACHE_VERSION_KEY = longPreferencesKey("training_plan_cache_version")
+    private val TRAINING_PLAN_CACHE_VERSION = 2L
     private val EMPTY_CLASSROOM_JSON_KEY = stringPreferencesKey("empty_classroom_json")
     private val EMPTY_CLASSROOM_KEY_KEY = stringPreferencesKey("empty_classroom_key")
     private val EMPTY_CLASSROOM_UPDATED_AT_KEY = longPreferencesKey("empty_classroom_updated_at")

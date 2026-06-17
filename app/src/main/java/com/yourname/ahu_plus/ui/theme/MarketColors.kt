@@ -23,11 +23,11 @@ object MarketColors {
     val HotBadgeGold = Color(0xFFFFC107)
 
     // ── 身份字段卡 ──
-    val IdentityAccent = Color(0xFFB7791F)
-    val IdentityAccentBg = Color(0xFFF2C94C)
+    val IdentityAccent = AhuBlue
+    val IdentityAccentBg = AhuBlueLight
 
     // ── 热榜入口图标 ──
-    val HotEntryIconBg = Color(0xFFFF9800)
+    val HotEntryIconBg = AhuBlueLight
 
     // ── 通知点赞色 ──
     val LikeRed = Color(0xFFE53935)

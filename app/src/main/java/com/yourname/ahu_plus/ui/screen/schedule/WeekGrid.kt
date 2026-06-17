@@ -1,5 +1,6 @@
 package com.yourname.ahu_plus.ui.screen.schedule
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.ui.theme.CourseColors
 import java.time.LocalDate
 import java.time.LocalTime
@@ -93,7 +95,7 @@ fun WeekGrid(
     val dayToColIndex: Map<Int, Int> = remember(visibleDays) {
         visibleDays.withIndex().associate { (i, d) -> d to i }
     }
-    val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f)
+    val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
     val currentTimeLineY = remember(sortedUnits, isCurrentWeek, rowHeight) {
         if (!isCurrentWeek) {
             null
@@ -131,7 +133,7 @@ fun WeekGrid(
                 modifier = Modifier
                     .width(TIME_COL_WIDTH)
                     .height(HEADER_HEIGHT)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
                     .border(0.5.dp, lineColor),
                 contentAlignment = Alignment.Center
             ) {
@@ -200,9 +202,9 @@ fun WeekGrid(
                                     .size(colWidth, rowHeight)
                                     .background(
                                         when {
-                                            isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.07f)
+                                            isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.09f)
                                             row % 2 == 0 -> MaterialTheme.colorScheme.surface
-                                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f)
+                                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.16f)
                                         }
                                     )
                                     .border(0.5.dp, lineColor)
@@ -217,13 +219,13 @@ fun WeekGrid(
                                 modifier = Modifier
                                     .offset(colWidth * todayCol + 5.dp, currentTimeLineY)
                                     .size(8.dp, 8.dp)
-                                    .background(MaterialTheme.colorScheme.error, RoundedCornerShape(999.dp))
+                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(999.dp))
                             )
                             Box(
                                 modifier = Modifier
                                     .offset(colWidth * todayCol + 10.dp, currentTimeLineY + 3.dp)
                                     .size(colWidth - 14.dp, 2.dp)
-                                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.78f))
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.80f))
                             )
                         }
                     }
@@ -277,8 +279,8 @@ private fun DayHeaderCell(
             .width(colWidth)
             .height(HEADER_HEIGHT)
             .background(
-                if (isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                else MaterialTheme.colorScheme.surfaceVariant
+                if (isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                else MaterialTheme.colorScheme.surface
             )
             .border(0.5.dp, lineColor),
         contentAlignment = Alignment.Center
@@ -315,7 +317,7 @@ private fun TimeCell(
         modifier = Modifier
             .width(TIME_COL_WIDTH)
             .height(rowHeight)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f))
+            .background(MaterialTheme.colorScheme.surface)
             .border(0.5.dp, lineColor)
             .padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center
@@ -364,9 +366,10 @@ private fun CourseCard(
 
     Card(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = bg.copy(alpha = 0.94f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.24f))
     ) {
         Column(
             modifier = Modifier

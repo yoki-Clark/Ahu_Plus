@@ -47,7 +47,7 @@ class FinanceViewModel(
                             isLoading = false,
                             error = null,
                             summary = summary,
-                            lastUpdatedAt = sessionManager.getStudentInfoUpdatedAt()
+                            lastUpdatedAt = summary.lastUpdatedAt
                         )
                     }
                 },

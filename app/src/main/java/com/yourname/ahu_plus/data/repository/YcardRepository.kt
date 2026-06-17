@@ -106,7 +106,7 @@ class YcardRepository(
                 ?.find { it.name == "CASTGC" }?.value
             if (castgc != null) {
                 try {
-                    Log.e(TAG, "尝试复用 CASTGC 走简易 SSO")
+                    Log.i(TAG, "尝试复用 CAS 登录态走简易 SSO")
                     loginWithCastgc(castgc)
                     Log.e(TAG, "ycard 简易 SSO 成功")
                     return Result.success(Unit)
@@ -486,7 +486,7 @@ class YcardRepository(
             ?: throw Exception("未获取到 synjones-auth JWT (final URL: ${finalUrl.take(200)})")
 
         cachedJwt = jwt
-        Log.e(TAG, "ycard 简易 SSO 成功，JWT=${jwt.take(40)}...")
+        Log.i(TAG, "ycard 简易 SSO 成功")
     }
 
     // ══════════════════════════════════════════════════════
@@ -500,7 +500,7 @@ class YcardRepository(
             response.header("Location")
                 ?: throw Exception("ycard 未重定向到 CAS")
         }
-        Log.e(TAG, "CAS URL: ${casUrl.take(100)}")
+        Log.d(TAG, "ycard CAS URL resolved")
 
         // Step 2: GET CAS login page → lt + execution
         val (lt, execution) = client.newCall(Request.Builder().url(casUrl)
@@ -510,7 +510,6 @@ class YcardRepository(
                 ?: throw Exception("未找到 lt")
             val execution = Regex("""name="execution"\s+value="([^"]+)"""").find(html)?.groupValues?.get(1)
                 ?: throw Exception("未找到 execution")
-            Log.e(TAG, "lt=$lt")
             Pair(lt, execution)
         }
 
@@ -528,8 +527,7 @@ class YcardRepository(
                 .add("rsa", encrypted)
                 .add("method", "login").build()).build()
         ).execute().use { response ->
-            val deviceBody = response.body?.string() ?: ""
-            Log.e(TAG, "device: $deviceBody")
+            response.body?.close()
         }
 
         // Step 5: 提交 CAS 表单(跟随重定向以获取 JWT)
@@ -546,13 +544,13 @@ class YcardRepository(
         ).execute().use { response ->
             response.request.url.toString()
         }
-        Log.e(TAG, "最终 URL: ${finalUrl.take(150)}")
+        Log.d(TAG, "ycard OAuth redirect resolved")
 
         // Step 6: 从 URL 中提取 JWT
         val jwt = Regex("""synjones-auth=([^&"]+)""").find(finalUrl)?.groupValues?.get(1)
             ?: throw Exception("未获取到 synjones-auth JWT")
 
         cachedJwt = jwt
-        Log.e(TAG, "ycard 完整登录成功，JWT=${jwt.take(40)}...")
+        Log.i(TAG, "ycard 完整登录成功")
     }
 }

@@ -289,7 +289,7 @@ class StudentTableClient(
 
         client.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
-            Log.d(TAG, "POST $path HTTP ${response.code}, body[:160]=${text.take(160)}")
+            Log.d(TAG, "POST $path HTTP ${response.code}, bytes=${text.length}")
             if (!response.isSuccessful) {
                 throw Exception("学生一张表接口错误 HTTP ${response.code}: $path")
             }

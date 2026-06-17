@@ -106,7 +106,7 @@ class CourseRepository(
         client.newCall(request).execute().use { response ->
             val body = response.body?.string() ?: ""
             val code = response.code
-            Log.e(TAG, "print-data HTTP $code body[:300]=${body.take(300)}")
+            Log.d(TAG, "print-data HTTP $code, bytes=${body.length}")
 
             if (code == 302) {
                 val loc = response.headers("Location").joinToString()
