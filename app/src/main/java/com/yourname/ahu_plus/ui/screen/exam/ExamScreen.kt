@@ -3,7 +3,9 @@ package com.yourname.ahu_plus.ui.screen.exam
 import android.content.Intent
 import android.provider.CalendarContract
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -42,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +57,7 @@ import com.yourname.ahu_plus.ui.screen.grade.CenteredError
 import com.yourname.ahu_plus.ui.screen.grade.CenteredLoader
 import com.yourname.ahu_plus.ui.screen.grade.CenteredMessage
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -108,16 +112,41 @@ fun ExamScreen(
                 )
             }
             else -> {
+                val now = System.currentTimeMillis()
+                val unfinished = uiState.exams
+                    .filter { !isExamFinished(it, now) }
+                    .sortedWith(compareBy { parseExamStartMillis(it.examTime) ?: Long.MAX_VALUE })
+                val finished = uiState.exams
+                    .filter { isExamFinished(it, now) }
+                    .sortedWith(compareByDescending { parseExamStartMillis(it.examTime) ?: 0L })
+
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
                         .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 12.dp)
                 ) {
-                    items(uiState.exams, key = { it.id }) { exam ->
-                        ExamRow(exam = exam)
+                    // 未结束考试（正常显示）
+                    items(unfinished, key = { it.id }) { exam ->
+                        ExamRow(exam = exam, isFinished = false)
+                    }
+                    // 已结束考试（默认折叠，参考教务系统网页"查看已结束"逻辑）
+                    if (finished.isNotEmpty()) {
+                        item(key = "finished_section") {
+                            CollapsibleSection(
+                                title = "已结束",
+                                badge = "${finished.size}",
+                                defaultExpanded = false,
+                                maxContentHeight = 800.dp,
+                            ) {
+                                finished.forEachIndexed { i, exam ->
+                                    ExamRow(exam = exam, isFinished = true)
+                                    if (i < finished.lastIndex) Spacer(modifier = Modifier.height(10.dp))
+                                }
+                            }
+                        }
                     }
                     item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
@@ -127,7 +156,7 @@ fun ExamScreen(
 }
 
 @Composable
-private fun ExamRow(exam: Exam) {
+private fun ExamRow(exam: Exam, isFinished: Boolean = false) {
     val context = LocalContext.current
     var showCalendarDialog by remember { mutableStateOf(false) }
 
@@ -166,15 +195,30 @@ private fun ExamRow(exam: Exam) {
     }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier.fillMaxWidth()
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            // 2026-06-17 Bug7: 已结束的考试整体灰化
+            .alpha(if (isFinished) 0.50f else 1f)
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.Top
         ) {
+            // 左侧状态色条
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(
+                        if (isFinished) MaterialTheme.colorScheme.outlineVariant
+                        else examTypeColor(exam.examType)
+                    )
+            )
+            Spacer(modifier = Modifier.width(12.dp))
             // 左侧类型色块
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -302,4 +346,30 @@ private fun examTypeColor(type: String?): Color = when {
     type.contains("补") -> Color(0xFFE53935)
     type.contains("缓") -> Color(0xFFFB8C00)
     else -> MaterialTheme.colorScheme.primary
+}
+
+/** 解析考试时间字符串判断是否已结束 (已过当前时间)。 */
+private fun isExamFinished(exam: Exam, now: Long = System.currentTimeMillis()): Boolean {
+    val endTime = parseExamEndMillis(exam.examTime) ?: return false
+    return now > endTime
+}
+
+/** 解析考试开始时间字符串为 epoch millis。格式："2026-05-24 14:00~15:40" */
+private fun parseExamStartMillis(examTime: String): Long? {
+    val regex = Regex("""(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})""")
+    val match = regex.find(examTime) ?: return null
+    return runCatching {
+        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            .parse("${match.groupValues[1]} ${match.groupValues[2]}")?.time
+    }.getOrNull()
+}
+
+/** 解析考试结束时间字符串为 epoch millis。格式："2026-05-24 14:00~15:40" */
+private fun parseExamEndMillis(examTime: String): Long? {
+    val regex = Regex("""(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})~(\d{1,2}:\d{2})""")
+    val match = regex.find(examTime) ?: return null
+    return runCatching {
+        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            .parse("${match.groupValues[1]} ${match.groupValues[3]}")?.time
+    }.getOrNull()
 }

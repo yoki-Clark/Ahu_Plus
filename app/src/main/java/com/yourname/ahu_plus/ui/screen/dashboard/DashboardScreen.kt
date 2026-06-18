@@ -70,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,6 +97,8 @@ import com.yourname.ahu_plus.ui.theme.AhuOrange
 import com.yourname.ahu_plus.ui.theme.AhuRed
 import com.yourname.ahu_plus.ui.theme.AhuTeal
 import com.yourname.ahu_plus.ui.theme.AhuViolet
+import com.yourname.ahu_plus.ui.theme.AhuGradientBlueStart
+import com.yourname.ahu_plus.ui.theme.AhuGradientBlueEnd
 import org.json.JSONArray
 import java.time.LocalDate
 import java.time.LocalTime
@@ -117,17 +120,19 @@ fun DashboardScreen(
     onOpenCardAnalytics: () -> Unit,
     onOpenTrainingPlan: () -> Unit = {},
     onOpenEmptyClassroom: () -> Unit = {},
+    onOpenAppHub: () -> Unit = {},
+    recentApps: List<String> = emptyList(),
+    onRecordApp: (String) -> Unit = {},
     onAddUserTask: () -> Unit = {},
     onToggleTask: (com.yourname.ahu_plus.data.model.task.RecentTaskItem) -> Unit = {},
     onAddTodayHomework: () -> Unit = {},
-    onTodayRollCall: () -> Unit = {},
     onOpenAllTasks: () -> Unit = {},
     onNeedsLogin: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val noticeUiState by noticeViewModel.uiState.collectAsStateWithLifecycle()
     val recentTasks by viewModel.recentTasks.collectAsStateWithLifecycle()
-    val todayHasSignIn by viewModel.todayHasSignIn.collectAsStateWithLifecycle()
+    val todayAttendance by viewModel.todayCourseAttendance.collectAsStateWithLifecycle()
 
     // 2026-06-17 Bug4: 弹"添加待办"对话框
     var showAddTaskDialog by androidx.compose.runtime.remember {
@@ -170,7 +175,7 @@ fun DashboardScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
                     .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
                     com.yourname.ahu_plus.ui.screen.dashboard.TodayCourseCard(
@@ -201,11 +206,8 @@ fun DashboardScreen(
                         ),
                         onOpenSchedule = onOpenSchedule,
                         onRefresh = viewModel::onRefresh,
-                        // 2026-06-17 Bug3/4 修复: 真正接上 ViewModel + 签到状态
-                        onRollCall = { viewModel.addQuickSignInForToday() },
                         onAddHomework = { showTodayHomeworkDialog = true },
-                        // Bug1 修复: 从 ViewModel 订阅 todayHasSignIn
-                        todayHasRollCall = todayHasSignIn,
+                        todayAttendance = todayAttendance,
                     )
                 }
 
@@ -221,18 +223,20 @@ fun DashboardScreen(
 
                 item {
                     AppDock(
-                        onOpenSchedule = onOpenSchedule,
-                        onOpenCard = onOpenCard,
-                        onOpenGrade = onOpenGrade,
-                        onOpenExam = onOpenExam,
-                        onOpenNoticeList = onOpenNoticeList,
-                        onOpenBathroom = onOpenBathroom,
-                        onOpenAc = onOpenAc,
-                        onOpenLighting = onOpenLighting,
-                        onOpenInternet = onOpenInternet,
-                        onOpenCardAnalytics = onOpenCardAnalytics,
-                        onOpenTrainingPlan = onOpenTrainingPlan,
-                        onOpenEmptyClassroom = onOpenEmptyClassroom
+                        onOpenSchedule = { onRecordApp("schedule"); onOpenSchedule() },
+                        onOpenCard = { onRecordApp("card"); onOpenCard() },
+                        onOpenGrade = { onRecordApp("grade"); onOpenGrade() },
+                        onOpenExam = { onRecordApp("exam"); onOpenExam() },
+                        onOpenNoticeList = { onRecordApp("noticeList"); onOpenNoticeList() },
+                        onOpenBathroom = { onRecordApp("bathroom"); onOpenBathroom() },
+                        onOpenAc = { onRecordApp("ac"); onOpenAc() },
+                        onOpenLighting = { onRecordApp("lighting"); onOpenLighting() },
+                        onOpenInternet = { onRecordApp("internet"); onOpenInternet() },
+                        onOpenCardAnalytics = { onRecordApp("cardAnalytics"); onOpenCardAnalytics() },
+                        onOpenTrainingPlan = { onRecordApp("trainingPlan"); onOpenTrainingPlan() },
+                        onOpenEmptyClassroom = { onRecordApp("emptyClassroom"); onOpenEmptyClassroom() },
+                        onOpenAppHub = onOpenAppHub,
+                        recentApps = recentApps
                     )
                 }
 
@@ -625,32 +629,36 @@ private fun TodayCourseCard(
 
     Card(
         shape = AhuShapes.LargeCard,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column {
-            // 顶部彩色条 + 标签 —— 与下方正文区视觉分割
+        Column(
+            modifier = Modifier.background(
+                Brush.linearGradient(
+                    colors = listOf(AhuGradientBlueStart, AhuGradientBlueEnd)
+                )
+            )
+        ) {
+            // 顶部标签行
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.primary)
+                    .background(Color.White.copy(alpha = 0.12f))
                     .padding(horizontal = 18.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     Icons.Filled.Schedule,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    tint = Color.White,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = if (nextCourse != null) "下节课" else "今天的安排",
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onPrimary,
+                    color = Color.White,
                     fontWeight = FontWeight.Bold
                 )
                 if (nextCourse != null) {
@@ -661,7 +669,7 @@ private fun TodayCourseCard(
                     Text(
                         text = "第 ${uiState.currentWeek} 周",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f),
+                        color = Color.White.copy(alpha = 0.82f),
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -676,12 +684,13 @@ private fun TodayCourseCard(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(22.dp),
-                                strokeWidth = 2.dp
+                                strokeWidth = 2.dp,
+                                color = Color.White
                             )
                             Text(
                                 text = "正在同步课表...",
                                 modifier = Modifier.padding(start = 10.dp),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = Color.White.copy(alpha = 0.85f)
                             )
                         }
                     }
@@ -691,7 +700,7 @@ private fun TodayCourseCard(
                             Text(
                                 text = uiState.error,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.error
+                                color = Color.White
                             )
                             FilledTonalButton(onClick = onRefresh) {
                                 Text("重新加载课表")
@@ -712,14 +721,14 @@ private fun TodayCourseCard(
                             else "今天后面没课，剩下的时间归你。",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            color = Color.White
                         )
                     }
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.White.copy(alpha = 0.2f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(onClick = onOpenSchedule)
@@ -732,9 +741,10 @@ private fun TodayCourseCard(
                             text = "查看完整课表",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
+                            color = Color.White,
                             modifier = Modifier.weight(1f)
                         )
-                        Icon(Icons.Filled.ChevronRight, contentDescription = null)
+                        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = Color.White)
                     }
                 }
             }
@@ -762,20 +772,20 @@ private fun CountdownChip(
     val now = LocalTime.now()
     val diff = minutes - (now.hour * 60 + now.minute)
     val (label, color) = when {
-        diff < 0 -> "已开始" to MaterialTheme.colorScheme.error
-        diff < 60 -> "${diff} 分钟后" to MaterialTheme.colorScheme.error
-        diff < 180 -> "${diff / 60} 小时后" to MaterialTheme.colorScheme.tertiary
-        else -> "${diff / 60}h${diff % 60}m" to MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f)
+        diff < 0 -> "已开始" to Color(0xFFFFCDD2)
+        diff < 60 -> "${diff} 分钟后" to Color(0xFFFFCDD2)
+        diff < 180 -> "${diff / 60} 小时后" to Color(0xFFFFE0B2)
+        else -> "${diff / 60}h${diff % 60}m" to Color.White.copy(alpha = 0.78f)
     }
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = color.copy(alpha = 0.20f)
+        color = color.copy(alpha = 0.25f)
     ) {
         Text(
             text = label,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onPrimary,
+            color = Color.White,
             fontWeight = FontWeight.SemiBold
         )
     }
@@ -796,7 +806,7 @@ private fun CourseSummary(
             text = course.courseName,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onPrimaryContainer
+            color = Color.White
         )
         // 时间 / 地点 —— 同一行带图标
         Row(
@@ -806,12 +816,12 @@ private fun CourseSummary(
             InfoIconText(
                 icon = Icons.Filled.AccessTime,
                 text = timeText,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                tint = Color.White
             )
             InfoIconText(
                 icon = Icons.Filled.LocationOn,
                 text = roomText,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                tint = Color.White
             )
         }
         // 教师 —— 单独一行，弱化
@@ -820,13 +830,13 @@ private fun CourseSummary(
                 Icons.Filled.Person,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                tint = Color.White.copy(alpha = 0.6f)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = teacherText,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                color = Color.White.copy(alpha = 0.6f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -857,6 +867,12 @@ private fun InfoIconText(
     }
 }
 
+// 应用注册表：app key → (title, icon, color, onClick)
+private data class AppEntry(
+    val key: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val color: Color, val onClick: () -> Unit
+)
+
 @Composable
 private fun AppDock(
     onOpenSchedule: () -> Unit,
@@ -870,103 +886,68 @@ private fun AppDock(
     onOpenInternet: () -> Unit,
     onOpenCardAnalytics: () -> Unit,
     onOpenTrainingPlan: () -> Unit = {},
-    onOpenEmptyClassroom: () -> Unit = {}
+    onOpenEmptyClassroom: () -> Unit = {},
+    onOpenAppHub: () -> Unit = {},
+    recentApps: List<String> = emptyList()
 ) {
+    // 全量注册表 (key 与 onRecordApp 一致)
+    val allApps = remember {
+        listOf(
+            AppEntry("schedule", "课表", Icons.Filled.CalendarMonth, AhuBlue, onOpenSchedule),
+            AppEntry("grade", "成绩", Icons.Filled.Grade, AhuRed, onOpenGrade),
+            AppEntry("exam", "考试", Icons.AutoMirrored.Filled.EventNote, AhuOrange, onOpenExam),
+            AppEntry("card", "账单", Icons.Filled.AccountBalanceWallet, AhuGreen, onOpenCard),
+            AppEntry("noticeList", "通告", Icons.Filled.Campaign, AhuViolet, onOpenNoticeList),
+            AppEntry("bathroom", "浴室", Icons.Filled.WaterDrop, AhuTeal, onOpenBathroom),
+            AppEntry("ac", "空调", Icons.Filled.AcUnit, AhuBlue, onOpenAc),
+            AppEntry("lighting", "照明", Icons.Filled.Lightbulb, AhuOrange, onOpenLighting),
+            AppEntry("internet", "网费", Icons.Filled.Wifi, AhuIndigo, onOpenInternet),
+            AppEntry("cardAnalytics", "消费分析", Icons.Filled.Assessment, AhuViolet, onOpenCardAnalytics),
+            AppEntry("trainingPlan", "培养方案", Icons.Filled.School, Color(0xFF6C63FF), onOpenTrainingPlan),
+            AppEntry("emptyClassroom", "空教室", Icons.Filled.Room, AhuGreen, onOpenEmptyClassroom),
+        )
+    }
+    val appMap = remember(allApps) { allApps.associateBy { it.key } }
+    // 取最近 3 个有注册表的; 不足 3 个时用默认补足
+    val displayApps = remember(recentApps) {
+        val recent = recentApps.mapNotNull { appMap[it] }
+        if (recent.size >= 3) recent.take(3)
+        else {
+            val defaults = listOf("schedule", "grade", "exam")
+                .mapNotNull { appMap[it] }
+                .filter { it.key !in recent.map { r -> r.key } }
+            (recent + defaults).take(3)
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        AhuSectionTitle(text = "常用应用")
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AhuSectionTitle(text = "最近使用", modifier = Modifier.weight(1f))
+            TextButton(onClick = onOpenAppHub) {
+                Text("更多")
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            AppDockItem(
-                title = "课表",
-                iconColor = AhuBlue,
-                onClick = onOpenSchedule,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.Filled.CalendarMonth, contentDescription = null)
-            }
-            AppDockItem(
-                title = "成绩",
-                iconColor = AhuRed,
-                onClick = onOpenGrade,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.Filled.Grade, contentDescription = null)
-            }
-            AppDockItem(
-                title = "考试",
-                iconColor = AhuOrange,
-                onClick = onOpenExam,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.EventNote, contentDescription = null)
-            }
-            AppDockItem(
-                title = "消费分析",
-                iconColor = AhuViolet,
-                onClick = onOpenCardAnalytics,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.Filled.Assessment, contentDescription = null)
-            }
-            AppDockItem(
-                title = "浴室",
-                iconColor = AhuTeal,
-                onClick = onOpenBathroom,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.Filled.WaterDrop, contentDescription = null)
-            }
-            AppDockItem(
-                title = "空调",
-                iconColor = AhuBlue,
-                onClick = onOpenAc,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.Filled.AcUnit, contentDescription = null)
-            }
-            AppDockItem(
-                title = "照明",
-                iconColor = AhuOrange,
-                onClick = onOpenLighting,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.Filled.Lightbulb, contentDescription = null)
-            }
-            AppDockItem(
-                title = "网费",
-                iconColor = AhuIndigo,
-                onClick = onOpenInternet,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.Filled.Wifi, contentDescription = null)
-            }
-            AppDockItem(
-                title = "培养方案",
-                iconColor = Color(0xFF6C63FF),
-                onClick = onOpenTrainingPlan,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.Filled.School, contentDescription = null)
-            }
-            AppDockItem(
-                title = "空教室",
-                iconColor = AhuGreen,
-                onClick = onOpenEmptyClassroom,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.Filled.Room, contentDescription = null)
-            }
-            AppDockItem(
-                title = "通告",
-                iconColor = AhuViolet,
-                onClick = onOpenNoticeList,
-                modifier = Modifier.width(78.dp)
-            ) {
-                Icon(Icons.Filled.Campaign, contentDescription = null)
+            displayApps.forEach { app ->
+                AppDockItem(
+                    title = app.title,
+                    iconColor = app.color,
+                    onClick = app.onClick,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(app.icon, contentDescription = null)
+                }
             }
         }
     }
@@ -984,21 +965,21 @@ private fun AppDockItem(
         modifier = modifier.clickable(onClick = onClick),
         shape = AhuShapes.Card,
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        shadowElevation = 1.dp
+        tonalElevation = 2.dp,
+        shadowElevation = 2.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp),
+                .padding(vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(7.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(42.dp)
                     .clip(AhuShapes.IconBox)
-                    .background(iconColor.copy(alpha = 0.14f)),
+                    .background(iconColor.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 androidx.compose.runtime.CompositionLocalProvider(

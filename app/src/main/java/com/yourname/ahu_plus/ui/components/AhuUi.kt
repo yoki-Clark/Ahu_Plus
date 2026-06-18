@@ -3,6 +3,8 @@ package com.yourname.ahu_plus.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
@@ -28,24 +30,34 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 object AhuSpacing {
     val ScreenHorizontal = 16.dp
-    val Card = 14.dp
+    val Card = 16.dp
     val Section = 16.dp
+    val CardGap = 12.dp
+    val xs = 4.dp
+    val sm = 8.dp
+    val md = 12.dp
+    val lg = 16.dp
+    val xl = 24.dp
 }
 
 object AhuShapes {
-    val Card = RoundedCornerShape(8.dp)
-    val LargeCard = RoundedCornerShape(8.dp)
-    val IconBox = RoundedCornerShape(10.dp)
+    val Card = RoundedCornerShape(12.dp)
+    val LargeCard = RoundedCornerShape(16.dp)
+    val IconBox = RoundedCornerShape(14.dp)
     val Pill = RoundedCornerShape(999.dp)
+    val Dialog = RoundedCornerShape(20.dp)
+    val BottomSheet = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
 }
 
 @Composable
@@ -57,38 +69,41 @@ fun AhuTopAppBar(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.background
+        color = MaterialTheme.colorScheme.background,
+        shadowElevation = 1.dp
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .height(44.dp)
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (navigationIcon != null) {
-                Box(
-                    modifier = Modifier.size(44.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    navigationIcon()
-                }
-            } else {
-                Box(modifier = Modifier.size(4.dp))
-            }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = if (navigationIcon == null) 12.dp else 0.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                title()
-            }
+        Column {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                content = actions
-            )
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .height(52.dp)
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (navigationIcon != null) {
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        navigationIcon()
+                    }
+                } else {
+                    Box(modifier = Modifier.size(4.dp))
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = if (navigationIcon == null) 12.dp else 0.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    title()
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = actions
+                )
+            }
         }
     }
 }
@@ -318,5 +333,132 @@ fun ProvideIconColor(
 ) {
     CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides color) {
         content()
+    }
+}
+
+/**
+ * 渐变背景的 Hero 卡片 — 用于首页今日课程、余额等核心信息展示。
+ * 内容区文字颜色自动设为白色。
+ */
+@Composable
+fun AhuHeroCard(
+    gradient: Brush,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Card(
+        shape = AhuShapes.LargeCard,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(gradient)
+        ) {
+            content()
+        }
+    }
+}
+
+/**
+ * 统一空状态组件 — 图标 + 标题 + 可选描述 + 可选操作按钮。
+ */
+@Composable
+fun AhuEmptyState(
+    icon: ImageVector,
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    actionText: String? = null,
+    onAction: (() -> Unit)? = null
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 32.dp, horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(AhuShapes.IconBox)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(28.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center
+        )
+        if (subtitle != null) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+        if (actionText != null && onAction != null) {
+            Spacer(modifier = Modifier.height(AhuSpacing.xs))
+            TextButton(onClick = onAction) {
+                Text(actionText)
+            }
+        }
+    }
+}
+
+/**
+ * 统一错误状态组件 — 红色警告图标 + 错误信息 + 重试按钮。
+ */
+@Composable
+fun AhuErrorState(
+    message: String,
+    modifier: Modifier = Modifier,
+    onRetry: (() -> Unit)? = null
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 32.dp, horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(AhuShapes.IconBox)
+                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(28.dp),
+                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+            )
+        }
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.Center
+        )
+        if (onRetry != null) {
+            TextButton(onClick = onRetry) {
+                Text("重试")
+            }
+        }
     }
 }

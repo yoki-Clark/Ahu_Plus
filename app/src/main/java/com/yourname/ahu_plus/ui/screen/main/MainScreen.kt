@@ -21,12 +21,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.yourname.ahu_plus.AhuPlusApplication
 import com.yourname.ahu_plus.data.local.AppThemeMode
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
@@ -114,6 +119,13 @@ fun MainScreen(
     var profileSubPage by rememberSaveable { mutableStateOf<String?>(null) }
     var openCardAnalytics by rememberSaveable { mutableStateOf(false) }
 
+    // 首页"最近使用"追踪 (mutableStateOf 保证 recordRecentApp 后 UI 立即刷新)
+    var recentApps by remember { mutableStateOf(sessionManager.getRecentApps()) }
+    val scope = rememberCoroutineScope()
+    val recordApp: (String) -> Unit = remember {
+        { appKey: String -> scope.launch { sessionManager.recordRecentApp(appKey); recentApps = sessionManager.getRecentApps() } }
+    }
+
     // 系统返回键:仅处理首页的子页面回退 (集市/我的子页面由各自 BackHandler 处理)
     BackHandler(enabled = homePage != HOME_DASHBOARD) {
         homePage = HOME_DASHBOARD
@@ -142,6 +154,7 @@ fun MainScreen(
             homeworkRepository = app.homeworkRepository,
             userTaskRepository = app.userTaskRepository,
             examRepository = examRepository,
+            kqAttendanceRepository = app.attendanceRepository,
         )
     }
     val marketViewModel = remember {
@@ -182,7 +195,10 @@ fun MainScreen(
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                tonalElevation = 0.dp,
+                containerColor = MaterialTheme.colorScheme.surface,
+            ) {
                 NavigationBarItem(
                     selected = selectedTab == TAB_HOME,
                     onClick = {
@@ -196,7 +212,13 @@ fun MainScreen(
                             contentDescription = "首页"
                         )
                     },
-                    label = { Text("首页") }
+                    label = {
+                        Text(
+                            "首页",
+                            fontWeight = if (selectedTab == TAB_HOME) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    alwaysShowLabel = true
                 )
                 if (marketEnabled) {
                     NavigationBarItem(
@@ -209,7 +231,13 @@ fun MainScreen(
                                 contentDescription = "集市"
                             )
                         },
-                        label = { Text("集市") }
+                        label = {
+                            Text(
+                                "集市",
+                                fontWeight = if (selectedTab == TAB_MARKET) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        alwaysShowLabel = true
                     )
                 }
                 NavigationBarItem(
@@ -222,7 +250,13 @@ fun MainScreen(
                             contentDescription = "应用"
                         )
                     },
-                    label = { Text("应用") }
+                    label = {
+                        Text(
+                            "应用",
+                            fontWeight = if (selectedTab == TAB_APPS) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    alwaysShowLabel = true
                 )
                 NavigationBarItem(
                     selected = selectedTab == TAB_PROFILE,
@@ -234,7 +268,13 @@ fun MainScreen(
                             contentDescription = "我的"
                         )
                     },
-                    label = { Text("我的") }
+                    label = {
+                        Text(
+                            "我的",
+                            fontWeight = if (selectedTab == TAB_PROFILE) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    alwaysShowLabel = true
                 )
             }
         }
@@ -271,6 +311,9 @@ fun MainScreen(
                             selectedTab = TAB_PROFILE
                             openCardAnalytics = true
                         },
+                        onOpenAppHub = { selectedTab = TAB_APPS },
+                        recentApps = recentApps,
+                        onRecordApp = recordApp,
                         onNeedsLogin = onReauth
                     )
                 }
@@ -350,6 +393,9 @@ fun MainScreen(
                                 selectedTab = TAB_PROFILE
                                 openCardAnalytics = true
                             },
+                            onOpenAppHub = { selectedTab = TAB_APPS },
+                            recentApps = recentApps,
+                            onRecordApp = recordApp,
                             onNeedsLogin = onReauth
                         )
                     }
@@ -417,6 +463,9 @@ fun MainScreen(
                         selectedTab = TAB_PROFILE
                         openCardAnalytics = true
                     },
+                    onOpenAppHub = { selectedTab = TAB_APPS },
+                    recentApps = recentApps,
+                    onRecordApp = recordApp,
                     onNeedsLogin = onReauth
                 )
             }

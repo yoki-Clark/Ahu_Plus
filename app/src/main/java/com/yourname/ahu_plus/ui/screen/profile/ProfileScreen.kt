@@ -63,13 +63,16 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -100,6 +103,7 @@ import com.yourname.ahu_plus.ui.screen.home.ElectricityBalanceCard
 import com.yourname.ahu_plus.ui.screen.home.ElectricityBillRange
 import com.yourname.ahu_plus.ui.screen.home.ElectricityState
 import com.yourname.ahu_plus.ui.screen.home.HomeViewModel
+import com.yourname.ahu_plus.ui.screen.home.ElectricityTarget
 import com.yourname.ahu_plus.ui.screen.home.InternetBalanceCard
 import com.yourname.ahu_plus.ui.screen.market.MarketIdentityEditor
 import com.yourname.ahu_plus.ui.screen.market.MarketSettingsScreen
@@ -124,7 +128,7 @@ fun ProfileScreen(
     onThemeModeChange: (AppThemeMode) -> Unit,
     /** 2026-06-17 Bug2: 近期任务全局设置 */
     showCompletedTasks: Boolean = false,
-    showCompletedExams: Boolean = true,
+    showCompletedExams: Boolean = false,
     onShowCompletedTasksChanged: (Boolean) -> Unit = {},
     onShowCompletedExamsChanged: (Boolean) -> Unit = {},
     scrollTarget: String? = null,
@@ -231,17 +235,17 @@ fun ProfileScreen(
             internetBillsError = cardUiState.internetBillsError,
             onBack = { showUtilities = false },
             onSaveBathroomPhone = cardViewModel::saveBathroomPhone,
-            onSaveAcConfig = cardViewModel::saveAcConfig,
-            onSaveLightingConfig = cardViewModel::saveLightingConfig,
+            onSaveElectricityConfig = { config, target -> cardViewModel.saveElectricityConfig(config, target) },
             onRefreshBathroom = cardViewModel::loadBathroomBalance,
-            onRefreshAcBalance = cardViewModel::loadAcBalance,
-            onRefreshLightingBalance = cardViewModel::loadLightingBalance,
+            onRefreshAcBalance = { cardViewModel.loadElectricityBalance(ElectricityTarget.AC) },
+            onRefreshLightingBalance = { cardViewModel.loadElectricityBalance(ElectricityTarget.LIGHTING) },
             onRefreshInternetBalance = cardViewModel::loadInternetBalance,
-            onRefreshAcBills = { cardViewModel.loadAcBills() },
-            onRefreshLightingBills = { cardViewModel.loadLightingBills() },
+            onRefreshAcBills = { cardViewModel.loadElectricityBills(ElectricityTarget.AC) },
+            onRefreshLightingBills = { cardViewModel.loadElectricityBills(ElectricityTarget.LIGHTING) },
             onRefreshInternetBills = cardViewModel::loadInternetBills,
             onAcBillRangeSelected = cardViewModel::setAcBillRange,
-            onLightingBillRangeSelected = cardViewModel::setLightingBillRange
+            onLightingBillRangeSelected = cardViewModel::setLightingBillRange,
+            cardViewModel = cardViewModel
         )
     } else if (showMarketSettings) {
         BackHandler(enabled = true) { showMarketSettings = false }
@@ -293,10 +297,10 @@ fun ProfileScreen(
             onRefresh = studentInfoViewModel::refreshStudentInfo
         )
     } else if (showFinance) {
-        BackHandler(enabled = true) { showFinance = false; showMyInfoHub = true }
+        BackHandler(enabled = true) { showFinance = false }
         FinanceDetailScreen(
             uiState = financeUiState,
-            onBack = { showFinance = false; showMyInfoHub = true },
+            onBack = { showFinance = false },
             onRefresh = financeViewModel::refreshFinance
         )
     } else if (showMyInfoHub) {
@@ -362,12 +366,6 @@ fun ProfileScreen(
             bathroomPhone = cardUiState.bathroomPhone,
             onSaveBathroomPhone = cardViewModel::saveBathroomPhone,
             onRetryBathroom = cardViewModel::loadBathroomBalance,
-            acState = cardUiState.ac,
-            lightingState = cardUiState.lighting,
-            onSaveAcConfig = cardViewModel::saveAcConfig,
-            onSaveLightingConfig = cardViewModel::saveLightingConfig,
-            onRetryAcBalance = cardViewModel::loadAcBalance,
-            onRetryLightingBalance = cardViewModel::loadLightingBalance,
             internetData = cardUiState.internetData,
             internetLoading = cardUiState.internetLoading,
             internetError = cardUiState.internetError,
@@ -417,13 +415,6 @@ private fun ProfileHomeScreen(
     bathroomPhone: String,
     onSaveBathroomPhone: (String) -> Unit,
     onRetryBathroom: () -> Unit,
-    // 电费
-    acState: ElectricityState,
-    lightingState: ElectricityState,
-    onSaveAcConfig: (ElectricityRoomConfig) -> Unit,
-    onSaveLightingConfig: (ElectricityRoomConfig) -> Unit,
-    onRetryAcBalance: () -> Unit,
-    onRetryLightingBalance: () -> Unit,
     // 网费
     internetData: InternetBalanceData?,
     internetLoading: Boolean,
@@ -449,6 +440,23 @@ private fun ProfileHomeScreen(
     ).joinToString(" · ").ifBlank { "学生信息接口待接入" }
     var showLogoutConfirm by rememberSaveable { mutableStateOf(false) }
     var showDeveloperContact by rememberSaveable { mutableStateOf(false) }
+
+    // 2026 Bug14: 保存/恢复滚动位置。
+    // rememberLazyListState 内部用 remember——子页面渲染时 HomeScreen 被移除,state 丢失。
+    // 因此需要显式 save/restore firstVisibleItemIndex + offset。
+    val profileListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var savedIndex by rememberSaveable { mutableIntStateOf(0) }
+    var savedOffset by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        if (savedIndex > 0 || savedOffset > 0) {
+            profileListState.scrollToItem(savedIndex, savedOffset)
+        }
+    }
+    // 用 snapshotFlow 监听滚动变化,避免每帧写入
+    LaunchedEffect(profileListState) {
+        snapshotFlow { profileListState.firstVisibleItemIndex to profileListState.firstVisibleItemScrollOffset }
+            .collect { (idx, off) -> savedIndex = idx; savedOffset = off }
+    }
 
     if (showLogoutConfirm) {
         AlertDialog(
@@ -497,6 +505,7 @@ private fun ProfileHomeScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         LazyColumn(
+            state = profileListState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
@@ -531,7 +540,7 @@ private fun ProfileHomeScreen(
             item {
                 AhuSectionHeader(
                     title = "校园服务",
-                    subtitle = "常用查询入口"
+                    subtitle = "生活保障服务"
                 )
             }
 
@@ -588,7 +597,7 @@ private fun ProfileHomeScreen(
                     HorizontalDivider()
                     SettingsRow(
                         title = "设置",
-                        description = "外观：${themeMode.titleText()}",
+                        description = "外观：${themeMode.titleText()}、功能设置",
                         iconColor = Color(0xFF6C63FF),
                         icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                         onClick = onOpenSettings
@@ -707,7 +716,7 @@ private fun AppSettingsScreen(
     onMarketEnabledChanged: (Boolean) -> Unit,
     /** 2026-06-17 Bug2: 近期任务全局设置 */
     showCompletedTasks: Boolean = false,
-    showCompletedExams: Boolean = true,
+    showCompletedExams: Boolean = false,
     onShowCompletedTasksChanged: (Boolean) -> Unit = {},
     onShowCompletedExamsChanged: (Boolean) -> Unit = {},
     onBack: () -> Unit
@@ -1334,11 +1343,21 @@ private fun BalanceCard(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = updatedText(timestamp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // \u6709\u91d1\u989d\u65f6\u9690\u85cf"\u66f4\u65b0\u4e8e"\u907f\u514d\u6324\u5360\u7a7a\u95f4;\u53ea\u6709\u65e0\u91d1\u989d(loading/error)\u65f6\u663e\u793a\u63d0\u793a
+                val hasBalance = balance > 0.0
+                val subText = when {
+                    hasBalance -> null  // \u663e\u793a\u91d1\u989d\u65f6,\u4e0d\u518d\u5c55\u793a"\u66f4\u65b0\u4e8e"
+                    isLoading -> null
+                    error != null -> null  // \u4e0d\u663e\u793a"\u83b7\u53d6\u5931\u8d25"
+                    else -> updatedText(timestamp)
+                }
+                if (subText != null) {
+                    Text(
+                        text = subText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             when {
                 isLoading && balance == 0.0 -> {
@@ -1347,20 +1366,14 @@ private fun BalanceCard(
                         strokeWidth = 2.dp
                     )
                 }
-                error != null && balance == 0.0 -> {
-                    Text(
-                        text = "\u83b7\u53d6\u5931\u8d25",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-                else -> {
+                balance > 0.0 -> {
                     Text(
                         text = formatter.format(balance),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                 }
+                // \u5931\u8d25 / 0 \u5143 / \u5c1a\u672a\u52a0\u8f7d \u2192 \u4e0d\u663e\u793a\u4efb\u4f55\u5185\u5bb9
             }
             IconButton(
                 onClick = {
@@ -1473,8 +1486,7 @@ fun WaterElectricityUtilityDetailScreen(
     internetBillsError: String?,
     onBack: () -> Unit,
     onSaveBathroomPhone: (String) -> Unit,
-    onSaveAcConfig: (ElectricityRoomConfig) -> Unit,
-    onSaveLightingConfig: (ElectricityRoomConfig) -> Unit,
+    onSaveElectricityConfig: (ElectricityRoomConfig, ElectricityTarget) -> Unit,
     onRefreshBathroom: () -> Unit,
     onRefreshAcBalance: () -> Unit,
     onRefreshLightingBalance: () -> Unit,
@@ -1484,6 +1496,7 @@ fun WaterElectricityUtilityDetailScreen(
     onRefreshInternetBills: () -> Unit,
     onAcBillRangeSelected: (ElectricityBillRange) -> Unit,
     onLightingBillRangeSelected: (ElectricityBillRange) -> Unit,
+    cardViewModel: HomeViewModel,
     initialUtility: String? = null
 ) {
     var selectedUtility by rememberSaveable { mutableStateOf(initialUtility) }
@@ -1513,12 +1526,14 @@ fun WaterElectricityUtilityDetailScreen(
             ElectricityUtilityDetailScreen(
                 title = "空调余额",
                 state = acState,
+                target = ElectricityTarget.AC,
+                cardViewModel = cardViewModel,
                 bills = acBills,
                 billRange = acBillRange,
                 billsLoading = acBillsLoading,
                 billsError = acBillsError,
                 onBack = { selectedUtility = null },
-                onSaveConfig = onSaveAcConfig,
+                onSaveConfig = onSaveElectricityConfig,
                 onRefreshBalance = onRefreshAcBalance,
                 onRefreshBills = onRefreshAcBills,
                 onBillRangeSelected = onAcBillRangeSelected
@@ -1530,12 +1545,14 @@ fun WaterElectricityUtilityDetailScreen(
             ElectricityUtilityDetailScreen(
                 title = "照明余额",
                 state = lightingState,
+                target = ElectricityTarget.LIGHTING,
+                cardViewModel = cardViewModel,
                 bills = lightingBills,
                 billRange = lightingBillRange,
                 billsLoading = lightingBillsLoading,
                 billsError = lightingBillsError,
                 onBack = { selectedUtility = null },
-                onSaveConfig = onSaveLightingConfig,
+                onSaveConfig = onSaveElectricityConfig,
                 onRefreshBalance = onRefreshLightingBalance,
                 onRefreshBills = onRefreshLightingBills,
                 onBillRangeSelected = onLightingBillRangeSelected
@@ -1573,12 +1590,6 @@ fun WaterElectricityUtilityDetailScreen(
         }
     ) {
         item {
-            AhuStatusCard(
-                text = "自动更新依赖学生信息里的手机号和宿舍数据。更换宿舍或余额无法自动刷新时，请先更新学生信息，再回到这里刷新余额。",
-                modifier = Modifier.padding(bottom = 2.dp)
-            )
-        }
-        item {
             ClickableUtilityCard(onClick = { selectedUtility = "bathroom" }) {
                 BathroomBalanceCard(
                     data = bathroomData,
@@ -1595,7 +1606,11 @@ fun WaterElectricityUtilityDetailScreen(
                 ElectricityBalanceCard(
                     label = "空调余额",
                     state = acState,
-                    onSaveConfig = onSaveAcConfig,
+                    target = ElectricityTarget.AC,
+                    onLoadBuildings = { cardViewModel.loadBuildings(ElectricityTarget.AC) },
+                    onSelectBuilding = { cardViewModel.selectBuilding(ElectricityTarget.AC, it) },
+                    onSelectFloor = { cardViewModel.selectFloor(ElectricityTarget.AC, it) },
+                    onSelectRoom = { cardViewModel.selectRoom(ElectricityTarget.AC, it) },
                     onRetry = onRefreshAcBalance
                 )
             }
@@ -1605,7 +1620,11 @@ fun WaterElectricityUtilityDetailScreen(
                 ElectricityBalanceCard(
                     label = "照明余额",
                     state = lightingState,
-                    onSaveConfig = onSaveLightingConfig,
+                    target = ElectricityTarget.LIGHTING,
+                    onLoadBuildings = { cardViewModel.loadBuildings(ElectricityTarget.LIGHTING) },
+                    onSelectBuilding = { cardViewModel.selectBuilding(ElectricityTarget.LIGHTING, it) },
+                    onSelectFloor = { cardViewModel.selectFloor(ElectricityTarget.LIGHTING, it) },
+                    onSelectRoom = { cardViewModel.selectRoom(ElectricityTarget.LIGHTING, it) },
                     onRetry = onRefreshLightingBalance
                 )
             }
@@ -1619,6 +1638,12 @@ fun WaterElectricityUtilityDetailScreen(
                     onRetry = onRefreshInternetBalance
                 )
             }
+        }
+        item {
+            AhuStatusCard(
+                text = "自动更新依赖学生信息里的手机号和宿舍数据。更换宿舍或余额无法自动刷新时，请先更新学生信息，再回到这里刷新余额。",
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
     }
 }
@@ -1672,12 +1697,14 @@ fun BathroomUtilityDetailScreen(
 fun ElectricityUtilityDetailScreen(
     title: String,
     state: ElectricityState,
+    target: ElectricityTarget,
+    cardViewModel: HomeViewModel,
     bills: List<ElectricityDailyRecord>,
     billRange: ElectricityBillRange,
     billsLoading: Boolean,
     billsError: String?,
     onBack: () -> Unit,
-    onSaveConfig: (ElectricityRoomConfig) -> Unit,
+    onSaveConfig: (ElectricityRoomConfig, ElectricityTarget) -> Unit,
     onRefreshBalance: () -> Unit,
     onRefreshBills: () -> Unit,
     onBillRangeSelected: (ElectricityBillRange) -> Unit
@@ -1697,7 +1724,11 @@ fun ElectricityUtilityDetailScreen(
             ElectricityBalanceCard(
                 label = title,
                 state = state,
-                onSaveConfig = onSaveConfig,
+                target = target,
+                onLoadBuildings = { cardViewModel.loadBuildings(target) },
+                onSelectBuilding = { cardViewModel.selectBuilding(target, it) },
+                onSelectFloor = { cardViewModel.selectFloor(target, it) },
+                onSelectRoom = { cardViewModel.selectRoom(target, it) },
                 onRetry = onRefreshBalance
             )
         }
