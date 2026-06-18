@@ -10,11 +10,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AssignmentTurnedIn
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AssistChip
@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
 import kotlinx.coroutines.delay
@@ -46,27 +47,26 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 /**
- * 首页"今日课程"卡片 (2026-06-17 增强版)。
+ * 首页"今日课程"卡片 (2026-06-17 增强版, 2026-06-18 考勤联动)。
  *
  * 三种状态:
- *  - 上课中: 显示进度条 + "已上 X 分钟 / 还剩 Y 分钟"
+ *  - 上课中: 显示进度条 + "已上 X 分钟 / 还剩 Y 分钟" + 考勤状态
  *  - 课前: 倒计时 "下节课还有 X 分钟" / "X 小时 Y 分钟后"
  *  - 课间 / 下课: "下课啦" 或 "下一节还有 X 分钟"
  *  - 今天没课: "今天没课,好好休息"
  *
- * 卡片底部两个 AssistChip:
- *  - 点名 (hasRollCall 高亮)
- *  - 作业 (hasHomework 高亮)
+ * 卡片底部 AssistChip: 作业
+ *
+ * @param todayAttendance 今日课程考勤状态 (key=课程名, value=status: 1=正常, 2=迟到, 3=缺勤)
  */
 @Composable
 fun TodayCourseCard(
     uiState: TodayCourseUiState,
     onOpenSchedule: () -> Unit,
     onRefresh: () -> Unit,
-    onRollCall: () -> Unit,
     onAddHomework: () -> Unit,
-    todayHasRollCall: Boolean = false,
     todayHasHomework: Boolean = false,
+    todayAttendance: Map<String, Int> = emptyMap(),
 ) {
     // 每 30s tick 一次,驱动倒计时/进度条重算
     var tick by remember { mutableIntStateOf(0) }
@@ -90,7 +90,7 @@ fun TodayCourseCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = AhuShapes.LargeCard,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer
         ),
@@ -131,6 +131,11 @@ fun TodayCourseCard(
                     val progress = if (total > 0) (elapsed.toFloat() / total).coerceIn(0f, 1f) else 0f
 
                     CourseSummary(currentCourse, uiState.unitTimes)
+                    // 考勤状态 badge (从教务考勤系统匹配)
+                    val attStatus = todayAttendance[currentCourse.courseName]
+                    if (attStatus != null) {
+                        AttendanceBadge(status = attStatus)
+                    }
                     LinearProgressIndicator(
                         progress = { progress },
                         modifier = Modifier
@@ -180,30 +185,18 @@ fun TodayCourseCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     AssistChip(
-                        onClick = onRollCall,
-                        label = { Text("签到") },
+                        onClick = onAddHomework,
+                        label = { Text("作业") },
                         leadingIcon = {
                             Icon(
-                                Icons.Filled.CheckCircle, contentDescription = null,
+                                Icons.Filled.AssignmentTurnedIn, contentDescription = null,
                                 modifier = Modifier.size(AssistChipDefaults.IconSize),
-                                tint = if (todayHasRollCall) MaterialTheme.colorScheme.primary
+                                tint = if (todayHasHomework) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         },
                     )
-                    AssistChip(
-                        onClick = onAddHomework,
-                    label = { Text("作业") },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Filled.AssignmentTurnedIn, contentDescription = null,
-                            modifier = Modifier.size(AssistChipDefaults.IconSize),
-                            tint = if (todayHasHomework) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
-                )
-            }
+                }
             } // end if (currentCourse != null)
 
             // 底部链接
@@ -315,4 +308,41 @@ private fun courseTotalMinutes(course: CourseDisplayItem, unitTimes: List<Course
     val end = course.endTime?.takeIf { it.isNotBlank() } ?: unitMap[course.endUnit]?.endTimeStr()
     val endMin = parseTimeMinutes(end) ?: return 0
     return (endMin - start).coerceAtLeast(0)
+}
+
+/**
+ * 考勤状态小 badge。
+ * status: 1=正常/已签到 (绿), 2=迟到 (橙), 3=缺勤 (红)
+ */
+@Composable
+private fun AttendanceBadge(status: Int) {
+    val (label, color) = when (status) {
+        1 -> "已签到" to Color(0xFF27AE60)
+        2 -> "迟到" to Color(0xFFE67E22)
+        3 -> "缺勤" to MaterialTheme.colorScheme.error
+        else -> return
+    }
+    Surface(
+        shape = AhuShapes.Card,
+        color = color.copy(alpha = 0.14f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(color)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = color,
+            )
+        }
+    }
 }

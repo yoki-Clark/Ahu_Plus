@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.KqAttendanceRecord
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.ui.screen.profile.EmptyBlock
 import com.yourname.ahu_plus.ui.screen.profile.ErrorBlock
 import com.yourname.ahu_plus.ui.screen.profile.LoadingBlock
@@ -178,7 +179,7 @@ private fun AttendanceRow(record: KqAttendanceRecord) {
     val operDate = record.classWaterBean?.operdate?.ifBlank { null }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
@@ -201,11 +202,16 @@ private fun AttendanceRow(record: KqAttendanceRecord) {
             ) {
                 Text(courseName, style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val dateLine = listOfNotNull(checkDate, periodText, classroom.ifBlank { null })
-                    .joinToString(" · ").ifBlank { "日期未知" }
+                val dateLine = listOfNotNull(checkDate, periodText).joinToString(" · ").ifBlank { "日期未知" }
                 Text(dateLine, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // 教室单独一行,确保完整显示不再被截断
+                if (classroom.isNotBlank()) {
+                    Text("教室: $classroom", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 val weekText = record.accountBean?.week?.let { "第" + it + "周" }
                 val detailLine = listOfNotNull(
                     teacherName?.let { "教师:" + it },
@@ -223,7 +229,7 @@ private fun AttendanceRow(record: KqAttendanceRecord) {
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Surface(shape = RoundedCornerShape(8.dp), color = typeColor.copy(alpha = 0.14f)) {
+            Surface(shape = AhuShapes.Card, color = typeColor.copy(alpha = 0.14f)) {
                 Text(statusLabel, style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium, color = typeColor,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))

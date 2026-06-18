@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.MarketTopic
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.ui.theme.MarketColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,7 +72,7 @@ internal fun MarketHotScreen(
         ) {
             item {
                 Card(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = AhuShapes.Card,
                     colors = CardDefaults.cardColors(
                         containerColor = MarketColors.HotFlameBg
                     ),

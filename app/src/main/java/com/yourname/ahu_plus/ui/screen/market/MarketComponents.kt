@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -716,7 +717,7 @@ internal fun IdentityCard(
                 Box(
                     modifier = Modifier
                         .size(42.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(AhuShapes.Card)
                         .background(MarketColors.IdentityAccentBg.copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -825,11 +826,12 @@ fun MarketIdentityEditor(
 }
 
 /**
- * 紧凑模式身份卡 —— 适配「设置页」:不再暴露丑陋的大块 OutlinedTextField,
- * 改为可点击的简洁 Card(单行),点击后弹出 [IdentityInputDialog] 输入真实 token。
+ * 紧凑模式身份卡 —— 简化版"添加 API"入口。
+ *
+ * 不再显示已保存身份的 token 片段(原有展示给人诡异感),
+ * 统一作为「添加 API 身份字段」按钮,点击弹出 [IdentityInputDialog]。
  *
  * @param onAddIdentity 点 "保存" 后的回调 —— 沿用现有 [MarketViewModel.saveIdentity] 逻辑
- * @param onRemoveIdentity 移除已保存身份
  */
 @Composable
 fun CompactIdentityCard(
@@ -840,7 +842,7 @@ fun CompactIdentityCard(
     modifier: Modifier = Modifier
 ) {
     var showDialog by rememberSaveable { mutableStateOf(false) }
-    val firstIdentity = uiState.identities.firstOrNull()
+    val identityCount = uiState.identities.size
 
     Card(
         shape = AhuShapes.Card,
@@ -858,14 +860,14 @@ fun CompactIdentityCard(
             Box(
                 modifier = Modifier
                     .size(38.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(AhuShapes.Card)
                     .background(MarketColors.IdentityAccentBg.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Filled.Key,
+                    Icons.Filled.Add,
                     contentDescription = null,
-                    tint = MarketColors.IdentityAccent
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
             Column(
@@ -875,35 +877,24 @@ fun CompactIdentityCard(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
-                    text = "API 身份字段",
+                    text = "添加 API 身份",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = firstIdentity?.let {
-                        "${it.school ?: "未识别校区"} · ${maskToken(it.token)}"
-                    } ?: "点击添加 Bearer JWT 身份字段",
+                    text = if (identityCount > 0) "已保存 $identityCount 个校区身份, 点击继续添加"
+                    else "点击添加 Bearer JWT 身份字段",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (firstIdentity != null) {
-                IconButton(onClick = onRemoveIdentity) {
-                    Icon(
-                        Icons.Filled.DeleteOutline,
-                        contentDescription = "删除",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                Icon(
-                    Icons.Filled.Add,
-                    contentDescription = "添加",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
         }
 
         uiState.identityError?.let { error ->
@@ -1158,7 +1149,7 @@ fun MarketImagePreviewPager(
             ) {
                 Surface(
                     color = Color.Black.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = AhuShapes.LargeCard
                 ) {
                     Text(
                         text = "${pagerState.currentPage + 1} / ${state.size}",

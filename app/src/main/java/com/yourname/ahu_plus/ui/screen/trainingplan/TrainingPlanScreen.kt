@@ -13,12 +13,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -65,6 +67,7 @@ import com.yourname.ahu_plus.data.model.jw.PlanCourseInfo
 import com.yourname.ahu_plus.data.model.jw.PlanEnumValue
 import com.yourname.ahu_plus.data.model.jw.PlanModuleNode
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.ui.components.AhuShapes
 
 // ── 颜色常量 ──────────────────────────────────────────────────────────
 private val PropRequired = Color(0xFF1565C0)
@@ -150,7 +153,7 @@ fun TrainingPlanScreen(
                         ModuleCard(
                             module = module,
                             depth = 0,
-                            expandedIds = uiState.expandedIds,
+                            expandedId = uiState.expandedId,
                             passedCodes = uiState.passedCourseCodes,
                             inProgressCodes = uiState.inProgressCourseCodes,
                             failedCodes = uiState.failedCourseCodes,
@@ -181,7 +184,7 @@ private fun OverviewCard(
     val progress = if (hasCompletion) summary!!.completionProgress else -1f
 
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier.fillMaxWidth()
@@ -293,7 +296,7 @@ private fun OverviewCard(
 private fun ModuleCard(
     module: PlanModuleNode,
     depth: Int,
-    expandedIds: Set<Int>,
+    expandedId: Int?,
     passedCodes: Set<String>,
     inProgressCodes: Set<String>,
     failedCodes: Set<String>,
@@ -301,7 +304,7 @@ private fun ModuleCard(
     onToggleNode: (Int) -> Unit
 ) {
     val moduleId = module.id ?: module.hashCode()
-    val isExpanded = moduleId in expandedIds
+    val isExpanded = moduleId == expandedId
     val hasContent = !module.planCourses.isNullOrEmpty() || !module.children.isNullOrEmpty()
     val reqCredits = module.requiredCredits
     val reqCourseNum = module.requireInfo?.requiredCourseNum?.takeIf { it > 0 }
@@ -325,7 +328,7 @@ private fun ModuleCard(
     val moduleProgress = if (effectiveRequired > 0) (totalPassed / effectiveRequired).toFloat().coerceIn(0f, 1f) else -1f
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = if (depth == 0) 1.dp else 0.dp),
         modifier = Modifier
@@ -410,79 +413,76 @@ private fun ModuleCard(
                 }
             }
 
-            // Expanded content
+            // Expanded content — 限制最大高度, 内部滚动, 表头不动
             if (isExpanded) {
                 Spacer(modifier = Modifier.height(8.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Courses list
-                module.planCourses?.forEachIndexed { index, course ->
-                    CourseCard(
-                        course = course,
-                        index = index,
-                        passedCodes = passedCodes,
-                        inProgressCodes = inProgressCodes,
-                        failedCodes = failedCodes
-                    )
-                    if (index < (module.planCourses?.lastIndex ?: 0)) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                    }
-                }
-
-                // Sub-modules
-                module.children?.forEach { child ->
-                    Spacer(modifier = Modifier.height(6.dp))
-                    ModuleCard(
-                        module = child,
-                        depth = depth + 1,
-                        expandedIds = expandedIds,
-                        passedCodes = passedCodes,
-                        inProgressCodes = inProgressCodes,
-                        failedCodes = failedCodes,
-                        unmatchedCourses = unmatchedCourses,
-                        onToggleNode = onToggleNode
-                    )
-                }
-
-                // 显示未匹配课程（通识选修等无固定课程列表的模块）
-                val showUnmatched = unmatchedCourses.isNotEmpty() &&
-                    (displayName.contains("通识选修") || displayName.contains("选修"))
-                if (showUnmatched) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "已选课程",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    unmatchedCourses.forEachIndexed { index, cc ->
-                        val status = when {
-                            cc.isPassed -> CourseCompletion.PASSED
-                            cc.isTaking -> CourseCompletion.IN_PROGRESS
-                            cc.isFailed -> CourseCompletion.FAILED
-                            else -> CourseCompletion.NOT_TAKEN
-                        }
-                        // Use a simplified course card
-                        val fakePlanCourse = PlanCourse(
-                            course = com.yourname.ahu_plus.data.model.jw.PlanCourseInfo(
-                                nameZh = cc.nameZh, code = cc.code, credits = cc.credits
-                            ),
-                            courseProperty = if (cc.compulsory == true)
-                                com.yourname.ahu_plus.data.model.jw.PlanEnumValue(nameZh = "必修")
-                            else com.yourname.ahu_plus.data.model.jw.PlanEnumValue(nameZh = "选修"),
-                            examMode = null
-                        )
+                Spacer(modifier = Modifier.height(4.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Courses list
+                    module.planCourses?.forEachIndexed { index, course ->
                         CourseCard(
-                            course = fakePlanCourse,
+                            course = course,
                             index = index,
-                            passedCodes = if (status == CourseCompletion.PASSED) setOf(cc.code ?: "") else emptySet(),
-                            inProgressCodes = if (status == CourseCompletion.IN_PROGRESS) setOf(cc.code ?: "") else emptySet(),
-                            failedCodes = if (status == CourseCompletion.FAILED) setOf(cc.code ?: "") else emptySet()
+                            passedCodes = passedCodes,
+                            inProgressCodes = inProgressCodes,
+                            failedCodes = failedCodes
                         )
-                        if (index < unmatchedCourses.lastIndex) {
-                            Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    // Sub-modules
+                    module.children?.forEach { child ->
+                        ModuleCard(
+                            module = child,
+                            depth = depth + 1,
+                            expandedId = expandedId,
+                            passedCodes = passedCodes,
+                            inProgressCodes = inProgressCodes,
+                            failedCodes = failedCodes,
+                            unmatchedCourses = unmatchedCourses,
+                            onToggleNode = onToggleNode
+                        )
+                    }
+
+                    // 显示未匹配课程（通识选修等无固定课程列表的模块）
+                    val showUnmatched = unmatchedCourses.isNotEmpty() &&
+                        (displayName.contains("通识选修") || displayName.contains("选修"))
+                    if (showUnmatched) {
+                        Text(
+                            text = "已选课程",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        unmatchedCourses.forEachIndexed { index, cc ->
+                            val status = when {
+                                cc.isPassed -> CourseCompletion.PASSED
+                                cc.isTaking -> CourseCompletion.IN_PROGRESS
+                                cc.isFailed -> CourseCompletion.FAILED
+                                else -> CourseCompletion.NOT_TAKEN
+                            }
+                            val fakePlanCourse = PlanCourse(
+                                course = com.yourname.ahu_plus.data.model.jw.PlanCourseInfo(
+                                    nameZh = cc.nameZh, code = cc.code, credits = cc.credits
+                                ),
+                                courseProperty = if (cc.compulsory == true)
+                                    com.yourname.ahu_plus.data.model.jw.PlanEnumValue(nameZh = "必修")
+                                else com.yourname.ahu_plus.data.model.jw.PlanEnumValue(nameZh = "选修"),
+                                examMode = null
+                            )
+                            CourseCard(
+                                course = fakePlanCourse,
+                                index = index,
+                                passedCodes = if (status == CourseCompletion.PASSED) setOf(cc.code ?: "") else emptySet(),
+                                inProgressCodes = if (status == CourseCompletion.IN_PROGRESS) setOf(cc.code ?: "") else emptySet(),
+                                failedCodes = if (status == CourseCompletion.FAILED) setOf(cc.code ?: "") else emptySet()
+                            )
                         }
                     }
                 }
@@ -530,7 +530,7 @@ private fun CourseCard(
     }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(
             containerColor = when (status) {
                 CourseCompletion.PASSED -> PassedGreen.copy(alpha = 0.04f)

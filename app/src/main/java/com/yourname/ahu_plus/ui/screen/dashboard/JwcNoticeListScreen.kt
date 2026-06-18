@@ -66,6 +66,7 @@ import com.yourname.ahu_plus.data.model.JwcNotice
 import com.yourname.ahu_plus.data.model.JwcNoticeAttachment
 import com.yourname.ahu_plus.data.model.JwcNoticeDetail
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import org.json.JSONArray
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -235,7 +236,7 @@ private fun NoticeRow(
     onClick: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
@@ -333,7 +334,7 @@ private fun NoticeDetailBody(
 @Composable
 private fun NoticeDetailHeader(notice: JwcNotice) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
@@ -361,7 +362,7 @@ private fun NoticeDetailHeader(notice: JwcNotice) {
 @Composable
 private fun NoticeDetailContent(detail: JwcNoticeDetail) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
@@ -394,7 +395,7 @@ private fun AttachmentRow(
     onDownload: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 1.dp,
         modifier = Modifier

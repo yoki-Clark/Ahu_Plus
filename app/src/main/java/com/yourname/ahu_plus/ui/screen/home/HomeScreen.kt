@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -17,12 +18,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +37,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,9 +50,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.local.ElectricityRoomConfig
+import com.yourname.ahu_plus.data.model.FeeItemOption
 import com.yourname.ahu_plus.data.repository.AdwmhQrCode
 import com.yourname.ahu_plus.data.model.InternetBalanceData
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.util.BrowserOpener
 import com.yourname.ahu_plus.util.QrCodeBitmap
 import java.text.DecimalFormat
@@ -116,16 +125,24 @@ fun HomeScreen(
                 ElectricityBalanceCard(
                     label = "空调余额",
                     state = uiState.ac,
-                    onSaveConfig = viewModel::saveAcConfig,
-                    onRetry = viewModel::loadAcBalance
+                    target = ElectricityTarget.AC,
+                    onLoadBuildings = { viewModel.loadBuildings(ElectricityTarget.AC) },
+                    onSelectBuilding = { viewModel.selectBuilding(ElectricityTarget.AC, it) },
+                    onSelectFloor = { viewModel.selectFloor(ElectricityTarget.AC, it) },
+                    onSelectRoom = { viewModel.selectRoom(ElectricityTarget.AC, it) },
+                    onRetry = { viewModel.loadElectricityBalance(ElectricityTarget.AC) }
                 )
             }
             item {
                 ElectricityBalanceCard(
                     label = "照明余额",
                     state = uiState.lighting,
-                    onSaveConfig = viewModel::saveLightingConfig,
-                    onRetry = viewModel::loadLightingBalance
+                    target = ElectricityTarget.LIGHTING,
+                    onLoadBuildings = { viewModel.loadBuildings(ElectricityTarget.LIGHTING) },
+                    onSelectBuilding = { viewModel.selectBuilding(ElectricityTarget.LIGHTING, it) },
+                    onSelectFloor = { viewModel.selectFloor(ElectricityTarget.LIGHTING, it) },
+                    onSelectRoom = { viewModel.selectRoom(ElectricityTarget.LIGHTING, it) },
+                    onRetry = { viewModel.loadElectricityBalance(ElectricityTarget.LIGHTING) }
                 )
             }
             item {
@@ -172,7 +189,7 @@ fun CampusQrCodeCard(
     var openError by remember { mutableStateOf<String?>(null) }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -255,7 +272,7 @@ private fun BalanceSummaryCard(
     onRetry: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -318,7 +335,7 @@ fun BathroomBalanceCard(
     }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -374,7 +391,7 @@ fun BathroomBalanceCard(
                 data != null -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = data.projectName.ifBlank { "浴室余额" },
+                            text = "浴室余额",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
@@ -461,31 +478,35 @@ private fun PhoneInputDialog(
     )
 }
 
-// ─── 电费卡片 (空调/照明通用) ──────────────────────────────
+// ─── 电费卡片 (空调/照明/新区通用) ──────────────────────────────
 
 @Composable
 fun ElectricityBalanceCard(
     label: String,
     state: ElectricityState,
-    onSaveConfig: (ElectricityRoomConfig) -> Unit,
+    target: ElectricityTarget,
+    onLoadBuildings: () -> Unit,
+    onSelectBuilding: (FeeItemOption) -> Unit,
+    onSelectFloor: (FeeItemOption) -> Unit,
+    onSelectRoom: (FeeItemOption) -> Unit,
     onRetry: () -> Unit
 ) {
     var showConfigDialog by remember { mutableStateOf(false) }
 
     if (showConfigDialog) {
-        RoomConfigDialog(
+        RoomConfigCascadeDialog(
             title = "设置${label}房间",
-            currentConfig = state.config,
-            onDismiss = { showConfigDialog = false },
-            onConfirm = { config ->
-                onSaveConfig(config)
-                showConfigDialog = false
-            }
+            state = state,
+            onLoadBuildings = onLoadBuildings,
+            onSelectBuilding = onSelectBuilding,
+            onSelectFloor = onSelectFloor,
+            onSelectRoom = onSelectRoom,
+            onDismiss = { showConfigDialog = false }
         )
     }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -587,68 +608,82 @@ fun ElectricityBalanceCard(
 }
 
 @Composable
-private fun RoomConfigDialog(
+private fun RoomConfigCascadeDialog(
     title: String,
-    currentConfig: ElectricityRoomConfig,
-    onDismiss: () -> Unit,
-    onConfirm: (ElectricityRoomConfig) -> Unit
+    state: ElectricityState,
+    onLoadBuildings: () -> Unit,
+    onSelectBuilding: (FeeItemOption) -> Unit,
+    onSelectFloor: (FeeItemOption) -> Unit,
+    onSelectRoom: (FeeItemOption) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    var building by remember { mutableStateOf(currentConfig.building) }
-    var floor by remember { mutableStateOf(currentConfig.floor) }
-    var room by remember { mutableStateOf(currentConfig.room) }
+    LaunchedEffect(Unit) {
+        if (state.cascade.buildings.isEmpty() && !state.cascade.loadingBuildings) {
+            onLoadBuildings()
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
+                state.cascade.dormHint?.let { hint ->
+                    Text(
+                        "宿舍: ${hint.buildingName} ${hint.roomNumber} (自动匹配中)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 Text(
-                    "楼栋/楼层: 需从抓包获取完整名（如\"57&榴园二号楼空调\"）",
+                    "依次选择楼栋 → 楼层 → 房间",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = building,
-                    onValueChange = { building = it },
-                    label = { Text("楼栋 (code&name)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                Spacer(modifier = Modifier.height(12.dp))
+
+                CascadeDropdown(
+                    label = "楼栋",
+                    options = state.cascade.buildings,
+                    selected = state.cascade.selectedBuilding,
+                    isLoading = state.cascade.loadingBuildings,
+                    error = state.cascade.buildingsError,
+                    enabled = !state.cascade.loadingBuildings,
+                    onSelect = onSelectBuilding
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = floor,
-                    onValueChange = { floor = it },
-                    label = { Text("楼层 (code&name)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                CascadeDropdown(
+                    label = "楼层",
+                    options = state.cascade.floors,
+                    selected = state.cascade.selectedFloor,
+                    isLoading = state.cascade.loadingFloors,
+                    error = state.cascade.floorsError,
+                    enabled = state.cascade.selectedBuilding != null && !state.cascade.loadingFloors,
+                    onSelect = onSelectFloor
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = room,
-                    onValueChange = { room = it },
-                    label = { Text("房间 (如 2514&2514)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                CascadeDropdown(
+                    label = "房间",
+                    options = state.cascade.rooms,
+                    selected = state.cascade.selectedRoom,
+                    isLoading = state.cascade.loadingRooms,
+                    error = state.cascade.roomsError,
+                    enabled = state.cascade.selectedFloor != null && !state.cascade.loadingRooms,
+                    onSelect = onSelectRoom
                 )
-                // 自动从学生表预填 room 提示
-                Text(
-                    "提示: 房间号可从「我的信息」→「住宿数据」中查",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    onConfirm(ElectricityRoomConfig(building.trim(), floor.trim(), room.trim()))
+                    state.cascade.selectedRoom?.let { onSelectRoom(it) }
+                    onDismiss()
                 },
-                enabled = ElectricityRoomConfig(
-                    building = building.trim(),
-                    floor = floor.trim(),
-                    room = room.trim()
-                ).isComplete
+                enabled = state.cascade.selectedBuilding != null &&
+                    state.cascade.selectedFloor != null &&
+                    state.cascade.selectedRoom != null
             ) {
                 Text("确定")
             }
@@ -661,6 +696,73 @@ private fun RoomConfigDialog(
     )
 }
 
+/**
+ * 单个级联下拉框。空状态显示提示文案,加载中显示 spinner,
+ * 出错显示红色错误 + 提示用户检查网络。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CascadeDropdown(
+    label: String,
+    options: List<FeeItemOption>,
+    selected: FeeItemOption?,
+    isLoading: Boolean,
+    error: String?,
+    enabled: Boolean,
+    onSelect: (FeeItemOption) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded && enabled && options.isNotEmpty(),
+        onExpandedChange = { if (enabled) expanded = !expanded }
+    ) {
+        OutlinedTextField(
+            value = selected?.name ?: when {
+                isLoading -> "加载中..."
+                error != null -> "加载失败"
+                options.isEmpty() -> "请选择"
+                else -> "请选择"
+            },
+            onValueChange = {},
+            readOnly = true,
+            enabled = enabled,
+            label = { Text(label) },
+            trailingIcon = {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                }
+            },
+            isError = error != null,
+            supportingText = error?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor()
+        )
+
+        DropdownMenu(
+            expanded = expanded && options.isNotEmpty(),
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 320.dp)
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.name) },
+                    onClick = {
+                        expanded = false
+                        onSelect(option)
+                    }
+                )
+            }
+        }
+    }
+}
+
 // ─── 网费卡片 ──────────────────────────────────────────────
 
 @Composable
@@ -671,7 +773,7 @@ fun InternetBalanceCard(
     onRetry: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         modifier = Modifier.fillMaxWidth()
     ) {

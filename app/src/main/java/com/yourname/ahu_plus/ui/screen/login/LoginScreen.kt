@@ -23,6 +23,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -47,6 +48,8 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
+import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuGradient
 
 @Composable
 fun LoginScreen(
@@ -128,7 +131,7 @@ fun LoginScreen(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             enabled = !uiState.isLoading,
-            shape = RoundedCornerShape(12.dp)
+            shape = AhuShapes.Card
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -153,7 +156,7 @@ fun LoginScreen(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             enabled = !uiState.isLoading,
-            shape = RoundedCornerShape(12.dp)
+            shape = AhuShapes.Card
         )
 
         // 错误
@@ -169,18 +172,19 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        // 登录按钮
+        // 登录按钮 — 蓝渐变品牌色
         Button(
             onClick = viewModel::onLogin,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
+                .height(56.dp)
+                .background(AhuGradient.Blue.brush, AhuShapes.IconBox),
             enabled = !uiState.isLoading &&
                 uiState.username.isNotBlank() &&
                 uiState.password.isNotBlank(),
-            shape = RoundedCornerShape(14.dp),
+            shape = AhuShapes.IconBox,
             colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
+                containerColor = Color.Transparent
             ),
             elevation = ButtonDefaults.buttonElevation(
                 defaultElevation = 4.dp,

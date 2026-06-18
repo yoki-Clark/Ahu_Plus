@@ -32,7 +32,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -44,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -52,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,13 +65,16 @@ import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.MarketIdentity
 import com.yourname.ahu_plus.data.model.MarketTopic
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.ui.theme.MarketColors
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MarketListScreen(
     uiState: MarketUiState,
     listState: LazyListState,
+    staggerListState: androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState? = null,
     onIdentityChanged: (String) -> Unit,
     onSaveIdentity: () -> Unit,
     onClearIdentity: () -> Unit,
@@ -88,7 +93,8 @@ internal fun MarketListScreen(
     onSelectAllSchools: () -> Unit = {}
 ) {
     val isSingleSchool = uiState.selectedIdentityIds.size <= 1
-    val staggerState = rememberLazyStaggeredGridState()
+    // 2026-06-17 Bug5: 优先用外部传入的 state (MarketScreen 已将 state 提升, 返回时可恢复位置)
+    val staggerState = staggerListState ?: rememberLazyStaggeredGridState()
     val shouldLoadMore by remember(uiState.topics.size, uiState.hasMoreTopics) {
         derivedStateOf {
             // 瀑布流与单列模式共用一个判断：取两个 state 中实际有数据的那个来计算
@@ -110,6 +116,17 @@ internal fun MarketListScreen(
 
     // FAB 仅在列表页（一级页）显示：未在搜索/详情/设置/发帖/热榜/消息任一状态时
     val showFab = uiState.hasSavedIdentity && !uiState.isSearching
+
+    // "回到顶部"按钮：列表下滑后显示
+    val scope = rememberCoroutineScope()
+    val isScrolledFromTop by remember {
+        derivedStateOf {
+            val firstVisible = listState.firstVisibleItemIndex
+            val staggerFirst = staggerState.firstVisibleItemIndex
+            maxOf(firstVisible, staggerFirst) > 0
+        }
+    }
+    val showScrollToTop = uiState.scrollToTopEnabled && isScrolledFromTop && uiState.hasSavedIdentity && !uiState.isSearching
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -315,6 +332,40 @@ internal fun MarketListScreen(
             visible = showFab,
             onClick = onOpenCompose
         )
+
+        // "回到顶部"按钮 — 左下角,避免与右下角 FAB 重叠
+        if (showScrollToTop) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 16.dp, bottom = 84.dp),
+                contentAlignment = Alignment.BottomStart
+            ) {
+                Surface(
+                    onClick = {
+                        scope.launch {
+                            listState.animateScrollToItem(0)
+                            staggerState.animateScrollToItem(0)
+                            onRefresh()
+                        }
+                    },
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    tonalElevation = 4.dp,
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.VerticalAlignTop,
+                            contentDescription = "回到顶部",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -379,7 +430,7 @@ private fun SchoolSwitcherRow(
     val scrollState = rememberScrollState()
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
@@ -444,7 +495,7 @@ private fun SchoolSwitcherRow(
 @Composable
 internal fun HotEntryCard(onClick: () -> Unit) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
@@ -458,7 +509,7 @@ internal fun HotEntryCard(onClick: () -> Unit) {
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(AhuShapes.Card)
                     .background(MarketColors.HotEntryIconBg.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center
             ) {

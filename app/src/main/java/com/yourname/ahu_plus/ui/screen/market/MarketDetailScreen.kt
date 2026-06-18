@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.yourname.ahu_plus.data.model.MarketComment
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -347,7 +348,7 @@ private fun CommentCard(
     onReplyReplyClick: (MarketComment) -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -398,7 +399,7 @@ private fun CommentCard(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(AhuShapes.Card)
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                         .padding(10.dp)
                 ) {
@@ -528,7 +529,7 @@ private fun CommentComposerBar(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(AhuShapes.IconBox)
                         .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f))
                         .padding(start = 10.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
                 ) {

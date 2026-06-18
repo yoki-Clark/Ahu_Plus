@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.task.RecentTaskItem
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.data.model.task.RecentTaskSource
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -57,7 +58,7 @@ fun UpcomingTasksCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = AhuShapes.LargeCard,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -138,7 +139,7 @@ private fun TaskRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(AhuShapes.Card)
             .clickable(enabled = item.source == RecentTaskSource.EXAM, onClick = onClickExam)
             .padding(vertical = 6.dp, horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,

@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -39,25 +38,32 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+// AhuSpacing / AhuShapes 已迁移至 ui/theme/Spacing.kt 与 ui/theme/Shape.kt。
+// 这里保留兼容层（object 用 getter 委托给 theme 包），所有历史 import 路径不变。
+// 后续可渐进删除本文件 object 并把所有 Screen 的 import 改为 ui.theme。
+private typealias ThemeSpacing = com.yourname.ahu_plus.ui.theme.AhuSpacing
+private typealias ThemeShapes = com.yourname.ahu_plus.ui.theme.AhuShapes
+
 object AhuSpacing {
-    val ScreenHorizontal = 16.dp
-    val Card = 16.dp
-    val Section = 16.dp
-    val CardGap = 12.dp
-    val xs = 4.dp
-    val sm = 8.dp
-    val md = 12.dp
-    val lg = 16.dp
-    val xl = 24.dp
+    val ScreenHorizontal get() = ThemeSpacing.ScreenHorizontal
+    val Card get() = ThemeSpacing.Card
+    val Section get() = ThemeSpacing.Section
+    val CardGap get() = ThemeSpacing.CardGap
+    val xs get() = ThemeSpacing.xs
+    val sm get() = ThemeSpacing.sm
+    val md get() = ThemeSpacing.md
+    val lg get() = ThemeSpacing.lg
+    val xl get() = ThemeSpacing.xl
 }
 
 object AhuShapes {
-    val Card = RoundedCornerShape(12.dp)
-    val LargeCard = RoundedCornerShape(16.dp)
-    val IconBox = RoundedCornerShape(14.dp)
-    val Pill = RoundedCornerShape(999.dp)
-    val Dialog = RoundedCornerShape(20.dp)
-    val BottomSheet = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    val Card get() = ThemeShapes.Card
+    val LargeCard get() = ThemeShapes.LargeCard
+    val IconBox get() = ThemeShapes.IconBox
+    val Pill get() = ThemeShapes.Pill
+    val Dialog get() = ThemeShapes.Dialog
+    val BottomSheet get() = ThemeShapes.BottomSheet
+    val Sheet get() = ThemeShapes.Sheet
 }
 
 @Composable

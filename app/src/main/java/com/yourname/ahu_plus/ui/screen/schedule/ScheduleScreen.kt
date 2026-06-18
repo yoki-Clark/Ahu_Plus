@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.jw.UserScheduleItem
 import com.yourname.ahu_plus.ui.screen.schedule.components.WeekPager
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import kotlin.math.roundToInt
 import java.util.UUID
 
@@ -317,7 +318,7 @@ private fun WeekHeader(
             ) {
                 Surface(
                     modifier = Modifier.width(224.dp),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = AhuShapes.Card,
                     color = MaterialTheme.colorScheme.surface
                 ) {
                     Column(modifier = Modifier.padding(8.dp)) {

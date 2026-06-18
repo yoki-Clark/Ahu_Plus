@@ -1306,10 +1306,8 @@ private fun BalanceCard(
     }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -2068,7 +2066,7 @@ fun BillDetailScreen(
                 else -> {
                     item {
                         Card(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = AhuShapes.Card,
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surface
                             ),

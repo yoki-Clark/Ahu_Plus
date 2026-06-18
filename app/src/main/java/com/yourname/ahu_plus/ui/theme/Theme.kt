@@ -77,6 +77,7 @@ fun Ahu_PlusTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = AhuMaterialShapes,
         content = content
     )
 }

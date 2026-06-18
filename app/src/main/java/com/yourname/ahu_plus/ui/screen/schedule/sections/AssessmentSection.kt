@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.course.AssessmentPlan
 import com.yourname.ahu_plus.data.repository.AssessmentRepository
 import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import kotlinx.coroutines.launch
 import android.graphics.BitmapFactory
 
@@ -67,6 +68,8 @@ fun AssessmentSection(
     assessmentRepository: AssessmentRepository,
     onSave: (text: String, imagePaths: List<String>) -> Unit,
     modifier: Modifier = Modifier,
+    expanded: Boolean? = null,
+    onToggle: ((Boolean) -> Unit)? = null,
 ) {
     var text by remember(lessonId) { mutableStateOf(plan?.text.orEmpty()) }
     var images by remember(lessonId) { mutableStateOf(plan?.imagePaths.orEmpty()) }
@@ -103,6 +106,8 @@ fun AssessmentSection(
         defaultExpanded = false,
         badge = if (images.isNotEmpty()) "${images.size} 张" else null,
         modifier = modifier,
+        expanded = expanded,
+        onToggle = onToggle,
     ) {
         Text(
             text = "支持文字 + 图片。记录考核方式、占比、复习重点、往年题目截图等。",
@@ -211,7 +216,7 @@ private fun AssessmentImageThumb(
     Box(
         modifier = Modifier
             .size(80.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(AhuShapes.Card)
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
         if (bitmap != null) {
@@ -235,7 +240,7 @@ private fun AssessmentImageThumb(
         }
         // 删除按钮
         Surface(
-            shape = RoundedCornerShape(999.dp),
+            shape = AhuShapes.Pill,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
             modifier = Modifier
                 .align(Alignment.TopEnd)

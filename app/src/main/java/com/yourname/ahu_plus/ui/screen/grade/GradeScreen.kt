@@ -58,6 +58,8 @@ import com.yourname.ahu_plus.data.model.jw.GpaMetadata
 import com.yourname.ahu_plus.data.model.jw.Grade
 import com.yourname.ahu_plus.data.model.jw.SemesterGpaEntry
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuGradient
 
 // ── 语义色 ──
 private val Score90 = Color(0xFFE53935)
@@ -210,21 +212,14 @@ fun GradeScreen(
 @Composable
 private fun GpaSummaryCard(gpa: GpaMetadata, modifier: Modifier = Modifier) {
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = AhuShapes.LargeCard,
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFF5C6BC0),
-                            Color(0xFF7986CB)
-                        )
-                    )
-                )
+                .background(AhuGradient.Violet.brush)
                 .padding(18.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -297,7 +292,7 @@ private fun GpaBarChart(
     val barHeight = 80.dp
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = modifier.fillMaxWidth()
@@ -347,7 +342,7 @@ private fun SemesterBar(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(AhuShapes.Card)
             .background(bgColor)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -576,7 +571,7 @@ private fun GradeSummaryCard(grades: List<Grade>, semesterName: String?) {
         }
 
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         modifier = Modifier
             .fillMaxWidth()
@@ -635,7 +630,7 @@ private fun Stat(label: String, value: String) {
 private fun GradeRow(grade: Grade, onClick: () -> Unit) {
     val scoreColor = scoreColor(grade.scoreAsDouble())
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier

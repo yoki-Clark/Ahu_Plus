@@ -2,7 +2,9 @@ package com.yourname.ahu_plus.ui.screen.apps
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,6 +32,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +48,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.AhuPlusApplication
 import com.yourname.ahu_plus.ui.components.AhuIconBox
+import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuGradient
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import com.yourname.ahu_plus.ui.components.AhuSectionTitle
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListScreen
@@ -56,6 +66,9 @@ import com.yourname.ahu_plus.ui.screen.exam.ExamViewModel
 import com.yourname.ahu_plus.ui.screen.grade.GradeScreen
 import com.yourname.ahu_plus.ui.screen.grade.GradeViewModel
 import com.yourname.ahu_plus.ui.screen.home.HomeViewModel
+import com.yourname.ahu_plus.ui.screen.home.ElectricityTarget
+import com.yourname.ahu_plus.ui.screen.home.ElectricityBillRange
+import com.yourname.ahu_plus.ui.screen.home.ElectricityState
 import com.yourname.ahu_plus.ui.screen.attendance.AttendanceScreen
 import com.yourname.ahu_plus.ui.screen.profile.AttendanceViewModel
 import com.yourname.ahu_plus.ui.screen.profile.BathroomUtilityDetailScreen
@@ -124,11 +137,11 @@ fun AppHubScreen(
     var currentPage by rememberSaveable { mutableStateOf<String?>(null) }
     val hubListState = rememberLazyListState()
 
-    // 系统返回键：子页面 → hub（MyInfoHub / 水电费子页面先回到上级）
+    // 系统返回键：子页面 → hub
+    // 注意: 我的信息二级入口(基本信息/住宿/预警) → MyInfoHub；财务/考勤 → 直接回应用页
     BackHandler(enabled = currentPage != null) {
         currentPage = when (currentPage) {
-            PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO, PAGE_ACADEMIC_WARNING,
-            PAGE_FINANCE -> PAGE_MY_INFO_HUB
+            PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO, PAGE_ACADEMIC_WARNING -> PAGE_MY_INFO_HUB
             else -> null
         }
     }
@@ -191,27 +204,31 @@ fun AppHubScreen(
         PAGE_AC -> ElectricityUtilityDetailScreen(
             title = "空调余额",
             state = cardUiState.ac,
+            target = ElectricityTarget.AC,
+            cardViewModel = cardViewModel,
             bills = cardUiState.acBills,
             billRange = cardUiState.acBillRange,
             billsLoading = cardUiState.acBillsLoading,
             billsError = cardUiState.acBillsError,
             onBack = { currentPage = null },
-            onSaveConfig = cardViewModel::saveAcConfig,
-            onRefreshBalance = cardViewModel::loadAcBalance,
-            onRefreshBills = { cardViewModel.loadAcBills() },
+            onSaveConfig = { config, _ -> cardViewModel.saveElectricityConfig(config, ElectricityTarget.AC) },
+            onRefreshBalance = { cardViewModel.loadElectricityBalance(ElectricityTarget.AC) },
+            onRefreshBills = { cardViewModel.loadElectricityBills(ElectricityTarget.AC) },
             onBillRangeSelected = cardViewModel::setAcBillRange
         )
         PAGE_LIGHTING -> ElectricityUtilityDetailScreen(
             title = "照明余额",
             state = cardUiState.lighting,
+            target = ElectricityTarget.LIGHTING,
+            cardViewModel = cardViewModel,
             bills = cardUiState.lightingBills,
             billRange = cardUiState.lightingBillRange,
             billsLoading = cardUiState.lightingBillsLoading,
             billsError = cardUiState.lightingBillsError,
             onBack = { currentPage = null },
-            onSaveConfig = cardViewModel::saveLightingConfig,
-            onRefreshBalance = cardViewModel::loadLightingBalance,
-            onRefreshBills = { cardViewModel.loadLightingBills() },
+            onSaveConfig = { config, _ -> cardViewModel.saveElectricityConfig(config, ElectricityTarget.LIGHTING) },
+            onRefreshBalance = { cardViewModel.loadElectricityBalance(ElectricityTarget.LIGHTING) },
+            onRefreshBills = { cardViewModel.loadElectricityBills(ElectricityTarget.LIGHTING) },
             onBillRangeSelected = cardViewModel::setLightingBillRange
         )
         PAGE_INTERNET -> InternetUtilityDetailScreen(
@@ -267,7 +284,7 @@ fun AppHubScreen(
         )
         PAGE_FINANCE -> FinanceDetailScreen(
             uiState = financeUiState,
-            onBack = { currentPage = PAGE_MY_INFO_HUB },
+            onBack = { currentPage = null },
             onRefresh = financeViewModel::refreshFinance
         )
         PAGE_ATTENDANCE -> AttendanceScreen(
@@ -308,22 +325,22 @@ private fun AppHubPage(
                 Spacer(modifier = Modifier.height(4.dp))
             }
             item {
-                AppHubItem("课表", Icons.Filled.CalendarMonth, AhuBlue) {
+                AppHubItem("课表", Icons.Filled.CalendarMonth, AhuBlue, gradient = AhuGradient.Blue.brush) {
                     onNavigate(PAGE_SCHEDULE)
                 }
             }
             item {
-                AppHubItem("成绩", Icons.Filled.Grade, AhuRed) {
+                AppHubItem("成绩", Icons.Filled.Grade, AhuRed, gradient = AhuGradient.Violet.brush) {
                     onNavigate(PAGE_GRADE)
                 }
             }
             item {
-                AppHubItem("考试", Icons.AutoMirrored.Filled.EventNote, AhuOrange) {
+                AppHubItem("考试", Icons.AutoMirrored.Filled.EventNote, AhuOrange, gradient = AhuGradient.Orange.brush) {
                     onNavigate(PAGE_EXAM)
                 }
             }
             item {
-                AppHubItem("培养方案进度", Icons.Filled.School, Color(0xFF6C63FF)) {
+                AppHubItem("培养方案进度", Icons.Filled.School, Color(0xFF6C63FF), gradient = AhuGradient.Violet.brush) {
                     onNavigate(PAGE_TRAINING_PLAN)
                 }
             }
@@ -423,7 +440,8 @@ private fun AppHubItem(
     title: String,
     icon: ImageVector,
     iconColor: Color,
-    onClick: () -> Unit
+    gradient: Brush? = null,
+    onClick: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         ListItem(
@@ -437,11 +455,29 @@ private fun AppHubItem(
                 )
             },
             leadingContent = {
-                AhuIconBox(
-                    imageVector = icon,
-                    tint = iconColor,
-                    size = 38.dp
-                )
+                if (gradient != null) {
+                    // 一级入口：渐变图标盒
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(AhuShapes.IconBox)
+                            .background(gradient),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                } else {
+                    AhuIconBox(
+                        imageVector = icon,
+                        tint = iconColor,
+                        size = 38.dp,
+                    )
+                }
             },
             trailingContent = {
                 Icon(

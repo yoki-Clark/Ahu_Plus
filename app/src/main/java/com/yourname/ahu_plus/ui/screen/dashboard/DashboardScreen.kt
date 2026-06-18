@@ -97,8 +97,7 @@ import com.yourname.ahu_plus.ui.theme.AhuOrange
 import com.yourname.ahu_plus.ui.theme.AhuRed
 import com.yourname.ahu_plus.ui.theme.AhuTeal
 import com.yourname.ahu_plus.ui.theme.AhuViolet
-import com.yourname.ahu_plus.ui.theme.AhuGradientBlueStart
-import com.yourname.ahu_plus.ui.theme.AhuGradientBlueEnd
+import com.yourname.ahu_plus.ui.theme.AhuGradient
 import org.json.JSONArray
 import java.time.LocalDate
 import java.time.LocalTime
@@ -473,7 +472,7 @@ private fun JwcNoticeItem(
 
                     is NoticeDetailState.Success -> {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = AhuShapes.Card,
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -634,11 +633,7 @@ private fun TodayCourseCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.background(
-                Brush.linearGradient(
-                    colors = listOf(AhuGradientBlueStart, AhuGradientBlueEnd)
-                )
-            )
+            modifier = Modifier.background(AhuGradient.Blue.brush)
         ) {
             // 顶部标签行
             Row(
@@ -727,7 +722,7 @@ private fun TodayCourseCard(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = AhuShapes.Card,
                     color = Color.White.copy(alpha = 0.2f),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -778,7 +773,7 @@ private fun CountdownChip(
         else -> "${diff / 60}h${diff % 60}m" to Color.White.copy(alpha = 0.78f)
     }
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = AhuShapes.Card,
         color = color.copy(alpha = 0.25f)
     ) {
         Text(

@@ -57,6 +57,7 @@ import com.yourname.ahu_plus.ui.screen.grade.CenteredError
 import com.yourname.ahu_plus.ui.screen.grade.CenteredLoader
 import com.yourname.ahu_plus.ui.screen.grade.CenteredMessage
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.ui.components.AhuShapes
 import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -195,7 +196,7 @@ private fun ExamRow(exam: Exam, isFinished: Boolean = false) {
     }
 
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
@@ -223,7 +224,7 @@ private fun ExamRow(exam: Exam, isFinished: Boolean = false) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(AhuShapes.Card)
                     .padding(end = 12.dp)
             ) {
                 Text(

@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.MarketIdentity
 import com.yourname.ahu_plus.data.remote.market.MarketApi
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
+import com.yourname.ahu_plus.ui.components.AhuShapes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,7 +61,8 @@ fun MarketSettingsScreen(
     onAddKeyword: () -> Unit,
     onRemoveKeyword: (String) -> Unit,
     onToggleFilterNode: (Long) -> Unit,
-    onListLayoutModeChange: (String) -> Unit = {}
+    onListLayoutModeChange: (String) -> Unit = {},
+    onScrollToTopChanged: (Boolean) -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -99,7 +101,7 @@ fun MarketSettingsScreen(
             if (uiState.identities.isNotEmpty()) {
                 item {
                     Card(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = AhuShapes.Card,
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -147,11 +149,22 @@ fun MarketSettingsScreen(
                 )
             }
 
+            // ── 2.6 回到顶部按钮 ────────────────────────────
+            item { SettingsSectionTitle("回到顶部") }
+            item {
+                SettingsToggleCard(
+                    title = "显示回到顶部按钮",
+                    description = "下滑后右下角出现按钮，点击回到顶部并刷新",
+                    checked = uiState.scrollToTopEnabled,
+                    onCheckedChange = onScrollToTopChanged
+                )
+            }
+
             // ── 3. 屏蔽词 ────────────────────────────
             item { SettingsSectionTitle("屏蔽词") }
             item {
                 Card(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = AhuShapes.Card,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -209,7 +222,7 @@ fun MarketSettingsScreen(
             item { SettingsSectionTitle("板块筛选") }
             item {
                 Card(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = AhuShapes.Card,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -269,7 +282,7 @@ private fun SettingsToggleCard(
     onCheckedChange: (Boolean) -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
@@ -338,7 +351,7 @@ private fun SavedIdentityRow(
 @Composable
 private fun KeywordChip(keyword: String, onRemove: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = AhuShapes.LargeCard,
         color = MaterialTheme.colorScheme.secondaryContainer,
         tonalElevation = 0.dp
     ) {
@@ -372,7 +385,7 @@ private fun ListLayoutModeCard(
     onSelect: (String) -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
