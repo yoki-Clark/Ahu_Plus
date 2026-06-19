@@ -5,6 +5,7 @@ import com.yourname.ahu_plus.data.local.AppDataStore
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.repository.AdwmhCardRepository
+import com.yourname.ahu_plus.data.repository.AiCommentRepository
 import com.yourname.ahu_plus.data.repository.AssessmentRepository
 import com.yourname.ahu_plus.data.repository.KqAttendanceRepository
 import com.yourname.ahu_plus.data.repository.CardRepository
@@ -43,6 +44,8 @@ class AhuPlusApplication : Application() {
     lateinit var ycardRepository: YcardRepository
         private set
     lateinit var marketRepository: MarketRepository
+        private set
+    lateinit var aiCommentRepository: AiCommentRepository
         private set
     lateinit var jwcNoticeRepository: JwcNoticeRepository
         private set
@@ -92,6 +95,7 @@ class AhuPlusApplication : Application() {
             portalJsessionIdProvider = { casAuthRepository.getJsessionid() }
         )
         marketRepository = MarketRepository(sessionManager)
+        aiCommentRepository = AiCommentRepository(this, sessionManager)
         jwcNoticeRepository = JwcNoticeRepository()
         studentInfoRepository = StudentInfoRepository(sessionManager, casAuthRepository)
         // 成绩 / 考试 复用 JwAuthRepository 的 CookieJar
@@ -113,7 +117,7 @@ class AhuPlusApplication : Application() {
 
     /**
      * 退出登录时统一清理:
-     * 1. SessionManager 清掉持久化数据(DataStore + 加密 SharedPreferences)
+     * 1. SessionManager 清掉持久化数据(DataStore)
      * 2. 各 Repository 清掉内存 Cookie 和 JWT
      *
      * 备注:课程备注 [courseNoteRepository] 不被清空 — 用户重新登录后仍能看到自己之前写的备注。
@@ -123,6 +127,6 @@ class AhuPlusApplication : Application() {
         jwAuthRepository.clearCookies()
         ycardRepository.clearCookies()
         adwmhCardRepository.clearCookies()
-        sessionManager.clearAuthData()
+        sessionManager.clearAll()
     }
 }

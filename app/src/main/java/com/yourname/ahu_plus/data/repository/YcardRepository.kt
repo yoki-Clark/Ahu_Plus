@@ -10,6 +10,8 @@ import com.yourname.ahu_plus.data.model.ElectricityBalanceResponse
 import com.yourname.ahu_plus.data.model.ElectricityBillResponse
 import com.yourname.ahu_plus.data.model.ElectricityDailyRecord
 import com.yourname.ahu_plus.data.model.ElectricityUiData
+import com.yourname.ahu_plus.data.model.FeeItemOption
+import com.yourname.ahu_plus.data.model.FeeItemSelectResponse
 import com.yourname.ahu_plus.data.model.InternetBalanceData
 import com.yourname.ahu_plus.data.model.InternetBalanceResponse
 import com.yourname.ahu_plus.data.model.InternetBillResponse
@@ -97,7 +99,7 @@ class YcardRepository(
      */
     suspend fun login(username: String, password: String): Result<Unit> {
         return try {
-            Log.e(TAG, "开始 ycard 认证...")
+            Log.d(TAG, "开始 ycard 认证...")
             cookieStore.clear()
             cachedJwt = null
 
@@ -108,7 +110,7 @@ class YcardRepository(
                 try {
                     Log.i(TAG, "尝试复用 CAS 登录态走简易 SSO")
                     loginWithCastgc(castgc)
-                    Log.e(TAG, "ycard 简易 SSO 成功")
+                    Log.d(TAG, "ycard 简易 SSO 成功")
                     return Result.success(Unit)
                 } catch (e: Exception) {
                     Log.e(TAG, "简易 SSO 失败，回退到完整登录: ${e.message}")
@@ -147,7 +149,7 @@ class YcardRepository(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 val code = response.code
-                Log.e(TAG, "账单 API HTTP $code")
+                Log.d(TAG, "账单 API HTTP $code")
 
                 if (code != 200) {
                     return Result.failure(Exception("账单查询失败 HTTP $code"))
@@ -224,7 +226,7 @@ class YcardRepository(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 val code = response.code
-                Log.e(TAG, "浴室余额 API HTTP $code")
+                Log.d(TAG, "浴室余额 API HTTP $code")
 
                 if (code != 200) {
                     return Result.failure(Exception("浴室余额查询失败 HTTP $code"))
@@ -249,30 +251,33 @@ class YcardRepository(
     /**
      * 查询电费余额 (空调/照明等),与浴室共用同一端点但参数不同。
      *
-     * @param feeitemid 费用项 ID (408=空调, 428=照明)
+     * @param feeitemid 费用项 ID (408=空调, 428=照明, 488=新区)
      * @param building  楼栋 (格式 "code&name",如 "57&榴园二号楼空调")
      * @param floor     楼层 (格式 "code&name",如 "228&五层")
      * @param room      房间 (格式 "code&name",如 "2514&2514")
-     * @param level     层级,电费固定为 "3"
+     * @param level     层级,老区 "3",新区 "4"
+     * @param campus    校区 (格式 "code&name",如 "ul001002002&磬苑校区"),新区必填
      */
     suspend fun getElectricityBalance(
         feeitemid: String,
         building: String,
         floor: String,
         room: String,
-        level: String = "3"
+        level: String = "3",
+        campus: String? = null
     ): Result<ElectricityUiData> {
         return try {
             val jwt = cachedJwt ?: return Result.failure(Exception("未登录 ycard"))
 
-            val formBody = FormBody.Builder()
+            val formBuilder = FormBody.Builder()
                 .add("feeitemid", feeitemid)
                 .add("type", "IEC")
                 .add("level", level)
                 .add("building", building)
                 .add("floor", floor)
                 .add("room", room)
-                .build()
+            if (!campus.isNullOrBlank()) formBuilder.add("campus", campus)
+            val formBody = formBuilder.build()
 
             val request = Request.Builder()
                 .url("$YCARD_BASE/charge/feeitem/getThirdData")
@@ -285,10 +290,11 @@ class YcardRepository(
                 .post(formBody)
                 .build()
 
+            Log.d(TAG, "电费 API 请求: feeitemid=$feeitemid building=$building floor=$floor room=$room level=$level")
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 val code = response.code
-                Log.e(TAG, "电费 API feeitemid=$feeitemid HTTP $code")
+                Log.d(TAG, "电费 API feeitemid=$feeitemid HTTP $code")
 
                 if (code != 200) {
                     return Result.failure(Exception("电费查询失败 HTTP $code"))
@@ -338,7 +344,7 @@ class YcardRepository(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 val code = response.code
-                Log.e(TAG, "网费余额 API HTTP $code")
+                Log.d(TAG, "网费余额 API HTTP $code")
 
                 if (code != 200) {
                     return Result.failure(Exception("网费查询失败 HTTP $code"))
@@ -383,7 +389,7 @@ class YcardRepository(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 val code = response.code
-                Log.e(TAG, "网费账单 API HTTP $code")
+                Log.d(TAG, "网费账单 API HTTP $code")
 
                 if (code != 200) {
                     return Result.failure(Exception("网费账单查询失败 HTTP $code"))
@@ -401,12 +407,13 @@ class YcardRepository(
     /**
      * 查询电费日用明细 (空调/照明)。
      *
-     * @param feeitemid 费用项 ID (408=空调, 428=照明)
+     * @param feeitemid 费用项 ID (408=空调, 428=照明, 488=新区)
      * @param building  楼栋 (code&name 格式)
      * @param floor     楼层 (code&name 格式)
      * @param room      房间 (code&name 格式)
      * @param startDate 开始日期 (yyyy-MM-dd)
      * @param endDate   结束日期 (yyyy-MM-dd)
+     * @param campus    校区 (code&name 格式),新区必填
      */
     suspend fun getElectricityBills(
         feeitemid: String,
@@ -414,19 +421,25 @@ class YcardRepository(
         floor: String,
         room: String,
         startDate: String,
-        endDate: String
+        endDate: String,
+        campus: String? = null
     ): Result<List<ElectricityDailyRecord>> {
         return try {
             val jwt = cachedJwt ?: return Result.failure(Exception("未登录 ycard"))
 
-            // URL 编码 building/floor/room 中的 & 符号
+            // URL 编码参数中的 & 符号
             val encodedBuilding = java.net.URLEncoder.encode(building, "UTF-8")
             val encodedFloor = java.net.URLEncoder.encode(floor, "UTF-8")
             val encodedRoom = java.net.URLEncoder.encode(room, "UTF-8")
 
+            val campusParam = if (!campus.isNullOrBlank()) {
+                "&campus=${java.net.URLEncoder.encode(campus, "UTF-8")}"
+            } else ""
+
             val request = Request.Builder()
                 .url("$YCARD_BASE/charge/feeitem/getRechargeRecord" +
                     "?feeitemid=$feeitemid&startdate=$startDate&enddate=$endDate" +
+                    campusParam +
                     "&building=$encodedBuilding&floor=$encodedFloor&room=$encodedRoom")
                 .header("User-Agent", UA)
                 .header("synjones-auth", "bearer $jwt")
@@ -436,10 +449,11 @@ class YcardRepository(
                 .get()
                 .build()
 
+            Log.d(TAG, "电费账单请求: feeitemid=$feeitemid building=$building floor=$floor room=$room $startDate~$endDate")
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 val code = response.code
-                Log.e(TAG, "电费账单 API feeitemid=$feeitemid HTTP $code")
+                Log.d(TAG, "电费账单 API feeitemid=$feeitemid HTTP $code")
 
                 if (code != 200) {
                     return Result.failure(Exception("电费账单查询失败 HTTP $code"))
@@ -450,6 +464,163 @@ class YcardRepository(
             }
         } catch (e: Exception) {
             Log.e(TAG, "电费账单查询错误", e)
+            Result.failure(e)
+        }
+    }
+
+    // ══════════════════════════════════════════════════════
+    // 电费房间级联元数据 (楼栋 → 楼层 → 房间)
+    // 用于替代 HomeViewModel 里硬编码的码表,支持全部园区。
+    // ══════════════════════════════════════════════════════
+
+    /**
+     * 拉取指定 feeitemid 下的校区列表 (仅 feeitemid=488 新区使用,level=0 返回校区)。
+     *
+     * 老区 feeitemid (408/428) 没有校区概念,此方法调用会得到空 data。
+     */
+    suspend fun getFeeItemCampuses(feeitemid: String): Result<List<FeeItemOption>> {
+        return queryFeeItemSelect(
+            feeitemid = feeitemid,
+            level = "0",
+            campus = null,
+            building = null,
+            floor = null,
+            filterSuffix = null
+        )
+    }
+
+    /**
+     * 拉取指定 feeitemid 下的楼栋列表。
+     *
+     * 注意:feeitemid=408(空调) 的响应会混入"照明"后缀的楼栋
+     * (电表合一或 feeitemid 错配),这里按 name 后缀过滤,只保留与 feeitemid 对应的项:
+     * - 408 → name.endsWith("空调")
+     * - 428 → name.endsWith("照明")
+     * - 488 → 不过滤(空调和照明合并在同一 feeitemid)
+     *
+     * @param campus 可选,新区 feeitemid=488 时必填,老区 408/428 不传。
+     */
+    suspend fun getFeeItemBuildings(
+        feeitemid: String,
+        campus: String? = null
+    ): Result<List<FeeItemOption>> {
+        return queryFeeItemSelect(
+            feeitemid = feeitemid,
+            level = if (campus.isNullOrBlank()) "0" else "1",
+            campus = campus,
+            building = null,
+            floor = null,
+            filterSuffix = feeitemSuffix(feeitemid)
+        )
+    }
+
+    /**
+     * 拉取指定楼栋的楼层列表。
+     */
+    suspend fun getFeeItemFloors(
+        feeitemid: String,
+        campus: String?,
+        building: String
+    ): Result<List<FeeItemOption>> {
+        return queryFeeItemSelect(
+            feeitemid = feeitemid,
+            level = if (campus.isNullOrBlank()) "1" else "2",
+            campus = campus,
+            building = building,
+            floor = null,
+            filterSuffix = null
+        )
+    }
+
+    /**
+     * 拉取指定楼栋+楼层的房间列表。
+     */
+    suspend fun getFeeItemRooms(
+        feeitemid: String,
+        campus: String?,
+        building: String,
+        floor: String
+    ): Result<List<FeeItemOption>> {
+        return queryFeeItemSelect(
+            feeitemid = feeitemid,
+            level = if (campus.isNullOrBlank()) "2" else "3",
+            campus = campus,
+            building = building,
+            floor = floor,
+            filterSuffix = null
+        )
+    }
+
+    private fun feeitemSuffix(feeitemid: String): String = when (feeitemid) {
+        "408" -> "空调"
+        "428" -> "照明"
+        "488" -> ""  // 新区 feeitemid=488 把空调+照明合并,不过滤
+        else -> ""
+    }
+
+    /**
+     * 通用 select 接口调用,返回 feeitemid/level 对应的元数据列表。
+     *
+     * @param campus  可选,新区 feeitemid=488 时必填,老区不传。
+     * @param building 可选,level>=1 时必填。
+     * @param floor    可选,level>=2 时必填。
+     * @param filterSuffix 可选,只保留 name.endsWith(filterSuffix) 的项
+     *                    (用于楼栋列表过滤 feeitemid=408 混入的"照明"楼栋)
+     */
+    private suspend fun queryFeeItemSelect(
+        feeitemid: String,
+        level: String,
+        campus: String?,
+        building: String?,
+        floor: String?,
+        filterSuffix: String?
+    ): Result<List<FeeItemOption>> {
+        return try {
+            val jwt = cachedJwt ?: return Result.failure(Exception("未登录 ycard"))
+
+            val formBuilder = FormBody.Builder()
+                .add("feeitemid", feeitemid)
+                .add("type", "select")
+                .add("level", level)
+            if (!campus.isNullOrBlank()) formBuilder.add("campus", campus)
+            if (!building.isNullOrBlank()) formBuilder.add("building", building)
+            if (!floor.isNullOrBlank()) formBuilder.add("floor", floor)
+
+            val request = Request.Builder()
+                .url("$YCARD_BASE/charge/feeitem/getThirdData")
+                .header("User-Agent", UA)
+                .header("synjones-auth", "bearer $jwt")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Origin", YCARD_BASE)
+                .header("Referer", "$YCARD_BASE/charge-app/")
+                .header("Accept-Language", "zh-CN,zh;q=0.9")
+                .post(formBuilder.build())
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                val code = response.code
+                Log.d(TAG, "feeitem select feeitemid=$feeitemid level=$level HTTP $code")
+
+                if (code != 200) {
+                    return Result.failure(Exception("元数据查询失败 HTTP $code"))
+                }
+
+                val resp = gson.fromJson(body, FeeItemSelectResponse::class.java)
+                if (resp.code != 200) {
+                    return Result.failure(Exception(resp.msg.ifBlank { "元数据查询失败" }))
+                }
+
+                val raw = resp.map?.data ?: emptyList()
+                val filtered = if (!filterSuffix.isNullOrBlank()) {
+                    raw.filter { it.name.endsWith(filterSuffix) }
+                } else {
+                    raw
+                }
+                Result.success(filtered)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "feeitem select 查询错误", e)
             Result.failure(e)
         }
     }

@@ -1,5 +1,6 @@
 package com.yourname.ahu_plus.ui.screen.grade
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.model.jw.GpaMetadata
@@ -12,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -89,7 +92,7 @@ class GradeViewModel(
                 }
             }
             true
-        } catch (_: Exception) { false }
+        } catch (_: Exception) { Log.w(TAG, "Failed to load cached grades"); false }
     }
 
     private suspend fun loadGrades(isRefresh: Boolean) {
@@ -112,8 +115,11 @@ class GradeViewModel(
                 }
 
                 // 并发请求：grades JSON + GPA HTML
-                val gradesResult = gradeRepository.getGrades()
-                val gpaResult = gradeRepository.getGpaMetadata()
+                val (gradesResult, gpaResult) = coroutineScope {
+                    val gradesDeferred = async { gradeRepository.getGrades() }
+                    val gpaDeferred = async { gradeRepository.getGpaMetadata() }
+                    gradesDeferred.await() to gpaDeferred.await()
+                }
 
                 gradesResult.fold(
                     onSuccess = { resp ->
@@ -125,7 +131,7 @@ class GradeViewModel(
                                     gson.toJson(resp),
                                     gpaResult.getOrNull()?.let { gson.toJson(it) }
                                 )
-                            } catch (_: Exception) { /* 忽略缓存失败 */ }
+                            } catch (_: Exception) { Log.w(TAG, "Failed to cache grades JSON") }
                         }
 
                         val semesterIds = resp.semesterId2studentGrades?.keys
@@ -173,6 +179,10 @@ class GradeViewModel(
                 )
             }
         }
+    }
+
+    private companion object {
+        private const val TAG = "GradeVM"
     }
 }
 

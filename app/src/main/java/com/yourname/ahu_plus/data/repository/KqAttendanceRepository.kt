@@ -80,7 +80,7 @@ class KqAttendanceRepository(
 
     suspend fun getAttendanceList(): Result<KqAttendanceSummary> = withContext(Dispatchers.IO) {
         try {
-            Log.e(TAG, "开始获取考勤数据...")
+            Log.d(TAG, "开始获取考勤数据...")
             ensureLoggedIn()
 
             var jwt = cachedJwt
@@ -123,7 +123,7 @@ class KqAttendanceRepository(
                 val code = response.code
                 response.close()
 
-                Log.e(TAG, "考勤 API page=$currentPage HTTP $code")
+                Log.d(TAG, "考勤 API page=$currentPage HTTP $code")
 
                 if (code == 401 || code == 403) {
                     if (authRetryUsed) {
@@ -234,7 +234,7 @@ class KqAttendanceRepository(
                 ?: throw Exception("未找到 token: ${location.take(200)}")
         }
         cachedJwt = jwt
-        Log.e(TAG, "kqcard 认证成功")
+        Log.d(TAG, "kqcard 认证成功")
     }
 
     private suspend fun persistToCache(summary: KqAttendanceSummary) {

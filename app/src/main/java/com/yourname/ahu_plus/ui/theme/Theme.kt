@@ -58,7 +58,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun Ahu_PlusTheme(
+fun AhuPlusTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = false,
@@ -83,11 +83,11 @@ fun Ahu_PlusTheme(
 }
 
 private object ColorTokens {
-    val LightOnPrimary = androidx.compose.ui.graphics.Color.White
-    val LightOnPrimaryContainer = androidx.compose.ui.graphics.Color(0xFF102C5E)
-    val DarkOnPrimary = androidx.compose.ui.graphics.Color(0xFF08111F)
-    val DarkPrimaryContainer = androidx.compose.ui.graphics.Color(0xFF24395F)
-    val DarkSecondaryContainer = androidx.compose.ui.graphics.Color(0xFF153F3B)
-    val DarkError = androidx.compose.ui.graphics.Color(0xFFFFB4AB)
-    val DarkErrorContainer = androidx.compose.ui.graphics.Color(0xFF5F1515)
+    val LightOnPrimary = Color.White
+    val LightOnPrimaryContainer = Color(0xFF102C5E)
+    val DarkOnPrimary = Color(0xFF08111F)
+    val DarkPrimaryContainer = Color(0xFF24395F)
+    val DarkSecondaryContainer = Color(0xFF153F3B)
+    val DarkError = Color(0xFFFFB4AB)
+    val DarkErrorContainer = Color(0xFF5F1515)
 }

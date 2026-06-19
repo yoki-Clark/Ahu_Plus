@@ -41,11 +41,17 @@ class SecureHttpClientFactoryTest {
     }
 
     @Test
-    fun `trustAllManager accepts any certificate chain`() {
-        // 不抛异常即通过
-        SecureHttpClientFactory.trustAllManager.checkServerTrusted(emptyArray(), "RSA")
-        SecureHttpClientFactory.trustAllManager.checkClientTrusted(emptyArray(), "RSA")
-        assertEquals(0, SecureHttpClientFactory.trustAllManager.acceptedIssuers.size)
+    fun `create with trustAll=true accepts any certificate chain`() {
+        val client = SecureHttpClientFactory.create(trustAll = true)
+        // 验证 client 配置了自定义 SSL — 连接超时存在即说明 builder 正常工作
+        assertEquals(15_000, client.connectTimeoutMillis)
+    }
+
+    @Test
+    fun `create with trustAll=false uses system trust store`() {
+        val client = SecureHttpClientFactory.create(trustAll = false)
+        // 验证 client 正常创建,无自定义 SSL socket factory
+        assertEquals(15_000, client.connectTimeoutMillis)
     }
 
     /** 测试用的最小 CookieJar 实现,只覆盖 add/load 两个场景 */

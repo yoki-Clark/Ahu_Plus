@@ -110,16 +110,16 @@ class JwAuthRepository(
                 return Result.success(Unit)
             }
 
-            Log.e(TAG, "开始 JW SSO 认证...")
+            Log.d(TAG, "开始 JW SSO 认证...")
             // 策略 1: 简易 SSO(复用 CASTGC)
             try {
                 trySimplifiedSso()
-                Log.e(TAG, "简易 SSO 成功")
+                Log.d(TAG, "简易 SSO 成功")
             } catch (e: Exception) {
                 Log.e(TAG, "简易 SSO 失败: ${e.message}，回退到完整 CAS 登录")
                 // 策略 2: 完整 CAS 回退
                 performFullLogin()
-                Log.e(TAG, "完整 CAS 登录成功")
+                Log.d(TAG, "完整 CAS 登录成功")
             }
 
             Result.success(Unit)

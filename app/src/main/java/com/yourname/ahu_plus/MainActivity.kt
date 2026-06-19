@@ -9,7 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.ui.navigation.AppNavigation
-import com.yourname.ahu_plus.ui.theme.Ahu_PlusTheme
+import com.yourname.ahu_plus.ui.theme.AhuPlusTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
             val systemDarkTheme = isSystemInDarkTheme()
             val coroutineScope = rememberCoroutineScope()
 
-            Ahu_PlusTheme(
+            AhuPlusTheme(
                 darkTheme = themeMode.shouldUseDarkTheme(systemDarkTheme)
             ) {
                 AppNavigation(

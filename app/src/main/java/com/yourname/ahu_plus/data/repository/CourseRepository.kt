@@ -52,7 +52,7 @@ class CourseRepository(
     suspend fun getSchedule(): Result<ScheduleData> {
         val semesterId = DEFAULT_SEMESTER_ID
         return try {
-            Log.e(TAG, "开始获取课表数据: semesterId=$semesterId")
+            Log.d(TAG, "开始获取课表数据: semesterId=$semesterId")
 
             // 并行请求两个端点
             val printData = fetchPrintData(semesterId)
@@ -60,7 +60,7 @@ class CourseRepository(
             val getData = try {
                 fetchGetData(semesterId)
             } catch (e: Exception) {
-                Log.e(TAG, "get-data 获取失败(非致命): ${e.message}")
+                Log.w(TAG, "get-data 获取失败(非致命): ${e.message}")
                 null
             }
 
@@ -88,7 +88,7 @@ class CourseRepository(
                 lessons = getDataLessons
             )
 
-            Log.e(TAG, "课表加载完成: ${activities.size} 个活动, ${unitTimes.size} 个节次, " +
+            Log.d(TAG, "课表加载完成: ${activities.size} 个活动, ${unitTimes.size} 个节次, " +
                 "第 $currentWeek 周")
             Result.success(scheduleData)
         } catch (e: Exception) {
@@ -110,7 +110,7 @@ class CourseRepository(
 
             if (code == 302) {
                 val loc = response.headers("Location").joinToString()
-                Log.e(TAG, "print-data redirect Location: $loc")
+                Log.w(TAG, "print-data redirect Location: $loc")
                 throw SessionExpiredException()
             }
 
@@ -129,6 +129,7 @@ class CourseRepository(
     /** 获取 get-data(增强数据:学期信息、当前周、考核方式等) */
     private suspend fun fetchGetData(semesterId: Int): GetDataResponse {
         // dataId 和 bizTypeId 硬编码——对于同一学生的同一学期,这些值通常是固定的
+        // TODO: 若学生换专业或后端变更 ID,此处可能返回错误数据或 404;理想情况应动态获取
         val url = "$JW_BASE/student/for-std/course-table/get-data" +
             "?semesterId=$semesterId&dataId=22720&bizTypeId=2"
 

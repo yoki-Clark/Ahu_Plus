@@ -39,6 +39,9 @@ class CasAuthRepository(
         private const val TAG = "CasAuth"
         private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+        private val LT_REGEX = Regex("""name="lt"\s+value="([^"]+)"""")
+        private val EXECUTION_REGEX = Regex("""name="execution"\s+value="([^"]+)"""")
+        private val TICKET_REGEX = Regex("""ticket=([^&]+)""")
     }
 
     // ── Cookie 存储 ──────────────────────────────────
@@ -67,11 +70,14 @@ class CasAuthRepository(
         }
 
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-            val hostCookies = cookieStore.getOrPut(url.host) { mutableListOf() }
-            for (cookie in cookies) {
-                // 移除同名旧 cookie
-                hostCookies.removeAll { it.name == cookie.name }
-                hostCookies.add(cookie)
+            val hostCookies = cookieStore.getOrPut(url.host) {
+                java.util.concurrent.CopyOnWriteArrayList<Cookie>()
+            }
+            synchronized(hostCookies) {
+                for (cookie in cookies) {
+                    hostCookies.removeAll { it.name == cookie.name }
+                    hostCookies.add(cookie)
+                }
             }
             // 任意 cookie 变化都使 JSESSIONID 缓存失效
             if (cookies.any { it.name == "JSESSIONID" || it.name == "CASTGC" }) {
@@ -128,16 +134,12 @@ class CasAuthRepository(
 
             // Step 6: ST → JSESSIONID
             val jsessionid = exchangeForJsessionid(ticket)
-            Log.e(TAG, "获取到 JSESSIONID: ${jsessionid.take(16)}...")
+            Log.d(TAG, "获取到 JSESSIONID: ${jsessionid.take(8)}...")
 
             // 保存
             sessionManager.saveSessionId(jsessionid)
             sessionManager.saveCredentials(username, password)
-            Log.e(TAG, "登录成功，JSESSIONID=$jsessionid")
-            Log.e(TAG, "cookieStore keys: ${cookieStore.keys}")
-            cookieStore[casHost]?.forEach { c ->
-                Log.e(TAG, "  cookie: ${c.name}=${c.value} path=${c.path}")
-            }
+            Log.d(TAG, "登录成功，JSESSIONID=${jsessionid.take(8)}...")
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -173,7 +175,7 @@ class CasAuthRepository(
         }
         // 用现有 JSESSIONID 探测
         return probeSession(sessionId).recoverCatching {
-            Log.e(TAG, "JSESSIONID 已失效，尝试重新登录")
+            Log.w(TAG, "JSESSIONID 已失效，尝试重新登录")
             clearCookies()
             sessionManager.clearSession()
             autoLogin().getOrThrow()
@@ -261,9 +263,9 @@ class CasAuthRepository(
             if (response.code in 300..399) {
                 throw CasAuthException("已有有效 CASTGC(重定向),请先清除 Cookie")
             }
-            val lt = Regex("""name="lt"\s+value="([^"]+)"""").find(html)?.groupValues?.get(1)
+            val lt = LT_REGEX.find(html)?.groupValues?.get(1)
                 ?: throw CasAuthException("未找到 lt 字段")
-            val execution = Regex("""name="execution"\s+value="([^"]+)"""").find(html)?.groupValues?.get(1)
+            val execution = EXECUTION_REGEX.find(html)?.groupValues?.get(1)
                 ?: throw CasAuthException("未找到 execution 字段")
             Log.d(TAG, "CAS login page parsed")
             return Pair(lt, execution)
@@ -346,7 +348,7 @@ class CasAuthRepository(
         client.newCall(request).execute().use { response ->
             val location = response.header("Location")
                 ?: throw CasAuthException("未收到 CAS 重定向 (Location)")
-            return Regex("""ticket=([^&]+)""").find(location)?.groupValues?.get(1)
+            return TICKET_REGEX.find(location)?.groupValues?.get(1)
                 ?: throw CasAuthException("未在 Location 中找到 ticket: $location")
         }
     }
@@ -365,7 +367,7 @@ class CasAuthRepository(
         client.newCall(request).execute().use { response ->
             val location = response.header("Location")
                 ?: throw CasAuthException("未收到 CAS 重定向 (Location)")
-            return Regex("""ticket=([^&]+)""").find(location)?.groupValues?.get(1)
+            return TICKET_REGEX.find(location)?.groupValues?.get(1)
                 ?: throw CasAuthException("未在 Location 中找到 ticket: $location")
         }
     }

@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -95,13 +96,20 @@ fun AppNavigation(
         return
     }
 
+    val clearAllCookies: () -> Unit = {
+        casAuthRepository.clearCookies()
+        jwAuthRepository.clearCookies()
+        ycardRepository.clearCookies()
+        adwmhCardRepository.clearCookies()
+    }
+
     NavHost(
         navController = navController,
-        startDestination = startRoute!!
+        startDestination = startRoute ?: return
     ) {
         // ── 自动登录 + 重试页 ──────────────────────────
         composable("autologin") {
-            val viewModel = remember {
+            val viewModel = viewModel {
                 AutoLoginViewModel(sessionManager, casAuthRepository, ycardRepository)
             }
             AutoLoginScreen(
@@ -121,7 +129,7 @@ fun AppNavigation(
 
         // ── 手动登录页 ─────────────────────────────────
         composable("login") {
-            val viewModel = remember { LoginViewModel(casAuthRepository, ycardRepository) }
+            val viewModel = viewModel { LoginViewModel(casAuthRepository, ycardRepository) }
             LoginScreen(
                 viewModel = viewModel,
                 savedUsername = sessionManager.getUsername(),
@@ -161,11 +169,7 @@ fun AppNavigation(
                 onThemeModeChange = onThemeModeChange,
                 onReauth = {
                     coroutineScope.launch {
-                        // 仅清除会话 Cookie,保留凭据 / 集市 token / 学生信息等本地数据
-                        casAuthRepository.clearCookies()
-                        jwAuthRepository.clearCookies()
-                        ycardRepository.clearCookies()
-                        adwmhCardRepository.clearCookies()
+                        clearAllCookies()
                         sessionManager.clearSession()
                         sessionManager.clearJwSession()
                         navigateToLogin()
@@ -173,11 +177,7 @@ fun AppNavigation(
                 },
                 onLogout = {
                     coroutineScope.launch {
-                        // 完全退出:清除所有本地数据
-                        casAuthRepository.clearCookies()
-                        jwAuthRepository.clearCookies()
-                        ycardRepository.clearCookies()
-                        adwmhCardRepository.clearCookies()
+                        clearAllCookies()
                         sessionManager.clearAuthData()
                         navigateToLogin()
                     }

@@ -24,15 +24,15 @@ object SecureHttpClientFactory {
 
     private const val DEFAULT_TIMEOUT_SEC = 15L
 
-    // ── 共享的 trust-all SSL(测试方便,接受所有自签名证书)────────
+    // ── 共享的 trust-all SSL(仅用于 *.ahu.edu.cn 自签名证书)────
 
-    val trustAllManager: X509TrustManager = object : X509TrustManager {
+    private val trustAllManager: X509TrustManager = object : X509TrustManager {
         override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
         override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
         override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
     }
 
-    val sslContext: SSLContext = run {
+    private val trustAllSslContext: SSLContext = run {
         val ctx = SSLContext.getInstance("TLS")
         ctx.init(null, arrayOf<TrustManager>(trustAllManager), SecureRandom())
         ctx
@@ -47,6 +47,8 @@ object SecureHttpClientFactory {
      *                    其他业务 API 应该让 OkHttp 自动 gzip 解压以节省带宽。
      * @param extraInterceptors 额外的应用拦截器(在 network 拦截器之前)
      * @param connectTimeoutSec / readTimeoutSec 超时秒数
+     * @param trustAll 是否禁用证书验证。仅对 *.ahu.edu.cn 自签名证书场景使用;
+     *                 标准 HTTPS 域名(如 api.zxs-bbs.cn)应使用系统信任库。
      */
     fun create(
         cookieJar: CookieJar? = null,
@@ -54,11 +56,15 @@ object SecureHttpClientFactory {
         disableGzip: Boolean = false,
         extraInterceptors: List<Interceptor> = emptyList(),
         connectTimeoutSec: Long = DEFAULT_TIMEOUT_SEC,
-        readTimeoutSec: Long = DEFAULT_TIMEOUT_SEC
+        readTimeoutSec: Long = DEFAULT_TIMEOUT_SEC,
+        trustAll: Boolean = true
     ): OkHttpClient {
         val builder = OkHttpClient.Builder()
-            .sslSocketFactory(sslContext.socketFactory, trustAllManager)
-            .hostnameVerifier { _, _ -> true }
+        if (trustAll) {
+            builder.sslSocketFactory(trustAllSslContext.socketFactory, trustAllManager)
+            builder.hostnameVerifier { _, _ -> true }
+        }
+        builder
             .connectTimeout(connectTimeoutSec, TimeUnit.SECONDS)
             .readTimeout(readTimeoutSec, TimeUnit.SECONDS)
             .followRedirects(followRedirects)

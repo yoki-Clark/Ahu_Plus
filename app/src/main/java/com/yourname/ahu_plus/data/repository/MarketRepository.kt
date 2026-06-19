@@ -22,6 +22,7 @@ import com.yourname.ahu_plus.data.remote.market.applyMarketHeaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -30,7 +31,7 @@ class MarketRepository(
     private val sessionManager: SessionManager
 ) {
     private val gson = GsonProvider.instance
-    private val client = SecureHttpClientFactory.create()
+    private val client = SecureHttpClientFactory.create(trustAll = false)
 
     // ══════════════════════════════════════════════════════
     //  GET
@@ -105,12 +106,14 @@ class MarketRepository(
             val allComments = mutableListOf<MarketComment>()
             var page = 1
             while (page <= maxCommentPages) {
-                val pageResult = getComments(
-                    topicId = topicId,
-                    page = page,
-                    sort = "hot",
-                    identity = identity
-                ).getOrThrow()
+                val pageResult = bulkRequestWithBackoff {
+                    getComments(
+                        topicId = topicId,
+                        page = page,
+                        sort = "hot",
+                        identity = identity
+                    )
+                }
                 if (pageResult.isEmpty()) break
                 allComments += pageResult
                 if (pageResult.size < DEFAULT_COMMENT_PAGE_SIZE) break
@@ -147,13 +150,15 @@ class MarketRepository(
         val expectedTotal = comment.visibleReplyCount
         var page = 1 + (existing.size / pageSize)
         while (page <= maxReplyPages) {
-            val result = getCommentReplies(
-                topicId = topicId,
-                commentId = comment.id,
-                page = page,
-                pageSize = pageSize,
-                identity = identity
-            ).getOrElse { return comment.copy(replies = merged) }
+            val result = bulkRequestWithBackoff {
+                getCommentReplies(
+                    topicId = topicId,
+                    commentId = comment.id,
+                    page = page,
+                    pageSize = pageSize,
+                    identity = identity
+                )
+            }
             if (result.rows.isEmpty()) break
             val fresh = result.rows.filterNot { it.id in knownReplyIds }
             fresh.forEach { knownReplyIds += it.id }
@@ -173,6 +178,20 @@ class MarketRepository(
                 pageSize = pageSize
             )
         )
+    }
+
+    /** Bulk comment export/AI context requests are strictly serial and rate limited. */
+    private suspend fun <T> bulkRequestWithBackoff(block: suspend () -> Result<T>): T {
+        var lastError: Throwable? = null
+        repeat(BULK_MAX_ATTEMPTS) { attempt ->
+            delay(if (attempt == 0) BULK_REQUEST_INTERVAL_MS else BULK_RETRY_BASE_MS shl (attempt - 1))
+            val result = block()
+            if (result.isSuccess) return result.getOrThrow()
+            val error = result.exceptionOrNull() ?: Exception("集市批量请求失败")
+            if (!error.message.orEmpty().contains("HTTP 429")) throw error
+            lastError = error
+        }
+        throw lastError ?: Exception("集市请求过于频繁，请稍后重试")
     }
 
     suspend fun getNotices(
@@ -364,6 +383,12 @@ class MarketRepository(
 
     suspend fun setListLayoutMode(mode: String) {
         sessionManager.setListLayoutMode(mode)
+    }
+
+    fun getScrollToTop(): Boolean = sessionManager.getScrollToTop()
+
+    suspend fun setScrollToTop(enabled: Boolean) {
+        sessionManager.setScrollToTop(enabled)
     }
 
     /**
@@ -643,6 +668,9 @@ class MarketRepository(
     private companion object {
         const val TAG = "MarketRepo"
         const val DEFAULT_COMMENT_PAGE_SIZE = 6
+        const val BULK_REQUEST_INTERVAL_MS = 350L
+        const val BULK_RETRY_BASE_MS = 1_000L
+        const val BULK_MAX_ATTEMPTS = 4
     }
 }
 

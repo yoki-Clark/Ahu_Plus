@@ -7,6 +7,11 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.reflect.TypeToken
 import com.yourname.ahu_plus.data.GsonProvider
 import com.yourname.ahu_plus.data.model.MarketIdentity
+import com.yourname.ahu_plus.data.model.AiCommentModel
+import com.yourname.ahu_plus.data.model.AiCommentStyle
+import com.yourname.ahu_plus.data.model.AiCommentPrompts
+import com.yourname.ahu_plus.data.model.AiCommentTemplate
+import com.yourname.ahu_plus.data.model.defaultAiCommentTemplates
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -15,85 +20,91 @@ import kotlinx.coroutines.flow.map
  *
  * 持久化策略(写死一点,优先稳定性):
  *  - 所有数据统一存到 DataStore Preferences (进程级单例 [AppDataStore])
- *  - 用户名 / 密码 明文存储(用户已在本地授权过的设备上使用)
- *  - JSESSIONID / JW SESSION 也明文存储
- *
- * 这样:
- *  - 不依赖 EncryptedSharedPreferences / Keystore,避免设备兼容性问题
- *  - 杀后台后启动能 100% 恢复登录态
- *  - 用户主动退出登录前,凭据不会被清
+ *  - JSESSIONID / JW SESSION 明文存储
  *
  * 备注:课程备注由 [AppDataStore] 独立暴露的 noteFlow/saveNote 等方法管理,
  *       SessionManager 不再承担。
  */
 class SessionManager(private val appDataStore: AppDataStore) {
 
-    private var initialized = false
-    private var cachedSessionId: String? = null
-    private var cachedJwSessionId: String? = null
-    private var cachedJwPstSid: String? = null
-    private var cachedUsername: String? = null
-    private var cachedPassword: String? = null
-    private var cachedMarketApiIdentity: String? = null
-    private var cachedThemeMode: AppThemeMode = AppThemeMode.SYSTEM
-    private var cachedStudentInfoJson: String? = null
-    private var cachedStudentInfoUpdatedAt: Long = 0L
+    @Volatile private var initialized = false
+    @Volatile private var cachedSessionId: String? = null
+    @Volatile private var cachedJwSessionId: String? = null
+    @Volatile private var cachedJwPstSid: String? = null
+    @Volatile private var cachedUsername: String? = null
+    @Volatile private var cachedPassword: String? = null
+    @Volatile private var cachedMarketApiIdentity: String? = null
+    @Volatile private var cachedThemeMode: AppThemeMode = AppThemeMode.SYSTEM
+    @Volatile private var cachedStudentInfoJson: String? = null
+    @Volatile private var cachedStudentInfoUpdatedAt: Long = 0L
 
     // ── 集市设置 ─────────────────────────────────────
-    private var cachedMarketIdentities: List<MarketIdentity> = emptyList()
-    private var cachedSelectedIdentityIds: Set<String> = emptySet()
-    private var cachedBlockPinned: Boolean = false
-    private var cachedBlockKeywords: List<String> = emptyList()
-    private var cachedFilterNodeIds: List<Long> = emptyList()
+    @Volatile private var cachedMarketIdentities: List<MarketIdentity> = emptyList()
+    @Volatile private var cachedSelectedIdentityIds: Set<String> = emptySet()
+    @Volatile private var cachedBlockPinned: Boolean = false
+    @Volatile private var cachedBlockKeywords: List<String> = emptyList()
+    @Volatile private var cachedFilterNodeIds: List<Long> = emptyList()
     // 集市功能总开关 (true = 启用，底部导航显示 3 项；false = 禁用，仅 2 项)
-    private var cachedMarketEnabled: Boolean = false
+    @Volatile private var cachedMarketEnabled: Boolean = false
     // 集市列表布局模式 ("list" 单列 / "stagger" 小红书双列瀑布)
-    private var cachedMarketListLayoutMode: String = "list"
-    private var cachedScheduleColWidth: Float = 64f
-    private var cachedScheduleRowHeight: Float = 56f
-    private var cachedScheduleFontScale: Float = 1.0f
+    @Volatile private var cachedMarketListLayoutMode: String = "list"
+    // 集市列表"回到顶部"按钮
+    @Volatile private var cachedMarketScrollToTop: Boolean = true
+    @Volatile private var cachedAiCommentEnabled: Boolean = false
+    @Volatile private var cachedAiCommentModel: AiCommentModel = AiCommentModel.FLASH
+    @Volatile private var cachedAiCommentStyle: AiCommentStyle = AiCommentStyle.GENTLE
+    @Volatile private var cachedAiOverallPrompt: String = AiCommentPrompts.defaultOverallPrompt
+    @Volatile private var cachedAiStylePrompts: Map<String, String> = defaultAiStylePrompts()
+    @Volatile private var cachedAiTemplates: List<AiCommentTemplate> = defaultAiCommentTemplates()
+    @Volatile private var cachedAiSelectedTemplateId: String = AiCommentStyle.GENTLE.name
+    // 首页"最近使用"应用追踪 (逗号分隔的 app key 列表, 最多 5 个)
+    @Volatile private var cachedRecentApps: String = ""
+    @Volatile private var cachedScheduleColWidth: Float = 64f
+    @Volatile private var cachedScheduleRowHeight: Float = 56f
+    @Volatile private var cachedScheduleFontScale: Float = 1.0f
 
     // 课表显示设置 (2026-06-17 课表重构)
-    private var cachedShowSat: Boolean = true
-    private var cachedShowSun: Boolean = true
-    private var cachedPagerEnabled: Boolean = true
-    private var cachedResetOnEnter: Boolean = true
-    private var cachedShowCompletedTasks: Boolean = false
-    private var cachedShowCompletedExams: Boolean = true
+    @Volatile private var cachedShowSat: Boolean = true
+    @Volatile private var cachedShowSun: Boolean = true
+    @Volatile private var cachedPagerEnabled: Boolean = true
+    @Volatile private var cachedResetOnEnter: Boolean = true
+    @Volatile private var cachedShowCompletedTasks: Boolean = false
+    @Volatile private var cachedShowCompletedExams: Boolean = false
 
     // ── 业务数据缓存 ─────────────────────────────────
-    private var cachedScheduleJson: String? = null
-    private var cachedScheduleUpdatedAt: Long = 0L
-    private var cachedGradesJson: String? = null
-    private var cachedGpaMetadataJson: String? = null
-    private var cachedGradesUpdatedAt: Long = 0L
-    private var cachedExamsJson: String? = null
-    private var cachedExamsUpdatedAt: Long = 0L
-    private var cachedFinanceJson: String? = null
-    private var cachedFinanceUpdatedAt: Long = 0L
-    private var cachedAttendanceJson: String? = null
-    private var cachedAttendanceUpdatedAt: Long = 0L
-    private var cachedKqcardAttendanceJson: String? = null
-    private var cachedKqcardAttendanceUpdatedAt: Long = 0L
-    private var cachedUserScheduleJson: String? = null
-    private var cachedAssessmentJson: String? = null
-    private var cachedAssessmentUpdatedAt: Long = 0L
-    private var cachedRecordIndexJson: String? = null
-    private var cachedRecordIndexUpdatedAt: Long = 0L
-    private var cachedHomeworkJson: String? = null
-    private var cachedHomeworkUpdatedAt: Long = 0L
-    private var cachedUserTasksJson: String? = null
-    private var cachedUserTasksUpdatedAt: Long = 0L
-    private var cachedBathroomPhone: String? = null
-    private var cachedAcConfig: ElectricityRoomConfig = ElectricityRoomConfig()
-    private var cachedLightingConfig: ElectricityRoomConfig = ElectricityRoomConfig()
-    private var cachedAdwmhSessionId: String? = null
-    private var cachedTrainingPlanJson: String? = null
-    private var cachedTrainingPlanUpdatedAt: Long = 0L
-    private var cachedTrainingPlanCacheVersion: Long = 0L
-    private var cachedEmptyClassroomJson: String? = null
-    private var cachedEmptyClassroomKey: String? = null
-    private var cachedEmptyClassroomUpdatedAt: Long = 0L
+    @Volatile private var cachedScheduleJson: String? = null
+    @Volatile private var cachedScheduleUpdatedAt: Long = 0L
+    @Volatile private var cachedGradesJson: String? = null
+    @Volatile private var cachedGpaMetadataJson: String? = null
+    @Volatile private var cachedGradesUpdatedAt: Long = 0L
+    @Volatile private var cachedExamsJson: String? = null
+    @Volatile private var cachedExamsUpdatedAt: Long = 0L
+    @Volatile private var cachedFinanceJson: String? = null
+    @Volatile private var cachedFinanceUpdatedAt: Long = 0L
+    @Volatile private var cachedAttendanceJson: String? = null
+    @Volatile private var cachedAttendanceUpdatedAt: Long = 0L
+    @Volatile private var cachedKqcardAttendanceJson: String? = null
+    @Volatile private var cachedKqcardAttendanceUpdatedAt: Long = 0L
+    @Volatile private var cachedUserScheduleJson: String? = null
+    @Volatile private var cachedAssessmentJson: String? = null
+    @Volatile private var cachedAssessmentUpdatedAt: Long = 0L
+    @Volatile private var cachedRecordIndexJson: String? = null
+    @Volatile private var cachedRecordIndexUpdatedAt: Long = 0L
+    @Volatile private var cachedHomeworkJson: String? = null
+    @Volatile private var cachedHomeworkUpdatedAt: Long = 0L
+    @Volatile private var cachedUserTasksJson: String? = null
+    @Volatile private var cachedUserTasksUpdatedAt: Long = 0L
+    @Volatile private var cachedBathroomPhone: String? = null
+    @Volatile private var cachedAcConfig: ElectricityRoomConfig = ElectricityRoomConfig()
+    @Volatile private var cachedLightingConfig: ElectricityRoomConfig = ElectricityRoomConfig()
+    @Volatile private var cachedNewCampusConfig: ElectricityRoomConfig = ElectricityRoomConfig()
+    @Volatile private var cachedAdwmhSessionId: String? = null
+    @Volatile private var cachedTrainingPlanJson: String? = null
+    @Volatile private var cachedTrainingPlanUpdatedAt: Long = 0L
+    @Volatile private var cachedTrainingPlanCacheVersion: Long = 0L
+    @Volatile private var cachedEmptyClassroomJson: String? = null
+    @Volatile private var cachedEmptyClassroomKey: String? = null
+    @Volatile private var cachedEmptyClassroomUpdatedAt: Long = 0L
 
     val themeModeFlow = appDataStore.dataStore.data.map { preferences ->
         AppThemeMode.fromStorageValue(preferences[THEME_MODE_KEY])
@@ -104,6 +115,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
      * 只在 App 启动时调用一次。
      */
     suspend fun init(): String? {
+        if (initialized) return cachedSessionId
         val prefs = appDataStore.dataStore.data.first()
         cachedSessionId = prefs[SESSION_KEY]
         cachedJwSessionId = prefs[JW_SESSION_KEY]
@@ -152,6 +164,19 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedMarketEnabled = (prefs[MARKET_ENABLED_KEY] ?: "false") == "true"
         // 列表布局模式: 缺省 "list" (单列)
         cachedMarketListLayoutMode = prefs[MARKET_LIST_LAYOUT_KEY] ?: "list"
+        cachedMarketScrollToTop = (prefs[MARKET_SCROLL_TO_TOP_KEY] ?: "true") == "true"
+        cachedAiCommentEnabled = prefs[AI_COMMENT_ENABLED_KEY] == "true"
+        cachedAiCommentModel = AiCommentModel.fromStorage(prefs[AI_COMMENT_MODEL_KEY])
+        cachedAiCommentStyle = AiCommentStyle.fromStorage(prefs[AI_COMMENT_STYLE_KEY])
+        cachedAiOverallPrompt = prefs[AI_COMMENT_OVERALL_PROMPT_KEY]
+            ?.takeIf { it.isNotBlank() }
+            ?: AiCommentPrompts.defaultOverallPrompt
+        cachedAiStylePrompts = parseAiStylePrompts(prefs[AI_COMMENT_STYLE_PROMPTS_KEY])
+        cachedAiTemplates = parseAiTemplates(prefs[AI_COMMENT_TEMPLATES_KEY])
+        cachedAiSelectedTemplateId = (prefs[AI_COMMENT_SELECTED_TEMPLATE_KEY]
+            ?: cachedAiCommentStyle.name).takeIf { id -> cachedAiTemplates.any { it.id == id } }
+            ?: cachedAiTemplates.first().id
+        cachedRecentApps = prefs[RECENT_APPS_KEY] ?: ""
 
         // 课表布局偏好（带默认值容错）
         cachedScheduleColWidth = prefs[SCHEDULE_COL_WIDTH_KEY]?.toFloatOrNull() ?: 64f
@@ -163,7 +188,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedPagerEnabled = (prefs[KEY_PAGER_ENABLED] ?: "true") == "true"
         cachedResetOnEnter = (prefs[KEY_RESET_ON_ENTER] ?: "true") == "true"
         cachedShowCompletedTasks = (prefs[KEY_SHOW_COMPLETED_TASKS] ?: "false") == "true"
-        cachedShowCompletedExams = (prefs[KEY_SHOW_COMPLETED_EXAMS] ?: "true") == "true"
+        cachedShowCompletedExams = (prefs[KEY_SHOW_COMPLETED_EXAMS] ?: "false") == "true"
 
         // ── 业务数据缓存恢复 ──────────────────────────
         cachedScheduleJson = prefs[SCHEDULE_JSON_KEY]
@@ -191,6 +216,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedBathroomPhone = prefs[BATHROOM_PHONE_KEY]
         cachedAcConfig = parseElectricityConfig(prefs[AC_CONFIG_KEY])
         cachedLightingConfig = parseElectricityConfig(prefs[LIGHTING_CONFIG_KEY])
+        cachedNewCampusConfig = parseElectricityConfig(prefs[NEW_CAMPUS_CONFIG_KEY])
         cachedAdwmhSessionId = prefs[ADWMH_SESSION_KEY]
         cachedTrainingPlanJson = prefs[TRAINING_PLAN_JSON_KEY]
         cachedTrainingPlanUpdatedAt = prefs[TRAINING_PLAN_UPDATED_AT_KEY] ?: 0L
@@ -379,6 +405,114 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val normalized = if (mode == "stagger") "stagger" else "list"
         cachedMarketListLayoutMode = normalized
         appDataStore.dataStore.edit { it[MARKET_LIST_LAYOUT_KEY] = normalized }
+    }
+
+    // ── 集市"回到顶部"按钮 ────────────────────────────
+
+    fun getScrollToTop(): Boolean = cachedMarketScrollToTop
+
+    suspend fun setScrollToTop(enabled: Boolean) {
+        cachedMarketScrollToTop = enabled
+        appDataStore.dataStore.edit { it[MARKET_SCROLL_TO_TOP_KEY] = if (enabled) "true" else "false" }
+    }
+
+    fun getAiCommentEnabled(): Boolean = cachedAiCommentEnabled
+
+    suspend fun setAiCommentEnabled(enabled: Boolean) {
+        cachedAiCommentEnabled = enabled
+        appDataStore.dataStore.edit { it[AI_COMMENT_ENABLED_KEY] = enabled.toString() }
+    }
+
+    fun getAiCommentModel(): AiCommentModel = cachedAiCommentModel
+
+    suspend fun setAiCommentModel(model: AiCommentModel) {
+        cachedAiCommentModel = model
+        appDataStore.dataStore.edit { it[AI_COMMENT_MODEL_KEY] = model.name }
+    }
+
+    fun getAiCommentStyle(): AiCommentStyle = cachedAiCommentStyle
+
+    suspend fun setAiCommentStyle(style: AiCommentStyle) {
+        cachedAiCommentStyle = style
+        appDataStore.dataStore.edit { it[AI_COMMENT_STYLE_KEY] = style.name }
+    }
+
+    fun getAiTemplates(): List<AiCommentTemplate> = cachedAiTemplates
+
+    fun getAiSelectedTemplateId(): String = cachedAiSelectedTemplateId
+
+    suspend fun setAiSelectedTemplateId(id: String) {
+        if (cachedAiTemplates.none { it.id == id }) return
+        cachedAiSelectedTemplateId = id
+        appDataStore.dataStore.edit { it[AI_COMMENT_SELECTED_TEMPLATE_KEY] = id }
+    }
+
+    suspend fun saveAiTemplate(template: AiCommentTemplate) {
+        cachedAiTemplates = if (cachedAiTemplates.any { it.id == template.id }) {
+            cachedAiTemplates.map { if (it.id == template.id) template else it }
+        } else {
+            cachedAiTemplates + template
+        }
+        appDataStore.dataStore.edit { it[AI_COMMENT_TEMPLATES_KEY] = gson.toJson(cachedAiTemplates) }
+    }
+
+    suspend fun deleteAiTemplate(id: String) {
+        val target = cachedAiTemplates.firstOrNull { it.id == id } ?: return
+        if (target.builtIn) return
+        cachedAiTemplates = cachedAiTemplates.filterNot { it.id == id }
+        if (cachedAiSelectedTemplateId == id) cachedAiSelectedTemplateId = cachedAiTemplates.first().id
+        appDataStore.dataStore.edit {
+            it[AI_COMMENT_TEMPLATES_KEY] = gson.toJson(cachedAiTemplates)
+            it[AI_COMMENT_SELECTED_TEMPLATE_KEY] = cachedAiSelectedTemplateId
+        }
+    }
+
+    fun getAiOverallPrompt(): String = cachedAiOverallPrompt
+
+    suspend fun setAiOverallPrompt(prompt: String) {
+        cachedAiOverallPrompt = prompt.trim().ifBlank { AiCommentPrompts.defaultOverallPrompt }
+        appDataStore.dataStore.edit { it[AI_COMMENT_OVERALL_PROMPT_KEY] = cachedAiOverallPrompt }
+    }
+
+    fun getAiStylePrompt(style: AiCommentStyle): String =
+        cachedAiStylePrompts[style.name]?.takeIf { it.isNotBlank() } ?: style.prompt
+
+    fun getAiStylePrompts(): Map<AiCommentStyle, String> =
+        AiCommentStyle.entries.associateWith(::getAiStylePrompt)
+
+    suspend fun setAiStylePrompt(style: AiCommentStyle, prompt: String) {
+        cachedAiStylePrompts = cachedAiStylePrompts +
+            (style.name to prompt.trim().ifBlank { style.prompt })
+        appDataStore.dataStore.edit { it[AI_COMMENT_STYLE_PROMPTS_KEY] = gson.toJson(cachedAiStylePrompts) }
+    }
+
+    suspend fun resetAiPrompts() {
+        cachedAiOverallPrompt = AiCommentPrompts.defaultOverallPrompt
+        cachedAiStylePrompts = defaultAiStylePrompts()
+        cachedAiTemplates = defaultAiCommentTemplates()
+        cachedAiSelectedTemplateId = AiCommentStyle.GENTLE.name
+        appDataStore.dataStore.edit {
+            it.remove(AI_COMMENT_OVERALL_PROMPT_KEY)
+            it.remove(AI_COMMENT_STYLE_PROMPTS_KEY)
+            it.remove(AI_COMMENT_TEMPLATES_KEY)
+            it.remove(AI_COMMENT_SELECTED_TEMPLATE_KEY)
+        }
+    }
+
+    // ── 首页"最近使用" ───────────────────────────────
+
+    /** 最近使用的应用 key 列表(按时间倒序,最多 5 个) */
+    fun getRecentApps(): List<String> =
+        cachedRecentApps.split(",").filter { it.isNotBlank() }
+
+    /** 记录一次应用使用:推到最前面,去重,截断到 5 个 */
+    suspend fun recordRecentApp(appKey: String) {
+        val list = getRecentApps().toMutableList()
+        list.remove(appKey) // 去重
+        list.add(0, appKey) // 推到最前
+        val value = list.take(5).joinToString(",")
+        cachedRecentApps = value
+        appDataStore.dataStore.edit { it[RECENT_APPS_KEY] = value }
     }
 
     // ── 我的信息缓存 ─────────────────────────────────
@@ -746,6 +880,13 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it[LIGHTING_CONFIG_KEY] = gson.toJson(config) }
     }
 
+    fun getNewCampusConfig(): ElectricityRoomConfig = cachedNewCampusConfig
+
+    suspend fun saveNewCampusConfig(config: ElectricityRoomConfig) {
+        cachedNewCampusConfig = config
+        appDataStore.dataStore.edit { it[NEW_CAMPUS_CONFIG_KEY] = gson.toJson(config) }
+    }
+
     fun getAdwmhSessionId(): String? = cachedAdwmhSessionId
 
     suspend fun saveAdwmhSessionId(sessionId: String) {
@@ -817,98 +958,16 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     /** Clear the signed-in account and account-scoped caches, while preserving app settings and market identities. */
     suspend fun clearAuthData() {
-        cachedSessionId = null
-        cachedJwSessionId = null
-        cachedJwPstSid = null
-        cachedUsername = null
-        cachedPassword = null
-        cachedStudentInfoJson = null
-        cachedStudentInfoUpdatedAt = 0L
-        cachedScheduleJson = null
-        cachedScheduleUpdatedAt = 0L
-        cachedGradesJson = null
-        cachedGpaMetadataJson = null
-        cachedGradesUpdatedAt = 0L
-        cachedExamsJson = null
-        cachedExamsUpdatedAt = 0L
-        cachedFinanceJson = null
-        cachedFinanceUpdatedAt = 0L
-        cachedAttendanceJson = null
-        cachedAttendanceUpdatedAt = 0L
-        cachedKqcardAttendanceJson = null
-        cachedKqcardAttendanceUpdatedAt = 0L
-        cachedUserScheduleJson = null
-        cachedAssessmentJson = null
-        cachedAssessmentUpdatedAt = 0L
-        cachedRecordIndexJson = null
-        cachedRecordIndexUpdatedAt = 0L
-        cachedHomeworkJson = null
-        cachedHomeworkUpdatedAt = 0L
-        cachedUserTasksJson = null
-        cachedUserTasksUpdatedAt = 0L
-        cachedBathroomPhone = null
-        cachedAcConfig = ElectricityRoomConfig()
-        cachedLightingConfig = ElectricityRoomConfig()
-        cachedAdwmhSessionId = null
-        cachedTrainingPlanJson = null
-        cachedTrainingPlanUpdatedAt = 0L
-        cachedTrainingPlanCacheVersion = 0L
-        cachedEmptyClassroomJson = null
-        cachedEmptyClassroomKey = null
-        cachedEmptyClassroomUpdatedAt = 0L
+        clearCachedAuthData()
         appDataStore.dataStore.edit { preferences ->
-            preferences.remove(SESSION_KEY)
-            preferences.remove(JW_SESSION_KEY)
-            preferences.remove(JW_PST_SID_KEY)
-            preferences.remove(USERNAME_KEY)
-            preferences.remove(PASSWORD_KEY)
-            preferences.remove(STUDENT_INFO_KEY)
-            preferences.remove(STUDENT_INFO_UPDATED_AT_KEY)
-            preferences.remove(SCHEDULE_JSON_KEY)
-            preferences.remove(SCHEDULE_UPDATED_AT_KEY)
-            preferences.remove(GRADES_JSON_KEY)
-            preferences.remove(GPA_METADATA_JSON_KEY)
-            preferences.remove(GRADES_UPDATED_AT_KEY)
-            preferences.remove(EXAMS_JSON_KEY)
-            preferences.remove(EXAMS_UPDATED_AT_KEY)
-            preferences.remove(FINANCE_JSON_KEY)
-            preferences.remove(FINANCE_UPDATED_AT_KEY)
-            preferences.remove(ATTENDANCE_JSON_KEY)
-            preferences.remove(ATTENDANCE_UPDATED_AT_KEY)
-            preferences.remove(KQCARD_ATTENDANCE_JSON_KEY)
-            preferences.remove(KQCARD_ATTENDANCE_UPDATED_AT_KEY)
-            preferences.remove(USER_SCHEDULE_JSON_KEY)
-            preferences.remove(ASSESSMENT_JSON_KEY)
-            preferences.remove(ASSESSMENT_UPDATED_AT_KEY)
-            preferences.remove(RECORD_INDEX_JSON_KEY)
-            preferences.remove(RECORD_INDEX_UPDATED_AT_KEY)
-            preferences.remove(HOMEWORK_JSON_KEY)
-            preferences.remove(HOMEWORK_UPDATED_AT_KEY)
-            preferences.remove(USER_TASKS_JSON_KEY)
-            preferences.remove(USER_TASKS_UPDATED_AT_KEY)
-            preferences.remove(BATHROOM_PHONE_KEY)
-            preferences.remove(AC_CONFIG_KEY)
-            preferences.remove(LIGHTING_CONFIG_KEY)
-            preferences.remove(ADWMH_SESSION_KEY)
-            preferences.remove(TRAINING_PLAN_JSON_KEY)
-            preferences.remove(TRAINING_PLAN_UPDATED_AT_KEY)
-            preferences.remove(TRAINING_PLAN_CACHE_VERSION_KEY)
-            preferences.remove(EMPTY_CLASSROOM_JSON_KEY)
-            preferences.remove(EMPTY_CLASSROOM_KEY_KEY)
-            preferences.remove(EMPTY_CLASSROOM_UPDATED_AT_KEY)
+            AUTH_DATA_KEYS.forEach { preferences.remove(it) }
         }
     }
 
     suspend fun clearAll() {
         // 先清除内存缓存
-        cachedSessionId = null
-        cachedJwSessionId = null
-        cachedJwPstSid = null
-        cachedUsername = null
-        cachedPassword = null
+        clearCachedAuthData()
         cachedMarketApiIdentity = null
-        cachedStudentInfoJson = null
-        cachedStudentInfoUpdatedAt = 0L
         cachedMarketIdentities = emptyList()
         cachedSelectedIdentityIds = emptySet()
         cachedBlockPinned = false
@@ -916,17 +975,40 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedFilterNodeIds = emptyList()
         cachedMarketEnabled = false
         cachedMarketListLayoutMode = "list"
+        cachedMarketScrollToTop = true
+        cachedAiCommentEnabled = false
+        cachedAiCommentModel = AiCommentModel.FLASH
+        cachedAiCommentStyle = AiCommentStyle.GENTLE
+        cachedAiOverallPrompt = AiCommentPrompts.defaultOverallPrompt
+        cachedAiStylePrompts = defaultAiStylePrompts()
+        cachedAiTemplates = defaultAiCommentTemplates()
+        cachedAiSelectedTemplateId = AiCommentStyle.GENTLE.name
+        cachedRecentApps = ""
         cachedScheduleColWidth = 64f
         cachedScheduleRowHeight = 56f
         cachedScheduleFontScale = 1.0f
-        // 课表显示设置 (2026-06-17) 恢复默认值
         cachedShowSat = true
         cachedShowSun = true
         cachedPagerEnabled = true
         cachedResetOnEnter = true
         cachedShowCompletedTasks = false
-        cachedShowCompletedExams = true
-        // 业务数据缓存
+        cachedShowCompletedExams = false
+        // 一次 edit 完成所有删除，避免多次 DataStore 序列化/写入
+        appDataStore.dataStore.edit { preferences ->
+            ALL_CLEARABLE_KEYS.forEach { preferences.remove(it) }
+        }
+        Log.i(TAG, "所有会话和凭据已清除")
+    }
+
+    /** 清除内存中所有账户相关缓存 (共享逻辑) */
+    private fun clearCachedAuthData() {
+        cachedSessionId = null
+        cachedJwSessionId = null
+        cachedJwPstSid = null
+        cachedUsername = null
+        cachedPassword = null
+        cachedStudentInfoJson = null
+        cachedStudentInfoUpdatedAt = 0L
         cachedScheduleJson = null
         cachedScheduleUpdatedAt = 0L
         cachedGradesJson = null
@@ -952,131 +1034,15 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedBathroomPhone = null
         cachedAcConfig = ElectricityRoomConfig()
         cachedLightingConfig = ElectricityRoomConfig()
+        cachedNewCampusConfig = ElectricityRoomConfig()
         cachedAdwmhSessionId = null
         cachedTrainingPlanJson = null
         cachedTrainingPlanUpdatedAt = 0L
         cachedTrainingPlanCacheVersion = 0L
-        // 一次 edit 完成所有删除，避免多次 DataStore 序列化/写入
-        appDataStore.dataStore.edit { preferences ->
-            preferences.remove(SESSION_KEY)
-            preferences.remove(JW_SESSION_KEY)
-            preferences.remove(JW_PST_SID_KEY)
-            preferences.remove(USERNAME_KEY)
-            preferences.remove(PASSWORD_KEY)
-            preferences.remove(MARKET_API_IDENTITY_KEY)
-            preferences.remove(STUDENT_INFO_KEY)
-            preferences.remove(STUDENT_INFO_UPDATED_AT_KEY)
-            preferences.remove(MARKET_IDENTITIES_KEY)
-            preferences.remove(MARKET_SELECTED_IDS_KEY)
-            preferences.remove(MARKET_BLOCK_PINNED_KEY)
-            preferences.remove(MARKET_BLOCK_KEYWORDS_KEY)
-            preferences.remove(MARKET_FILTER_NODES_KEY)
-            preferences.remove(MARKET_ENABLED_KEY)
-            preferences.remove(MARKET_LIST_LAYOUT_KEY)
-            preferences.remove(SCHEDULE_COL_WIDTH_KEY)
-            preferences.remove(SCHEDULE_ROW_HEIGHT_KEY)
-            preferences.remove(SCHEDULE_FONT_SCALE_KEY)
-            preferences.remove(KEY_SHOW_SAT)
-            preferences.remove(KEY_SHOW_SUN)
-            preferences.remove(KEY_PAGER_ENABLED)
-            preferences.remove(KEY_RESET_ON_ENTER)
-            preferences.remove(KEY_SHOW_COMPLETED_TASKS)
-            preferences.remove(KEY_SHOW_COMPLETED_EXAMS)
-            preferences.remove(SCHEDULE_JSON_KEY)
-            preferences.remove(SCHEDULE_UPDATED_AT_KEY)
-            preferences.remove(GRADES_JSON_KEY)
-            preferences.remove(GPA_METADATA_JSON_KEY)
-            preferences.remove(GRADES_UPDATED_AT_KEY)
-            preferences.remove(EXAMS_JSON_KEY)
-            preferences.remove(EXAMS_UPDATED_AT_KEY)
-            preferences.remove(FINANCE_JSON_KEY)
-            preferences.remove(FINANCE_UPDATED_AT_KEY)
-            preferences.remove(ATTENDANCE_JSON_KEY)
-            preferences.remove(ATTENDANCE_UPDATED_AT_KEY)
-            preferences.remove(KQCARD_ATTENDANCE_JSON_KEY)
-            preferences.remove(KQCARD_ATTENDANCE_UPDATED_AT_KEY)
-            preferences.remove(USER_SCHEDULE_JSON_KEY)
-            preferences.remove(ASSESSMENT_JSON_KEY)
-            preferences.remove(ASSESSMENT_UPDATED_AT_KEY)
-            preferences.remove(RECORD_INDEX_JSON_KEY)
-            preferences.remove(RECORD_INDEX_UPDATED_AT_KEY)
-            preferences.remove(HOMEWORK_JSON_KEY)
-            preferences.remove(HOMEWORK_UPDATED_AT_KEY)
-            preferences.remove(USER_TASKS_JSON_KEY)
-            preferences.remove(USER_TASKS_UPDATED_AT_KEY)
-            preferences.remove(BATHROOM_PHONE_KEY)
-            preferences.remove(AC_CONFIG_KEY)
-            preferences.remove(LIGHTING_CONFIG_KEY)
-            preferences.remove(ADWMH_SESSION_KEY)
-            preferences.remove(TRAINING_PLAN_JSON_KEY)
-            preferences.remove(TRAINING_PLAN_UPDATED_AT_KEY)
-            preferences.remove(TRAINING_PLAN_CACHE_VERSION_KEY)
-        }
-        Log.i(TAG, "所有会话和凭据已清除")
+        cachedEmptyClassroomJson = null
+        cachedEmptyClassroomKey = null
+        cachedEmptyClassroomUpdatedAt = 0L
     }
-
-    private val SESSION_KEY = stringPreferencesKey("jsessionid")
-    private val JW_SESSION_KEY = stringPreferencesKey("jw_session_id")
-    private val JW_PST_SID_KEY = stringPreferencesKey("jw_pst_sid")
-    private val USERNAME_KEY = stringPreferencesKey("username")
-    private val PASSWORD_KEY = stringPreferencesKey("password")
-    private val MARKET_API_IDENTITY_KEY = stringPreferencesKey("market_api_identity")
-    private val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
-    private val STUDENT_INFO_KEY = stringPreferencesKey("student_info_json")
-    private val STUDENT_INFO_UPDATED_AT_KEY = longPreferencesKey("student_info_updated_at")
-
-    // 集市设置新 key
-    private val MARKET_IDENTITIES_KEY = stringPreferencesKey("market_identities")
-    private val MARKET_SELECTED_IDS_KEY = stringPreferencesKey("market_selected_ids")
-    private val MARKET_BLOCK_PINNED_KEY = stringPreferencesKey("market_block_pinned")
-    private val MARKET_BLOCK_KEYWORDS_KEY = stringPreferencesKey("market_block_keywords")
-    private val MARKET_FILTER_NODES_KEY = stringPreferencesKey("market_filter_nodes")
-    private val MARKET_ENABLED_KEY = stringPreferencesKey("market_enabled")
-    private val MARKET_LIST_LAYOUT_KEY = stringPreferencesKey("market_list_layout_mode")
-    private val SCHEDULE_COL_WIDTH_KEY = stringPreferencesKey("schedule_col_width")
-    private val SCHEDULE_ROW_HEIGHT_KEY = stringPreferencesKey("schedule_row_height")
-    private val SCHEDULE_FONT_SCALE_KEY = stringPreferencesKey("schedule_font_scale")
-    // 课表显示设置 (2026-06-17)
-    private val KEY_SHOW_SAT = stringPreferencesKey("schedule_show_sat")
-    private val KEY_SHOW_SUN = stringPreferencesKey("schedule_show_sun")
-    private val KEY_PAGER_ENABLED = stringPreferencesKey("schedule_pager_enabled")
-    private val KEY_RESET_ON_ENTER = stringPreferencesKey("schedule_reset_on_enter")
-    private val KEY_SHOW_COMPLETED_TASKS = stringPreferencesKey("schedule_show_completed_tasks")
-    private val KEY_SHOW_COMPLETED_EXAMS = stringPreferencesKey("schedule_show_completed_exams")
-    // 业务数据缓存 key
-    private val SCHEDULE_JSON_KEY = stringPreferencesKey("schedule_json")
-    private val SCHEDULE_UPDATED_AT_KEY = longPreferencesKey("schedule_updated_at")
-    private val GRADES_JSON_KEY = stringPreferencesKey("grades_json")
-    private val GPA_METADATA_JSON_KEY = stringPreferencesKey("gpa_metadata_json")
-    private val GRADES_UPDATED_AT_KEY = longPreferencesKey("grades_updated_at")
-    private val EXAMS_JSON_KEY = stringPreferencesKey("exams_json")
-    private val EXAMS_UPDATED_AT_KEY = longPreferencesKey("exams_updated_at")
-    private val FINANCE_JSON_KEY = stringPreferencesKey("finance_json")
-    private val FINANCE_UPDATED_AT_KEY = longPreferencesKey("finance_updated_at")
-    private val ATTENDANCE_JSON_KEY = stringPreferencesKey("attendance_json")
-    private val ATTENDANCE_UPDATED_AT_KEY = longPreferencesKey("attendance_updated_at")
-    private val KQCARD_ATTENDANCE_JSON_KEY = stringPreferencesKey("kqcard_attendance_json")
-    private val KQCARD_ATTENDANCE_UPDATED_AT_KEY = longPreferencesKey("kqcard_attendance_updated_at")
-    private val USER_SCHEDULE_JSON_KEY = stringPreferencesKey("user_schedule_json")
-    private val ASSESSMENT_JSON_KEY = stringPreferencesKey("assessment_json")
-    private val ASSESSMENT_UPDATED_AT_KEY = longPreferencesKey("assessment_updated_at")
-    private val RECORD_INDEX_JSON_KEY = stringPreferencesKey("record_index_json")
-    private val RECORD_INDEX_UPDATED_AT_KEY = longPreferencesKey("record_index_updated_at")
-    private val HOMEWORK_JSON_KEY = stringPreferencesKey("homework_json")
-    private val HOMEWORK_UPDATED_AT_KEY = longPreferencesKey("homework_updated_at")
-    private val USER_TASKS_JSON_KEY = stringPreferencesKey("user_tasks_json")
-    private val USER_TASKS_UPDATED_AT_KEY = longPreferencesKey("user_tasks_updated_at")
-    private val BATHROOM_PHONE_KEY = stringPreferencesKey("bathroom_phone")
-    private val AC_CONFIG_KEY = stringPreferencesKey("ac_config")
-    private val LIGHTING_CONFIG_KEY = stringPreferencesKey("lighting_config")
-    private val ADWMH_SESSION_KEY = stringPreferencesKey("adwmh_jsessionid")
-    private val TRAINING_PLAN_JSON_KEY = stringPreferencesKey("training_plan_json")
-    private val TRAINING_PLAN_UPDATED_AT_KEY = longPreferencesKey("training_plan_updated_at")
-    private val TRAINING_PLAN_CACHE_VERSION_KEY = longPreferencesKey("training_plan_cache_version")
-    private val TRAINING_PLAN_CACHE_VERSION = 2L
-    private val EMPTY_CLASSROOM_JSON_KEY = stringPreferencesKey("empty_classroom_json")
-    private val EMPTY_CLASSROOM_KEY_KEY = stringPreferencesKey("empty_classroom_key")
-    private val EMPTY_CLASSROOM_UPDATED_AT_KEY = longPreferencesKey("empty_classroom_updated_at")
 
     // ── JSON 解析辅助 ──────────────────────────────────
 
@@ -1103,6 +1069,28 @@ class SessionManager(private val appDataStore: AppDataStore) {
         }.getOrDefault(emptyList())
     }
 
+    private fun parseAiStylePrompts(json: String?): Map<String, String> {
+        if (json.isNullOrBlank()) return defaultAiStylePrompts()
+        val type = object : TypeToken<Map<String, String>>() {}.type
+        val parsed = runCatching { gson.fromJson<Map<String, String>>(json, type) }.getOrNull().orEmpty()
+        return defaultAiStylePrompts() + parsed.filterValues { it.isNotBlank() }
+    }
+
+    private fun defaultAiStylePrompts(): Map<String, String> =
+        AiCommentStyle.entries.associate { it.name to it.prompt }
+
+    private fun parseAiTemplates(json: String?): List<AiCommentTemplate> {
+        if (json.isNullOrBlank()) {
+            return defaultAiCommentTemplates().map { template ->
+                template.copy(prompt = cachedAiStylePrompts[template.id] ?: template.prompt)
+            }
+        }
+        return runCatching {
+            gson.fromJson(json, Array<AiCommentTemplate>::class.java)
+                .filter { it.id.isNotBlank() && it.name.isNotBlank() && it.prompt.isNotBlank() }
+        }.getOrNull()?.takeIf { it.isNotEmpty() } ?: defaultAiCommentTemplates()
+    }
+
     private fun parseElectricityConfig(json: String?): ElectricityRoomConfig {
         if (json.isNullOrBlank()) return ElectricityRoomConfig()
         return runCatching {
@@ -1112,21 +1100,138 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     private companion object {
         const val TAG = "SessionManager"
+        const val TRAINING_PLAN_CACHE_VERSION = 2L
+
+        // ── DataStore keys ────────────────────────────────
+        val SESSION_KEY = stringPreferencesKey("jsessionid")
+        val JW_SESSION_KEY = stringPreferencesKey("jw_session_id")
+        val JW_PST_SID_KEY = stringPreferencesKey("jw_pst_sid")
+        val USERNAME_KEY = stringPreferencesKey("username")
+        val PASSWORD_KEY = stringPreferencesKey("password")
+        val MARKET_API_IDENTITY_KEY = stringPreferencesKey("market_api_identity")
+        val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
+        val STUDENT_INFO_KEY = stringPreferencesKey("student_info_json")
+        val STUDENT_INFO_UPDATED_AT_KEY = longPreferencesKey("student_info_updated_at")
+        val MARKET_IDENTITIES_KEY = stringPreferencesKey("market_identities")
+        val MARKET_SELECTED_IDS_KEY = stringPreferencesKey("market_selected_ids")
+        val MARKET_BLOCK_PINNED_KEY = stringPreferencesKey("market_block_pinned")
+        val MARKET_BLOCK_KEYWORDS_KEY = stringPreferencesKey("market_block_keywords")
+        val MARKET_FILTER_NODES_KEY = stringPreferencesKey("market_filter_nodes")
+        val MARKET_ENABLED_KEY = stringPreferencesKey("market_enabled")
+        val MARKET_LIST_LAYOUT_KEY = stringPreferencesKey("market_list_layout_mode")
+        val MARKET_SCROLL_TO_TOP_KEY = stringPreferencesKey("market_scroll_to_top")
+        val AI_COMMENT_ENABLED_KEY = stringPreferencesKey("ai_comment_enabled")
+        val AI_COMMENT_MODEL_KEY = stringPreferencesKey("ai_comment_model")
+        val AI_COMMENT_STYLE_KEY = stringPreferencesKey("ai_comment_style")
+        val AI_COMMENT_OVERALL_PROMPT_KEY = stringPreferencesKey("ai_comment_overall_prompt")
+        val AI_COMMENT_STYLE_PROMPTS_KEY = stringPreferencesKey("ai_comment_style_prompts")
+        val AI_COMMENT_TEMPLATES_KEY = stringPreferencesKey("ai_comment_templates_json")
+        val AI_COMMENT_SELECTED_TEMPLATE_KEY = stringPreferencesKey("ai_comment_selected_template")
+        val RECENT_APPS_KEY = stringPreferencesKey("recent_apps")
+        val SCHEDULE_COL_WIDTH_KEY = stringPreferencesKey("schedule_col_width")
+        val SCHEDULE_ROW_HEIGHT_KEY = stringPreferencesKey("schedule_row_height")
+        val SCHEDULE_FONT_SCALE_KEY = stringPreferencesKey("schedule_font_scale")
+        val KEY_SHOW_SAT = stringPreferencesKey("schedule_show_sat")
+        val KEY_SHOW_SUN = stringPreferencesKey("schedule_show_sun")
+        val KEY_PAGER_ENABLED = stringPreferencesKey("schedule_pager_enabled")
+        val KEY_RESET_ON_ENTER = stringPreferencesKey("schedule_reset_on_enter")
+        val KEY_SHOW_COMPLETED_TASKS = stringPreferencesKey("schedule_show_completed_tasks")
+        val KEY_SHOW_COMPLETED_EXAMS = stringPreferencesKey("schedule_show_completed_exams")
+        val SCHEDULE_JSON_KEY = stringPreferencesKey("schedule_json")
+        val SCHEDULE_UPDATED_AT_KEY = longPreferencesKey("schedule_updated_at")
+        val GRADES_JSON_KEY = stringPreferencesKey("grades_json")
+        val GPA_METADATA_JSON_KEY = stringPreferencesKey("gpa_metadata_json")
+        val GRADES_UPDATED_AT_KEY = longPreferencesKey("grades_updated_at")
+        val EXAMS_JSON_KEY = stringPreferencesKey("exams_json")
+        val EXAMS_UPDATED_AT_KEY = longPreferencesKey("exams_updated_at")
+        val FINANCE_JSON_KEY = stringPreferencesKey("finance_json")
+        val FINANCE_UPDATED_AT_KEY = longPreferencesKey("finance_updated_at")
+        val ATTENDANCE_JSON_KEY = stringPreferencesKey("attendance_json")
+        val ATTENDANCE_UPDATED_AT_KEY = longPreferencesKey("attendance_updated_at")
+        val KQCARD_ATTENDANCE_JSON_KEY = stringPreferencesKey("kqcard_attendance_json")
+        val KQCARD_ATTENDANCE_UPDATED_AT_KEY = longPreferencesKey("kqcard_attendance_updated_at")
+        val USER_SCHEDULE_JSON_KEY = stringPreferencesKey("user_schedule_json")
+        val ASSESSMENT_JSON_KEY = stringPreferencesKey("assessment_json")
+        val ASSESSMENT_UPDATED_AT_KEY = longPreferencesKey("assessment_updated_at")
+        val RECORD_INDEX_JSON_KEY = stringPreferencesKey("record_index_json")
+        val RECORD_INDEX_UPDATED_AT_KEY = longPreferencesKey("record_index_updated_at")
+        val HOMEWORK_JSON_KEY = stringPreferencesKey("homework_json")
+        val HOMEWORK_UPDATED_AT_KEY = longPreferencesKey("homework_updated_at")
+        val USER_TASKS_JSON_KEY = stringPreferencesKey("user_tasks_json")
+        val USER_TASKS_UPDATED_AT_KEY = longPreferencesKey("user_tasks_updated_at")
+        val BATHROOM_PHONE_KEY = stringPreferencesKey("bathroom_phone")
+        val AC_CONFIG_KEY = stringPreferencesKey("ac_config")
+        val LIGHTING_CONFIG_KEY = stringPreferencesKey("lighting_config")
+        val NEW_CAMPUS_CONFIG_KEY = stringPreferencesKey("new_campus_config")
+        val ADWMH_SESSION_KEY = stringPreferencesKey("adwmh_jsessionid")
+        val TRAINING_PLAN_JSON_KEY = stringPreferencesKey("training_plan_json")
+        val TRAINING_PLAN_UPDATED_AT_KEY = longPreferencesKey("training_plan_updated_at")
+        val TRAINING_PLAN_CACHE_VERSION_KEY = longPreferencesKey("training_plan_cache_version")
+        val EMPTY_CLASSROOM_JSON_KEY = stringPreferencesKey("empty_classroom_json")
+        val EMPTY_CLASSROOM_KEY_KEY = stringPreferencesKey("empty_classroom_key")
+        val EMPTY_CLASSROOM_UPDATED_AT_KEY = longPreferencesKey("empty_classroom_updated_at")
+
+        /** clearAuthData 需要移除的 DataStore keys */
+        val AUTH_DATA_KEYS = listOf(
+            SESSION_KEY, JW_SESSION_KEY, JW_PST_SID_KEY,
+            USERNAME_KEY, PASSWORD_KEY,
+            STUDENT_INFO_KEY, STUDENT_INFO_UPDATED_AT_KEY,
+            SCHEDULE_JSON_KEY, SCHEDULE_UPDATED_AT_KEY,
+            GRADES_JSON_KEY, GPA_METADATA_JSON_KEY, GRADES_UPDATED_AT_KEY,
+            EXAMS_JSON_KEY, EXAMS_UPDATED_AT_KEY,
+            FINANCE_JSON_KEY, FINANCE_UPDATED_AT_KEY,
+            ATTENDANCE_JSON_KEY, ATTENDANCE_UPDATED_AT_KEY,
+            KQCARD_ATTENDANCE_JSON_KEY, KQCARD_ATTENDANCE_UPDATED_AT_KEY,
+            USER_SCHEDULE_JSON_KEY,
+            ASSESSMENT_JSON_KEY, ASSESSMENT_UPDATED_AT_KEY,
+            RECORD_INDEX_JSON_KEY, RECORD_INDEX_UPDATED_AT_KEY,
+            HOMEWORK_JSON_KEY, HOMEWORK_UPDATED_AT_KEY,
+            USER_TASKS_JSON_KEY, USER_TASKS_UPDATED_AT_KEY,
+            BATHROOM_PHONE_KEY,
+            AC_CONFIG_KEY, LIGHTING_CONFIG_KEY, NEW_CAMPUS_CONFIG_KEY,
+            ADWMH_SESSION_KEY,
+            TRAINING_PLAN_JSON_KEY, TRAINING_PLAN_UPDATED_AT_KEY, TRAINING_PLAN_CACHE_VERSION_KEY,
+            EMPTY_CLASSROOM_JSON_KEY, EMPTY_CLASSROOM_KEY_KEY, EMPTY_CLASSROOM_UPDATED_AT_KEY,
+        )
+
+        /** clearAll 需要移除的 DataStore keys (AUTH_DATA + 集市设置 + UI 偏好) */
+        val ALL_CLEARABLE_KEYS = AUTH_DATA_KEYS + listOf(
+            MARKET_API_IDENTITY_KEY,
+            MARKET_IDENTITIES_KEY, MARKET_SELECTED_IDS_KEY,
+            MARKET_BLOCK_PINNED_KEY, MARKET_BLOCK_KEYWORDS_KEY, MARKET_FILTER_NODES_KEY,
+            MARKET_ENABLED_KEY, MARKET_LIST_LAYOUT_KEY, MARKET_SCROLL_TO_TOP_KEY,
+            AI_COMMENT_ENABLED_KEY, AI_COMMENT_MODEL_KEY, AI_COMMENT_STYLE_KEY,
+            AI_COMMENT_OVERALL_PROMPT_KEY, AI_COMMENT_STYLE_PROMPTS_KEY,
+            AI_COMMENT_TEMPLATES_KEY, AI_COMMENT_SELECTED_TEMPLATE_KEY,
+            RECENT_APPS_KEY,
+            SCHEDULE_COL_WIDTH_KEY, SCHEDULE_ROW_HEIGHT_KEY, SCHEDULE_FONT_SCALE_KEY,
+            KEY_SHOW_SAT, KEY_SHOW_SUN, KEY_PAGER_ENABLED,
+            KEY_RESET_ON_ENTER, KEY_SHOW_COMPLETED_TASKS, KEY_SHOW_COMPLETED_EXAMS,
+        )
     }
 }
 
 /**
  * 电费房间配置 (空调/照明)。
- * building/floor/room 均为 "code&name" 格式,如 "57&榴园二号楼空调"。
+ * - 老区 (feeitemid 408/428): building/floor/room 均为 "code&name",campus 为空。
+ * - 新区 (feeitemid 488): campus/building/floor/room 四级均为 "code&name"。
  */
 data class ElectricityRoomConfig(
     val building: String = "",
     val floor: String = "",
-    val room: String = ""
+    val room: String = "",
+    /** 校区 (仅 feeitemid=488 新区使用,老区为空)。格式 "code&name",如 "ul001002002&磬苑校区"。 */
+    val campus: String = ""
 ) {
     val isComplete: Boolean
-        get() = listOf(building, floor, room).all { value ->
-            val parts = value.split("&", limit = 2)
-            parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()
-        }
+        get() = building.isValidCodeName() &&
+            floor.isValidCodeName() &&
+            room.isValidCodeName() &&
+            (campus.isBlank() || campus.isValidCodeName())
+
+    private fun String.isValidCodeName(): Boolean {
+        if (isBlank()) return false
+        val parts = split("&", limit = 2)
+        return parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()
+    }
 }

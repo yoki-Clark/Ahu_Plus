@@ -17,6 +17,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -25,6 +26,9 @@ import com.yourname.ahu_plus.data.model.MarketTopic
 import com.yourname.ahu_plus.data.model.MarketUser
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.File
@@ -35,8 +39,19 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 internal object MarketExportUtils {
+
+    private const val TAG = "MarketExport"
     private const val ALBUM = "AhuPlus"
     private val client = SecureHttpClientFactory.create(readTimeoutSec = 30)
+
+    private data class RenderResult(val bitmap: Bitmap, val stats: ExportStats)
+
+    private data class ExportStats(
+        val totalAvatarUrls: Int = 0,
+        val downloadedAvatarCount: Int = 0,
+        val totalImageUrls: Int = 0,
+        val downloadedImageCount: Int = 0
+    )
 
     private data class CommentLayout(
         val comment: MarketComment,
@@ -79,10 +94,10 @@ internal object MarketExportUtils {
         school: String?
     ): Result<Uri> = withContext(Dispatchers.IO) {
         runCatching {
-            val bitmap = renderTopicDetailBitmap(context, topic, comments, school)
+            val result = renderTopicDetailBitmap(context, topic, comments, school)
             saveBitmapToGallery(
                 context = context,
-                bitmap = bitmap,
+                bitmap = result.bitmap,
                 displayName = "ahu_market_topic_${topic.id}_${System.currentTimeMillis()}.png"
             )
         }
@@ -158,12 +173,12 @@ internal object MarketExportUtils {
     //  渲染：帖子正文 + 评论 + 楼中楼
     // ══════════════════════════════════════════════════════
 
-    private fun renderTopicDetailBitmap(
+    private suspend fun renderTopicDetailBitmap(
         context: Context,
         topic: MarketTopic,
         comments: List<MarketComment>,
         school: String?
-    ): Bitmap {
+    ): RenderResult {
         val density = context.resources.displayMetrics.density
         fun dp(value: Float): Float = value * density
 
@@ -174,19 +189,39 @@ internal object MarketExportUtils {
         val cardPadding = dp(32f)
         val contentWidth = (width - outerPadding * 2 - cardPadding * 2).roundToInt()
 
-        // 预下载帖子图片与所有评论 / 回复图片
-        val topicImages = topic.imgs.mapNotNull { url ->
-            runCatching { decodeBitmapFromUrl(url) }.getOrNull()
-        }
+        // 并行预下载帖子图片、评论图片、头像（避免串行超时）
+        val allImageUrls = (topic.imgs +
+            comments.flatMap { c -> (listOf(c) + c.visibleReplies).flatMap { it.imgs } } +
+            collectAvatarUrls(topic, comments)).distinct()
+        val downloadedMap: Map<String, Bitmap> = coroutineScope {
+            allImageUrls.map { url ->
+                async(Dispatchers.IO) {
+                    try {
+                        url to decodeBitmapFromUrl(url)
+                    } catch (_: Exception) {
+                        null // 单张图片下载/解码失败不影响其他
+                    }
+                }
+            }.awaitAll()
+        }.filterNotNull()
+            .filter { it.second != null }
+            .associate { it.first to it.second!! }
+
+        val topicImages = topic.imgs.mapNotNull { downloadedMap[it] }
         val commentImages: Map<String, Bitmap> = comments.flatMap { c ->
             (listOf(c) + c.visibleReplies).flatMap { mr -> mr.imgs }
-        }.distinct().associateWith { url ->
-            runCatching { decodeBitmapFromUrl(url) }.getOrNull()
-        }.filterValues { it != null }.mapValues { it.value!! }
-        val avatarBitmaps: Map<String, Bitmap> = collectAvatarUrls(topic, comments)
-            .associateWith { url -> runCatching { decodeBitmapFromUrl(url) }.getOrNull() }
-            .filterValues { it != null }
-            .mapValues { it.value!! }
+        }.distinct().mapNotNull { url -> downloadedMap[url]?.let { bmp -> url to bmp } }.toMap()
+        val avatarUrls = collectAvatarUrls(topic, comments)
+        val avatarBitmaps: Map<String, Bitmap> = avatarUrls
+            .mapNotNull { url -> downloadedMap[url]?.let { bmp -> url to bmp } }.toMap()
+
+        // 统计下载结果
+        val stats = ExportStats(
+            totalAvatarUrls = avatarUrls.size,
+            downloadedAvatarCount = avatarBitmaps.size,
+            totalImageUrls = allImageUrls.size,
+            downloadedImageCount = downloadedMap.size
+        )
 
         // 画笔
         val titlePaint = textPaint(color = Color.rgb(24, 24, 27), textSize = dp(24f), fakeBold = true)
@@ -234,9 +269,11 @@ internal object MarketExportUtils {
                     target + if (idx != comment.imgs.lastIndex) dp(8f).roundToInt() else 0
                 }
             }.sum()
+            // 回复文本宽度: 容器宽度 - 左侧 padding(dp14) - 右侧 padding(dp8)
+            val replyBodyWidth = (contentWidth - dp(36f) - dp(14f) - dp(8f)).roundToInt().coerceAtLeast(80)
             val replyLayouts = comment.visibleReplies.map { reply ->
                 val rBody = reply.content.ifBlank { "无内容" }
-                val rBodyLayout = staticLayout(rBody, replyBodyPaint, contentWidth)
+                val rBodyLayout = staticLayout(rBody, replyBodyPaint, replyBodyWidth)
                 ReplyLayout(reply, dp(22f), rBodyLayout)
             }
             CommentLayout(comment, dp(36f), bodyLayout, imageH, replyLayouts)
@@ -481,7 +518,7 @@ internal object MarketExportUtils {
             }
         }
 
-        return bitmap
+        return RenderResult(bitmap, stats)
     }
 
     // ══════════════════════════════════════════════════════
@@ -496,43 +533,37 @@ internal object MarketExportUtils {
         user: MarketUser?,
         avatarBitmap: Bitmap?
     ) {
-        // 背景圆 + 描边
+        // 背景圆
         val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(230, 240, 255) }
         canvas.drawCircle(cx, cy, radius, bgPaint)
-        if (avatarBitmap != null) {
-            // 用圆形 BitmapShader 裁剪贴图
-            val shader = BitmapShader(avatarBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-            val matrix = Matrix()
-            val dstRectF = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
-            val shaderPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-                this.shader = shader
-            }
-            // 居中裁剪（centerCrop 行为）
-            val srcRatio = avatarBitmap.width / avatarBitmap.height.toFloat()
-            val dstRatio = 1f
-            if (srcRatio > dstRatio) {
-                val newWidth = (avatarBitmap.height * dstRatio).roundToInt()
-                val left = (avatarBitmap.width - newWidth) / 2
-                matrix.postTranslate(-left.toFloat(), 0f)
-            } else {
-                val newHeight = (avatarBitmap.width / dstRatio).roundToInt()
-                val top = (avatarBitmap.height - newHeight) / 2
-                matrix.postTranslate(0f, -top.toFloat())
-            }
-            shader.setLocalMatrix(matrix)
+        if (avatarBitmap != null && !avatarBitmap.isRecycled) {
+            // 用 clipPath + drawBitmap 裁剪圆形头像
+            val dstRect = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
             canvas.save()
             val path = Path().apply { addCircle(cx, cy, radius, Path.Direction.CW) }
             canvas.clipPath(path)
-            canvas.drawRect(dstRectF, shaderPaint)
+            // centerCrop: 计算源矩形
+            val srcRatio = avatarBitmap.width / avatarBitmap.height.toFloat()
+            val dstRatio = 1f
+            val src = if (srcRatio > dstRatio) {
+                val srcW = (avatarBitmap.height * dstRatio).roundToInt()
+                val left = (avatarBitmap.width - srcW) / 2
+                android.graphics.Rect(left, 0, left + srcW, avatarBitmap.height)
+            } else {
+                val srcH = (avatarBitmap.width / dstRatio).roundToInt()
+                val top = (avatarBitmap.height - srcH) / 2
+                android.graphics.Rect(0, top, avatarBitmap.width, top + srcH)
+            }
+            canvas.drawBitmap(avatarBitmap, src, dstRect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
             canvas.restore()
         } else {
             // 回退首字母
             val label = user?.nickname?.firstOrNull()?.toString() ?: "匿"
-            val textPaint = textPaint(Color.rgb(47, 128, 237), radius * 0.95f, true).apply {
+            val tp = textPaint(Color.rgb(47, 128, 237), radius * 0.95f, true).apply {
                 textAlign = Paint.Align.CENTER
             }
-            val baseline = cy - (textPaint.descent() + textPaint.ascent()) / 2
-            canvas.drawText(label, cx, baseline, textPaint)
+            val baseline = cy - (tp.descent() + tp.ascent()) / 2
+            canvas.drawText(label, cx, baseline, tp)
         }
         // 描边
         val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -609,8 +640,26 @@ internal object MarketExportUtils {
     }
 
     private fun decodeBitmapFromUrl(url: String): Bitmap? {
-        val bytes = downloadImage(url).bytes
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        val data = downloadImage(url)
+        val bytes = data.bytes
+        if (bytes.isEmpty()) return null
+        val opts = BitmapFactory.Options().apply {
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        // 直接从字节数组解码
+        var bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        if (bmp != null) return bmp
+        // fallback: 写临时文件后从文件解码(某些格式 decodeByteArray 不支持但 decodeFile 支持)
+        val tmpFile = java.io.File.createTempFile("avatar_", ".img")
+        try {
+            tmpFile.writeBytes(bytes)
+            bmp = BitmapFactory.decodeFile(tmpFile.absolutePath, opts)
+        } catch (e: Exception) {
+            Log.w(TAG, "Avatar bitmap decode failed: ${e.message}")
+        } finally {
+            tmpFile.delete()
+        }
+        return bmp
     }
 
     private fun collectAvatarUrls(topic: MarketTopic, comments: List<MarketComment>): List<String> {

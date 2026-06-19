@@ -1,6 +1,7 @@
 package com.yourname.ahu_plus.ui.screen.schedule
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
@@ -18,13 +19,16 @@ import com.yourname.ahu_plus.data.model.task.HomeworkRecord
 import com.yourname.ahu_plus.data.model.task.RecentTaskItem
 import com.yourname.ahu_plus.data.model.task.RecentTaskSource
 import com.yourname.ahu_plus.data.model.task.UserTask
+import com.yourname.ahu_plus.data.model.KqAttendanceRecord
 import com.yourname.ahu_plus.data.repository.AssessmentRepository
 import com.yourname.ahu_plus.data.repository.CourseRepository
 import com.yourname.ahu_plus.data.repository.ExamRepository
 import com.yourname.ahu_plus.data.repository.HomeworkRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
+import com.yourname.ahu_plus.data.repository.KqAttendanceRepository
 import com.yourname.ahu_plus.data.repository.RecordRepository
 import com.yourname.ahu_plus.data.repository.UserTaskRepository
+import com.yourname.ahu_plus.ui.widget.TodayScheduleWidgetUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -54,6 +58,7 @@ class ScheduleViewModel(
     private val homeworkRepository: HomeworkRepository,
     private val userTaskRepository: UserTaskRepository,
     private val examRepository: ExamRepository,
+    private val kqAttendanceRepository: KqAttendanceRepository,
 ) : AndroidViewModel(application) {
 
     private val gson = com.yourname.ahu_plus.data.GsonProvider.instance
@@ -65,7 +70,7 @@ class ScheduleViewModel(
     private val _slotNote = MutableStateFlow("")
     private val _assessmentPlan = MutableStateFlow<AssessmentPlan?>(null)
     private val _courseRecords = MutableStateFlow<List<RecordEntry>>(emptyList())
-    private val _hasSignedIn = MutableStateFlow(false)
+    private val _courseAttendance = MutableStateFlow<List<KqAttendanceRecord>>(emptyList())
     var courseNote: StateFlow<String> = _courseNote.asStateFlow()
         private set
     var slotNote: StateFlow<String> = _slotNote.asStateFlow()
@@ -74,12 +79,44 @@ class ScheduleViewModel(
         private set
     var courseRecords: StateFlow<List<RecordEntry>> = _courseRecords.asStateFlow()
         private set
-    /** 当前打开的节次是否已签到 (SIGN_IN 或 ROLL_CALL 任一) */
-    var hasSignedIn: StateFlow<Boolean> = _hasSignedIn.asStateFlow()
+    /** 当前课程匹配到的教务考勤记录 (kqcard.ahu.edu.cn) */
+    var courseAttendance: StateFlow<List<KqAttendanceRecord>> = _courseAttendance.asStateFlow()
         private set
 
     // ── 设置变更触发器 (Profile 页改开关时 bump) ───────
     private val _settingsTicker = MutableStateFlow(0)
+
+    /**
+     * 首页今日课程考勤状态。
+     * key = "课程名"，value = status (1=正常/已签到, 2=迟到, 3=缺勤)。
+     * 由 kqcard 缓存数据按今日日期 + 课程名匹配产出。
+     */
+    val todayCourseAttendance: StateFlow<Map<String, Int>> = combine(
+        _uiState,
+        _settingsTicker,
+        MutableStateFlow(loadKqAttendanceCached()),
+    ) { state, _, cached ->
+        val today = java.time.LocalDate.now()
+        val todayStr = today.toString()
+        val currentWeek = state.currentWeek
+        val result = mutableMapOf<String, Int>()
+        for (rec in cached) {
+            val checkDate = rec.accountBean?.checkdate ?: continue
+            if (checkDate != todayStr) continue
+            val recWeek = rec.accountBean?.week
+            if (recWeek != null && recWeek != currentWeek) continue
+            val status = rec.classWaterBean?.status ?: continue
+            val name = rec.subjectBean?.sName?.ifBlank { null }
+                ?: rec.subjectBean?.sSimple?.ifBlank { null } ?: continue
+            result[name] = status
+        }
+        result
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** 一次性读取 kqcard 考勤缓存 */
+    private fun loadKqAttendanceCached(): List<KqAttendanceRecord> {
+        return kqAttendanceRepository.readCached()?.records ?: emptyList()
+    }
 
     // ── 首页近期任务 (跨源合并) ───────────────────────
     val recentTasks: StateFlow<List<RecentTaskItem>> = combine(
@@ -94,20 +131,6 @@ class ScheduleViewModel(
             buildRecentTasks(hw, tasks, exams, showCompleted, showCompletedExams)
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
-    // ── 首页签到状态 (Bug1: 今日是否已签到) ────────────
-    val todayHasSignIn: StateFlow<Boolean> = combine(
-        recordRepository.records,
-        _settingsTicker,
-    ) { records, _ ->
-        val today = java.time.LocalDate.now()
-        val todayWd = today.dayOfWeek.value
-        val week = _uiState.value.currentWeek
-        records.values.flatten().any { r ->
-            (r.type == RecordType.SIGN_IN || r.type == RecordType.ROLL_CALL)
-                && r.weekday == todayWd && r.week == week
-        }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     init {
         // 从持久化恢复课表布局偏好
@@ -149,7 +172,7 @@ class ScheduleViewModel(
         try {
             val items = gson.fromJson(json, Array<UserScheduleItem>::class.java).toList()
             _uiState.update { it.copy(userScheduleItems = items) }
-        } catch (_: Exception) {}
+        } catch (_: Exception) { Log.w(TAG, "Failed to parse user schedule items") }
     }
 
     /** 持久化用户自定义课表条目 */
@@ -159,7 +182,8 @@ class ScheduleViewModel(
             try {
                 val json = gson.toJson(_uiState.value.userScheduleItems)
                 sm.saveUserScheduleJson(json)
-            } catch (_: Exception) {}
+                TodayScheduleWidgetUpdater.updateAll(getApplication())
+            } catch (_: Exception) { Log.w(TAG, "Failed to save user schedule items") }
         }
     }
 
@@ -305,7 +329,8 @@ class ScheduleViewModel(
                             try {
                                 val json = com.yourname.ahu_plus.data.GsonProvider.instance.toJson(data)
                                 sm.saveScheduleJson(json)
-                            } catch (_: Exception) { /* 缓存失败不影响 UI */ }
+                                TodayScheduleWidgetUpdater.updateAll(getApplication())
+                            } catch (e: Exception) { Log.w(TAG, "Failed to cache schedule JSON: ${e.message}") }
                         }
 
                         val displayItems = buildDisplayItems(
@@ -405,7 +430,7 @@ class ScheduleViewModel(
                 showSat = true, showSun = true,
                 pagerEnabled = true, resetOnEnter = true,
                 showCompletedTasks = false,
-                showCompletedExams = true,
+                showCompletedExams = false,
             )
         }
         viewModelScope.launch {
@@ -417,6 +442,7 @@ class ScheduleViewModel(
             sessionManager?.setPagerEnabled(true)
             sessionManager?.setResetOnEnter(true)
             sessionManager?.setShowCompletedTasks(false)
+            sessionManager?.setShowCompletedExams(false)
         }
         rebuildDisplayItems()
     }
@@ -506,6 +532,7 @@ class ScheduleViewModel(
         val courseCode = item.courseCode.orEmpty()
         val lessonId = item.lessonId.toString()
         val week = _uiState.value.selectedWeek
+        val weekday = item.weekday
         _uiState.update {
             it.copy(
                 selectedCourseDetail = CourseDetailUiModel(
@@ -515,7 +542,7 @@ class ScheduleViewModel(
                 )
             )
         }
-        // 启动 4 个 Flow 订阅 (collect 在 viewModelScope,直到 sheet 关闭)
+        // 启动 Flow 订阅 (collect 在 viewModelScope,直到 sheet 关闭)
         courseNoteJob?.cancel()
         courseNoteJob = viewModelScope.launch {
             // 课程备注
@@ -530,17 +557,17 @@ class ScheduleViewModel(
             launch {
                 assessmentRepository.observe(lessonId).collect { _assessmentPlan.value = it }
             }
-            // 该课程代码下的所有记录
+            // 该课程代码下的所有记录 (作业等)
             launch {
                 recordRepository.recordsForCourse(courseCode).collect { records ->
                     _courseRecords.value = records
-                    // 派生: 当前 lessonId+week 是否有 SIGN_IN 或 ROLL_CALL 记录
-                    _hasSignedIn.value = records.any { r ->
-                        r.lessonId == lessonId &&
-                        r.week == week &&
-                        (r.type == RecordType.SIGN_IN || r.type == RecordType.ROLL_CALL)
-                    }
                 }
+            }
+            // 教务考勤记录 (kqcard) — 全部周次
+            launch {
+                _courseAttendance.value = matchAttendanceForCourse(
+                    courseName = item.courseName,
+                )
             }
         }
     }
@@ -552,7 +579,7 @@ class ScheduleViewModel(
         _slotNote.value = ""
         _assessmentPlan.value = null
         _courseRecords.value = emptyList()
-        _hasSignedIn.value = false
+        _courseAttendance.value = emptyList()
         _uiState.update { it.copy(selectedCourseDetail = null) }
     }
 
@@ -576,61 +603,10 @@ class ScheduleViewModel(
         viewModelScope.launch { assessmentRepository.save(plan) }
     }
 
-    fun addAssessmentImage(uri: android.net.Uri): Unit {} // Step 4 接入
-    fun removeAssessmentImage(path: String): Unit {} // Step 4 接入
+    fun addAssessmentImage(uri: android.net.Uri): Unit {} // TODO: Step 4 接入
+    fun removeAssessmentImage(path: String): Unit {} // TODO: Step 4 接入
 
-    // ── 记录 (点名/签到/作业) ─────────────────────────
-
-    fun addRollCall() {
-        addQuickRecord(RecordType.ROLL_CALL, note = null)
-    }
-    fun addSignIn() {
-        addQuickRecord(RecordType.SIGN_IN, note = null)
-    }
-
-    /**
-     * 不依赖 selectedCourseDetail 的快速签到 (2026-06-17 Bug3 修复)。
-     * 用于首页 TodayCourseCard 顶部的"签到"按钮。
-     * 优先选当前正在上的课, 否则选今天下一节。
-     */
-    fun addQuickSignInForToday() {
-        val today = java.time.LocalDate.now()
-        val todayWd = today.dayOfWeek.value
-        val now = java.time.LocalTime.now()
-        val currentWeek = _uiState.value.currentWeek
-        val items = _uiState.value.allActivities
-            .filter { it.weekday == todayWd && (it.weekIndexes ?: emptyList()).contains(currentWeek) }
-            .mapNotNull { act ->
-                val start = act.startUnit ?: return@mapNotNull null
-                val end = act.endUnit ?: start
-                val startStr = act.startTime?.takeIf { it.isNotBlank() }
-                    ?: _uiState.value.unitTimes.firstOrNull { it.indexNo == start }?.startTimeStr()
-                val endStr = act.endTime?.takeIf { it.isNotBlank() }
-                    ?: _uiState.value.unitTimes.firstOrNull { it.indexNo == end }?.endTimeStr()
-                if (startStr == null || endStr == null) return@mapNotNull null
-                val startMin = com.yourname.ahu_plus.data.model.jw.parseTimeMinutes(startStr) ?: return@mapNotNull null
-                val endMin = com.yourname.ahu_plus.data.model.jw.parseTimeMinutes(endStr) ?: return@mapNotNull null
-                val nowMin = now.hour * 60 + now.minute
-                Quad(act, startMin, endMin, nowMin - startMin)
-            }
-        // 优先正在上, 否则今天还没开始但有课
-        val target = items.firstOrNull { (_, s, e, elapsed) -> elapsed in 0..(e - s) }
-            ?: items.firstOrNull { it.elapsed < 0 }
-            ?: return
-        val (act, _, _, _) = target
-        viewModelScope.launch {
-            recordRepository.addQuickRecord(
-                lessonId = act.lessonId?.toString().orEmpty(),
-                courseCode = act.courseCode.orEmpty(),
-                courseName = act.courseName.orEmpty(),
-                week = currentWeek,
-                weekday = todayWd,
-                startUnit = act.startUnit ?: 0,
-                type = RecordType.SIGN_IN,
-                note = null,
-            )
-        }
-    }
+    // ── 记录 (作业) ───────────────────────────────────
 
     /** 不依赖 selectedCourseDetail 的添加作业 (2026-06-17 Bug4 修复)。 */
     fun addQuickHomeworkForToday(text: String, deadline: Long?) {
@@ -718,23 +694,6 @@ class ScheduleViewModel(
 
     private var courseNoteJob: kotlinx.coroutines.Job? = null
 
-    private fun addQuickRecord(type: RecordType, note: String?) {
-        val detail = _uiState.value.selectedCourseDetail ?: return
-        val item = detail.item
-        viewModelScope.launch {
-            recordRepository.addQuickRecord(
-                lessonId = item.lessonId.toString(),
-                courseCode = item.courseCode.orEmpty(),
-                courseName = item.courseName,
-                week = detail.currentWeek,
-                weekday = item.weekday,
-                startUnit = item.startUnit,
-                type = type,
-                note = note,
-            )
-        }
-    }
-
     fun toggleRecordCompleted(recordId: String) {
         viewModelScope.launch {
             val snapshot = recordRepository.records.first()
@@ -801,6 +760,26 @@ class ScheduleViewModel(
             com.yourname.ahu_plus.data.model.task.RecentTaskSource.EXAM -> {
                 // 考试不可勾选,忽略
             }
+        }
+    }
+
+    // ── 教务考勤匹配 ──────────────────────────────────
+
+    /**
+     * 从 kqcard 缓存中匹配某门课的全部考勤记录 (跨所有周次)。
+     *
+     * 匹配规则: 课程名模糊匹配 (contains, 忽略空格)
+     */
+    private fun matchAttendanceForCourse(
+        courseName: String,
+    ): List<KqAttendanceRecord> {
+        val cached = kqAttendanceRepository.readCached() ?: return emptyList()
+        val normalizedName = courseName.replace("\\s".toRegex(), "")
+        return cached.records.filter { rec ->
+            val recName = (rec.subjectBean?.sName ?: rec.subjectBean?.sSimple ?: "")
+                .replace("\\s".toRegex(), "")
+            recName.contains(normalizedName, ignoreCase = true)
+                    || normalizedName.contains(recName, ignoreCase = true)
         }
     }
 
@@ -880,9 +859,13 @@ class ScheduleViewModel(
         val match = regex.find(examTime) ?: return null
         val (date, time) = match.destructured
         return runCatching {
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
             sdf.parse("$date $time")?.time
         }.getOrNull()
+    }
+
+    private companion object {
+        private const val TAG = "ScheduleVM"
     }
 }
 
@@ -892,7 +875,7 @@ data class AffectedClass(
     val weekday: Int,
 )
 
-/** 四元组 (addQuickSignInForToday / addQuickHomeworkForToday 内部用) */
+/** 四元组 (addQuickHomeworkForToday 内部用) */
 private data class Quad(
     val act: CourseActivity,
     val start: Int,
@@ -936,7 +919,7 @@ data class ScheduleUiState(
     val pagerEnabled: Boolean = true,
     val resetOnEnter: Boolean = true,
     val showCompletedTasks: Boolean = false,
-    val showCompletedExams: Boolean = true,
+    val showCompletedExams: Boolean = false,
 )
 
 /**
