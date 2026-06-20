@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,10 +21,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -36,6 +39,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator as M3CircularProgressIndicator
@@ -51,6 +55,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.yourname.ahu_plus.data.model.MarketComment
+import com.yourname.ahu_plus.data.model.AiCommentTemplate
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.components.AhuShapes
 import kotlinx.coroutines.launch
@@ -87,6 +94,7 @@ internal fun MarketDetailScreen(
     onLoadFullCommentsForExport: suspend (Long, String?) -> Result<List<MarketComment>>,
     onCommentDraftChanged: (String) -> Unit,
     onCommentSubmit: () -> Unit,
+    onGenerateAiComment: (AiCommentTemplate) -> Unit,
     onCancelReply: () -> Unit,
     onStartReplyingToComment: (MarketComment) -> Unit,
     onStartReplyingToReply: (MarketComment, MarketComment) -> Unit,
@@ -215,9 +223,7 @@ internal fun MarketDetailScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        // 把 IME 接入 Scaffold 的 windowInsets，这样 bottomBar 会自动被输入法顶起，
-        // 不会和 IME 之间留出空白条；同时仍保留 systemBars 让导航栏 padding 生效。
-        contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
+        contentWindowInsets = WindowInsets.systemBars,
         bottomBar = {
             CommentComposerBar(
                 draft = uiState.commentDraft,
@@ -226,6 +232,11 @@ internal fun MarketDetailScreen(
                 error = uiState.postCommentError,
                 onDraftChanged = onCommentDraftChanged,
                 onSubmit = onCommentSubmit,
+                aiEnabled = uiState.aiCommentEnabled,
+                isGeneratingAi = uiState.isGeneratingAiComment,
+                aiTemplates = uiState.aiTemplates,
+                selectedAiTemplateId = uiState.aiSelectedTemplateId,
+                onGenerateAiComment = onGenerateAiComment,
                 onCancelReply = onCancelReply
             )
         },
@@ -499,6 +510,7 @@ private fun ReplyRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CommentComposerBar(
     draft: String,
@@ -507,20 +519,64 @@ private fun CommentComposerBar(
     error: String?,
     onDraftChanged: (String) -> Unit,
     onSubmit: () -> Unit,
+    aiEnabled: Boolean,
+    isGeneratingAi: Boolean,
+    aiTemplates: List<AiCommentTemplate>,
+    selectedAiTemplateId: String,
+    onGenerateAiComment: (AiCommentTemplate) -> Unit,
     onCancelReply: () -> Unit
 ) {
     val nickname = replyingTo?.displayName.orEmpty()
-    // Scaffold 的 contentWindowInsets 已经包含 IME，bottomBar 会被自动顶到 IME 之上，
-    // 这里不能再叠 imePadding()，否则会和 IME 之间多出一段空白条。
+    var showAiStyles by remember { mutableStateOf(false) }
+    val isImeVisible = WindowInsets.isImeVisible
+
+    if (showAiStyles) {
+        AlertDialog(
+            onDismissRequest = { showAiStyles = false },
+            title = { Text("AI 帮写评论") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (replyingTo == null) "将结合帖子和当前评论区，生成一条帖子评论。"
+                        else "将结合帖子和当前评论区，回复 @$nickname。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(aiTemplates) { template ->
+                            FilterChip(
+                                selected = template.id == selectedAiTemplateId,
+                                onClick = {
+                                    showAiStyles = false
+                                    onGenerateAiComment(template)
+                                },
+                                label = { Text(template.name) }
+                            )
+                        }
+                    }
+                    Text(
+                        "AI 只会填入草稿，发送前请自行核对。帖子与评论内容会提交给 DeepSeek。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showAiStyles = false }) { Text("取消") } }
+        )
+    }
     Surface(
         tonalElevation = 3.dp,
         shadowElevation = 4.dp,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .imePadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(if (isImeVisible) Modifier else Modifier.navigationBarsPadding())
                 .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -560,10 +616,24 @@ private fun CommentComposerBar(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
+                if (aiEnabled) {
+                    IconButton(
+                        onClick = { showAiStyles = true },
+                        enabled = !isGeneratingAi && !isPosting,
+                        modifier = Modifier.size(42.dp)
+                    ) {
+                        if (isGeneratingAi) {
+                            M3CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = "AI 帮写评论")
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
                 BasicTextField(
                     value = draft,
                     onValueChange = onDraftChanged,
-                    maxLines = 3,
+                    maxLines = 8,
                     singleLine = false,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                         color = MaterialTheme.colorScheme.onSurface
@@ -575,7 +645,7 @@ private fun CommentComposerBar(
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 44.dp, max = 92.dp)
+                        .heightIn(min = 44.dp, max = 188.dp)
                         .clip(RoundedCornerShape(22.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
                         .padding(horizontal = 14.dp, vertical = 11.dp),

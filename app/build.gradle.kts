@@ -19,9 +19,12 @@ android {
 
     buildTypes {
         release {
-            optimization {
-                enable = false
-            }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
     compileOptions {
@@ -44,9 +47,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
-    implementation(libs.retrofit)
-    implementation(libs.converter.gson)
     implementation(libs.gson)
     implementation(libs.datastore.preferences)
     implementation(libs.androidx.security.crypto)
@@ -56,6 +56,8 @@ dependencies {
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.jsoup)
     implementation(libs.zxing.core)
+    implementation(libs.androidx.glance)
+    implementation(libs.androidx.glance.appwidget)
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver)
     testImplementation(libs.coroutines.test)

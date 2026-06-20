@@ -53,12 +53,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.jw.Exam
-import com.yourname.ahu_plus.ui.screen.grade.CenteredError
-import com.yourname.ahu_plus.ui.screen.grade.CenteredLoader
-import com.yourname.ahu_plus.ui.screen.grade.CenteredMessage
+import com.yourname.ahu_plus.ui.components.CenteredError
+import com.yourname.ahu_plus.ui.components.CenteredLoader
+import com.yourname.ahu_plus.ui.components.CenteredMessage
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.components.AhuShapes
-import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
+import com.yourname.ahu_plus.ui.components.CollapsibleSection
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale

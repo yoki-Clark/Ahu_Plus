@@ -3,6 +3,9 @@ package com.yourname.ahu_plus.ui.screen.market
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.model.MarketComment
+import com.yourname.ahu_plus.data.model.AiCommentModel
+import com.yourname.ahu_plus.data.model.AiCommentStyle
+import com.yourname.ahu_plus.data.model.AiCommentTemplate
 import com.yourname.ahu_plus.data.model.MarketCommentReplies
 import com.yourname.ahu_plus.data.model.MarketIdentity
 import com.yourname.ahu_plus.data.model.MarketNode
@@ -10,6 +13,7 @@ import com.yourname.ahu_plus.data.model.MarketNotice
 import com.yourname.ahu_plus.data.model.MarketTopic
 import com.yourname.ahu_plus.data.remote.market.MarketApi
 import com.yourname.ahu_plus.data.repository.MarketRepository
+import com.yourname.ahu_plus.data.repository.AiCommentRepository
 import com.yourname.ahu_plus.data.repository.MarketTopicBatch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +23,8 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 class MarketViewModel(
-    private val repository: MarketRepository
+    private val repository: MarketRepository,
+    private val aiCommentRepository: AiCommentRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MarketUiState())
@@ -41,6 +46,14 @@ class MarketViewModel(
         val filterNodeIds = repository.getFilterNodeIds()
         val marketEnabled = repository.getMarketEnabled()
         val listLayoutMode = repository.getListLayoutMode()
+        val scrollToTop = repository.getScrollToTop()
+        val aiEnabled = aiCommentRepository.isEnabled()
+        val aiModel = aiCommentRepository.getModel()
+        val aiStyle = aiCommentRepository.getDefaultStyle()
+        val aiOverallPrompt = aiCommentRepository.getOverallPrompt()
+        val aiStylePrompts = aiCommentRepository.getStylePrompts()
+        val aiTemplates = aiCommentRepository.getTemplates()
+        val aiSelectedTemplateId = aiCommentRepository.getSelectedTemplateId()
         val identityCount = identities.size
         _uiState.update {
             it.copy(
@@ -51,6 +64,15 @@ class MarketViewModel(
                 filterNodeIds = filterNodeIds,
                 marketEnabled = marketEnabled,
                 listLayoutMode = listLayoutMode,
+                scrollToTopEnabled = scrollToTop,
+                aiCommentEnabled = aiEnabled,
+                aiCommentModel = aiModel,
+                aiCommentStyle = aiStyle,
+                aiOverallPrompt = aiOverallPrompt,
+                aiStylePrompts = aiStylePrompts,
+                aiTemplates = aiTemplates,
+                aiSelectedTemplateId = aiSelectedTemplateId,
+                aiApiKeyConfigured = aiCommentRepository.hasApiKey(),
                 hasSavedIdentity = identityCount > 0,
                 school = identities.firstOrNull { it.id in selectedIds }?.school
                     ?: identities.firstOrNull()?.school,
@@ -63,6 +85,116 @@ class MarketViewModel(
         viewModelScope.launch {
             repository.setListLayoutMode(mode)
             _uiState.update { it.copy(listLayoutMode = mode) }
+        }
+    }
+
+    fun setScrollToTop(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setScrollToTop(enabled)
+            _uiState.update { it.copy(scrollToTopEnabled = enabled) }
+        }
+    }
+
+    fun setAiCommentEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            aiCommentRepository.setEnabled(enabled)
+            _uiState.update { it.copy(aiCommentEnabled = enabled) }
+        }
+    }
+
+    fun setAiCommentModel(model: AiCommentModel) {
+        viewModelScope.launch {
+            aiCommentRepository.setModel(model)
+            _uiState.update { it.copy(aiCommentModel = model) }
+        }
+    }
+
+    fun setAiCommentStyle(style: AiCommentStyle) {
+        viewModelScope.launch {
+            aiCommentRepository.setDefaultStyle(style)
+            _uiState.update { it.copy(aiCommentStyle = style) }
+        }
+    }
+
+    fun saveAiApiKey(value: String) {
+        if (value.isBlank()) return
+        aiCommentRepository.saveApiKey(value)
+        _uiState.update { it.copy(aiApiKeyConfigured = true) }
+    }
+
+    fun clearAiApiKey() {
+        aiCommentRepository.clearApiKey()
+        _uiState.update { it.copy(aiApiKeyConfigured = false) }
+    }
+
+    fun setAiOverallPrompt(prompt: String) {
+        viewModelScope.launch {
+            aiCommentRepository.setOverallPrompt(prompt)
+            _uiState.update { it.copy(aiOverallPrompt = aiCommentRepository.getOverallPrompt()) }
+        }
+    }
+
+    fun setAiStylePrompt(style: AiCommentStyle, prompt: String) {
+        viewModelScope.launch {
+            aiCommentRepository.setStylePrompt(style, prompt)
+            _uiState.update { it.copy(aiStylePrompts = aiCommentRepository.getStylePrompts()) }
+        }
+    }
+
+    fun resetAiPrompts() {
+        viewModelScope.launch {
+            aiCommentRepository.resetPrompts()
+            _uiState.update {
+                it.copy(
+                    aiOverallPrompt = aiCommentRepository.getOverallPrompt(),
+                    aiStylePrompts = aiCommentRepository.getStylePrompts(),
+                    aiTemplates = aiCommentRepository.getTemplates(),
+                    aiSelectedTemplateId = aiCommentRepository.getSelectedTemplateId()
+                )
+            }
+        }
+    }
+
+    fun selectAiTemplate(id: String) {
+        viewModelScope.launch {
+            aiCommentRepository.setSelectedTemplateId(id)
+            _uiState.update { it.copy(aiSelectedTemplateId = id) }
+        }
+    }
+
+    fun saveAiTemplate(id: String?, name: String, prompt: String) {
+        if (name.isBlank() || prompt.isBlank()) return
+        viewModelScope.launch {
+            val existing = id?.let { templateId ->
+                aiCommentRepository.getTemplates().firstOrNull { it.id == templateId }
+            }
+            val template = AiCommentTemplate(
+                id = existing?.id ?: UUID.randomUUID().toString(),
+                name = name.trim(),
+                prompt = prompt.trim(),
+                temperature = existing?.temperature ?: 0.75,
+                builtIn = existing?.builtIn ?: false
+            )
+            aiCommentRepository.saveTemplate(template)
+            if (existing == null) aiCommentRepository.setSelectedTemplateId(template.id)
+            _uiState.update {
+                it.copy(
+                    aiTemplates = aiCommentRepository.getTemplates(),
+                    aiSelectedTemplateId = if (existing == null) template.id else it.aiSelectedTemplateId
+                )
+            }
+        }
+    }
+
+    fun deleteAiTemplate(id: String) {
+        viewModelScope.launch {
+            aiCommentRepository.deleteTemplate(id)
+            _uiState.update {
+                it.copy(
+                    aiTemplates = aiCommentRepository.getTemplates(),
+                    aiSelectedTemplateId = aiCommentRepository.getSelectedTemplateId()
+                )
+            }
         }
     }
 
@@ -832,6 +964,59 @@ class MarketViewModel(
         _uiState.update { it.copy(postCommentSuccessMessage = null) }
     }
 
+    fun generateAiComment(template: AiCommentTemplate) {
+        val state = _uiState.value
+        if (state.isGeneratingAiComment) return
+        if (!state.aiCommentEnabled) {
+            _uiState.update { it.copy(postCommentError = "请先在“我的 → 设置”中启用 AI 评论") }
+            return
+        }
+        val topic = state.topicDetail ?: state.selectedTopic ?: return
+        val target = state.replyingTo
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isGeneratingAiComment = true, postCommentError = null)
+            }
+            val fullComments = selectAiContextComments(
+                fullResult = repository.loadAllCommentsWithReplies(
+                    topicId = topic.id,
+                    identity = identityTokenForTopic(topic.id, state)
+                ),
+                loadedComments = state.comments
+            )
+            val targetComment = target?.let { replyTarget ->
+                fullComments.firstOrNull { it.id == replyTarget.commentId }
+            }
+            val targetReplyId = target?.replyId ?: 0L
+            val targetReply = if (targetReplyId > 0L) {
+                targetComment?.visibleReplies?.firstOrNull { it.id == targetReplyId }
+            } else null
+            aiCommentRepository.generateComment(
+                topic = topic,
+                comments = fullComments,
+                targetComment = targetComment,
+                targetReply = targetReply,
+                template = template,
+                model = state.aiCommentModel
+            ).fold(
+                onSuccess = { draft ->
+                    _uiState.update {
+                        it.copy(isGeneratingAiComment = false, commentDraft = draft, postCommentError = null)
+                    }
+                },
+                onFailure = { error ->
+                    _uiState.update {
+                        it.copy(
+                            isGeneratingAiComment = false,
+                            postCommentError = error.message ?: "AI 评论生成失败"
+                        )
+                    }
+                }
+            )
+        }
+    }
+
     fun submitComment() {
         val state = _uiState.value
         if (state.isPostingComment) return
@@ -1102,6 +1287,15 @@ data class MarketUiState(
     val isPostingComment: Boolean = false,
     val postCommentError: String? = null,
     val postCommentSuccessMessage: String? = null,
+    val aiCommentEnabled: Boolean = false,
+    val aiCommentModel: AiCommentModel = AiCommentModel.FLASH,
+    val aiCommentStyle: AiCommentStyle = AiCommentStyle.GENTLE,
+    val aiOverallPrompt: String = "",
+    val aiStylePrompts: Map<AiCommentStyle, String> = emptyMap(),
+    val aiTemplates: List<AiCommentTemplate> = emptyList(),
+    val aiSelectedTemplateId: String = AiCommentStyle.GENTLE.name,
+    val aiApiKeyConfigured: Boolean = false,
+    val isGeneratingAiComment: Boolean = false,
     // ── 消息/通知列表 ──────────────────────────────
     val showNotices: Boolean = false,
     val notices: List<MarketNotice> = emptyList(),
@@ -1132,7 +1326,9 @@ data class MarketUiState(
     val composeSchoolId: String? = null,
     // ── 列表布局模式 ──────────────────────────────
     // "list" 单列 / "stagger" 小红书双列瀑布
-    val listLayoutMode: String = "list"
+    val listLayoutMode: String = "list",
+    // ── "回到顶部"按钮 ──────────────────────────────
+    val scrollToTopEnabled: Boolean = true
 )
 
 /**
@@ -1171,4 +1367,14 @@ private fun MarketComment.mergeReplies(replyPage: MarketCommentReplies): MarketC
             pageSize = pageSize
         )
     )
+}
+
+internal fun selectAiContextComments(
+    fullResult: Result<List<MarketComment>>,
+    loadedComments: List<MarketComment>
+): List<MarketComment> {
+    fullResult.exceptionOrNull()?.let { error ->
+        if (error is kotlinx.coroutines.CancellationException) throw error
+    }
+    return fullResult.getOrElse { loadedComments }
 }

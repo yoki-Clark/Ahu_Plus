@@ -22,13 +22,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +63,7 @@ import com.yourname.ahu_plus.ui.components.AhuShapes
 import kotlin.math.roundToInt
 import java.util.UUID
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleScreen(
     viewModel: ScheduleViewModel,
@@ -86,7 +87,7 @@ fun ScheduleScreen(
         val minWeek = remember(uiState.weekIndices) { uiState.weekIndices.minOrNull() ?: 1 }
         val maxWeek = remember(uiState.weekIndices) { uiState.weekIndices.maxOrNull() ?: 20 }
 
-        // ── 顶栏：返回 + 周导航 + 刷新（合并为一行）─────
+        // ── 顶栏：返回 + 周导航 + 设置（合并为一行）─────
         WeekHeader(
             selectedWeek = uiState.selectedWeek,
             currentWeek = uiState.currentWeek,
@@ -98,14 +99,17 @@ fun ScheduleScreen(
             onBack = onBack,
             onPrevious = { viewModel.onPreviousWeek() },
             onNext = { viewModel.onNextWeek() },
-            onRefresh = { viewModel.onRefresh() },
             onSettings = { viewModel.onToggleSettings() },
             onWeekSelected = { viewModel.onWeekSelected(it) },
             onAddCourse = { viewModel.onToggleAddCourse() }
         )
 
-        // ── 内容区 ────────────────────────────────────
-        Box(modifier = Modifier.fillMaxSize()) {
+        // ── 内容区（下拉刷新）────────────────────────
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = { viewModel.onRefresh() },
+            modifier = Modifier.fillMaxSize()
+        ) {
             when {
                 uiState.isLoading && uiState.allActivities.isEmpty() -> {
                     Column(
@@ -251,7 +255,6 @@ private fun WeekHeader(
     onBack: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    onRefresh: () -> Unit,
     onSettings: () -> Unit = {},
     onWeekSelected: (Int) -> Unit = {},
     onAddCourse: () -> Unit = {},
@@ -400,14 +403,6 @@ private fun WeekHeader(
             Icon(
                 Icons.Filled.Settings,
                 contentDescription = "课表设置",
-                modifier = Modifier.size(20.dp)
-            )
-        }
-        // 刷新
-        IconButton(onClick = onRefresh, modifier = Modifier.size(36.dp)) {
-            Icon(
-                Icons.Filled.Refresh,
-                contentDescription = "刷新",
                 modifier = Modifier.size(20.dp)
             )
         }

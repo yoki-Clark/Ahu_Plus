@@ -1,5 +1,8 @@
 package com.yourname.ahu_plus.ui.screen.trainingplan
 
+import com.yourname.ahu_plus.ui.components.CenteredLoader
+import com.yourname.ahu_plus.ui.components.CenteredError
+import com.yourname.ahu_plus.ui.components.CenteredMessage
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -835,30 +838,4 @@ private fun StatusBadge(text: String, color: Color) {
     }
 }
 
-@Composable
-private fun CenteredLoader(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
-    }
-}
-
-@Composable
-private fun CenteredError(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(32.dp)
-        ) {
-            Text(text = message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-            FilledTonalButton(onClick = onRetry) { Text("重新加载") }
-        }
-    }
-}
-
-@Composable
-private fun CenteredMessage(text: String, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
+// ── 通用状态组件已移至 ui/components/CenteredComponents.kt ──

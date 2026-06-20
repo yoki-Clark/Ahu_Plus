@@ -78,6 +78,7 @@ class CardRepository(
                 val json = try {
                     gson.fromJson(body, JsonObject::class.java)
                 } catch (_: Exception) {
+                    Log.w(TAG, "Failed to parse balance JSON: ${body.take(200)}")
                     return@withContext Result.failure(Exception("failed to parse balance data"))
                 }
 

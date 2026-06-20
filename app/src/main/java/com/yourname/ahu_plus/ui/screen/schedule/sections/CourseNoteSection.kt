@@ -22,7 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
+import com.yourname.ahu_plus.ui.components.CollapsibleSection
 import kotlinx.coroutines.launch
 
 /** 课程备注最大字符数 */
@@ -39,6 +39,8 @@ fun CourseNoteSection(
     savedNote: String,
     onSave: suspend (String) -> Unit,
     modifier: Modifier = Modifier,
+    expanded: Boolean? = null,
+    onToggle: ((Boolean) -> Unit)? = null,
 ) {
     var draft by remember(savedNote) { mutableStateOf(savedNote) }
     var saving by remember { mutableStateOf(false) }
@@ -46,8 +48,10 @@ fun CourseNoteSection(
 
     CollapsibleSection(
         title = "课程备注",
-        defaultExpanded = false, // 2026-06-17: 全部默认收起
+        defaultExpanded = false,
         modifier = modifier,
+        expanded = expanded,
+        onToggle = onToggle,
     ) {
         Text(
             text = "这门课的所有周次、所有节次都能看到这条备注。例如:整体复习重点、教师偏好等。",

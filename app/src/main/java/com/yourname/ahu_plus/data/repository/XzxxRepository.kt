@@ -2,6 +2,7 @@ package com.yourname.ahu_plus.data.repository
 
 import com.yourname.ahu_plus.data.model.XzxxLetter
 import com.yourname.ahu_plus.data.model.XzxxLetterDetail
+import com.yourname.ahu_plus.data.model.XzxxSubmitResult
 
 class XzxxRepository(
     private val baseUrl: String = "https://www6.ahu.edu.cn"
@@ -17,7 +18,32 @@ class XzxxRepository(
     fun detailUrl(contentId: String): String =
         absolutize("/xzxx/show.asp?contentid=$contentId", baseUrl)
 
+    /** Public wrapper for absolutize — used to build captcha URL from Compose. */
+    fun absolutizeUrl(path: String): String = absolutize(path, baseUrl)
+
     companion object {
+        fun parseSubmitResult(html: String, httpCode: Int): XzxxSubmitResult {
+            // Success patterns: redirect to list.asp, or page contains "提交成功"/"感谢"
+            val lower = html.lowercase()
+            return when {
+                httpCode in 300..399 -> XzxxSubmitResult(true, "提交成功")
+                html.contains("提交成功") || html.contains("感谢您的来信") ->
+                    XzxxSubmitResult(true, "提交成功")
+                html.contains("验证码") && (html.contains("错误") || html.contains("不正确") || html.contains("wrong")) ->
+                    XzxxSubmitResult(false, "验证码错误，请重新输入")
+                html.contains("联系人") && html.contains("不能为空") ->
+                    XzxxSubmitResult(false, "请填写联系人姓名")
+                html.contains("主题") && html.contains("不能为空") ->
+                    XzxxSubmitResult(false, "请填写发信主题")
+                html.contains("内容") && html.contains("不能为空") ->
+                    XzxxSubmitResult(false, "请填写发信内容")
+                lower.contains("<html") && !lower.contains("\$_ss=") ->
+                    // Got an HTML response that's not a WAF challenge — likely an error page
+                    XzxxSubmitResult(false, "提交失败，请检查填写内容")
+                else -> XzxxSubmitResult(false, "提交失败，请稍后重试")
+            }
+        }
+
         // ── shared regex ──
         private val rowRegex = Regex(
             """<tr\b[^>]*>(.*?)</tr>""",

@@ -154,7 +154,7 @@ fun MarketSettingsScreen(
             item {
                 SettingsToggleCard(
                     title = "显示回到顶部按钮",
-                    description = "下滑后右下角出现按钮，点击回到顶部并刷新",
+                    description = "下滑后左下角出现按钮，点击回到顶部并刷新",
                     checked = uiState.scrollToTopEnabled,
                     onCheckedChange = onScrollToTopChanged
                 )

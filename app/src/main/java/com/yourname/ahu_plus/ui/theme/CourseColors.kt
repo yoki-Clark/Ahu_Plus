@@ -6,7 +6,7 @@ import androidx.compose.ui.graphics.Color
  * 课表课程调色板 (10 色)。
  *
  * 用于 [com.yourname.ahu_plus.ui.screen.schedule.WeekGrid] 中按 [colorIndex] 选色。
- * 选用品牌色 + 2 个补充色,保证可读性 (浅底卡片上文字白/深色均可辨认)。
+ * 杜绝与浅色背景相近的颜色——所有色值均有足够的饱和度/深度,文字用白色清晰可辨。
  */
 val CourseColors: List<Color> = listOf(
     AhuBlue,           // 0  深蓝
@@ -16,7 +16,7 @@ val CourseColors: List<Color> = listOf(
     AhuOrange,         // 4  橙黄
     AhuRed,            // 5  朱红
     AhuViolet,         // 6  紫罗兰
-    AhuBlueLight,      // 7  浅蓝
+    Color(0xFF3D7CC9), // 7  明蓝 (替代原先太浅的 AhuBlueLight)
     Color(0xFFE76F51), // 8  珊瑚
     Color(0xFF1F7A8C), // 9  深青
 )

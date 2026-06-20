@@ -37,7 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.KqAttendanceRecord
-import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
+import com.yourname.ahu_plus.ui.components.CollapsibleSection
 import com.yourname.ahu_plus.ui.components.AhuShapes
 
 /**

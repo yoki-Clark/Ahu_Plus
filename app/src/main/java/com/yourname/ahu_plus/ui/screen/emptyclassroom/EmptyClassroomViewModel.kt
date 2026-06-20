@@ -1,5 +1,6 @@
 package com.yourname.ahu_plus.ui.screen.emptyclassroom
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.GsonProvider
@@ -169,7 +170,7 @@ class EmptyClassroomViewModel(
                             try {
                                 val cacheKey = "${LocalDate.now()}|$buildingId|$campusId"
                                 sm.saveEmptyClassroomJson(gson.toJson(rooms), cacheKey)
-                            } catch (_: Exception) {}
+                            } catch (_: Exception) { Log.w(TAG, "Failed to cache empty classroom JSON") }
                         }
                         val floors = rooms.mapNotNull { it.room.floor }.distinct().sorted()
                         val selectedFloor = _uiState.value.selectedFloor
@@ -206,6 +207,10 @@ class EmptyClassroomViewModel(
                 )
             }
         }
+    }
+
+    private companion object {
+        private const val TAG = "EmptyClassroomVM"
     }
 }
 

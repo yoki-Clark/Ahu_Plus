@@ -1,5 +1,6 @@
 package com.yourname.ahu_plus.ui.screen.trainingplan
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.GsonProvider
@@ -31,7 +32,8 @@ class TrainingPlanViewModel(
     val uiState: StateFlow<TrainingPlanUiState> = _uiState.asStateFlow()
 
     private val gson = GsonProvider.instance
-    private val expandedIds = mutableSetOf<Int>()
+    // 手风琴模式：同一时间只展开一个模块 (null = 全部折叠)
+    private var expandedId: Int? = null
 
     init {
         viewModelScope.launch {
@@ -49,9 +51,9 @@ class TrainingPlanViewModel(
     }
 
     fun toggleExpand(moduleId: Int) {
-        if (moduleId in expandedIds) expandedIds.remove(moduleId)
-        else expandedIds.add(moduleId)
-        _uiState.update { it.copy(expandedIds = expandedIds.toSet()) }
+        // 手风琴：点击已展开的 → 折叠；点击新的 → 展开新的(自动关旧的)
+        expandedId = if (moduleId == expandedId) null else moduleId
+        _uiState.update { it.copy(expandedId = expandedId) }
     }
 
     private suspend fun loadFromCache(): Boolean {
@@ -105,7 +107,7 @@ class TrainingPlanViewModel(
                     onSuccess = { resp ->
                         sessionManager?.let { sm ->
                             try { sm.saveTrainingPlanJson(gson.toJson(resp)) }
-                            catch (_: Exception) {}
+                            catch (_: Exception) { Log.w(TAG, "Failed to cache training plan JSON") }
                         }
                         applyTrainingPlan(resp)
                     },
@@ -278,6 +280,10 @@ class TrainingPlanViewModel(
         courseCode in _uiState.value.inProgressCourseCodes -> CourseCompletion.IN_PROGRESS
         else -> CourseCompletion.NOT_TAKEN
     }
+
+    private companion object {
+        private const val TAG = "TrainingPlanVM"
+    }
 }
 
 enum class CourseCompletion { NOT_TAKEN, IN_PROGRESS, PASSED, FAILED }
@@ -288,7 +294,7 @@ data class TrainingPlanUiState(
     val topModules: List<PlanModuleNode> = emptyList(),
     val totalRequiredCredits: Double? = null,
     val creditBySubModule: Map<String, Double> = emptyMap(),
-    val expandedIds: Set<Int> = emptySet(),
+    val expandedId: Int? = null,
     val error: String? = null,
     val needsLogin: Boolean = false,
     // ── 完成状态 ──

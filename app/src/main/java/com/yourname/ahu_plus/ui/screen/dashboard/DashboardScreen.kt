@@ -177,31 +177,18 @@ fun DashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
+                    // 方案 B: 走 CourseRepository.toDisplayItems() —— 与完整课表
+                    // 同一管道,自动按 selectedWeek 过滤 weekIndexes,避免首页小课表
+                    // 把"今天 weekday 有、但当前周次不上"的课误显示成"今日课程"。
                     com.yourname.ahu_plus.ui.screen.dashboard.TodayCourseCard(
                         uiState = com.yourname.ahu_plus.ui.screen.dashboard.TodayCourseUiState(
-                            todayItems = uiState.allActivities.mapNotNull { act ->
-                                val start = act.startUnit ?: return@mapNotNull null
-                                com.yourname.ahu_plus.data.model.jw.CourseDisplayItem(
-                                    lessonId = act.lessonId ?: 0,
-                                    courseName = act.courseName ?: "未知课程",
-                                    courseCode = act.courseCode,
-                                    teacherNames = act.teacherNames?.joinToString("、")
-                                        ?: act.teachers?.joinToString("、") ?: "",
-                                    room = act.room,
-                                    weekday = act.weekday ?: 0,
-                                    startUnit = start,
-                                    endUnit = act.endUnit ?: start,
-                                    weekIndexes = act.weekIndexes ?: emptyList(),
-                                    weeksStr = act.weeksStr,
-                                    startTime = act.startTime,
-                                    endTime = act.endTime,
-                                    courseType = act.courseType?.nameZh,
-                                    credits = act.credits,
-                                    campus = act.campus,
-                                    colorIndex = 0,
-                                )
-                            },
+                            todayItems = CourseRepository.toDisplayItems(
+                                activities = uiState.allActivities,
+                                selectedWeek = uiState.currentWeek,
+                                getDataLessons = uiState.lessons,
+                            ),
                             unitTimes = uiState.unitTimes,
+                            currentWeek = uiState.currentWeek,
                         ),
                         onOpenSchedule = onOpenSchedule,
                         onRefresh = viewModel::onRefresh,

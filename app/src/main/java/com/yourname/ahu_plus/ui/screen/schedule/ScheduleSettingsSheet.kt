@@ -23,7 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
+import com.yourname.ahu_plus.ui.components.CollapsibleSection
 
 /**
  * 课表显示设置 BottomSheet (2026-06-17 重构)。

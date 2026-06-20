@@ -301,6 +301,8 @@ class ScheduleViewModel(
     private suspend fun loadScheduleData(isRefresh: Boolean = false) {
         if (!isRefresh) {
             _uiState.update { it.copy(isLoading = true, error = null) }
+        } else {
+            _uiState.update { it.copy(isRefreshing = true) }
         }
         val wasLoaded = _uiState.value.allActivities.isNotEmpty()
         try {
@@ -375,6 +377,8 @@ class ScheduleViewModel(
                     error = if (!wasLoaded) "未知错误: ${e.message}" else it.error
                 )
             }
+        } finally {
+            _uiState.update { it.copy(isRefreshing = false) }
         }
     }
 
@@ -398,7 +402,7 @@ class ScheduleViewModel(
 
     fun onRefresh() {
         viewModelScope.launch {
-            loadScheduleData()
+            loadScheduleData(isRefresh = true)
         }
     }
 
@@ -886,6 +890,7 @@ private data class Quad(
 data class ScheduleUiState(
     val needsLogin: Boolean = false,
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,  // I-008: 下拉刷新状态
     val error: String? = null,
     val studentName: String? = null,
     val className: String? = null,

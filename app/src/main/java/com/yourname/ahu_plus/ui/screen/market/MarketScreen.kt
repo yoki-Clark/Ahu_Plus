@@ -2,6 +2,7 @@ package com.yourname.ahu_plus.ui.screen.market
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -22,6 +23,8 @@ fun MarketScreen(viewModel: MarketViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val hotListState = rememberLazyListState()
+    // 2026-06-17 Bug5: 将 stagger 状态提升到 MarketScreen, 导航到详情后再返回能恢复位置
+    val staggerListState = rememberLazyStaggeredGridState()
 
     when {
         uiState.showSettings -> {
@@ -39,7 +42,8 @@ fun MarketScreen(viewModel: MarketViewModel) {
                 onAddKeyword = viewModel::addBlockKeyword,
                 onRemoveKeyword = viewModel::removeBlockKeyword,
                 onToggleFilterNode = viewModel::toggleFilterNode,
-                onListLayoutModeChange = viewModel::setListLayoutMode
+                onListLayoutModeChange = viewModel::setListLayoutMode,
+                onScrollToTopChanged = viewModel::setScrollToTop
             )
         }
 
@@ -69,6 +73,7 @@ fun MarketScreen(viewModel: MarketViewModel) {
                 onLoadFullCommentsForExport = viewModel::loadFullCommentsForExport,
                 onCommentDraftChanged = viewModel::onCommentDraftChanged,
                 onCommentSubmit = viewModel::submitComment,
+                onGenerateAiComment = viewModel::generateAiComment,
                 onCancelReply = viewModel::cancelReply,
                 onStartReplyingToComment = viewModel::startReplyingToComment,
                 onStartReplyingToReply = viewModel::startReplyingToReply,
@@ -102,6 +107,7 @@ fun MarketScreen(viewModel: MarketViewModel) {
             MarketListScreen(
                 uiState = uiState,
                 listState = listState,
+                staggerListState = staggerListState,
                 onIdentityChanged = viewModel::onIdentityInputChanged,
                 onSaveIdentity = viewModel::saveIdentity,
                 onClearIdentity = viewModel::clearIdentity,

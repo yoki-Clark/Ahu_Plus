@@ -68,7 +68,9 @@ data class ElectricityUiData(
  */
 fun parseKwhFromInfo(infoText: String?): Double? {
     if (infoText.isNullOrBlank()) return null
+    // 老区: "房间当前剩余电量:7.25 度"  新区: "房间当前剩余电量92.82，电量单价0.56"
     val match = Regex("""(\d+\.?\d*)\s*度""").find(infoText)
+        ?: Regex("""剩余电量\s*[:：]?\s*(\d+\.?\d*)""").find(infoText)
     return match?.groupValues?.get(1)?.toDoubleOrNull()
 }
 

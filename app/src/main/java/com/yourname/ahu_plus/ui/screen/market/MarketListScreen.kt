@@ -121,9 +121,10 @@ internal fun MarketListScreen(
     val scope = rememberCoroutineScope()
     val isScrolledFromTop by remember {
         derivedStateOf {
-            val firstVisible = listState.firstVisibleItemIndex
-            val staggerFirst = staggerState.firstVisibleItemIndex
-            maxOf(firstVisible, staggerFirst) > 0
+            listState.firstVisibleItemIndex > 0 ||
+                listState.firstVisibleItemScrollOffset > 160 ||
+                staggerState.firstVisibleItemIndex > 0 ||
+                staggerState.firstVisibleItemScrollOffset > 160
         }
     }
     val showScrollToTop = uiState.scrollToTopEnabled && isScrolledFromTop && uiState.hasSavedIdentity && !uiState.isSearching

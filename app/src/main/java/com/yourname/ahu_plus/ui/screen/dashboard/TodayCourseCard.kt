@@ -281,13 +281,17 @@ private fun CourseSummary(course: CourseDisplayItem, unitTimes: List<CourseUnit>
 data class TodayCourseUiState(
     val todayItems: List<CourseDisplayItem>,
     val unitTimes: List<CourseUnit>,
+    /** 当前周次 —— 由 DashboardScreen 传入,供未来按周次显示/过滤使用 */
+    val currentWeek: Int = 0,
 )
 
 private fun isInClass(course: CourseDisplayItem, now: LocalTime, unitTimes: List<CourseUnit>): Boolean {
     val start = courseStartMinutes(course, unitTimes) ?: return false
     val total = courseTotalMinutes(course, unitTimes)
+    if (total <= 0) return false
     val nowMin = now.hour * 60 + now.minute
-    return nowMin in start..(start + total)
+    // 用 until(半开区间) —— 下课那一刻立即结束"上课中"
+    return nowMin in start until (start + total)
 }
 
 private fun isFuture(course: CourseDisplayItem, now: LocalTime, unitTimes: List<CourseUnit>): Boolean {

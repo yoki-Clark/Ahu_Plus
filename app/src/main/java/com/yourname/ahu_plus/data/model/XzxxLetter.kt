@@ -29,3 +29,8 @@ data class XzxxLetterDetail(
     val replyLabel: String,
     val replyContent: String
 )
+
+data class XzxxSubmitResult(
+    val success: Boolean,
+    val message: String
+)

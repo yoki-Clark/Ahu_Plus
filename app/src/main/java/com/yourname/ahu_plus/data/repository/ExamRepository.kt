@@ -26,16 +26,20 @@ import org.jsoup.nodes.Element
  *         <span>磬苑校区</span>
  *         <span>博学楼</span>
  *         <span>博学楼B101</span>
- *         <span id="seat-123"></span>
+ *         <span id="seat-2306048"></span>    ← 空标签，seat id 是数据库记录 ID
  *       </div>
  *     </td>
  *     <td>
  *       <div><span>程序设计基础</span></div>
  *       <div><span class="tag-span type1">考试</span></div>
  *     </td>
- *     <td>已完成</td>
+ *     <td>已结束</td>
  *   </tr>
  *   ```
+ *
+ *   **座位号**不在 HTML 表格中（`<span id="seat-xxx">` 为空），而是嵌在页面底部
+ *   `<script>` 块的 `var studentExamList = [...]` 数组里，每个对象含 `id`（对应
+ *   `<span id="seat-{id}">`）和 `seatNo`（座位序号）。`extractSeatMap()` 负责提取。
  */
 class ExamRepository(
     private val jwAuthRepository: JwAuthRepository
@@ -99,15 +103,73 @@ class ExamRepository(
 
     /**
      * 解析考试安排 HTML —— 提取 `<table id="exams">` 内的所有 `<tr>` 行。
+     *
+     * 座位号不在 HTML 表格中（`<span id="seat-xxx">` 为空），而是嵌在页面底部的
+     * JavaScript 变量 `studentExamList` 里。先提取该数组建立 id→seatNo 映射，再解析表格。
      */
     internal fun parseExamHtml(html: String): List<Exam> {
+        val seatMap = extractSeatMap(html)
         val doc = Jsoup.parse(html)
         val table = doc.getElementById("exams") ?: return emptyList()
         val rows = table.select("tbody > tr")
-        return rows.mapNotNull { parseRow(it) }
+        return rows.mapNotNull { parseRow(it, seatMap) }
     }
 
-    private fun parseRow(row: Element): Exam? {
+    /**
+     * 从 HTML 中的 `<script>` 块提取 `studentExamList` JSON 数组，构建 id → seatNo 映射。
+     *
+     * 页面底部有如下 JS 代码：
+     * ```
+     * var studentExamList = [{'studentId':99166,'seatMap':{'columns':10,...},'id':2306048,'seatNo':6}, ...];
+     * ```
+     * 因为对象内含嵌套的 `seatMap:{...}`，不能用简单的 `\{[^{}]+\}` 匹配，
+     * 改用深度追踪逐字符分割顶层对象。
+     */
+    private fun extractSeatMap(html: String): Map<Int, Int> {
+        val result = mutableMapOf<Int, Int>()
+        val listPattern = Regex("""var\s+studentExamList\s*=\s*\[(.+?)\];""", RegexOption.DOT_MATCHES_ALL)
+        val listMatch = listPattern.find(html) ?: return result
+        val listBody = listMatch.groupValues[1]
+
+        // 按顶层对象拆分（处理嵌套的 seatMap:{...}）
+        val objects = splitTopLevelObjects(listBody)
+        val idPattern = Regex("""['"]id['"]\s*:\s*(\d+)""")
+        val seatNoPattern = Regex("""['"]seatNo['"]\s*:\s*(\d+)""")
+        for (obj in objects) {
+            val id = idPattern.find(obj)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+            val seatNo = seatNoPattern.find(obj)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+            result[id] = seatNo
+        }
+        Log.i(TAG, "从 JS 提取座位号映射: ${result.size} 条")
+        return result
+    }
+
+    /**
+     * 按顶层 `{...}` 边界拆分字符串，正确处理嵌套花括号。
+     */
+    private fun splitTopLevelObjects(text: String): List<String> {
+        val result = mutableListOf<String>()
+        var depth = 0
+        var start = -1
+        for (i in text.indices) {
+            when (text[i]) {
+                '{' -> {
+                    if (depth == 0) start = i
+                    depth++
+                }
+                '}' -> {
+                    depth--
+                    if (depth == 0 && start >= 0) {
+                        result.add(text.substring(start, i + 1))
+                        start = -1
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    private fun parseRow(row: Element, seatMap: Map<Int, Int>): Exam? {
         val rowClass = row.className()
         if ("finished" !in rowClass && "unfinished" !in rowClass) {
             // 跳过占位行（tr-empty 等）
@@ -125,11 +187,11 @@ class ExamRepository(
         val campus = locationSpans.getOrNull(0).orEmpty()
         val building = locationSpans.getOrNull(1).orEmpty()
         val room = locationSpans.getOrNull(2).orEmpty()
-        // 座位号：HTML 中 span id="seat-XXXXXXX" 为数据库记录 ID(7位数)，
-        // 无真实文本内容。仅当数值 ≤999 时才可能是真实座位号。
+        // 座位号：从 JS studentExamList 提取的 seatMap 中查找
         val seatElement = firstTd.selectFirst("[id^=seat-]")
-        val seatId = seatElement?.id()?.removePrefix("seat-")?.toIntOrNull()
-        val seatNumber = seatId?.takeIf { it in 1..999 }?.toString()
+        val seatRecordId = seatElement?.id()?.removePrefix("seat-")?.toIntOrNull()
+        val seatNo = seatRecordId?.let { seatMap[it] }
+        val seatNumber = seatNo?.toString()
 
         // —— 课程名 + 考试类型 ——
         val secondTd = tds[1]

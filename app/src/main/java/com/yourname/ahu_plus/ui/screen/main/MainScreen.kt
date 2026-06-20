@@ -20,6 +20,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -28,6 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import android.app.Activity
+import android.widget.Toast
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
@@ -119,6 +122,10 @@ fun MainScreen(
     var profileScrollTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var profileSubPage by rememberSaveable { mutableStateOf<String?>(null) }
     var openCardAnalytics by rememberSaveable { mutableStateOf(false) }
+    // B-001: 跨 Tab 跳转时记录"上一页 Tab"，按返回键可回到原 Tab
+    var previousTab by rememberSaveable { mutableStateOf<Int?>(null) }
+    // B-002: 双击返回键退出
+    var backPressedTime by remember { mutableLongStateOf(0L) }
 
     // 首页"最近使用"追踪 (mutableStateOf 保证 recordRecentApp 后 UI 立即刷新)
     var recentApps by remember { mutableStateOf(sessionManager.getRecentApps()) }
@@ -127,9 +134,32 @@ fun MainScreen(
         { appKey: String -> scope.launch { sessionManager.recordRecentApp(appKey); recentApps = sessionManager.getRecentApps() } }
     }
 
-    // 系统返回键:仅处理首页的子页面回退 (集市/我的子页面由各自 BackHandler 处理)
-    BackHandler(enabled = homePage != HOME_DASHBOARD) {
-        homePage = HOME_DASHBOARD
+    // 系统返回键: 子页面回退 → 跨 Tab 回退 → 双击退出
+    val context = LocalContext.current
+    BackHandler {
+        when {
+            // 1. 我的 Tab 子页面 → 我的主页 (ProfileScreen 内部 BackHandler 先拦截,这里兜底)
+            profileSubPage != null -> profileSubPage = null
+            // 2. 首页子页面 → Dashboard
+            homePage != HOME_DASHBOARD -> homePage = HOME_DASHBOARD
+            // 3. 跨 Tab 跳转过来的 → 回到上一页 Tab
+            previousTab != null -> {
+                selectedTab = previousTab!!
+                previousTab = null
+                profileScrollTarget = null
+                openCardAnalytics = false
+            }
+            // 4. 顶层页: 双击返回键退出
+            else -> {
+                val now = System.currentTimeMillis()
+                if (now - backPressedTime < 1500) {
+                    (context as? Activity)?.finish()
+                } else {
+                    backPressedTime = now
+                    Toast.makeText(context, "再按一次退出", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     val cardViewModel = remember {
@@ -159,7 +189,7 @@ fun MainScreen(
         )
     }
     val marketViewModel = remember {
-        MarketViewModel(marketRepository)
+        MarketViewModel(marketRepository, app.aiCommentRepository)
     }
     val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
     // 集市功能总开关:true=底部 3 Tab(首页/集市/我的),false=仅 2 Tab(首页/我的)
@@ -193,10 +223,17 @@ fun MainScreen(
         EmptyClassroomViewModel(jwAuthRepository, app.emptyClassroomRepository, sessionManager)
     }
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
+    val showBottomNavigation = selectedTab != TAB_MARKET || (
+        marketUiState.selectedTopic == null &&
+            !marketUiState.showCompose &&
+            !marketUiState.showSettings &&
+            !marketUiState.showHotTopics &&
+            !marketUiState.showNotices
+        )
 
     Scaffold(
         bottomBar = {
-            NavigationBar(
+            if (showBottomNavigation) NavigationBar(
                 tonalElevation = 0.dp,
                 containerColor = MaterialTheme.colorScheme.surface,
             ) {
@@ -321,26 +358,34 @@ fun MainScreen(
                         onOpenGrade = { homePage = HOME_GRADE },
                         onOpenExam = { homePage = HOME_EXAM },
                         onOpenBathroom = {
+                            previousTab = selectedTab
                             selectedTab = TAB_PROFILE
                             profileScrollTarget = "bathroom"
                         },
                         onOpenAc = {
+                            previousTab = selectedTab
                             selectedTab = TAB_PROFILE
                             profileScrollTarget = "ac"
                         },
                         onOpenLighting = {
+                            previousTab = selectedTab
                             selectedTab = TAB_PROFILE
                             profileScrollTarget = "lighting"
                         },
                         onOpenInternet = {
+                            previousTab = selectedTab
                             selectedTab = TAB_PROFILE
                             profileScrollTarget = "internet"
                         },
                         onOpenCardAnalytics = {
+                            previousTab = selectedTab
                             selectedTab = TAB_PROFILE
                             openCardAnalytics = true
                         },
-                        onOpenAppHub = { selectedTab = TAB_APPS },
+                        onOpenAppHub = {
+                            previousTab = selectedTab
+                            selectedTab = TAB_APPS
+                        },
                         recentApps = recentApps,
                         onRecordApp = recordApp,
                         onNeedsLogin = onReauth
@@ -377,6 +422,7 @@ fun MainScreen(
                                 onBack = { homePage = HOME_DASHBOARD },
                                 onRefresh = cardViewModel::onRefresh,
                                 onOpenAnalytics = {
+                                    previousTab = selectedTab
                                     selectedTab = TAB_PROFILE
                                     openCardAnalytics = true
                                 }
@@ -403,26 +449,34 @@ fun MainScreen(
                             onOpenTrainingPlan = { homePage = HOME_TRAINING_PLAN },
                             onOpenEmptyClassroom = { homePage = HOME_EMPTY_CLASSROOM },
                             onOpenBathroom = {
+                                previousTab = selectedTab
                                 selectedTab = TAB_PROFILE
                                 profileScrollTarget = "bathroom"
                             },
                             onOpenAc = {
+                                previousTab = selectedTab
                                 selectedTab = TAB_PROFILE
                                 profileScrollTarget = "ac"
                             },
                             onOpenLighting = {
+                                previousTab = selectedTab
                                 selectedTab = TAB_PROFILE
                                 profileScrollTarget = "lighting"
                             },
                             onOpenInternet = {
+                                previousTab = selectedTab
                                 selectedTab = TAB_PROFILE
                                 profileScrollTarget = "internet"
                             },
                             onOpenCardAnalytics = {
+                                previousTab = selectedTab
                                 selectedTab = TAB_PROFILE
                                 openCardAnalytics = true
                             },
-                            onOpenAppHub = { selectedTab = TAB_APPS },
+                            onOpenAppHub = {
+                                previousTab = selectedTab
+                                selectedTab = TAB_APPS
+                            },
                             recentApps = recentApps,
                             onRecordApp = recordApp,
                             onNeedsLogin = onReauth
@@ -473,26 +527,34 @@ fun MainScreen(
                     onOpenGrade = { homePage = HOME_GRADE },
                     onOpenExam = { homePage = HOME_EXAM },
                     onOpenBathroom = {
+                        previousTab = selectedTab
                         selectedTab = TAB_PROFILE
                         profileScrollTarget = "bathroom"
                     },
                     onOpenAc = {
+                        previousTab = selectedTab
                         selectedTab = TAB_PROFILE
                         profileScrollTarget = "ac"
                     },
                     onOpenLighting = {
+                        previousTab = selectedTab
                         selectedTab = TAB_PROFILE
                         profileScrollTarget = "lighting"
                     },
                     onOpenInternet = {
+                        previousTab = selectedTab
                         selectedTab = TAB_PROFILE
                         profileScrollTarget = "internet"
                     },
                     onOpenCardAnalytics = {
+                        previousTab = selectedTab
                         selectedTab = TAB_PROFILE
                         openCardAnalytics = true
                     },
-                    onOpenAppHub = { selectedTab = TAB_APPS },
+                    onOpenAppHub = {
+                        previousTab = selectedTab
+                        selectedTab = TAB_APPS
+                    },
                     recentApps = recentApps,
                     onRecordApp = recordApp,
                     onNeedsLogin = onReauth

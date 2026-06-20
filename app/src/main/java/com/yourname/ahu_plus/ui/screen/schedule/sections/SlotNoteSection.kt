@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AssignmentTurnedIn
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -29,7 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.ui.screen.schedule.components.AddHomeworkDialog
-import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
+import com.yourname.ahu_plus.ui.components.CollapsibleSection
 import kotlinx.coroutines.launch
 
 /** 此节课备注最大字符数 */
@@ -40,24 +39,22 @@ private const val NOTE_MAX_LEN = 500
  *
  * 包含:
  *  - 多行备注编辑 (保存/还原)
- *  - 两个 quick action: 签到 / 作业 (2026-06-17: 点名与签到合并为"签到"一个按钮)
+ *  - quick action: 作业
  *
  * @param savedNote 已保存的备注
  * @param courseName 课程名 (用于作业对话框标题)
- * @param hasSignedIn 当前节次是否已签到 (UI 差异化显示)
  * @param onSaveNote 保存此节课备注
- * @param onAddSignIn 添加签到记录 (无描述)
  * @param onAddHomework 添加作业 (弹 AddHomeworkDialog)
  */
 @Composable
 fun SlotNoteSection(
     savedNote: String,
     courseName: String,
-    hasSignedIn: Boolean,
     onSaveNote: suspend (String) -> Unit,
-    onAddSignIn: () -> Unit,
     onAddHomework: (text: String, deadline: Long?) -> Unit,
     modifier: Modifier = Modifier,
+    expanded: Boolean? = null,
+    onToggle: ((Boolean) -> Unit)? = null,
 ) {
     var draft by remember(savedNote) { mutableStateOf(savedNote) }
     var saving by remember { mutableStateOf(false) }
@@ -68,6 +65,8 @@ fun SlotNoteSection(
         title = "此节课备注",
         defaultExpanded = false,
         modifier = modifier,
+        expanded = expanded,
+        onToggle = onToggle,
     ) {
         Text(
             text = "记录本次课的具体事项,例如:今天讲到第几章、临时安排等。仅本节可见。",
@@ -75,24 +74,11 @@ fun SlotNoteSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        // Quick action 行 (点名 + 签到 已合并为"签到"一个按钮)
+        // Quick action 行 (作业)
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            AssistChip(
-                onClick = onAddSignIn,
-                label = { Text("签到") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(AssistChipDefaults.IconSize),
-                        tint = if (hasSignedIn) MaterialTheme.colorScheme.primary
-                               else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-            )
             AssistChip(
                 onClick = { showHomeworkDialog = true },
                 label = { Text("作业") },

@@ -19,6 +19,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -28,21 +32,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.GetDataLesson
 import com.yourname.ahu_plus.data.repository.AssessmentRepository
-import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
+import com.yourname.ahu_plus.ui.components.CollapsibleSection
 import com.yourname.ahu_plus.ui.screen.schedule.sections.AssessmentSection
+import com.yourname.ahu_plus.ui.screen.schedule.sections.AttendanceCourseDetailScreen
+import com.yourname.ahu_plus.ui.screen.schedule.sections.AttendanceCourseSection
 import com.yourname.ahu_plus.ui.screen.schedule.sections.CourseNoteSection
-import com.yourname.ahu_plus.ui.screen.schedule.sections.RecordHistorySection
 import com.yourname.ahu_plus.ui.screen.schedule.sections.SlotNoteSection
 
 /**
- * 课程详情底部弹窗 (2026-06-17 重构)。
+ * 课程详情底部弹窗 (2026-06-17 重构, 2026-06-18 考勤联动)。
  *
  * 包含 5 个可折叠 section:
  *  1. 课程详情 — 教务静态信息
- *  2. 考核方案 — 用户自填文字 + 图片 (Step 4 接入)
+ *  2. 考核方案 — 用户自填文字 + 图片
  *  3. 课程备注 — 跨节次共享,按 courseCode
- *  4. 此节课备注 — 按 lessonId+week
- *  5. 记录一览 — 该门课所有点名/签到/作业记录
+ *  4. 此节课备注 — 按 lessonId+week (含作业 quick action)
+ *  5. 考勤记录 — 教务考勤系统真实数据 (kqcard.ahu.edu.cn)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,13 +60,28 @@ fun CourseDetailSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val courseNote by viewModel.courseNote.collectAsStateWithLifecycle()
     val slotNote by viewModel.slotNote.collectAsStateWithLifecycle()
-    val records by viewModel.courseRecords.collectAsStateWithLifecycle()
     val assessmentPlan by viewModel.assessmentPlan.collectAsStateWithLifecycle()
-    val hasSignedIn by viewModel.hasSignedIn.collectAsStateWithLifecycle()
+    val attendanceRecords by viewModel.courseAttendance.collectAsStateWithLifecycle()
 
     val item = detail.item
     val lessonDetail = detail.lessonDetail
     val courseCode = item.courseCode.orEmpty()
+
+    // 2026 Bug1: 手风琴模式 — 同一时间只展开一个 section
+    var expandedSection by rememberSaveable { mutableStateOf<String?>(null) }
+    // 考勤全量列表查看模式
+    var showFullAttendance by remember { mutableStateOf(false) }
+
+    // 全屏考勤列表 — 直接替代 sheet，selectedCourseDetail 状态保持不丢
+    if (showFullAttendance) {
+        AttendanceCourseDetailScreen(
+            courseName = item.courseName,
+            records = attendanceRecords,
+            currentWeek = detail.currentWeek,
+            onBack = { showFullAttendance = false },
+        )
+        return
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -70,8 +90,9 @@ fun CourseDetailSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .verticalScroll(rememberScrollState()),
+                .padding(horizontal = 20.dp),
+            // 2026-06-17 Bug3: 移除外部 verticalScroll — 每个 CollapsibleSection
+            // 有内部滚动(含 max height),ModalBottomSheet 自己处理整页 overflow。
         ) {
             // ── 标题 ─────────────────────────────────
             Text(
@@ -81,8 +102,13 @@ fun CourseDetailSheet(
             )
             Spacer(Modifier.height(12.dp))
 
-            // ── 1. 课程详情 (默认全部收起) ───────
-            CollapsibleSection(title = "课程详情", defaultExpanded = false) {
+            // ── 1. 课程详情 (默认全部收起, 手风琴模式) ───────
+            CollapsibleSection(
+                title = "课程详情",
+                defaultExpanded = false,
+                expanded = expandedSection == "courseDetail",
+                onToggle = { if (it) expandedSection = "courseDetail" else expandedSection = null },
+            ) {
                 DetailRow("课程代码", item.courseCode)
                 DetailRow("学分", (lessonDetail?.course?.credits ?: item.credits)?.toString())
                 DetailRow("教师", item.teacherNames)
@@ -130,6 +156,8 @@ fun CourseDetailSheet(
                         )
                     )
                 },
+                expanded = expandedSection == "assessment",
+                onToggle = { if (it) expandedSection = "assessment" else expandedSection = null },
             )
 
             // ── 3. 课程备注 (跨节次共享) ──────────────
@@ -137,6 +165,8 @@ fun CourseDetailSheet(
                 CourseNoteSection(
                     savedNote = courseNote,
                     onSave = { viewModel.saveCourseNote(it) },
+                    expanded = expandedSection == "courseNote",
+                    onToggle = { if (it) expandedSection = "courseNote" else expandedSection = null },
                 )
             }
 
@@ -144,17 +174,19 @@ fun CourseDetailSheet(
             SlotNoteSection(
                 savedNote = slotNote,
                 courseName = item.courseName,
-                hasSignedIn = hasSignedIn,
                 onSaveNote = { viewModel.saveSlotNote(it) },
-                onAddSignIn = { viewModel.addSignIn() },
                 onAddHomework = { text, deadline -> viewModel.addHomework(text, deadline) },
+                expanded = expandedSection == "slotNote",
+                onToggle = { if (it) expandedSection = "slotNote" else expandedSection = null },
             )
 
-            // ── 5. 记录一览 ──────────────────────────
-            RecordHistorySection(
-                records = records,
-                onToggleCompleted = { viewModel.toggleRecordCompleted(it) },
-                onDelete = { viewModel.deleteRecord(it) },
+            // ── 5. 考勤记录 (教务考勤联动) ──────────────
+            AttendanceCourseSection(
+                records = attendanceRecords,
+                currentWeek = detail.currentWeek,
+                expanded = expandedSection == "attendance",
+                onToggle = { if (it) expandedSection = "attendance" else expandedSection = null },
+                onViewAll = { showFullAttendance = true },
             )
 
             Spacer(Modifier.height(24.dp))

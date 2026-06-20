@@ -1,5 +1,8 @@
 package com.yourname.ahu_plus.ui.screen.emptyclassroom
 
+import com.yourname.ahu_plus.ui.components.CenteredLoader
+import com.yourname.ahu_plus.ui.components.CenteredError
+import com.yourname.ahu_plus.ui.components.CenteredMessage
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +37,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -51,6 +57,7 @@ import com.yourname.ahu_plus.ui.theme.AhuGreen
 import com.yourname.ahu_plus.ui.theme.AhuOrange
 import com.yourname.ahu_plus.ui.theme.AhuRed
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 private val FreeGreen = AhuGreen
@@ -404,6 +411,26 @@ private fun FreeTimeBar(
     modifier: Modifier = Modifier
 ) {
     val totalUnits = AhuUnitTimes.totalUnits()
+    // 2026 Bug8: 每分钟刷新一次时间标记
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000)
+            tick++
+        }
+    }
+    @Suppress("UNUSED_EXPRESSION") tick
+
+    val nowLineFraction: Float? = remember(tick) {
+        val now = LocalTime.now()
+        val nowMin = now.hour * 60 + now.minute
+        val unit = currentUnit ?: return@remember null
+        val times = AhuUnitTimes.UNIT_TO_TIME[unit] ?: return@remember null
+        val startMin = parseTimeMinutes(times.first) ?: return@remember null
+        val endMin = parseTimeMinutes(times.second) ?: return@remember null
+        if (nowMin !in startMin..endMin) return@remember null
+        (nowMin - startMin).toFloat() / (endMin - startMin).toFloat()
+    }
 
     Canvas(modifier = modifier) {
         val barWidth = size.width
@@ -430,35 +457,25 @@ private fun FreeTimeBar(
                 cornerRadius = cornerRadius
             )
         }
-    }
-}
 
-// ── 通用状态组件 ─────────────────────────────────────────────
-
-@Composable
-private fun CenteredLoader(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
-    }
-}
-
-@Composable
-private fun CenteredError(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(32.dp)
-        ) {
-            Text(text = message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-            FilledTonalButton(onClick = onRetry) { Text("重新加载") }
+        // 当前时间竖线 (绘制于所有条形之上)
+        if (nowLineFraction != null && currentUnit != null) {
+            val currentUnitIdx = currentUnit - 1
+            val lineX = currentUnitIdx * unitWidth + unitWidth * nowLineFraction
+            drawLine(
+                color = Color(0xFF2196F3),
+                start = Offset(lineX, 0f),
+                end = Offset(lineX, barHeight),
+                strokeWidth = 2.dp.toPx()
+            )
         }
     }
 }
 
-@Composable
-private fun CenteredMessage(text: String, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+private fun parseTimeMinutes(s: String): Int? {
+    val parts = s.split(":")
+    if (parts.size < 2) return null
+    return (parts[0].toIntOrNull() ?: return null) * 60 + (parts[1].toIntOrNull() ?: return null)
 }
+
+// ── 通用状态组件已移至 ui/components/CenteredComponents.kt ──

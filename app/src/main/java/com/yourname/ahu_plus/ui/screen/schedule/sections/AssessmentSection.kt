@@ -47,7 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.course.AssessmentPlan
 import com.yourname.ahu_plus.data.repository.AssessmentRepository
-import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
+import com.yourname.ahu_plus.ui.components.CollapsibleSection
 import com.yourname.ahu_plus.ui.components.AhuShapes
 import kotlinx.coroutines.launch
 import android.graphics.BitmapFactory

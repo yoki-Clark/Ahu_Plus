@@ -1,5 +1,8 @@
 package com.yourname.ahu_plus.ui.screen.grade
 
+import com.yourname.ahu_plus.ui.components.CenteredLoader
+import com.yourname.ahu_plus.ui.components.CenteredError
+import com.yourname.ahu_plus.ui.components.CenteredMessage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -27,7 +30,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -703,34 +705,4 @@ private fun scoreColor(score: Double?): Color = when {
     score >= 70 -> Score70
     score >= 60 -> Score60
     else -> ScoreNa
-}
-
-@Composable
-internal fun CenteredLoader(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
-    }
-}
-
-@Composable
-internal fun CenteredError(
-    message: String, onRetry: () -> Unit, modifier: Modifier = Modifier
-) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(32.dp)
-        ) {
-            Text(text = message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-            FilledTonalButton(onClick = onRetry) { Text("重新加载") }
-        }
-    }
-}
-
-@Composable
-internal fun CenteredMessage(text: String, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
 }

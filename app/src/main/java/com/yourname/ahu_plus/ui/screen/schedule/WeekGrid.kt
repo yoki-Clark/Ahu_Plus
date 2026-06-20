@@ -96,12 +96,14 @@ fun WeekGrid(
         visibleDays.withIndex().associate { (i, d) -> d to i }
     }
     val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
-    val currentTimeLineY = remember(sortedUnits, isCurrentWeek, rowHeight) {
+    // I-007: 红线始终显示（不依赖"当前时间在某个节次内"），课前/课间/课后均可定位
+    val currentTimeLineY = remember(sortedUnits, isCurrentWeek, rowHeight, minUnit) {
         if (!isCurrentWeek) {
             null
         } else {
             val now = LocalTime.now()
             val nowMinutes = now.hour * 60 + now.minute
+            // 优先：当前时间在某个节次内 → 精确插值
             sortedUnits.firstNotNullOfOrNull { unit ->
                 val unitNo = unit.indexNo ?: return@firstNotNullOfOrNull null
                 val start = parseTimeMinutes(unit.startTimeStr()) ?: return@firstNotNullOfOrNull null
@@ -110,6 +112,40 @@ fun WeekGrid(
                 val row = unitNo - minUnit
                 val fraction = (nowMinutes - start).toFloat() / (end - start)
                 rowHeight * row + rowHeight * fraction
+            } ?: run {
+                // 兜底：用前后节次插值（课前/课间/课后均适用）
+                val validUnits = sortedUnits
+                    .filter { it.indexNo != null && parseTimeMinutes(it.startTimeStr()) != null }
+                    .sortedBy { it.indexNo }
+                if (validUnits.isEmpty()) return@remember null
+                val firstStart = parseTimeMinutes(validUnits.first().startTimeStr())!!
+                val lastEnd = parseTimeMinutes(validUnits.last().endTimeStr())!!
+                when {
+                    nowMinutes <= firstStart -> {
+                        // 课前：第一节开始位置
+                        rowHeight * (validUnits.first().indexNo!! - minUnit)
+                    }
+                    nowMinutes >= lastEnd -> {
+                        // 课后：最后一节结束位置
+                        rowHeight * (validUnits.last().indexNo!! - minUnit + 1)
+                    }
+                    else -> {
+                        // 在前后节次之间插值
+                        validUnits.zipWithNext().firstOrNull { (prev, next) ->
+                            val prevEnd = parseTimeMinutes(prev.endTimeStr()) ?: return@firstOrNull false
+                            val nextStart = parseTimeMinutes(next.startTimeStr()) ?: return@firstOrNull false
+                            nowMinutes in prevEnd until nextStart
+                        }?.let { (prev, next) ->
+                            val prevEndMin = parseTimeMinutes(prev.endTimeStr())!!
+                            val nextStartMin = parseTimeMinutes(next.startTimeStr())!!
+                            val prevEndY = rowHeight * (prev.indexNo!! - minUnit + 1)
+                            val nextStartY = rowHeight * (next.indexNo!! - minUnit)
+                            val gapFraction = if (nextStartMin > prevEndMin)
+                                (nowMinutes - prevEndMin).toFloat() / (nextStartMin - prevEndMin) else 0f
+                            prevEndY + (nextStartY - prevEndY) * gapFraction
+                        }
+                    }
+                }
             }
         }
     }

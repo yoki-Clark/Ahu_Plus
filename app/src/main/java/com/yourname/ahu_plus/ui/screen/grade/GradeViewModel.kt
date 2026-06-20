@@ -152,7 +152,8 @@ class GradeViewModel(
                                     gradesBySem[id.toString()]?.firstOrNull()?.semesterName
                                         ?: resp.semesters?.firstOrNull { s -> s.id == id }?.nameZh
                                 },
-                                gpaMetadata = gpaResult.getOrNull(),
+                                // I-012 fix: GPA fetch 失败时保留缓存的旧值，不用 null 覆盖
+                                gpaMetadata = gpaResult.getOrNull() ?: it.gpaMetadata,
                                 error = null,
                                 needsLogin = false
                             )
@@ -164,7 +165,7 @@ class GradeViewModel(
                                 isLoading = false,
                                 error = if (!wasLoaded) (e.message ?: "成绩加载失败") else it.error,
                                 needsLogin = !wasLoaded && e is SessionExpiredException,
-                                gpaMetadata = gpaResult.getOrNull(),
+                                // I-012 fix: grades 失败时不覆盖已缓存的 gpaMetadata
                             )
                         }
                     }

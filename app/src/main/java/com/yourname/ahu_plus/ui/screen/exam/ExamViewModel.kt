@@ -1,5 +1,6 @@
 package com.yourname.ahu_plus.ui.screen.exam
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.model.jw.Exam
@@ -79,7 +80,7 @@ class ExamViewModel(
                         // 缓存到本地
                         val sm = sessionManager
                         if (sm != null) {
-                            try { sm.saveExamsJson(gson.toJson(list)) } catch (_: Exception) {}
+                            try { sm.saveExamsJson(gson.toJson(list)) } catch (_: Exception) { Log.w(TAG, "Failed to cache exams JSON") }
                         }
                         _uiState.update {
                             it.copy(
@@ -110,6 +111,10 @@ class ExamViewModel(
                 )
             }
         }
+    }
+
+    private companion object {
+        private const val TAG = "ExamVM"
     }
 }
 

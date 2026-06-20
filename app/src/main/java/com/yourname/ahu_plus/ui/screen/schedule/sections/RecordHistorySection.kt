@@ -27,7 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.course.RecordEntry
 import com.yourname.ahu_plus.data.model.course.RecordType
-import com.yourname.ahu_plus.ui.screen.schedule.components.CollapsibleSection
+import com.yourname.ahu_plus.ui.components.CollapsibleSection
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,12 +44,16 @@ fun RecordHistorySection(
     onToggleCompleted: (String) -> Unit,
     onDelete: (String) -> Unit,
     modifier: Modifier = Modifier,
+    expanded: Boolean? = null,
+    onToggle: ((Boolean) -> Unit)? = null,
 ) {
     CollapsibleSection(
         title = "记录一览",
-        defaultExpanded = false, // 2026-06-17: 全部默认收起
+        defaultExpanded = false,
         badge = if (records.isNotEmpty()) "${records.size}" else null,
         modifier = modifier,
+        expanded = expanded,
+        onToggle = onToggle,
     ) {
         if (records.isEmpty()) {
             Text(

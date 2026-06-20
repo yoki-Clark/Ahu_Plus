@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Assessment
@@ -53,6 +55,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -80,9 +83,12 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.local.AppThemeMode
+import com.yourname.ahu_plus.data.model.AiCommentModel
+import com.yourname.ahu_plus.data.model.AiCommentTemplate
 import com.yourname.ahu_plus.data.model.BillRecord
 import com.yourname.ahu_plus.data.model.FinanceSummary
 import com.yourname.ahu_plus.data.model.StudentInfo
@@ -328,6 +334,21 @@ fun ProfileScreen(
             onThemeModeChange = onThemeModeChange,
             marketEnabled = marketUiState.marketEnabled,
             onMarketEnabledChanged = marketViewModel::setMarketEnabled,
+            aiCommentEnabled = marketUiState.aiCommentEnabled,
+            aiCommentModel = marketUiState.aiCommentModel,
+            aiOverallPrompt = marketUiState.aiOverallPrompt,
+            aiTemplates = marketUiState.aiTemplates,
+            aiSelectedTemplateId = marketUiState.aiSelectedTemplateId,
+            aiApiKeyConfigured = marketUiState.aiApiKeyConfigured,
+            onAiCommentEnabledChanged = marketViewModel::setAiCommentEnabled,
+            onAiCommentModelChanged = marketViewModel::setAiCommentModel,
+            onAiOverallPromptChanged = marketViewModel::setAiOverallPrompt,
+            onAiTemplateSelected = marketViewModel::selectAiTemplate,
+            onSaveAiTemplate = marketViewModel::saveAiTemplate,
+            onDeleteAiTemplate = marketViewModel::deleteAiTemplate,
+            onResetAiPrompts = marketViewModel::resetAiPrompts,
+            onSaveAiApiKey = marketViewModel::saveAiApiKey,
+            onClearAiApiKey = marketViewModel::clearAiApiKey,
             // 2026-06-17 Bug2: 从 scheduleUiState 获取 (已通过 ViewModel 反应)
             showCompletedTasks = scheduleUiState.showCompletedTasks,
             showCompletedExams = scheduleUiState.showCompletedExams,
@@ -714,6 +735,21 @@ private fun AppSettingsScreen(
     onThemeModeChange: (AppThemeMode) -> Unit,
     marketEnabled: Boolean,
     onMarketEnabledChanged: (Boolean) -> Unit,
+    aiCommentEnabled: Boolean,
+    aiCommentModel: AiCommentModel,
+    aiOverallPrompt: String,
+    aiTemplates: List<AiCommentTemplate>,
+    aiSelectedTemplateId: String,
+    aiApiKeyConfigured: Boolean,
+    onAiCommentEnabledChanged: (Boolean) -> Unit,
+    onAiCommentModelChanged: (AiCommentModel) -> Unit,
+    onAiOverallPromptChanged: (String) -> Unit,
+    onAiTemplateSelected: (String) -> Unit,
+    onSaveAiTemplate: (String?, String, String) -> Unit,
+    onDeleteAiTemplate: (String) -> Unit,
+    onResetAiPrompts: () -> Unit,
+    onSaveAiApiKey: (String) -> Unit,
+    onClearAiApiKey: () -> Unit,
     /** 2026-06-17 Bug2: 近期任务全局设置 */
     showCompletedTasks: Boolean = false,
     showCompletedExams: Boolean = false,
@@ -721,6 +757,109 @@ private fun AppSettingsScreen(
     onShowCompletedExamsChanged: (Boolean) -> Unit = {},
     onBack: () -> Unit
 ) {
+    var showApiKeyDialog by rememberSaveable { mutableStateOf(false) }
+    var apiKeyInput by rememberSaveable { mutableStateOf("") }
+    var editingPromptTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var templateNameInput by rememberSaveable { mutableStateOf("") }
+    var promptInput by rememberSaveable { mutableStateOf("") }
+    if (showApiKeyDialog) {
+        AlertDialog(
+            onDismissRequest = { showApiKeyDialog = false; apiKeyInput = "" },
+            title = { Text("DeepSeek API Key") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("密钥仅加密保存在本机，用于直接请求 DeepSeek，不会发送给集市服务。")
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = { apiKeyInput = it },
+                        label = { Text("API Key") },
+                        placeholder = { Text("sk-...") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = apiKeyInput.isNotBlank(),
+                    onClick = {
+                        onSaveAiApiKey(apiKeyInput)
+                        apiKeyInput = ""
+                        showApiKeyDialog = false
+                    }
+                ) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showApiKeyDialog = false; apiKeyInput = "" }) { Text("取消") }
+            }
+        )
+    }
+    editingPromptTarget?.let { target ->
+        val isOverall = target == "OVERALL"
+        val isNewTemplate = target == "NEW_TEMPLATE"
+        val template = aiTemplates.firstOrNull { it.id == target }
+        AlertDialog(
+            onDismissRequest = {
+                editingPromptTarget = null
+                templateNameInput = ""
+                promptInput = ""
+            },
+            title = {
+                Text(when {
+                    isOverall -> "编辑整体角色设定"
+                    isNewTemplate -> "新建评论模板"
+                    else -> "编辑“${template?.name.orEmpty()}”模板"
+                })
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        if (isOverall) "用于规定整体回复身份、自然程度和写作习惯。安全规则与上下文边界不会被覆盖。"
+                        else "只填写这个风格的语气、措辞和表达偏好。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (!isOverall) {
+                        OutlinedTextField(
+                            value = templateNameInput,
+                            onValueChange = { templateNameInput = it },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("模板名称") }
+                        )
+                    }
+                    OutlinedTextField(
+                        value = promptInput,
+                        onValueChange = { promptInput = it },
+                        minLines = 7,
+                        maxLines = 14,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("提示词") }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = promptInput.isNotBlank() && (isOverall || templateNameInput.isNotBlank()),
+                    onClick = {
+                        if (isOverall) onAiOverallPromptChanged(promptInput)
+                        else onSaveAiTemplate(if (isNewTemplate) null else target, templateNameInput, promptInput)
+                        editingPromptTarget = null
+                        templateNameInput = ""
+                        promptInput = ""
+                    }
+                ) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    editingPromptTarget = null
+                    templateNameInput = ""
+                    promptInput = ""
+                }) { Text("取消") }
+            }
+        )
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -759,6 +898,156 @@ private fun AppSettingsScreen(
                                 themeMode = option,
                                 selected = themeMode == option,
                                 onClick = { onThemeModeChange(option) }
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                ProfileSection {
+                    Column {
+                        Text(
+                            text = "AI 评论助手",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        SettingsSwitchRow(
+                            title = "启用 AI 一键写评论",
+                            description = "生成内容只填入草稿，不会自动发送",
+                            checked = aiCommentEnabled,
+                            onCheckedChange = onAiCommentEnabledChanged
+                        )
+                        if (aiCommentEnabled) {
+                            HorizontalDivider()
+                            ListItem(
+                            headlineContent = { Text("DeepSeek API Key", fontWeight = FontWeight.Medium) },
+                            supportingContent = {
+                                Text(if (aiApiKeyConfigured) "已加密保存在本机" else "未配置，点击填写")
+                            },
+                            trailingContent = {
+                                Row {
+                                    if (aiApiKeyConfigured) {
+                                        TextButton(onClick = onClearAiApiKey) { Text("清除") }
+                                    }
+                                    TextButton(onClick = { showApiKeyDialog = true }) {
+                                        Text(if (aiApiKeyConfigured) "更换" else "填写")
+                                    }
+                                }
+                            }
+                        )
+                        HorizontalDivider()
+                        Text(
+                            "模型",
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        AiCommentModel.entries.forEach { model ->
+                            ListItem(
+                                headlineContent = { Text(model.displayName) },
+                                supportingContent = {
+                                    Text(if (model == AiCommentModel.FLASH) "响应更快，适合日常评论" else "质量优先，生成可能稍慢")
+                                },
+                                leadingContent = {
+                                    RadioButton(
+                                        selected = aiCommentModel == model,
+                                        onClick = { onAiCommentModelChanged(model) }
+                                    )
+                                },
+                                modifier = Modifier.clickable { onAiCommentModelChanged(model) }
+                            )
+                        }
+                        HorizontalDivider()
+                        ListItem(
+                            headlineContent = { Text("整体角色设定", fontWeight = FontWeight.Medium) },
+                            supportingContent = {
+                                Text(
+                                    aiOverallPrompt,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            trailingContent = {
+                                TextButton(onClick = {
+                                    promptInput = aiOverallPrompt
+                                    templateNameInput = ""
+                                    editingPromptTarget = "OVERALL"
+                                }) { Text("编辑") }
+                            }
+                        )
+                        HorizontalDivider()
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "默认模板与模板提示词",
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = {
+                                templateNameInput = ""
+                                promptInput = ""
+                                editingPromptTarget = "NEW_TEMPLATE"
+                            }) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Text("新建")
+                            }
+                        }
+                        aiTemplates.forEach { template ->
+                            ListItem(
+                                headlineContent = {
+                                    Text(template.name + if (template.builtIn) " · 系统" else "")
+                                },
+                                supportingContent = {
+                                    Text(
+                                        template.prompt,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                leadingContent = {
+                                    RadioButton(
+                                        selected = aiSelectedTemplateId == template.id,
+                                        onClick = { onAiTemplateSelected(template.id) }
+                                    )
+                                },
+                                trailingContent = {
+                                    Row {
+                                        if (!template.builtIn) {
+                                            IconButton(onClick = { onDeleteAiTemplate(template.id) }) {
+                                                Icon(Icons.Filled.Delete, contentDescription = "删除模板")
+                                            }
+                                        }
+                                        TextButton(onClick = {
+                                            templateNameInput = template.name
+                                            promptInput = template.prompt
+                                            editingPromptTarget = template.id
+                                        }) { Text("编辑") }
+                                    }
+                                },
+                                modifier = Modifier.clickable { onAiTemplateSelected(template.id) }
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(onClick = onResetAiPrompts) {
+                                Text("恢复默认提示词")
+                            }
+                        }
+                        Text(
+                            "整体设定与模板提示词会共同生效；回复目标、评论上下文和安全边界由应用自动补充。",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                            Text(
+                                "隐私提示：生成时，当前帖子、已加载评论和回复目标会发送至 DeepSeek。",
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }

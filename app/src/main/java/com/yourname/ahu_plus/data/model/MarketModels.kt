@@ -11,7 +11,7 @@ data class MarketTopic(
     val node: String = "",
     val isAnon: Int = 0,
     val viewCount: Int = 0,
-    @SerializedName("is_top")
+    @SerializedName(value = "is_top", alternate = ["isTop"])
     val isTop: Int = 0,
     val createTime: String = "",
     val userInfo: MarketUser? = null,
@@ -25,7 +25,7 @@ data class MarketTopic(
      * - 嵌套 List<MarketComment> 解析会被 `JsonUtils.parseRowsSafe` 的
      *   `isFilteredZeroId` 过滤掉 id=0 的脏数据,符合「接口字段不一定返回」的现状
      */
-    @SerializedName(value = "top_comments", alternate = ["preview_comments", "hot_comments"])
+    @SerializedName(value = "comments", alternate = ["top_comments", "preview_comments", "hot_comments"])
     val topComments: List<MarketComment> = emptyList()
 )
 
