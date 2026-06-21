@@ -955,7 +955,7 @@ private fun IdentityInputDialog(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "从微信小程序抓包获取 Bearer JWT 后粘贴到下方",
+                    text = "在电脑上运行 tools\\get_market_token.cmd 自动提取，\n或手动抓包获取 Bearer JWT 后粘贴到下方",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

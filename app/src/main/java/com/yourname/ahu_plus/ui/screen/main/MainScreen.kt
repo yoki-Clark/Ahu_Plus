@@ -2,15 +2,18 @@ package com.yourname.ahu_plus.ui.screen.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -54,6 +57,8 @@ import com.yourname.ahu_plus.data.repository.MarketRepository
 import com.yourname.ahu_plus.data.repository.StudentInfoRepository
 import com.yourname.ahu_plus.data.repository.YcardRepository
 import com.yourname.ahu_plus.ui.screen.apps.AppHubScreen
+import com.yourname.ahu_plus.ui.screen.chaoxing.ChaoxingTabScreen
+import com.yourname.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.yourname.ahu_plus.ui.screen.dashboard.DashboardScreen
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListScreen
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
@@ -78,8 +83,9 @@ import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
 
 private const val TAB_HOME = 0
 private const val TAB_MARKET = 1
-private const val TAB_APPS = 2
-private const val TAB_PROFILE = 3
+private const val TAB_CHAOXING = 2
+private const val TAB_APPS = 3
+private const val TAB_PROFILE = 4
 
 private const val HOME_DASHBOARD = 0
 private const val HOME_SCHEDULE = 1
@@ -222,6 +228,9 @@ fun MainScreen(
     val emptyClassroomViewModel = remember {
         EmptyClassroomViewModel(jwAuthRepository, app.emptyClassroomRepository, sessionManager)
     }
+    val chaoxingViewModel = remember {
+        ChaoxingViewModel(app.chaoxingRepository, app.chaoxingStudyRepository, app.chaoxingTikuRepository, sessionManager)
+    }
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
     val showBottomNavigation = selectedTab != TAB_MARKET || (
         marketUiState.selectedTopic == null &&
@@ -232,6 +241,11 @@ fun MainScreen(
         )
 
     Scaffold(
+        // 顶层 Scaffold 不消耗系统栏 inset:顶部由各内层屏 (DashboardScreen/ScheduleScreen/
+        // GradeScreen/AppHubScreen/ChaoxingTabScreen/...) 自己的 Scaffold + AhuTopAppBar
+        // 自适应处理,底部由 NavigationBar 自带 navigationBarsPadding 自动处理。
+        // 这样不会出现"双重状态栏空白"。
+        contentWindowInsets = WindowInsets(0),
         bottomBar = {
             if (showBottomNavigation) NavigationBar(
                 tonalElevation = 0.dp,
@@ -292,6 +306,31 @@ fun MainScreen(
                         )
                     )
                 }
+                NavigationBarItem(
+                    selected = selectedTab == TAB_CHAOXING,
+                    onClick = { selectedTab = TAB_CHAOXING },
+                    icon = {
+                        Icon(
+                            imageVector = if (selectedTab == TAB_CHAOXING) Icons.Filled.School
+                            else Icons.Outlined.School,
+                            contentDescription = "学习通"
+                        )
+                    },
+                    label = {
+                        Text(
+                            "学习通",
+                            fontWeight = if (selectedTab == TAB_CHAOXING) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    alwaysShowLabel = true,
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                )
                 NavigationBarItem(
                     selected = selectedTab == TAB_APPS,
                     onClick = { selectedTab = TAB_APPS },
@@ -484,6 +523,10 @@ fun MainScreen(
                     }
                 }
                 selectedTab == TAB_MARKET -> MarketScreen(viewModel = marketViewModel)
+                selectedTab == TAB_CHAOXING -> ChaoxingTabScreen(
+                    viewModel = chaoxingViewModel,
+                    onSwitchToAppsTab = { selectedTab = TAB_APPS },
+                )
                 selectedTab == TAB_APPS -> AppHubScreen(
                     scheduleViewModel = scheduleViewModel,
                     gradeViewModel = gradeViewModel,

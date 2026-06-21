@@ -16,6 +16,8 @@ app/build/
 .cxx
 local.properties
 .env
+cos_config.properties
+app/src/main/assets/cos_config.properties
 *.log
 *.py[cod]
 __pycache__/

@@ -16,7 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
-import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -147,7 +147,7 @@ private fun TaskRow(
         // 勾选框 (仅 HOMEWORK / USER_TASK 可勾)
         if (item.source == RecentTaskSource.EXAM) {
             Icon(
-                imageVector = Icons.Filled.EventNote,
+                imageVector = Icons.AutoMirrored.Filled.EventNote,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp),

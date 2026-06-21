@@ -43,7 +43,23 @@ fun MarketScreen(viewModel: MarketViewModel) {
                 onRemoveKeyword = viewModel::removeBlockKeyword,
                 onToggleFilterNode = viewModel::toggleFilterNode,
                 onListLayoutModeChange = viewModel::setListLayoutMode,
-                onScrollToTopChanged = viewModel::setScrollToTop
+                onScrollToTopChanged = viewModel::setScrollToTop,
+                // AI 评论助手
+                aiCommentEnabled = uiState.aiCommentEnabled,
+                aiCommentModel = uiState.aiCommentModel,
+                aiOverallPrompt = uiState.aiOverallPrompt,
+                aiTemplates = uiState.aiTemplates,
+                aiSelectedTemplateId = uiState.aiSelectedTemplateId,
+                aiApiKeyConfigured = uiState.aiApiKeyConfigured,
+                onAiCommentEnabledChanged = viewModel::setAiCommentEnabled,
+                onAiCommentModelChanged = viewModel::setAiCommentModel,
+                onAiOverallPromptChanged = viewModel::setAiOverallPrompt,
+                onAiTemplateSelected = viewModel::selectAiTemplate,
+                onSaveAiTemplate = viewModel::saveAiTemplate,
+                onDeleteAiTemplate = viewModel::deleteAiTemplate,
+                onResetAiPrompts = viewModel::resetAiPrompts,
+                onSaveAiApiKey = viewModel::saveAiApiKey,
+                onClearAiApiKey = viewModel::clearAiApiKey
             )
         }
 

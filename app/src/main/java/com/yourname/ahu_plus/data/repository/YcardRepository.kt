@@ -71,7 +71,9 @@ class YcardRepository(
     private val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = cookieJar,
         followRedirects = false,
-        disableGzip = true
+        disableGzip = true,
+        connectTimeoutSec = 30,
+        readTimeoutSec = 30
     )
 
     // 第二个客户端用于跟随重定向提取 JWT

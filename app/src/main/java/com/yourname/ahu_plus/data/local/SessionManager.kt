@@ -27,6 +27,38 @@ import kotlinx.coroutines.flow.map
  */
 class SessionManager(private val appDataStore: AppDataStore) {
 
+    // ── 云端备份（延迟注入，避免循环依赖） ─────────────
+    @Volatile private var backupManager: com.yourname.ahu_plus.data.repository.CloudBackupManager? = null
+
+    fun setBackupManager(bm: com.yourname.ahu_plus.data.repository.CloudBackupManager) {
+        backupManager = bm
+    }
+
+    /**
+     * 数据变更后触发防抖备份（5秒内多次变更只上传一次）。
+     *
+     * 调用方应使用 [notifyBackupIfFirst],仅在"该数据类型首次成功落盘"时通知,
+     * 避免每次刷新都触发上传。
+     */
+    private fun notifyBackup() {
+        backupManager?.notifyDataChanged()
+    }
+
+    /**
+     * 首次更新时触发备份:save 调用前内存缓存为 null ⇒ 视为该数据类型首次落地 ⇒ 通知备份。
+     *
+     * 设计目标:用户首次获取到某类业务数据(课表/成绩/学习通课程…)时,自动往云端推一份快照,
+     * 后续即便频繁刷新也只在本地缓存,不再触发上传。
+     *
+     * 为什么不直接读 DataStore 判"首次"?
+     *  - [init] 已把持久层镜像到 [cachedXxx] 字段,内存值与 DataStore 一致,in-memory null
+     *    等价于"该 key 在持久层也不存在"。
+     *  - 省一次 DataStore read。
+     */
+    private fun notifyBackupIfFirst(isFirst: Boolean) {
+        if (isFirst) notifyBackup()
+    }
+
     @Volatile private var initialized = false
     @Volatile private var cachedSessionId: String? = null
     @Volatile private var cachedJwSessionId: String? = null
@@ -95,6 +127,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedUserTasksJson: String? = null
     @Volatile private var cachedUserTasksUpdatedAt: Long = 0L
     @Volatile private var cachedBathroomPhone: String? = null
+    @Volatile private var cachedBillsJson: String? = null
+    @Volatile private var cachedBillsUpdatedAt: Long = 0L
     @Volatile private var cachedAcConfig: ElectricityRoomConfig = ElectricityRoomConfig()
     @Volatile private var cachedLightingConfig: ElectricityRoomConfig = ElectricityRoomConfig()
     @Volatile private var cachedNewCampusConfig: ElectricityRoomConfig = ElectricityRoomConfig()
@@ -105,6 +139,50 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedEmptyClassroomJson: String? = null
     @Volatile private var cachedEmptyClassroomKey: String? = null
     @Volatile private var cachedEmptyClassroomUpdatedAt: Long = 0L
+
+    // ── 超星学习通 ────────────────────────────────────────
+    @Volatile private var cachedCxCookies: String? = null
+    @Volatile private var cachedCxCoursesJson: String? = null
+    @Volatile private var cachedCxTikuConfig: String? = null
+    @Volatile private var cachedCxSpeed: String = "1.0"
+    @Volatile private var cachedCxConcurrency: String = "4"
+    @Volatile private var cachedCxNotopenAction: String = "retry"
+    @Volatile private var cachedCxAutoSign: String = "false"
+    @Volatile private var cachedCxSignLat: String = "-1.0"
+    @Volatile private var cachedCxSignLon: String = "-1.0"
+    @Volatile private var cachedCxSignAddress: String = ""
+    @Volatile private var cachedCxSignGesture: String = ""
+    @Volatile private var cachedCxProviderChain: String = "CACHE"
+    @Volatile private var cachedCxTokensYanxi: String = ""
+    @Volatile private var cachedCxCoverRate: String = "0.8"
+    @Volatile private var cachedCxTikuDelay: String = "1.0"
+    @Volatile private var cachedCxAiMinInterval: String = "3"
+    @Volatile private var cachedCxAiHttpProxy: String = ""
+    @Volatile private var cachedCxSiliconflowKey: String = ""
+    @Volatile private var cachedCxSiliconflowModel: String = "deepseek-ai/DeepSeek-R1"
+    @Volatile private var cachedCxSiliconflowEndpoint: String = "https://api.siliconflow.cn/v1/chat/completions"
+    @Volatile private var cachedCxLikeapiSearch: String = "false"
+    @Volatile private var cachedCxLikeapiVision: String = "true"
+    @Volatile private var cachedCxLikeapiModel: String = "glm-4.5-air"
+    @Volatile private var cachedCxGoAuthorization: String = ""
+    @Volatile private var cachedCxGoMinInterval: String = "1.0"
+    @Volatile private var cachedCxTikuAdapterUrl: String = ""
+    @Volatile private var cachedCxNotifyProvider: String = ""
+    @Volatile private var cachedCxNotifyUrl: String = ""
+    @Volatile private var cachedCxNotifyTgChatId: String = ""
+    @Volatile private var cachedCxSubmitMode: String = "auto"
+    @Volatile private var cachedCxTikuType: String = "CACHE"
+    @Volatile private var cachedCxTikuToken: String = ""
+    @Volatile private var cachedCxAiKey: String = ""
+    @Volatile private var cachedCxAiBaseUrl: String = ""
+    @Volatile private var cachedCxAiModel: String = ""
+    @Volatile private var cachedCxTaskTypes: String = "video,document,read,workid"
+    @Volatile private var cachedCxMessagesJson: String? = null
+    @Volatile private var cachedCxMessagesCursor: String = ""
+    @Volatile private var cachedCxMessagesMerge: String = "false"
+
+    // ── 自动更新相关 ─────────────────────────────────
+    @Volatile private var cachedIgnoredVersionCode: Int = 0
 
     val themeModeFlow = appDataStore.dataStore.data.map { preferences ->
         AppThemeMode.fromStorageValue(preferences[THEME_MODE_KEY])
@@ -214,6 +292,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedUserTasksJson = prefs[USER_TASKS_JSON_KEY]
         cachedUserTasksUpdatedAt = prefs[USER_TASKS_UPDATED_AT_KEY] ?: 0L
         cachedBathroomPhone = prefs[BATHROOM_PHONE_KEY]
+        cachedBillsJson = prefs[BILLS_JSON_KEY]
+        cachedBillsUpdatedAt = prefs[BILLS_UPDATED_AT_KEY] ?: 0L
         cachedAcConfig = parseElectricityConfig(prefs[AC_CONFIG_KEY])
         cachedLightingConfig = parseElectricityConfig(prefs[LIGHTING_CONFIG_KEY])
         cachedNewCampusConfig = parseElectricityConfig(prefs[NEW_CAMPUS_CONFIG_KEY])
@@ -224,6 +304,50 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedEmptyClassroomJson = prefs[EMPTY_CLASSROOM_JSON_KEY]
         cachedEmptyClassroomKey = prefs[EMPTY_CLASSROOM_KEY_KEY]
         cachedEmptyClassroomUpdatedAt = prefs[EMPTY_CLASSROOM_UPDATED_AT_KEY] ?: 0L
+
+        // 超星学习通
+        cachedCxCookies = prefs[CX_COOKIES_KEY]
+        cachedCxCoursesJson = prefs[CX_COURSES_JSON_KEY]
+        cachedCxTikuConfig = prefs[CX_TIKU_CONFIG_KEY]
+        cachedCxSpeed = prefs[CX_SPEED_KEY] ?: "1.0"
+        cachedCxConcurrency = prefs[CX_CONCURRENCY_KEY] ?: "4"
+        cachedCxNotopenAction = prefs[CX_NOTOPEN_ACTION_KEY] ?: "retry"
+        cachedCxAutoSign = prefs[CX_AUTO_SIGN_KEY] ?: "false"
+        cachedCxSignLat = prefs[CX_SIGN_LAT_KEY] ?: "-1.0"
+        cachedCxSignLon = prefs[CX_SIGN_LON_KEY] ?: "-1.0"
+        cachedCxSignAddress = prefs[CX_SIGN_ADDRESS_KEY] ?: ""
+        cachedCxSignGesture = prefs[CX_SIGN_GESTURE_KEY] ?: ""
+        cachedCxProviderChain = prefs[CX_PROVIDER_CHAIN_KEY] ?: "CACHE"
+        cachedCxTokensYanxi = prefs[CX_TOKENS_YANXI_KEY] ?: ""
+        cachedCxCoverRate = prefs[CX_COVER_RATE_KEY] ?: "0.8"
+        cachedCxTikuDelay = prefs[CX_TIKU_DELAY_KEY] ?: "1.0"
+        cachedCxAiMinInterval = prefs[CX_AI_MIN_INTERVAL_KEY] ?: "3"
+        cachedCxAiHttpProxy = prefs[CX_AI_HTTP_PROXY_KEY] ?: ""
+        cachedCxSiliconflowKey = prefs[CX_SILICONFLOW_KEY_KEY] ?: ""
+        cachedCxSiliconflowModel = prefs[CX_SILICONFLOW_MODEL_KEY] ?: "deepseek-ai/DeepSeek-R1"
+        cachedCxSiliconflowEndpoint = prefs[CX_SILICONFLOW_ENDPOINT_KEY] ?: "https://api.siliconflow.cn/v1/chat/completions"
+        cachedCxLikeapiSearch = prefs[CX_LIKEAPI_SEARCH_KEY] ?: "false"
+        cachedCxLikeapiVision = prefs[CX_LIKEAPI_VISION_KEY] ?: "true"
+        cachedCxLikeapiModel = prefs[CX_LIKEAPI_MODEL_KEY] ?: "glm-4.5-air"
+        cachedCxGoAuthorization = prefs[CX_GO_AUTHORIZATION_KEY] ?: ""
+        cachedCxGoMinInterval = prefs[CX_GO_MIN_INTERVAL_KEY] ?: "1.0"
+        cachedCxTikuAdapterUrl = prefs[CX_TIKU_ADAPTER_URL_KEY] ?: ""
+        cachedCxNotifyProvider = prefs[CX_NOTIFY_PROVIDER_KEY] ?: ""
+        cachedCxNotifyUrl = prefs[CX_NOTIFY_URL_KEY] ?: ""
+        cachedCxNotifyTgChatId = prefs[CX_NOTIFY_TG_CHAT_ID_KEY] ?: ""
+        cachedCxSubmitMode = prefs[CX_SUBMIT_MODE_KEY] ?: "auto"
+        cachedCxTikuType = prefs[CX_TIKU_TYPE_KEY] ?: "CACHE"
+        cachedCxTikuToken = prefs[CX_TIKU_TOKEN_KEY] ?: ""
+        cachedCxAiKey = prefs[CX_AI_KEY_KEY] ?: ""
+        cachedCxAiBaseUrl = prefs[CX_AI_BASE_URL_KEY] ?: ""
+        cachedCxAiModel = prefs[CX_AI_MODEL_KEY] ?: ""
+        cachedCxTaskTypes = prefs[CX_TASK_TYPES_KEY] ?: "video,document,read,workid"
+        cachedCxMessagesJson = prefs[CX_MESSAGES_JSON_KEY]
+        cachedCxMessagesCursor = prefs[CX_MESSAGES_CURSOR_KEY] ?: ""
+        cachedCxMessagesMerge = prefs[CX_MESSAGES_MERGE_KEY] ?: "false"
+
+        // 自动更新
+        cachedIgnoredVersionCode = prefs[IGNORED_VERSION_CODE_KEY]?.toIntOrNull() ?: 0
 
         initialized = true
         Log.i(
@@ -522,12 +646,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getStudentInfoUpdatedAt(): Long = cachedStudentInfoUpdatedAt
 
     suspend fun saveStudentInfoJson(json: String, updatedAt: Long = System.currentTimeMillis()) {
+        val isFirst = cachedStudentInfoJson == null
         cachedStudentInfoJson = json
         cachedStudentInfoUpdatedAt = updatedAt
         appDataStore.dataStore.edit { preferences ->
             preferences[STUDENT_INFO_KEY] = json
             preferences[STUDENT_INFO_UPDATED_AT_KEY] = updatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
 
     suspend fun clearStudentInfoJson() {
@@ -546,12 +672,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getScheduleUpdatedAt(): Long = cachedScheduleUpdatedAt
 
     suspend fun saveScheduleJson(json: String) {
+        val isFirst = cachedScheduleJson == null
         cachedScheduleJson = json
         cachedScheduleUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit { preferences ->
             preferences[SCHEDULE_JSON_KEY] = json
             preferences[SCHEDULE_UPDATED_AT_KEY] = cachedScheduleUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
 
     suspend fun clearScheduleJson() {
@@ -572,6 +700,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getGradesUpdatedAt(): Long = cachedGradesUpdatedAt
 
     suspend fun saveGradesJson(json: String, gpaMetadataJson: String?) {
+        val isFirst = cachedGradesJson == null
         cachedGradesJson = json
         cachedGpaMetadataJson = gpaMetadataJson
         cachedGradesUpdatedAt = System.currentTimeMillis()
@@ -582,6 +711,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
             }
             preferences[GRADES_UPDATED_AT_KEY] = cachedGradesUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
 
     suspend fun clearGradesJson() {
@@ -602,12 +732,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getExamsUpdatedAt(): Long = cachedExamsUpdatedAt
 
     suspend fun saveExamsJson(json: String) {
+        val isFirst = cachedExamsJson == null
         cachedExamsJson = json
         cachedExamsUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit { preferences ->
             preferences[EXAMS_JSON_KEY] = json
             preferences[EXAMS_UPDATED_AT_KEY] = cachedExamsUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
 
     suspend fun clearExamsJson() {
@@ -626,12 +758,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getFinanceUpdatedAt(): Long = cachedFinanceUpdatedAt
 
     suspend fun saveFinanceJson(json: String) {
+        val isFirst = cachedFinanceJson == null
         cachedFinanceJson = json
         cachedFinanceUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit { preferences ->
             preferences[FINANCE_JSON_KEY] = json
             preferences[FINANCE_UPDATED_AT_KEY] = cachedFinanceUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
 
     suspend fun clearFinanceJson() {
@@ -650,12 +784,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getAttendanceUpdatedAt(): Long = cachedAttendanceUpdatedAt
 
     suspend fun saveAttendanceJson(json: String) {
+        val isFirst = cachedAttendanceJson == null
         cachedAttendanceJson = json
         cachedAttendanceUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit { preferences ->
             preferences[ATTENDANCE_JSON_KEY] = json
             preferences[ATTENDANCE_UPDATED_AT_KEY] = cachedAttendanceUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
 
     suspend fun clearAttendanceJson() {
@@ -674,12 +810,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getKqcardAttendanceUpdatedAt(): Long = cachedKqcardAttendanceUpdatedAt
 
     suspend fun saveKqcardAttendanceJson(json: String) {
+        val isFirst = cachedKqcardAttendanceJson == null
         cachedKqcardAttendanceJson = json
         cachedKqcardAttendanceUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit { preferences ->
             preferences[KQCARD_ATTENDANCE_JSON_KEY] = json
             preferences[KQCARD_ATTENDANCE_UPDATED_AT_KEY] = cachedKqcardAttendanceUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
 
     suspend fun clearKqcardAttendanceJson() {
@@ -771,12 +909,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getAssessmentJson(): String? = cachedAssessmentJson
     fun getAssessmentUpdatedAt(): Long = cachedAssessmentUpdatedAt
     suspend fun saveAssessmentJson(json: String) {
+        val isFirst = cachedAssessmentJson == null
         cachedAssessmentJson = json
         cachedAssessmentUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit {
             it[ASSESSMENT_JSON_KEY] = json
             it[ASSESSMENT_UPDATED_AT_KEY] = cachedAssessmentUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
     suspend fun clearAssessmentJson() {
         cachedAssessmentJson = null
@@ -792,12 +932,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getRecordIndexJson(): String? = cachedRecordIndexJson
     fun getRecordIndexUpdatedAt(): Long = cachedRecordIndexUpdatedAt
     suspend fun saveRecordIndexJson(json: String) {
+        val isFirst = cachedRecordIndexJson == null
         cachedRecordIndexJson = json
         cachedRecordIndexUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit {
             it[RECORD_INDEX_JSON_KEY] = json
             it[RECORD_INDEX_UPDATED_AT_KEY] = cachedRecordIndexUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
     suspend fun clearRecordIndexJson() {
         cachedRecordIndexJson = null
@@ -813,12 +955,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getHomeworkJson(): String? = cachedHomeworkJson
     fun getHomeworkUpdatedAt(): Long = cachedHomeworkUpdatedAt
     suspend fun saveHomeworkJson(json: String) {
+        val isFirst = cachedHomeworkJson == null
         cachedHomeworkJson = json
         cachedHomeworkUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit {
             it[HOMEWORK_JSON_KEY] = json
             it[HOMEWORK_UPDATED_AT_KEY] = cachedHomeworkUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
     suspend fun clearHomeworkJson() {
         cachedHomeworkJson = null
@@ -834,12 +978,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getUserTasksJson(): String? = cachedUserTasksJson
     fun getUserTasksUpdatedAt(): Long = cachedUserTasksUpdatedAt
     suspend fun saveUserTasksJson(json: String) {
+        val isFirst = cachedUserTasksJson == null
         cachedUserTasksJson = json
         cachedUserTasksUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit {
             it[USER_TASKS_JSON_KEY] = json
             it[USER_TASKS_UPDATED_AT_KEY] = cachedUserTasksUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
     suspend fun clearUserTasksJson() {
         cachedUserTasksJson = null
@@ -862,6 +1008,32 @@ class SessionManager(private val appDataStore: AppDataStore) {
     suspend fun clearBathroomPhone() {
         cachedBathroomPhone = null
         appDataStore.dataStore.edit { it.remove(BATHROOM_PHONE_KEY) }
+    }
+
+    // ── 一卡通账单缓存 ────────────────────────────────
+
+    fun getBillsJson(): String? = cachedBillsJson
+
+    fun getBillsUpdatedAt(): Long = cachedBillsUpdatedAt
+
+    suspend fun saveBillsJson(json: String) {
+        val isFirst = cachedBillsJson == null
+        cachedBillsJson = json
+        cachedBillsUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit { preferences ->
+            preferences[BILLS_JSON_KEY] = json
+            preferences[BILLS_UPDATED_AT_KEY] = cachedBillsUpdatedAt
+        }
+        notifyBackupIfFirst(isFirst)
+    }
+
+    suspend fun clearBillsJson() {
+        cachedBillsJson = null
+        cachedBillsUpdatedAt = 0L
+        appDataStore.dataStore.edit { preferences ->
+            preferences.remove(BILLS_JSON_KEY)
+            preferences.remove(BILLS_UPDATED_AT_KEY)
+        }
     }
 
     // ── 电费房间配置 ────────────────────────────────
@@ -907,6 +1079,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getTrainingPlanUpdatedAt(): Long = cachedTrainingPlanUpdatedAt
 
     suspend fun saveTrainingPlanJson(json: String) {
+        val isFirst = cachedTrainingPlanJson == null
         cachedTrainingPlanJson = json
         cachedTrainingPlanUpdatedAt = System.currentTimeMillis()
         cachedTrainingPlanCacheVersion = TRAINING_PLAN_CACHE_VERSION
@@ -915,6 +1088,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
             preferences[TRAINING_PLAN_UPDATED_AT_KEY] = cachedTrainingPlanUpdatedAt
             preferences[TRAINING_PLAN_CACHE_VERSION_KEY] = TRAINING_PLAN_CACHE_VERSION
         }
+        notifyBackupIfFirst(isFirst)
     }
 
     fun getEmptyClassroomJson(): String? = cachedEmptyClassroomJson
@@ -924,6 +1098,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getEmptyClassroomUpdatedAt(): Long = cachedEmptyClassroomUpdatedAt
 
     suspend fun saveEmptyClassroomJson(json: String, cacheKey: String) {
+        val isFirst = cachedEmptyClassroomJson == null
         cachedEmptyClassroomJson = json
         cachedEmptyClassroomKey = cacheKey
         cachedEmptyClassroomUpdatedAt = System.currentTimeMillis()
@@ -932,6 +1107,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
             preferences[EMPTY_CLASSROOM_KEY_KEY] = cacheKey
             preferences[EMPTY_CLASSROOM_UPDATED_AT_KEY] = cachedEmptyClassroomUpdatedAt
         }
+        notifyBackupIfFirst(isFirst)
     }
 
     suspend fun clearEmptyClassroomJson() {
@@ -976,6 +1152,12 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedMarketEnabled = false
         cachedMarketListLayoutMode = "list"
         cachedMarketScrollToTop = true
+        cachedCxCookies = null
+        cachedCxCoursesJson = null
+        cachedCxTikuConfig = null
+        cachedCxMessagesJson = null
+        cachedCxMessagesCursor = ""
+        cachedCxMessagesMerge = "false"
         cachedAiCommentEnabled = false
         cachedAiCommentModel = AiCommentModel.FLASH
         cachedAiCommentStyle = AiCommentStyle.GENTLE
@@ -1098,6 +1280,173 @@ class SessionManager(private val appDataStore: AppDataStore) {
         }.getOrDefault(ElectricityRoomConfig())
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  超星学习通
+    // ══════════════════════════════════════════════════════════════
+
+    fun getCxCookies(): String? = cachedCxCookies
+
+    suspend fun saveCxCookies(value: String) {
+        cachedCxCookies = value
+        appDataStore.dataStore.edit { it[CX_COOKIES_KEY] = value }
+    }
+
+    fun getCxCoursesJson(): String? = cachedCxCoursesJson
+
+    suspend fun saveCxCoursesJson(value: String) {
+        val isFirst = cachedCxCoursesJson == null
+        cachedCxCoursesJson = value
+        appDataStore.dataStore.edit { it[CX_COURSES_JSON_KEY] = value }
+        notifyBackupIfFirst(isFirst)
+    }
+
+    fun getCxTikuConfig(): String? = cachedCxTikuConfig
+
+    suspend fun saveCxTikuConfig(value: String) {
+        cachedCxTikuConfig = value
+        appDataStore.dataStore.edit { it[CX_TIKU_CONFIG_KEY] = value }
+    }
+
+    /** 获取题库缓存（question title → answer） */
+    suspend fun getCxTikuCache(question: String): String? {
+        val json = appDataStore.dataStore.data.first()[CX_TIKU_CACHE_KEY] ?: return null
+        return runCatching {
+            val map = gson.fromJson<Map<String, String>>(json, object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type)
+            map[question]
+        }.getOrNull()
+    }
+
+    /** 保存题库缓存 */
+    suspend fun saveCxTikuCache(question: String, answer: String) {
+        val json = appDataStore.dataStore.data.first()[CX_TIKU_CACHE_KEY]
+        val map: MutableMap<String, String> = if (json != null) {
+            runCatching {
+                gson.fromJson<Map<String, String>>(json, object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type)
+            }.getOrNull()?.toMutableMap() ?: mutableMapOf()
+        } else {
+            mutableMapOf()
+        }
+        map[question] = answer
+        appDataStore.dataStore.edit { it[CX_TIKU_CACHE_KEY] = gson.toJson(map) }
+    }
+
+    // ── 超星设置 getter/setter ─────────────────────────────
+
+    fun getCxSpeed(): Float = cachedCxSpeed.toFloatOrNull() ?: 1.0f
+    suspend fun saveCxSpeed(v: Float) { cachedCxSpeed = v.toString(); appDataStore.dataStore.edit { it[CX_SPEED_KEY] = v.toString() } }
+
+    fun getCxConcurrency(): Int = cachedCxConcurrency.toIntOrNull() ?: 4
+    suspend fun saveCxConcurrency(v: Int) { cachedCxConcurrency = v.toString(); appDataStore.dataStore.edit { it[CX_CONCURRENCY_KEY] = v.toString() } }
+
+    fun getCxNotopenAction(): String = cachedCxNotopenAction
+    suspend fun saveCxNotopenAction(v: String) { cachedCxNotopenAction = v; appDataStore.dataStore.edit { it[CX_NOTOPEN_ACTION_KEY] = v } }
+
+    fun getCxAutoSign(): Boolean = cachedCxAutoSign == "true"
+    suspend fun saveCxAutoSign(v: Boolean) { cachedCxAutoSign = v.toString(); appDataStore.dataStore.edit { it[CX_AUTO_SIGN_KEY] = v.toString() } }
+
+    // Phase 3 - 签到配置
+    fun getCxSignLat(): Double = cachedCxSignLat.toDoubleOrNull() ?: -1.0
+    suspend fun saveCxSignLat(v: Double) { cachedCxSignLat = v.toString(); appDataStore.dataStore.edit { it[CX_SIGN_LAT_KEY] = v.toString() } }
+    fun getCxSignLon(): Double = cachedCxSignLon.toDoubleOrNull() ?: -1.0
+    suspend fun saveCxSignLon(v: Double) { cachedCxSignLon = v.toString(); appDataStore.dataStore.edit { it[CX_SIGN_LON_KEY] = v.toString() } }
+    fun getCxSignAddress(): String = cachedCxSignAddress
+    suspend fun saveCxSignAddress(v: String) { cachedCxSignAddress = v; appDataStore.dataStore.edit { it[CX_SIGN_ADDRESS_KEY] = v } }
+    fun getCxSignGesture(): String = cachedCxSignGesture
+    suspend fun saveCxSignGesture(v: String) { cachedCxSignGesture = v; appDataStore.dataStore.edit { it[CX_SIGN_GESTURE_KEY] = v } }
+
+    // Phase 4 - 题库扩展
+    fun getCxProviderChain(): String = cachedCxProviderChain
+    suspend fun saveCxProviderChain(v: String) { cachedCxProviderChain = v; appDataStore.dataStore.edit { it[CX_PROVIDER_CHAIN_KEY] = v } }
+    fun getCxTokensYanxi(): String = cachedCxTokensYanxi
+    suspend fun saveCxTokensYanxi(v: String) { cachedCxTokensYanxi = v; appDataStore.dataStore.edit { it[CX_TOKENS_YANXI_KEY] = v } }
+    fun getCxCoverRate(): Double = cachedCxCoverRate.toDoubleOrNull() ?: 0.8
+    suspend fun saveCxCoverRate(v: Double) { cachedCxCoverRate = v.toString(); appDataStore.dataStore.edit { it[CX_COVER_RATE_KEY] = v.toString() } }
+    fun getCxTikuDelay(): Double = cachedCxTikuDelay.toDoubleOrNull() ?: 1.0
+    suspend fun saveCxTikuDelay(v: Double) { cachedCxTikuDelay = v.toString(); appDataStore.dataStore.edit { it[CX_TIKU_DELAY_KEY] = v.toString() } }
+    fun getCxAiMinInterval(): Int = cachedCxAiMinInterval.toIntOrNull() ?: 3
+    suspend fun saveCxAiMinInterval(v: Int) { cachedCxAiMinInterval = v.toString(); appDataStore.dataStore.edit { it[CX_AI_MIN_INTERVAL_KEY] = v.toString() } }
+    fun getCxAiHttpProxy(): String = cachedCxAiHttpProxy
+    suspend fun saveCxAiHttpProxy(v: String) { cachedCxAiHttpProxy = v; appDataStore.dataStore.edit { it[CX_AI_HTTP_PROXY_KEY] = v } }
+    fun getCxSiliconflowKey(): String = cachedCxSiliconflowKey
+    suspend fun saveCxSiliconflowKey(v: String) { cachedCxSiliconflowKey = v; appDataStore.dataStore.edit { it[CX_SILICONFLOW_KEY_KEY] = v } }
+    fun getCxSiliconflowModel(): String = cachedCxSiliconflowModel
+    suspend fun saveCxSiliconflowModel(v: String) { cachedCxSiliconflowModel = v; appDataStore.dataStore.edit { it[CX_SILICONFLOW_MODEL_KEY] = v } }
+    fun getCxSiliconflowEndpoint(): String = cachedCxSiliconflowEndpoint
+    suspend fun saveCxSiliconflowEndpoint(v: String) { cachedCxSiliconflowEndpoint = v; appDataStore.dataStore.edit { it[CX_SILICONFLOW_ENDPOINT_KEY] = v } }
+    fun getCxLikeapiSearch(): Boolean = cachedCxLikeapiSearch == "true"
+    suspend fun saveCxLikeapiSearch(v: Boolean) { cachedCxLikeapiSearch = v.toString(); appDataStore.dataStore.edit { it[CX_LIKEAPI_SEARCH_KEY] = v.toString() } }
+    fun getCxLikeapiVision(): Boolean = cachedCxLikeapiVision == "true"
+    suspend fun saveCxLikeapiVision(v: Boolean) { cachedCxLikeapiVision = v.toString(); appDataStore.dataStore.edit { it[CX_LIKEAPI_VISION_KEY] = v.toString() } }
+    fun getCxLikeapiModel(): String = cachedCxLikeapiModel
+    suspend fun saveCxLikeapiModel(v: String) { cachedCxLikeapiModel = v; appDataStore.dataStore.edit { it[CX_LIKEAPI_MODEL_KEY] = v } }
+    fun getCxGoAuthorization(): String = cachedCxGoAuthorization
+    suspend fun saveCxGoAuthorization(v: String) { cachedCxGoAuthorization = v; appDataStore.dataStore.edit { it[CX_GO_AUTHORIZATION_KEY] = v } }
+    fun getCxGoMinInterval(): Double = cachedCxGoMinInterval.toDoubleOrNull() ?: 1.0
+    suspend fun saveCxGoMinInterval(v: Double) { cachedCxGoMinInterval = v.toString(); appDataStore.dataStore.edit { it[CX_GO_MIN_INTERVAL_KEY] = v.toString() } }
+    fun getCxTikuAdapterUrl(): String = cachedCxTikuAdapterUrl
+    suspend fun saveCxTikuAdapterUrl(v: String) { cachedCxTikuAdapterUrl = v; appDataStore.dataStore.edit { it[CX_TIKU_ADAPTER_URL_KEY] = v } }
+
+    // Phase 5 - 外部通知
+    fun getCxNotifyProvider(): String = cachedCxNotifyProvider
+    suspend fun saveCxNotifyProvider(v: String) { cachedCxNotifyProvider = v; appDataStore.dataStore.edit { it[CX_NOTIFY_PROVIDER_KEY] = v } }
+    fun getCxNotifyUrl(): String = cachedCxNotifyUrl
+    suspend fun saveCxNotifyUrl(v: String) { cachedCxNotifyUrl = v; appDataStore.dataStore.edit { it[CX_NOTIFY_URL_KEY] = v } }
+    fun getCxNotifyTgChatId(): String = cachedCxNotifyTgChatId
+    suspend fun saveCxNotifyTgChatId(v: String) { cachedCxNotifyTgChatId = v; appDataStore.dataStore.edit { it[CX_NOTIFY_TG_CHAT_ID_KEY] = v } }
+
+    fun getCxSubmitMode(): String = cachedCxSubmitMode
+    suspend fun saveCxSubmitMode(v: String) { cachedCxSubmitMode = v; appDataStore.dataStore.edit { it[CX_SUBMIT_MODE_KEY] = v } }
+
+    fun getCxTikuType(): String = cachedCxTikuType
+    suspend fun saveCxTikuType(v: String) { cachedCxTikuType = v; appDataStore.dataStore.edit { it[CX_TIKU_TYPE_KEY] = v } }
+
+    fun getCxTikuToken(): String = cachedCxTikuToken
+    suspend fun saveCxTikuToken(v: String) { cachedCxTikuToken = v; appDataStore.dataStore.edit { it[CX_TIKU_TOKEN_KEY] = v } }
+
+    fun getCxAiKey(): String = cachedCxAiKey
+    suspend fun saveCxAiKey(v: String) { cachedCxAiKey = v; appDataStore.dataStore.edit { it[CX_AI_KEY_KEY] = v } }
+
+    fun getCxAiBaseUrl(): String = cachedCxAiBaseUrl.ifBlank { "https://api.deepseek.com" }
+    suspend fun saveCxAiBaseUrl(v: String) { cachedCxAiBaseUrl = v; appDataStore.dataStore.edit { it[CX_AI_BASE_URL_KEY] = v } }
+
+    fun getCxAiModel(): String = cachedCxAiModel.ifBlank { "deepseek-chat" }
+    suspend fun saveCxAiModel(v: String) { cachedCxAiModel = v; appDataStore.dataStore.edit { it[CX_AI_MODEL_KEY] = v } }
+
+    fun getCxTaskTypes(): Set<String> = cachedCxTaskTypes.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+    suspend fun saveCxTaskTypes(v: Set<String>) { cachedCxTaskTypes = v.joinToString(","); appDataStore.dataStore.edit { it[CX_TASK_TYPES_KEY] = v.joinToString(",") } }
+
+    // ── 消息中心缓存 ───────────────────────────────────────
+
+    fun getCxMessagesJson(): String? = cachedCxMessagesJson
+
+    fun getCxMessagesCursor(): String = cachedCxMessagesCursor
+
+    suspend fun saveCxMessagesJson(json: String, cursor: String) {
+        val isFirst = cachedCxMessagesJson == null
+        cachedCxMessagesJson = json
+        cachedCxMessagesCursor = cursor
+        appDataStore.dataStore.edit { preferences ->
+            preferences[CX_MESSAGES_JSON_KEY] = json
+            preferences[CX_MESSAGES_CURSOR_KEY] = cursor
+        }
+        notifyBackupIfFirst(isFirst)
+    }
+
+    fun getCxMessagesMerge(): Boolean = cachedCxMessagesMerge == "true"
+    suspend fun saveCxMessagesMerge(v: Boolean) {
+        cachedCxMessagesMerge = v.toString()
+        appDataStore.dataStore.edit { it[CX_MESSAGES_MERGE_KEY] = v.toString() }
+    }
+
+    // ── 自动更新相关 ─────────────────────────────────
+
+    fun getIgnoredVersionCode(): Int = cachedIgnoredVersionCode
+
+    suspend fun saveIgnoredVersionCode(code: Int) {
+        cachedIgnoredVersionCode = code
+        appDataStore.dataStore.edit { it[IGNORED_VERSION_CODE_KEY] = code.toString() }
+    }
+
     private companion object {
         const val TAG = "SessionManager"
         const val TRAINING_PLAN_CACHE_VERSION = 2L
@@ -1160,6 +1509,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val USER_TASKS_JSON_KEY = stringPreferencesKey("user_tasks_json")
         val USER_TASKS_UPDATED_AT_KEY = longPreferencesKey("user_tasks_updated_at")
         val BATHROOM_PHONE_KEY = stringPreferencesKey("bathroom_phone")
+        val BILLS_JSON_KEY = stringPreferencesKey("bills_json")
+        val BILLS_UPDATED_AT_KEY = longPreferencesKey("bills_updated_at")
         val AC_CONFIG_KEY = stringPreferencesKey("ac_config")
         val LIGHTING_CONFIG_KEY = stringPreferencesKey("lighting_config")
         val NEW_CAMPUS_CONFIG_KEY = stringPreferencesKey("new_campus_config")
@@ -1170,6 +1521,55 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val EMPTY_CLASSROOM_JSON_KEY = stringPreferencesKey("empty_classroom_json")
         val EMPTY_CLASSROOM_KEY_KEY = stringPreferencesKey("empty_classroom_key")
         val EMPTY_CLASSROOM_UPDATED_AT_KEY = longPreferencesKey("empty_classroom_updated_at")
+
+        // 超星学习通
+        val CX_COOKIES_KEY = stringPreferencesKey("cx_cookies")
+        val CX_COURSES_JSON_KEY = stringPreferencesKey("cx_courses_json")
+        val CX_TIKU_CONFIG_KEY = stringPreferencesKey("cx_tiku_config")
+        val CX_TIKU_CACHE_KEY = stringPreferencesKey("cx_tiku_cache")
+        val CX_SPEED_KEY = stringPreferencesKey("cx_speed")
+        val CX_CONCURRENCY_KEY = stringPreferencesKey("cx_concurrency")
+        val CX_NOTOPEN_ACTION_KEY = stringPreferencesKey("cx_notopen_action")
+        val CX_AUTO_SIGN_KEY = stringPreferencesKey("cx_auto_sign")
+        val CX_SUBMIT_MODE_KEY = stringPreferencesKey("cx_submit_mode")
+        val CX_TIKU_TYPE_KEY = stringPreferencesKey("cx_tiku_type")
+        val CX_TIKU_TOKEN_KEY = stringPreferencesKey("cx_tiku_token")
+        val CX_AI_KEY_KEY = stringPreferencesKey("cx_ai_key")
+        val CX_AI_BASE_URL_KEY = stringPreferencesKey("cx_ai_base_url")
+        val CX_AI_MODEL_KEY = stringPreferencesKey("cx_ai_model")
+        val CX_TASK_TYPES_KEY = stringPreferencesKey("cx_task_types")
+        // Phase 3 (2026-06-20) - 签到配置
+        val CX_SIGN_LAT_KEY = stringPreferencesKey("cx_sign_lat")
+        val CX_SIGN_LON_KEY = stringPreferencesKey("cx_sign_lon")
+        val CX_SIGN_ADDRESS_KEY = stringPreferencesKey("cx_sign_address")
+        val CX_SIGN_GESTURE_KEY = stringPreferencesKey("cx_sign_gesture")
+        // Phase 4 (2026-06-20) - 题库扩展
+        val CX_PROVIDER_CHAIN_KEY = stringPreferencesKey("cx_provider_chain")
+        val CX_TOKENS_YANXI_KEY = stringPreferencesKey("cx_tokens_yanxi")
+        val CX_COVER_RATE_KEY = stringPreferencesKey("cx_cover_rate")
+        val CX_TIKU_DELAY_KEY = stringPreferencesKey("cx_tiku_delay")
+        val CX_AI_MIN_INTERVAL_KEY = stringPreferencesKey("cx_ai_min_interval")
+        val CX_AI_HTTP_PROXY_KEY = stringPreferencesKey("cx_ai_http_proxy")
+        val CX_SILICONFLOW_KEY_KEY = stringPreferencesKey("cx_siliconflow_key")
+        val CX_SILICONFLOW_MODEL_KEY = stringPreferencesKey("cx_siliconflow_model")
+        val CX_SILICONFLOW_ENDPOINT_KEY = stringPreferencesKey("cx_siliconflow_endpoint")
+        val CX_LIKEAPI_SEARCH_KEY = stringPreferencesKey("cx_likeapi_search")
+        val CX_LIKEAPI_VISION_KEY = stringPreferencesKey("cx_likeapi_vision")
+        val CX_LIKEAPI_MODEL_KEY = stringPreferencesKey("cx_likeapi_model")
+        val CX_GO_AUTHORIZATION_KEY = stringPreferencesKey("cx_go_authorization")
+        val CX_GO_MIN_INTERVAL_KEY = stringPreferencesKey("cx_go_min_interval")
+        val CX_TIKU_ADAPTER_URL_KEY = stringPreferencesKey("cx_tiku_adapter_url")
+        // Phase 5 (2026-06-20) - 通知 + 任务历史
+        val CX_NOTIFY_PROVIDER_KEY = stringPreferencesKey("cx_notify_provider")
+        val CX_NOTIFY_URL_KEY = stringPreferencesKey("cx_notify_url")
+        val CX_NOTIFY_TG_CHAT_ID_KEY = stringPreferencesKey("cx_notify_tg_chat_id")
+        val CX_TASK_LOG_KEY = stringPreferencesKey("cx_task_log")
+        val CX_MESSAGES_JSON_KEY = stringPreferencesKey("cx_messages_json")
+        val CX_MESSAGES_CURSOR_KEY = stringPreferencesKey("cx_messages_cursor")
+        val CX_MESSAGES_MERGE_KEY = stringPreferencesKey("cx_messages_merge")
+
+        // 自动更新
+        val IGNORED_VERSION_CODE_KEY = stringPreferencesKey("ignored_version_code")
 
         /** clearAuthData 需要移除的 DataStore keys */
         val AUTH_DATA_KEYS = listOf(
@@ -1188,13 +1588,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
             HOMEWORK_JSON_KEY, HOMEWORK_UPDATED_AT_KEY,
             USER_TASKS_JSON_KEY, USER_TASKS_UPDATED_AT_KEY,
             BATHROOM_PHONE_KEY,
+            BILLS_JSON_KEY, BILLS_UPDATED_AT_KEY,
             AC_CONFIG_KEY, LIGHTING_CONFIG_KEY, NEW_CAMPUS_CONFIG_KEY,
             ADWMH_SESSION_KEY,
             TRAINING_PLAN_JSON_KEY, TRAINING_PLAN_UPDATED_AT_KEY, TRAINING_PLAN_CACHE_VERSION_KEY,
             EMPTY_CLASSROOM_JSON_KEY, EMPTY_CLASSROOM_KEY_KEY, EMPTY_CLASSROOM_UPDATED_AT_KEY,
         )
 
-        /** clearAll 需要移除的 DataStore keys (AUTH_DATA + 集市设置 + UI 偏好) */
+        /** clearAll 需要移除的 DataStore keys (AUTH_DATA + 集市设置 + UI 偏好 + 超星) */
         val ALL_CLEARABLE_KEYS = AUTH_DATA_KEYS + listOf(
             MARKET_API_IDENTITY_KEY,
             MARKET_IDENTITIES_KEY, MARKET_SELECTED_IDS_KEY,
@@ -1207,6 +1608,18 @@ class SessionManager(private val appDataStore: AppDataStore) {
             SCHEDULE_COL_WIDTH_KEY, SCHEDULE_ROW_HEIGHT_KEY, SCHEDULE_FONT_SCALE_KEY,
             KEY_SHOW_SAT, KEY_SHOW_SUN, KEY_PAGER_ENABLED,
             KEY_RESET_ON_ENTER, KEY_SHOW_COMPLETED_TASKS, KEY_SHOW_COMPLETED_EXAMS,
+            CX_COOKIES_KEY, CX_COURSES_JSON_KEY, CX_TIKU_CONFIG_KEY, CX_TIKU_CACHE_KEY,
+            CX_SPEED_KEY, CX_CONCURRENCY_KEY, CX_NOTOPEN_ACTION_KEY, CX_AUTO_SIGN_KEY,
+            CX_SUBMIT_MODE_KEY, CX_TIKU_TYPE_KEY, CX_TIKU_TOKEN_KEY,
+            CX_AI_KEY_KEY, CX_AI_BASE_URL_KEY, CX_AI_MODEL_KEY, CX_TASK_TYPES_KEY,
+            CX_SIGN_LAT_KEY, CX_SIGN_LON_KEY, CX_SIGN_ADDRESS_KEY, CX_SIGN_GESTURE_KEY,
+            CX_PROVIDER_CHAIN_KEY, CX_TOKENS_YANXI_KEY, CX_COVER_RATE_KEY,
+            CX_TIKU_DELAY_KEY, CX_AI_MIN_INTERVAL_KEY, CX_AI_HTTP_PROXY_KEY,
+            CX_SILICONFLOW_KEY_KEY, CX_SILICONFLOW_MODEL_KEY, CX_SILICONFLOW_ENDPOINT_KEY,
+            CX_LIKEAPI_SEARCH_KEY, CX_LIKEAPI_VISION_KEY, CX_LIKEAPI_MODEL_KEY,
+            CX_GO_AUTHORIZATION_KEY, CX_GO_MIN_INTERVAL_KEY, CX_TIKU_ADAPTER_URL_KEY,
+            CX_NOTIFY_PROVIDER_KEY, CX_NOTIFY_URL_KEY, CX_NOTIFY_TG_CHAT_ID_KEY,
+            CX_TASK_LOG_KEY, CX_MESSAGES_JSON_KEY, CX_MESSAGES_CURSOR_KEY, CX_MESSAGES_MERGE_KEY,
         )
     }
 }

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 供 FileProvider 分享 Download 目录下的 APK 文件 -->
+    <external-path
+        name="downloads"
+        path="Download/" />
+    <!-- 应用私有 files 目录下的 Download（Android/data/com.yourname.ahu_plus/files/Download） -->
+    <external-files-path
+        name="app_downloads"
+        path="Download/" />
+</paths>

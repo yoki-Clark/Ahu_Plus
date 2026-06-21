@@ -59,6 +59,8 @@ import com.yourname.ahu_plus.ui.components.AhuSectionTitle
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListScreen
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
+import com.yourname.ahu_plus.ui.screen.chaoxing.ChaoxingScreen
+import com.yourname.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomScreen
 import com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
 import com.yourname.ahu_plus.ui.screen.exam.ExamScreen

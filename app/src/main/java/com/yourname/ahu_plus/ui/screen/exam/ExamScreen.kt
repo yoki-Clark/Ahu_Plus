@@ -23,7 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -256,7 +256,7 @@ private fun ExamRow(exam: Exam, isFinished: Boolean = false) {
                 InfoLine(icon = Icons.Filled.LocationOn, text = exam.displayLocation)
                 if (!exam.seatNumber.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
-                    InfoLine(icon = Icons.Filled.EventNote, text = "座位号 ${exam.seatNumber}")
+                    InfoLine(icon = Icons.AutoMirrored.Filled.EventNote, text = "座位号 ${exam.seatNumber}")
                 }
             }
 

@@ -205,14 +205,49 @@ class HomeViewModel(
 
     fun loadBills() {
         viewModelScope.launch {
-            _uiState.update { it.copy(billsLoading = true) }
+            // 先从缓存加载
+            val cached = withContext(Dispatchers.IO) { sessionManager.getBillsJson() }
+            if (!cached.isNullOrBlank()) {
+                runCatching {
+                    val type = com.google.gson.reflect.TypeToken.getParameterized(
+                        List::class.java, com.yourname.ahu_plus.data.model.BillRecord::class.java
+                    ).type
+                    val records: List<com.yourname.ahu_plus.data.model.BillRecord> =
+                        com.yourname.ahu_plus.data.GsonProvider.instance.fromJson(cached, type)
+                    _uiState.update { it.copy(bills = records, billsLoading = false) }
+                }
+            } else {
+                _uiState.update { it.copy(billsLoading = true) }
+            }
+            // 后台刷新
             withContext(Dispatchers.IO) {
                 withYcardRelogin { ycardRepository.getAllBills() }.fold(
                     onSuccess = { records ->
-                        _uiState.update { it.copy(bills = records, billsLoading = false, billsError = null) }
+                        // 合并：新数据 + 旧缓存中不重复的记录
+                        val oldJson = sessionManager.getBillsJson()
+                        val merged = if (!oldJson.isNullOrBlank()) {
+                            val type = com.google.gson.reflect.TypeToken.getParameterized(
+                                List::class.java, com.yourname.ahu_plus.data.model.BillRecord::class.java
+                            ).type
+                            val oldList: List<com.yourname.ahu_plus.data.model.BillRecord> =
+                                com.yourname.ahu_plus.data.GsonProvider.instance.fromJson(oldJson, type)
+                            val existingIds = records.map { it.orderId }.toSet()
+                            val newOld = oldList.filter { it.orderId !in existingIds }
+                            records + newOld
+                        } else {
+                            records
+                        }
+                        val json = com.yourname.ahu_plus.data.GsonProvider.instance.toJson(merged)
+                        sessionManager.saveBillsJson(json)
+                        _uiState.update { it.copy(bills = merged, billsLoading = false, billsError = null) }
                     },
                     onFailure = { e ->
-                        _uiState.update { it.copy(billsLoading = false, billsError = e.message ?: "账单查询失败") }
+                        // 缓存已有数据时不显示错误
+                        if (_uiState.value.bills.isEmpty()) {
+                            _uiState.update { it.copy(billsLoading = false, billsError = e.message ?: "账单查询失败") }
+                        } else {
+                            _uiState.update { it.copy(billsLoading = false) }
+                        }
                     }
                 )
             }
