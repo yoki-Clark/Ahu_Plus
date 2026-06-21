@@ -1409,7 +1409,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getCxAiBaseUrl(): String = cachedCxAiBaseUrl.ifBlank { "https://api.deepseek.com" }
     suspend fun saveCxAiBaseUrl(v: String) { cachedCxAiBaseUrl = v; appDataStore.dataStore.edit { it[CX_AI_BASE_URL_KEY] = v } }
 
-    fun getCxAiModel(): String = cachedCxAiModel.ifBlank { "deepseek-chat" }
+    fun getCxAiModel(): String = cachedCxAiModel.ifBlank { "deepseek-v4-flash" }
     suspend fun saveCxAiModel(v: String) { cachedCxAiModel = v; appDataStore.dataStore.edit { it[CX_AI_MODEL_KEY] = v } }
 
     fun getCxTaskTypes(): Set<String> = cachedCxTaskTypes.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()

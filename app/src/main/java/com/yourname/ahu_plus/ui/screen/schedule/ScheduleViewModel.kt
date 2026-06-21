@@ -154,6 +154,8 @@ class ScheduleViewModel(
         viewModelScope.launch {
             // 先加载用户自定义课表
             loadUserItems()
+            // 后台加载学期列表(不影响缓存秒显示)
+            launch { loadSemesterList() }
             val cached = loadFromCache()
             if (cached) {
                 // 有缓存数据 → 后台静默刷新
@@ -161,6 +163,27 @@ class ScheduleViewModel(
             } else {
                 // 无缓存 → 主动加载
                 loadScheduleData(isRefresh = false)
+            }
+        }
+    }
+
+    /**
+     * 加载本学生可用学期列表(HTML allSemesters 解析)。
+     * 失败静默 — SemesterChips 空态不渲染即可。
+     */
+    private suspend fun loadSemesterList() {
+        // 网络请求必须在 IO 线程,否则触发 NetworkOnMainThreadException
+        withContext(Dispatchers.IO) {
+            // 先确保 JW 已认证(否则 course-table 页面 302 跳登录)
+            val authResult = jwAuthRepository.authenticate()
+            if (authResult.isFailure) {
+                Log.w(TAG, "学期列表加载跳过: 认证失败 ${authResult.exceptionOrNull()?.message}")
+                return@withContext
+            }
+            courseRepository.getSemesterList().onSuccess { list ->
+                _uiState.update { it.copy(availableSemesters = list) }
+            }.onFailure { e ->
+                Log.w(TAG, "学期列表加载失败(非致命): ${e.message}")
             }
         }
     }
@@ -295,12 +318,28 @@ class ScheduleViewModel(
     }
 
     /**
-     * 加载本学期课表。
+     * 加载指定学期课表。
+     *
      * @param isRefresh true=静默刷新(不显示 loading)，false=主动加载
+     * @param semesterId 目标学期 ID;默认 = 当前选中的学期
+     *
+     * **缓存策略**: 仅本学期 ([CourseRepository.DEFAULT_SEMESTER_ID]) 才写入本地缓存;
+     * 其他学期按需加载(用户切换学期时实时拉取,不持久化)。
      */
-    private suspend fun loadScheduleData(isRefresh: Boolean = false) {
+    private suspend fun loadScheduleData(
+        isRefresh: Boolean = false,
+        semesterId: Int = _uiState.value.selectedSemesterId,
+    ) {
+        val isCurrentSemester = semesterId == CourseRepository.DEFAULT_SEMESTER_ID
         if (!isRefresh) {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update {
+                it.copy(
+                    // 非本学期切换需要显示 loading;本学期首屏也显示 loading
+                    isLoading = it.allActivities.isEmpty() || !isCurrentSemester,
+                    isLoadingSemester = !isCurrentSemester,
+                    error = null,
+                )
+            }
         } else {
             _uiState.update { it.copy(isRefreshing = true) }
         }
@@ -313,6 +352,7 @@ class ScheduleViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
+                            isLoadingSemester = false,
                             // 仅当本地无数据时才触发 needsLogin
                             needsLogin = !wasLoaded,
                             error = if (!wasLoaded) "教务处认证失败: ${authResult.exceptionOrNull()?.message}" else null
@@ -321,18 +361,20 @@ class ScheduleViewModel(
                     return@withContext
                 }
 
-                // Step 2: 获取课表
-                val result = courseRepository.getSchedule()
+                // Step 2: 获取课表(传入学期 ID)
+                val result = courseRepository.getSchedule(semesterId)
                 result.fold(
                     onSuccess = { data ->
-                        // 序列化并缓存到本地
-                        val sm = sessionManager
-                        if (sm != null) {
-                            try {
-                                val json = com.yourname.ahu_plus.data.GsonProvider.instance.toJson(data)
-                                sm.saveScheduleJson(json)
-                                TodayScheduleWidgetUpdater.updateAll(getApplication())
-                            } catch (e: Exception) { Log.w(TAG, "Failed to cache schedule JSON: ${e.message}") }
+                        // ★ 仅本学期写入本地缓存(其他学期按需加载)
+                        if (isCurrentSemester) {
+                            val sm = sessionManager
+                            if (sm != null) {
+                                try {
+                                    val json = com.yourname.ahu_plus.data.GsonProvider.instance.toJson(data)
+                                    sm.saveScheduleJson(json)
+                                    TodayScheduleWidgetUpdater.updateAll(getApplication())
+                                } catch (e: Exception) { Log.w(TAG, "Failed to cache schedule JSON: ${e.message}") }
+                            }
                         }
 
                         val displayItems = buildDisplayItems(
@@ -343,6 +385,7 @@ class ScheduleViewModel(
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
+                                isLoadingSemester = false,
                                 error = null,
                                 needsLogin = false,
                                 studentName = data.studentName,
@@ -364,6 +407,7 @@ class ScheduleViewModel(
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
+                                isLoadingSemester = false,
                                 error = if (!wasLoaded) "课表加载失败: ${e.message}" else it.error
                             )
                         }
@@ -374,11 +418,67 @@ class ScheduleViewModel(
             _uiState.update {
                 it.copy(
                     isLoading = false,
+                    isLoadingSemester = false,
                     error = if (!wasLoaded) "未知错误: ${e.message}" else it.error
                 )
             }
         } finally {
             _uiState.update { it.copy(isRefreshing = false) }
+        }
+    }
+
+    /**
+     * 切换到指定学期。
+     *
+     * - 切到本学期 → 优先用本地缓存(秒显示),后端静默刷新
+     * - 切到其他学期 → 清空旧数据,网络拉取(无缓存,按需加载)
+     *
+     * 切换时同时清空 activities/lessons/weekIndices/unitTimes 等学期相关字段,
+     * 并重置 colorMap(不同学期的课程代码映射不同)。
+     */
+    fun selectSemester(semesterId: Int) {
+        val current = _uiState.value.selectedSemesterId
+        if (semesterId == current) return
+        Log.d(TAG, "切换学期: $current → $semesterId")
+
+        // 重置跨学期状态
+        colorMap = emptyMap()
+        _uiState.update {
+            it.copy(
+                selectedSemesterId = semesterId,
+                // 清空学期相关展示态
+                allActivities = emptyList(),
+                displayItems = emptyList(),
+                unitTimes = emptyList(),
+                lessons = null,
+                semester = null,
+                currentWeek = 1,
+                selectedWeek = 1,
+                weekIndices = emptyList(),
+                studentName = null,
+                className = null,
+                department = null,
+                credits = null,
+                error = null,
+                needsLogin = false,
+                // 关闭可能存在的详情 sheet
+                selectedCourseDetail = null,
+            )
+        }
+
+        if (semesterId == CourseRepository.DEFAULT_SEMESTER_ID) {
+            // 切回本学期 → 优先用本地缓存
+            viewModelScope.launch {
+                val cached = loadFromCache()
+                if (cached) {
+                    launch { loadScheduleData(isRefresh = true, semesterId = semesterId) }
+                } else {
+                    loadScheduleData(isRefresh = false, semesterId = semesterId)
+                }
+            }
+        } else {
+            // 其他学期 → 网络按需加载
+            viewModelScope.launch { loadScheduleData(isRefresh = false, semesterId = semesterId) }
         }
     }
 
@@ -925,6 +1025,14 @@ data class ScheduleUiState(
     val resetOnEnter: Boolean = true,
     val showCompletedTasks: Boolean = false,
     val showCompletedExams: Boolean = false,
+
+    // ── 多学期切换 (2026-06-21) ─────────────────────
+    /** 本学生可用学期列表(从 course-table HTML 解析) */
+    val availableSemesters: List<SemesterInfo> = emptyList(),
+    /** 当前选中的学期 ID;默认 = 本学期 DEFAULT_SEMESTER_ID */
+    val selectedSemesterId: Int = com.yourname.ahu_plus.data.repository.CourseRepository.DEFAULT_SEMESTER_ID,
+    /** 切换到非本学期时的 loading 状态(区别于首屏 isLoading) */
+    val isLoadingSemester: Boolean = false,
 )
 
 /**

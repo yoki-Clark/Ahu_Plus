@@ -10,6 +10,7 @@ import com.yourname.ahu_plus.data.model.CxAttachment
 import com.yourname.ahu_plus.data.model.CxChapter
 import com.yourname.ahu_plus.data.model.CxCourse
 import com.yourname.ahu_plus.data.model.CxCoursePoints
+import com.yourname.ahu_plus.data.model.CxCourseProgress
 import com.yourname.ahu_plus.data.model.CxJob
 import com.yourname.ahu_plus.data.model.CxJobInfo
 import com.yourname.ahu_plus.data.model.CxMessage
@@ -281,6 +282,31 @@ class ChaoxingRepository(
     // ══════════════════════════════════════════════════════════════
 
     /**
+     * 批量获取所有课程的任务点进度（后台并行）。
+     *
+     * 遍历每门课 -> 拉取章节列表 -> 汇总 jobCount / hasFinished。
+     *
+     * @return Map<courseKey, CxCourseProgress>  其中 key 为 "${courseId}_${clazzId}"
+     */
+    suspend fun getAllCoursesProgress(courses: List<CxCourse>): Map<String, CxCourseProgress> =
+        withContext(Dispatchers.IO) {
+            courses.mapNotNull { course ->
+                try {
+                    val key = course.courseId + "_" + course.clazzId
+                    val points = getCoursePoints(course).getOrNull()?.points ?: return@mapNotNull null
+                    if (points.isEmpty()) return@mapNotNull key to CxCourseProgress()
+
+                    val totalJobs = points.sumOf { it.jobCount }
+                    val completedJobs = points.count { it.hasFinished }
+                    key to CxCourseProgress(
+                        totalJobs = totalJobs,
+                        completedJobs = minOf(completedJobs, totalJobs),
+                    )
+                } catch (_: Exception) { null }
+            }.toMap()
+        }
+
+    /**
      * 获取课程的所有章节。
      *
      * GET https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/studentcourse?courseid=X&clazzid=Y&cpi=Z&ut=s
@@ -439,48 +465,65 @@ class ChaoxingRepository(
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val enc = getEnc(course.clazzId, job.jobid, job.objectid, playingTime, duration, getUid())
-            val url = "$BASE_MOOC1/mooc-ans/multimedia/log/a/${course.cpi}/$dtoken" +
-                "?clazzId=${course.clazzId}&playingTime=$playingTime&duration=$duration" +
-                "&clipTime=0_$duration&objectId=${job.objectid}" +
-                "&otherInfo=${job.otherinfo}&courseId=${course.courseId}" +
-                "&jobid=${job.jobid}&userid=${getUid()}" +
-                "&isdrag=$isdrag&view=pc&enc=$enc&dtype=Video" +
-                "&rt=${job.rt}&_t=${System.currentTimeMillis()}"
 
-            // 附加字段
-            val extraParams = buildString {
-                if (job.videoFaceCaptureEnc.isNotEmpty()) append("&videoFaceCaptureEnc=${job.videoFaceCaptureEnc}")
-                if (job.attDuration.isNotEmpty()) append("&attDuration=${job.attDuration}")
-                if (job.attDurationEnc.isNotEmpty()) append("&attDurationEnc=${job.attDurationEnc}")
-            }
-
-            val request = Request.Builder()
-                .url(url + extraParams)
-                .get()
-                .header("User-Agent", UA)
-                .header("Referer", "https://mooc1.chaoxing.com/ananas/modules/video/index.html")
-                .build()
-
-            val resp = client.newCall(request).execute()
-            val code = resp.code
-            val text = resp.body?.string() ?: ""
-            resp.close()
-
-            when (code) {
-                200 -> {
-                    val json = JsonParser.parseString(text).asJsonObject
-                    val isPassed = json.get("isPassed")?.asBoolean ?: false
-                    Result.success(isPassed)
-                }
-                403 -> {
-                    Log.w(TAG, "视频进度上报 403")
-                    Result.failure(Exception("403 Forbidden"))
-                }
-                else -> {
-                    Log.w(TAG, "视频进度上报异常: $code")
-                    Result.failure(Exception("HTTP $code"))
+            // rt 参数处理（对齐原仓库 base.py video_progress_log）
+            // 优先用 job.rt，为空则从 otherInfo 中解析 -rt_1 / -rt_d
+            var rt = job.rt
+            if (rt.isBlank()) {
+                val rtMatch = Regex("""-rt_([1d])""").find(job.otherinfo)
+                if (rtMatch != null) {
+                    rt = if (rtMatch.groupValues[1] == "d") "0.9" else "1"
                 }
             }
+            val rtValues = if (rt.isNotBlank()) listOf(rt) else listOf("0.9", "1")
+
+            // 原仓库：rt 为空时依次尝试 0.9 和 1
+            var lastError: Exception? = null
+            for (tryRt in rtValues) {
+                val url = "$BASE_MOOC1/mooc-ans/multimedia/log/a/${course.cpi}/$dtoken" +
+                    "?clazzId=${course.clazzId}&playingTime=$playingTime&duration=$duration" +
+                    "&clipTime=0_$duration&objectId=${job.objectid}" +
+                    "&otherInfo=${job.otherinfo}&courseId=${course.courseId}" +
+                    "&jobid=${job.jobid}&userid=${getUid()}" +
+                    "&isdrag=$isdrag&view=pc&enc=$enc&dtype=Video" +
+                    "&rt=$tryRt&_t=${System.currentTimeMillis()}"
+
+                val extraParams = buildString {
+                    if (job.videoFaceCaptureEnc.isNotEmpty()) append("&videoFaceCaptureEnc=${job.videoFaceCaptureEnc}")
+                    if (job.attDuration.isNotEmpty()) append("&attDuration=${job.attDuration}")
+                    if (job.attDurationEnc.isNotEmpty()) append("&attDurationEnc=${job.attDurationEnc}")
+                }
+
+                val request = Request.Builder()
+                    .url(url + extraParams)
+                    .get()
+                    .header("User-Agent", UA)
+                    .header("Referer", "https://mooc1.chaoxing.com/ananas/modules/video/index.html")
+                    .build()
+
+                val resp = client.newCall(request).execute()
+                val code = resp.code
+                val text = resp.body?.string() ?: ""
+                resp.close()
+
+                when (code) {
+                    200 -> {
+                        val json = JsonParser.parseString(text).asJsonObject
+                        val isPassed = json.get("isPassed")?.asBoolean ?: false
+                        return@withContext Result.success(isPassed)
+                    }
+                    403 -> {
+                        lastError = Exception("403 Forbidden")
+                        // 403 尝试下一个 rt
+                        continue
+                    }
+                    else -> {
+                        lastError = Exception("HTTP $code")
+                        continue
+                    }
+                }
+            }
+            return@withContext Result.failure(lastError ?: Exception("上报失败"))
         } catch (e: Exception) {
             Log.e(TAG, "视频进度上报异常", e)
             Result.failure(e)
@@ -552,23 +595,29 @@ class ChaoxingRepository(
             formBuilder.add("answerwqbid", workData.answerwqbid)
             formBuilder.add("pyFlag", workData.pyFlag)
 
-            // 再加所有表单隐藏字段
+            // 再加所有表单隐藏字段 (跳过 pyFlag 避免重复)
             for ((k, v) in workData.formFields) {
+                if (k == "pyFlag") continue
                 formBuilder.add(k, v)
             }
 
-            // 诊断日志
-            Log.d(TAG, "[submit] pyFlag='${workData.pyFlag}', answerwqbid='${workData.answerwqbid}'")
-            for ((k, v) in workData.formFields.toSortedMap()) {
-                Log.d(TAG, "[submit]   $k = ${v.take(80)}")
+            // 诊断日志 — 完整请求体
+            val body = formBuilder.build()
+            val bodySize = body.size
+            val bodyStr = (0 until bodySize).joinToString("&") { i ->
+                "${body.encodedName(i)}=${body.encodedValue(i)}"
             }
+            Log.i(TAG, "[submit] pyFlag='${workData.pyFlag}', body=${bodyStr.take(1000)}")
 
             val request = Request.Builder()
                 .url("$BASE_MOOC1/mooc-ans/work/addStudentWorkNew")
-                .post(formBuilder.build())
+                .post(body)
                 .header("User-Agent", UA)
                 .header("X-Requested-With", "XMLHttpRequest")
-                .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                .header("Accept", "*/*")
+                .header("Accept-Language", "zh-CN,zh;q=0.9")
+                .header("Origin", BASE_MOOC1)
+                .header("Referer", "$BASE_MOOC1/mooc-ans/work/addStudentWorkNew")
                 .build()
 
             val resp = client.newCall(request).execute()
@@ -576,13 +625,15 @@ class ChaoxingRepository(
             val json = resp.body?.string() ?: "{}"
             resp.close()
 
-            Log.d(TAG, "[submit] HTTP $code, 响应: ${json.take(500)}")
+            Log.i(TAG, "[submit] HTTP $code, pyFlag='${workData.pyFlag}', 响应: ${json.take(500)}")
 
             val obj = JsonParser.parseString(json).asJsonObject
             if (obj.get("status")?.asBoolean == true) {
                 Result.success(obj.str("msg").ifBlank { "成功" })
             } else {
-                Result.failure(Exception(obj.str("msg").ifBlank { "提交失败" }))
+                val errMsg = obj.str("msg").ifBlank { "提交失败, 服务端返回: ${json.take(200)}" }
+                Log.e(TAG, "[submit] 失败: $errMsg")
+                Result.failure(Exception(errMsg))
             }
         } catch (e: Exception) {
             Log.e(TAG, "提交答案异常", e)
@@ -999,6 +1050,7 @@ class ChaoxingRepository(
             objectid = card.str("objectId"),
             otherinfo = otherInfo,
             mid = mid,
+            // playTime 来自超星 mArg attachments[].playTime，单位是秒
             playTime = card.get("playTime")?.asInt ?: 0,
             rt = prop.str("rt"),
             attDuration = card.str("attDuration"),

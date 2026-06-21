@@ -6,28 +6,29 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.AccessTime
@@ -80,6 +81,7 @@ import androidx.core.content.ContextCompat.getSystemService
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.CxAttachment
 import com.yourname.ahu_plus.data.model.CxCourse
+import com.yourname.ahu_plus.data.model.CxCourseProgress
 import com.yourname.ahu_plus.data.model.CxMessage
 import com.yourname.ahu_plus.data.model.CxMessageSource
 import com.yourname.ahu_plus.ui.components.AhuShapes
@@ -1004,6 +1006,7 @@ private fun CoursesTabContent(
                                 isSelected = coursesState.selectedCourseIds.contains(key),
                                 onToggle = { viewModel.toggleCourseSelection(key) },
                                 onClick = { onCourseClick(course) },
+                                progress = coursesState.courseProgress[key],
                             )
                         }
                         item { Spacer(Modifier.height(80.dp)) }
@@ -1169,6 +1172,7 @@ private fun CourseCard(
     isSelected: Boolean,
     onToggle: () -> Unit,
     onClick: () -> Unit,
+    progress: CxCourseProgress? = null,
 ) {
     val cardShape = AhuShapes.Card
     val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
@@ -1248,7 +1252,50 @@ private fun CourseCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+
+                // ── 进度条（有数据时显示） ──────────────────────
+                if (progress != null && progress.totalJobs > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    CourseProgressBar(progress = progress)
+                }
             }
         }
+    }
+}
+
+/** 迷你进度条 + 文字 "3/10" */
+@Composable
+private fun CourseProgressBar(progress: CxCourseProgress) {
+    val progressFraction = progress.progress
+    val isComplete = progress.completedJobs >= progress.totalJobs
+    val fillColor = if (isComplete) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 进度条：轨道（背景）- 圆角裁剪只做一次
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            // 填充部分，用 fillMaxWidth(fraction) 控制宽度
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(fraction = progressFraction)
+                    .background(fillColor),
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        // 文字
+        Text(
+            text = progress.text,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isComplete) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

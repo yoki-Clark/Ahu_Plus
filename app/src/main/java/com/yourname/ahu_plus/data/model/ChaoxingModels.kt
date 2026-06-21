@@ -14,6 +14,15 @@ data class CxCourse(
     @SerializedName("desc") val desc: String = "",
 )
 
+/** 课程进度信息（与 CxCourse 分离，由 ViewModel 维护 map） */
+data class CxCourseProgress(
+    val totalJobs: Int = 0,
+    val completedJobs: Int = 0,
+) {
+    val progress: Float get() = if (totalJobs > 0) completedJobs.toFloat() / totalJobs else 0f
+    val text: String get() = "$completedJobs/$totalJobs"
+}
+
 // ── 章节 ──────────────────────────────────────────────────────────
 
 /** 超星章节点 */
@@ -54,6 +63,7 @@ data class CxJob(
     @SerializedName("otherinfo") val otherinfo: String = "",
     @SerializedName("mid") val mid: String = "",
     @SerializedName("aid") val aid: String = "",
+    /** 已播放时长，单位：秒（来自超星 mArg attachments[].playTime） */
     @SerializedName("playTime") val playTime: Int = 0,
     @SerializedName("rt") val rt: String = "",
     @SerializedName("attDuration") val attDuration: String = "",

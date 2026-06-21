@@ -62,7 +62,7 @@ class ChaoxingTikuRepository(
     @Volatile private var coverRate: Double = 0.8
     @Volatile private var aiApiKey: String = ""
     @Volatile private var aiBaseUrl: String = "https://api.deepseek.com"
-    @Volatile private var aiModel: String = "deepseek-chat"
+    @Volatile private var aiModel: String = "deepseek-v4-flash"
     @Volatile private var aiMinInterval: Int = 3
     @Volatile private var siliconflowKey: String = ""
     @Volatile private var siliconflowModel: String = "deepseek-ai/DeepSeek-R1"
@@ -107,9 +107,8 @@ class ChaoxingTikuRepository(
             .mapNotNull { runCatching { TikuType.valueOf(it.trim().uppercase()) }.getOrNull() }
             .ifEmpty { listOf(TikuType.CACHE) }
         this.yanxiTokens = yanxiTokensStr.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        this.yanxiDelay = yanxiDelay
-        this.coverRate = coverRate
-        if (aiApiKey.isNotBlank()) this.aiApiKey = aiApiKey
+        Log.d(TAG, "configure: chain=$providerChain, yanxiTokens=${this.yanxiTokens}, yanxiDelay=$yanxiDelay, coverRate=$coverRate")
+        Log.d(TAG, "configure: aiBaseUrl=$aiBaseUrl, aiModel=$aiModel, aiKey=${aiApiKey.take(8)}...")
         if (aiBaseUrl.isNotBlank()) this.aiBaseUrl = aiBaseUrl
         if (aiModel.isNotBlank()) this.aiModel = aiModel
         this.aiMinInterval = aiMinInterval
@@ -151,11 +150,14 @@ class ChaoxingTikuRepository(
     suspend fun query(question: CxQuestion): String? {
         if (providerChain.firstOrNull() == TikuType.DISABLED) return null
 
-        // 1. 始终先查本地缓存
+        // 1. 始终先查本地缓存（也要过 normalize，因为旧缓存可能是原始格式）
         val cached = sessionManager.getCxTikuCache(question.title)
         if (cached != null) {
-            Log.d(TAG, "缓存命中: ${question.title.take(20)}...")
-            return cached
+            val normalized = normalizeAnswer(cached, question)
+            if (normalized != null) {
+                Log.d(TAG, "缓存命中: ${question.title.take(20)}... → $normalized")
+                return normalized
+            }
         }
 
         // 2. 遍历 provider chain
@@ -171,8 +173,11 @@ class ChaoxingTikuRepository(
                 else -> null
             }
             if (answer != null) {
-                sessionManager.saveCxTikuCache(question.title, answer)
-                return answer
+                val normalized = normalizeAnswer(answer, question)
+                if (normalized != null) {
+                    sessionManager.saveCxTikuCache(question.title, normalized)
+                    return normalized
+                }
             }
         }
         return null
@@ -183,7 +188,11 @@ class ChaoxingTikuRepository(
     // ══════════════════════════════════════════════════════════════
 
     private suspend fun queryYanxi(question: CxQuestion): String? = withContext(Dispatchers.IO) {
-        if (yanxiTokens.isEmpty()) return@withContext null
+        Log.d(TAG, "[YANXI] 开始查询: yanxiTokens=${yanxiTokens}, question=${question.title.take(40)}...")
+        if (yanxiTokens.isEmpty()) {
+            Log.d(TAG, "[YANXI] 跳过: yanxiTokens 为空")
+            return@withContext null
+        }
         for ((idx, token) in yanxiTokens.withIndex()) {
             if (idx > 0 && yanxiDelay > 0) delay((yanxiDelay * 1000).toLong())
             try {
@@ -192,11 +201,17 @@ class ChaoxingTikuRepository(
                 val resp = client.newCall(request).execute()
                 val json = resp.body?.string() ?: "{}"
                 resp.close()
+                Log.d(TAG, "[YANXI] HTTP ${resp.code}: ${json.take(150)}")
                 val obj = JsonParser.parseString(json).asJsonObject
-                if (obj.get("code")?.asInt == 200) {
-                    val answer = obj.getAsJsonObject("data")?.get("answer")?.asString
-                    if (!answer.isNullOrBlank()) {
-                        Log.d(TAG, "[YANXI] 命中: ${question.title.take(20)}... → $answer")
+                val apiCode = obj.get("code")?.asInt
+                val dataObj = obj.getAsJsonObject("data")
+                val answer = dataObj?.get("answer")?.asString
+                if (apiCode == 1 || answer != null) {
+                    if (!answer.isNullOrBlank()
+                        && !answer.contains("无效的用户凭证")
+                        && !answer.contains("过期")
+                    ) {
+                        Log.d(TAG, "[YANXI] 命中(code=$apiCode): ${question.title.take(20)}... → $answer")
                         return@withContext answer
                     }
                 }
@@ -204,6 +219,7 @@ class ChaoxingTikuRepository(
                 Log.w(TAG, "[YANXI] Token $idx 查询异常: ${e.message}")
             }
         }
+        Log.d(TAG, "[YANXI] 所有 token 都未命中")
         null
     }
 
@@ -475,5 +491,66 @@ class ChaoxingTikuRepository(
         "completion" -> "填空"
         "shortanswer" -> "简答"
         else -> ""
+    }
+
+    /**
+     * 标准化题库返回的答案格式。
+     *
+     * 题库（言溪等）返回的答案可能是 "D、从侧面迂回思考"，而服务器期望 "D"。
+     */
+    private fun normalizeAnswer(raw: String, question: CxQuestion): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return null
+        return when (question.type) {
+            "single" -> {
+                // "D、从侧面迂回思考" → "D"; "以上都是" → 查选项匹配字母
+                val letter = Regex("""^[A-Za-z]""").find(trimmed)?.value?.uppercase()
+                if (letter != null) return letter
+                val matched = matchOptionLetter(trimmed, question)
+                if (matched != null) return matched
+                if (trimmed.length <= 2) trimmed else trimmed
+            }
+            "multiple" -> {
+                // "A、B、C" or "ABC" → "ABC"
+                val letters = Regex("""[A-Za-z]+""").findAll(trimmed).toList()
+                if (letters.isNotEmpty()) return letters.joinToString("") { it.value.uppercase() }
+                // "质疑 # 求证 # 判断" → 逐项匹配选项字母
+                val parts = trimmed.split(Regex("""[#,\s、，]+""")).filter { it.isNotBlank() }
+                if (parts.size > 1) {
+                    val matched = parts.mapNotNull { p -> matchOptionLetter(p, question) }.sorted().joinToString("")
+                    if (matched.isNotEmpty()) return matched
+                }
+                trimmed
+            }
+            "judgement" -> {
+                when {
+                    trimmed.startsWith("对") || trimmed.startsWith("正") || trimmed == "是"
+                        || trimmed == "√" || trimmed == "✓" || trimmed.equals("true", ignoreCase = true) -> "true"
+                    trimmed.startsWith("错") || trimmed.startsWith("否") || trimmed == "不"
+                        || trimmed == "×" || trimmed == "✗" || trimmed.equals("false", ignoreCase = true) -> "false"
+                    else -> trimmed
+                }
+            }
+            else -> trimmed  // completion, shortanswer: 原样
+        }
+    }
+
+    /** 在题目选项列表中匹配答案文本，返回对应字母（如 "A"）。 */
+    private fun matchOptionLetter(answer: String, question: CxQuestion): String? {
+        val opts = question.options.split("\n").filter { it.isNotBlank() }
+        if (opts.isEmpty()) return null
+        // 清理答案文本用于模糊匹配
+        val cleanAnswer = answer.replace(Regex("""[\s,，、。.]"""), "").lowercase()
+        for (opt in opts) {
+            val letter = Regex("""^([A-Za-z])""").find(opt.trim())?.groupValues?.get(1)?.uppercase() ?: continue
+            val text = opt.trim().dropWhile { it.isLetter() || it in "、. ）)） " }.trim()
+            // 精确匹配或包含匹配
+            val cleanOpt = text.replace(Regex("""[\s,，、。.]"""), "").lowercase()
+            if (cleanAnswer.contains(cleanOpt) || cleanOpt.contains(cleanAnswer) ||
+                answer.trim().contains(text.trim()) || text.trim().contains(answer.trim())) {
+                return letter
+            }
+        }
+        return null
     }
 }

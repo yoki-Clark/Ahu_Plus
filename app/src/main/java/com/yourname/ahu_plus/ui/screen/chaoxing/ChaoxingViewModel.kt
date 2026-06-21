@@ -9,6 +9,7 @@ import com.yourname.ahu_plus.data.model.CxActivity
 import com.yourname.ahu_plus.data.model.CxChapter
 import com.yourname.ahu_plus.data.model.CxCourse
 import com.yourname.ahu_plus.data.model.CxCoursePoints
+import com.yourname.ahu_plus.data.model.CxCourseProgress
 import com.yourname.ahu_plus.data.model.CxJob
 import com.yourname.ahu_plus.data.model.CxJobInfo
 import com.yourname.ahu_plus.data.model.CxMessage
@@ -80,10 +81,16 @@ class ChaoxingViewModel(
             autoSign = sessionManager.getCxAutoSign(),
             submitMode = sessionManager.getCxSubmitMode(),
             tikuType = sessionManager.getCxTikuType(),
-            tikuToken = sessionManager.getCxTikuToken(),
+            tikuToken = sessionManager.getCxTokensYanxi().ifEmpty { sessionManager.getCxTikuToken() },
             aiApiKey = sessionManager.getCxAiKey(),
-            aiBaseUrl = sessionManager.getCxAiBaseUrl(),
-            aiModel = sessionManager.getCxAiModel(),
+            aiBaseUrl = sessionManager.getCxAiBaseUrl().ifBlank { "https://api.deepseek.com" },
+            aiModel = sessionManager.getCxAiModel().let { model ->
+                // 2026-06-21: deepseek-chat/reasoner 弃用 → v4-flash
+                if (model in listOf("deepseek-chat", "deepseek-reasoner")) {
+                    viewModelScope.launch { sessionManager.saveCxAiModel("deepseek-v4-flash") }
+                    "deepseek-v4-flash"
+                } else model
+            },
             enabledTaskTypes = sessionManager.getCxTaskTypes(),
             messagesMergeInbox = sessionManager.getCxMessagesMerge(),
         )
@@ -127,6 +134,16 @@ class ChaoxingViewModel(
         applyTikuConfig()
     }
 
+    /**
+     * 更新言溪 Token（统一使用 cx_tokens_yanxi key，设置页和 TikuScreen 共用）。
+     * 2026-06-21 修复：设置页之前存的 cx_tiku_token 未被 applyTikuConfig 读取。
+     */
+    fun updateCxTokensYanxi(v: String) {
+        _settingsState.value = _settingsState.value.copy(tikuToken = v)
+        viewModelScope.launch { sessionManager.saveCxTokensYanxi(v) }
+        applyTikuConfig()
+    }
+
     fun updateAiApiKey(v: String) {
         _settingsState.value = _settingsState.value.copy(aiApiKey = v)
         viewModelScope.launch { sessionManager.saveCxAiKey(v) }
@@ -165,7 +182,7 @@ class ChaoxingViewModel(
             Log.d("CxVM", "applyTikuConfig: tikuType=${s.tikuType}, chain=$chainStr, aiKey=${s.aiApiKey.take(8)}...")
             tikuRepo.configure(
                 providerChainStr = chainStr,
-                yanxiTokensStr = sessionManager.getCxTokensYanxi(),
+                yanxiTokensStr = sessionManager.getCxTokensYanxi().ifEmpty { sessionManager.getCxTikuToken() },
                 yanxiDelay = sessionManager.getCxTikuDelay(),
                 coverRate = sessionManager.getCxCoverRate(),
                 aiApiKey = sessionManager.getCxAiKey().ifEmpty { s.aiApiKey },
@@ -391,10 +408,30 @@ class ChaoxingViewModel(
             result.onSuccess { courses ->
                 _coursesState.value = _coursesState.value.copy(isLoading = false, courses = courses, error = null)
                 sessionManager.saveCxCoursesJson(gson.toJson(courses))
+                // 后台加载课程进度
+                loadCourseProgress(courses)
             }
             result.onFailure { e ->
                 _coursesState.value = _coursesState.value.copy(isLoading = false, error = e.message ?: "获取课程列表失败")
             }
+        }
+    }
+
+    /**
+     * 后台并行加载所有课程的任务点进度。
+     */
+    private suspend fun loadCourseProgress(courses: List<CxCourse>) {
+        if (courses.isEmpty()) return
+        _coursesState.value = _coursesState.value.copy(isProgressLoading = true)
+        try {
+            val progress = cxRepo.getAllCoursesProgress(courses)
+            _coursesState.value = _coursesState.value.copy(
+                courseProgress = progress,
+                isProgressLoading = false,
+            )
+        } catch (e: Exception) {
+            Log.w("CxVM", "加载课程进度失败: ${e.message}")
+            _coursesState.value = _coursesState.value.copy(isProgressLoading = false)
         }
     }
 
@@ -583,6 +620,11 @@ class ChaoxingViewModel(
     // ════════════════════════════════════════════════════════
 
     fun studyCourses(courses: List<CxCourse>) {
+        // 防止并发：先取消已有任务
+        if (studyState.value.isRunning) {
+            studyRepo.stop()
+            return
+        }
         val s = _settingsState.value
         viewModelScope.launch {
             studyRepo.studyAll(
@@ -596,6 +638,11 @@ class ChaoxingViewModel(
     }
 
     fun studySingleCourse(course: CxCourse) {
+        // 防止并发：先取消已有任务
+        if (studyState.value.isRunning) {
+            studyRepo.stop()
+            return
+        }
         val s = _settingsState.value
         viewModelScope.launch {
             studyRepo.studyCourse(
@@ -625,6 +672,10 @@ data class CxCoursesState(
     val courses: List<CxCourse> = emptyList(),
     val selectedCourseIds: Set<String> = emptySet(),
     val error: String? = null,
+    /** 课程进度索引: key = "${courseId}_${clazzId}" */
+    val courseProgress: Map<String, CxCourseProgress> = emptyMap(),
+    /** 是否正在加载进度 */
+    val isProgressLoading: Boolean = false,
 )
 
 data class CxDetailState(
@@ -647,7 +698,7 @@ data class CxSettingsState(
     val tikuToken: String = "",
     val aiApiKey: String = "",
     val aiBaseUrl: String = "https://api.deepseek.com",
-    val aiModel: String = "deepseek-chat",
+    val aiModel: String = "deepseek-v4-flash",
     val enabledTaskTypes: Set<String> = setOf("video", "document", "read", "workid"),
     val messagesMergeInbox: Boolean = false, // 是否将活动通知集合为收件箱
 )

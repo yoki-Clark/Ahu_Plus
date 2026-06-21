@@ -10,6 +10,7 @@ import com.yourname.ahu_plus.data.model.CxStudyResult
 import com.yourname.ahu_plus.data.model.CxStudyUiState
 import com.yourname.ahu_plus.data.model.CxTaskProgress
 import com.yourname.ahu_plus.data.model.CxTaskStatus
+import com.yourname.ahu_plus.data.model.CxVideoInfo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,9 +41,13 @@ class ChaoxingStudyRepository(
     @Volatile
     private var shouldStop = false
 
+    @Volatile
+    private var studyJob: kotlinx.coroutines.Job? = null
+
     /** 停止学习 */
     fun stop() {
         shouldStop = true
+        studyJob?.cancel()
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -318,82 +323,129 @@ class ChaoxingStudyRepository(
             return CxStudyResult.ERROR
         }
         val videoInfo = infoResult.getOrNull()!!
-        val duration = videoInfo.duration
-        val dtoken = videoInfo.dtoken
+        val duration = videoInfo.duration      // 秒
+        var dtoken = videoInfo.dtoken
 
-        var playTime = job.playTime / 1000  // 已播放秒数
-        addLog("    视频时长: ${duration}s, 已播放: ${playTime}s")
+        // 原仓库: play_time = int(_job["playTime"]) // 1000 （毫秒→秒）
+        val serverPlayTime = job.playTime / 1000
+        addLog("    视频时长: ${duration}s, 服务器记录: ${serverPlayTime}s")
 
-        // 2. 尝试瞬间完成 (isdrag=4)
-        val instantResult = cxRepo.reportVideoProgress(course, job, jobInfo, dtoken, duration, duration, isdrag = 4)
-        if (instantResult.isSuccess && instantResult.getOrNull() == true) {
+        // 2. 原仓库: 先用 isdrag=4 试瞬间完成
+        val (firstPassed, _) = videoProgressLog(course, job, jobInfo, dtoken, duration, duration, isdrag = 4)
+        if (firstPassed) {
             addLog("    视频瞬间完成")
             return CxStudyResult.SUCCESS
         }
 
-        // 3. 循环上报进度
-        var lastLogTime = playTime
-        var waitTime = Random.nextLong(30_000, 90_000)
-        var lastIter = System.currentTimeMillis()
-        var forbiddenRetry = 0
+        // 3. 确定起始进度：未完成 → 回退到 10% 重走渐进上报
+        val startSec = if (serverPlayTime >= duration) (duration * 0.1).toInt() else serverPlayTime
+        if (serverPlayTime >= duration) addLog("    瞬间未通过，从 10% 重新渐进上报")
+        var playTime = startSec.toDouble()      // Double 累积，对齐 Python float
 
-        while (playTime < duration) {
+        // 4. 主循环（原仓库: while not passed）
+        var lastLogTime = startSec
+        var lastIter = System.nanoTime()
+        var waitTime = Random.nextInt(30, 90)
+        var forbiddenRetry = 0
+        var reportCount = 0
+
+        while (true) {
             if (shouldStop) return CxStudyResult.ERROR
 
-            val now = System.currentTimeMillis()
-            val dt = (now - lastIter) * speed
-            lastIter = now
-            playTime = minOf(duration, playTime + (dt / 1000).toInt())
+            // 时间推进 = 真实流逝时间 × 倍速
+            val nowNs = System.nanoTime()
+            playTime += (nowNs - lastIter).toDouble() / 1_000_000_000.0 * speed
+            lastIter = nowNs
+            if (playTime > duration) playTime = duration.toDouble()
+            val curSec = playTime.toInt()
 
-            // 达到上报间隔
-            if (playTime - lastLogTime >= (waitTime / 1000).toInt() || playTime >= duration) {
-                val reportResult = cxRepo.reportVideoProgress(
-                    course, job, jobInfo, dtoken, duration, playTime
-                )
-
-                reportResult.onSuccess { isPassed ->
-                    if (isPassed) {
-                        addLog("    视频任务完成")
-                        return CxStudyResult.SUCCESS
-                    }
-                }
-
-                reportResult.onFailure { e ->
-                    val msg = e.message ?: ""
-                    if (msg.contains("403")) {
-                        forbiddenRetry++
-                        if (forbiddenRetry >= MAX_403_RETRY) {
-                            addLog("    403 重试失败，跳过")
-                            return CxStudyResult.FORBIDDEN
-                        }
-                        addLog("    403 错误，刷新会话 (${forbiddenRetry}/$MAX_403_RETRY)")
-                        delay(Random.nextLong(2000, 4000))
-                        // 尝试刷新视频信息
-                        val refreshed = cxRepo.getVideoInfo(job.objectid)
-                        if (refreshed.isSuccess) {
-                            // 用新的 dtoken 继续
-                            return@onFailure
-                        }
-                    }
-                }
-
-                waitTime = Random.nextLong(30_000, 90_000)
-                lastLogTime = playTime
-            }
-
-            // 更新进度到 UI
-            val progress = playTime.toFloat() / duration
+            // 更新进度条
             _studyState.value = _studyState.value.copy(
                 currentTask = _studyState.value.currentTask?.copy(
-                    progress = progress,
-                    message = "${playTime}s / ${duration}s"
+                    progress = (playTime / duration).toFloat(),
+                    message = "${curSec}s / ${duration}s"
                 )
             )
 
-            delay(1000)  // 每秒检查一次
+            // 上报条件：距上次上报超过间隔，或已播放完毕（原仓库: play_time == duration）
+            val atEnd = curSec >= duration
+            if (curSec - lastLogTime >= waitTime || atEnd) {
+                reportCount++
+                addLog("    [#$reportCount] 上报 ${curSec}s / ${duration}s")
+                val (passed, code) = videoProgressLog(
+                    course, job, jobInfo, dtoken, duration, curSec,
+                    isdrag = if (curSec >= duration) 4 else 3,
+                )
+                if (passed) {
+                    addLog("    ✓ 视频任务完成")
+                    return CxStudyResult.SUCCESS
+                }
+                if (code == 403) {
+                    if (forbiddenRetry >= MAX_403_RETRY) {
+                        addLog("    403 重试失败，跳过")
+                        return CxStudyResult.FORBIDDEN
+                    }
+                    forbiddenRetry++
+                    addLog("    403 错误，刷新 dtoken (${forbiddenRetry}/$MAX_403_RETRY)")
+                    delay(Random.nextLong(2000, 4000))
+                    val refreshed = _refreshVideoStatus(job.objectid)
+                    if (refreshed != null) {
+                        dtoken = refreshed.dtoken
+                        continue
+                    }
+                }
+                if (code != 200) {
+                    addLog("    上报异常 code=$code")
+                    return CxStudyResult.ERROR
+                }
+                waitTime = Random.nextInt(30, 90)
+                lastLogTime = curSec
+            }
+
+            delay(500)
+        }
+    }
+
+    /**
+     * 原仓库 video_progress_log 的移植。
+     * 上报视频进度，返回 (isPassed, statusCode)。
+     */
+    private suspend fun videoProgressLog(
+        course: CxCourse,
+        job: CxJob,
+        jobInfo: CxJobInfo,
+        dtoken: String,
+        duration: Int,
+        playingTime: Int,
+        isdrag: Int = 3,
+    ): Pair<Boolean, Int> {
+        // 原仓库限速 2s 一次
+        delay(Random.nextLong(500, 2500))
+
+        if ("courseId" in job.otherinfo) {
+            addLog("    otherinfo 包含 courseId，异常")
+            return Pair(false, 500)
         }
 
-        return CxStudyResult.SUCCESS
+        val result = cxRepo.reportVideoProgress(course, job, jobInfo, dtoken, duration, playingTime, isdrag)
+        return result.fold(
+            onSuccess = { Pair(it, 200) },
+            onFailure = { e ->
+                val msg = e.message ?: ""
+                when {
+                    msg.contains("403") -> Pair(false, 403)
+                    else -> Pair(false, 500)
+                }
+            },
+        )
+    }
+
+    /**
+     * 原仓库 _refresh_video_status 的移植。
+     * 刷新视频状态（获取最新的 dtoken / duration / playTime）。
+     */
+    private suspend fun _refreshVideoStatus(objectId: String): CxVideoInfo? {
+        return cxRepo.getVideoInfo(objectId).getOrNull()
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -447,22 +499,33 @@ class ChaoxingStudyRepository(
         val coverage = foundCount.toFloat() / workData.questions.size
         addLog("    题库覆盖率: ${(coverage * 100).toInt()}%")
 
-        // pyFlag: "" = 提交, "1" = 仅保存
-        val pyFlag = if (autoSubmit && coverage >= 0.8f) "" else "1"
+        val shouldSubmit = autoSubmit && coverage >= 0.8f
 
-        // 4. 提交
-        val submitData = workData.copy(
-            formFields = formFields,
-            pyFlag = pyFlag,
-        )
-
-        val submitResult = cxRepo.submitWork(submitData)
-        submitResult.onSuccess { msg ->
-            addLog("    ${if (pyFlag == "") "提交" else "保存"}成功: $msg")
-        }
-        submitResult.onFailure { e ->
-            addLog("    ${if (pyFlag == "") "提交" else "保存"}失败: ${e.message}")
-            return CxStudyResult.ERROR
+        // 4. 两步提交（模拟浏览器：先保存，再提交）
+        if (shouldSubmit) {
+            // 第一步：保存答案 (pyFlag="1")
+            val saveResult = cxRepo.submitWork(workData.copy(formFields = formFields, pyFlag = "1"))
+            if (saveResult.isFailure) {
+                addLog("    保存失败: ${saveResult.exceptionOrNull()?.message}")
+                return CxStudyResult.ERROR
+            }
+            addLog("    ✓ 保存成功")
+            delay(800) // 短暂等待
+            // 第二步：提交 (pyFlag="")
+            val submitResult = cxRepo.submitWork(workData.copy(formFields = formFields, pyFlag = ""))
+            if (submitResult.isFailure) {
+                addLog("    提交失败: ${submitResult.exceptionOrNull()?.message}")
+                return CxStudyResult.ERROR
+            }
+            addLog("    ✓ 提交成功: ${submitResult.getOrNull()}")
+        } else {
+            val submitData = workData.copy(formFields = formFields, pyFlag = "1")
+            val submitResult = cxRepo.submitWork(submitData)
+            submitResult.onSuccess { msg -> addLog("    ✓ 保存成功: $msg") }
+            submitResult.onFailure { e ->
+                addLog("    保存失败: ${e.message}")
+                return CxStudyResult.ERROR
+            }
         }
 
         return CxStudyResult.SUCCESS

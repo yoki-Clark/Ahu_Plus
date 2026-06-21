@@ -10,6 +10,7 @@ import com.yourname.ahu_plus.data.model.jw.GetDataLesson
 import com.yourname.ahu_plus.data.model.jw.GetDataResponse
 import com.yourname.ahu_plus.data.model.jw.PrintDataResponse
 import com.yourname.ahu_plus.data.model.jw.ScheduleData
+import com.yourname.ahu_plus.data.model.jw.SemesterInfo
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -47,10 +48,16 @@ class CourseRepository(
     // ══════════════════════════════════════════════════════
 
     /**
-     * 获取本学期课表数据。
+     * 获取本学期课表数据(等价于 getSchedule(DEFAULT_SEMESTER_ID),保留旧调用方兼容)。
      */
-    suspend fun getSchedule(): Result<ScheduleData> {
-        val semesterId = DEFAULT_SEMESTER_ID
+    suspend fun getSchedule(): Result<ScheduleData> = getSchedule(DEFAULT_SEMESTER_ID)
+
+    /**
+     * 获取指定学期课表数据。
+     *
+     * @param semesterId 学期 ID(例如 112 = 2025-2026-2)
+     */
+    suspend fun getSchedule(semesterId: Int): Result<ScheduleData> {
         return try {
             Log.d(TAG, "开始获取课表数据: semesterId=$semesterId")
 
@@ -93,6 +100,67 @@ class CourseRepository(
             Result.success(scheduleData)
         } catch (e: Exception) {
             Log.e(TAG, "课表获取失败: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 获取本学生可用学期列表。
+     *
+     * JW 系统**没有**独立的学期列表 JSON API —— 学期列表嵌入在
+     * `GET /student/for-std/course-table` 返回的 HTML 内的
+     * `<select id="allSemesters">` 中。本方法用正则解析该 `<option>` 列表,
+     * 返回按 semesterId 倒序的 [SemesterInfo] 列表(最新在前)。
+     *
+     * 已验证(2026-06-21): id+nameZh 完整可用;其他字段(id 之外)为 null,
+     * 学期详情仍需配合 `get-data` 端点返回的 `semester` 字段获取。
+     */
+    suspend fun getSemesterList(): Result<List<SemesterInfo>> {
+        val url = "$JW_BASE/student/for-std/course-table"
+        val request = Request.Builder().url(url).get().build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                Log.d(TAG, "semester list HTML HTTP ${response.code}, bytes=${body.length}")
+
+                if (response.code == 302) {
+                    return Result.failure(SessionExpiredException())
+                }
+                if (!response.isSuccessful) {
+                    return Result.failure(Exception("学期列表请求失败: HTTP ${response.code}"))
+                }
+                if (body.isBlank()) {
+                    return Result.failure(Exception("学期列表响应为空"))
+                }
+
+                val selectRegex = Regex(
+                    """<select[^>]*id="allSemesters"[^>]*>(.*?)</select>""",
+                    RegexOption.DOT_MATCHES_ALL,
+                )
+                val block = selectRegex.find(body)?.groupValues?.get(1)
+                    ?: return Result.failure(Exception("未找到 allSemesters 列表"))
+
+                val optionRegex = Regex("""<option\s+value="(\d+)"\s*>([^<]+)</option>""")
+                val semesters = optionRegex.findAll(block).map { m ->
+                    SemesterInfo(
+                        id = m.groupValues[1].toInt(),
+                        nameZh = m.groupValues[2],
+                        code = null,
+                        schoolYear = null,
+                        startDate = null,
+                        endDate = null,
+                        season = null,
+                    )
+                }.sortedByDescending { it.id }.toList()
+
+                if (semesters.isEmpty()) {
+                    return Result.failure(Exception("学期列表解析为空"))
+                }
+                Log.d(TAG, "学期列表解析完成: ${semesters.size} 条")
+                Result.success(semesters)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "学期列表获取失败: ${e.message}", e)
             Result.failure(e)
         }
     }

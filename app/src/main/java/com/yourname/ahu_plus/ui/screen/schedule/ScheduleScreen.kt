@@ -1,6 +1,7 @@
 package com.yourname.ahu_plus.ui.screen.schedule
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -32,6 +34,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
@@ -104,6 +107,25 @@ fun ScheduleScreen(
             onWeekSelected = { viewModel.onWeekSelected(it) },
             onAddCourse = { viewModel.onToggleAddCourse() }
         )
+
+        // ── 学期选择器(2026-06-21 多学期支持)────────
+        // 横向 chip 行:默认本学期选中,切换触发按需加载
+        if (uiState.availableSemesters.isNotEmpty()) {
+            SemesterChips(
+                availableIds = uiState.availableSemesters.mapNotNull { it.id },
+                selectedId = uiState.selectedSemesterId,
+                semesterName = { id ->
+                    uiState.availableSemesters.firstOrNull { it.id == id }?.nameZh
+                        ?: "学期 $id"
+                },
+                onSelect = viewModel::selectSemester,
+            )
+        }
+
+        // 切换非本学期时顶部进度条
+        if (uiState.isLoadingSemester) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
 
         // ── 内容区（下拉刷新）────────────────────────
         PullToRefreshBox(
@@ -634,6 +656,40 @@ private fun AddCourseSheet(
                     Text("添加")
                 }
             }
+        }
+    }
+}
+
+// ═══════════════════════ Semester Chips ═══════════════════════
+// 学期选择器(横向滚动 FilterChip)。参照 GradeScreen 的 SemesterChips。
+// 切换学期触发 ViewModel.selectSemester(),非本学期按需网络加载。
+
+@Composable
+private fun SemesterChips(
+    availableIds: List<Int>,
+    selectedId: Int?,
+    semesterName: (Int) -> String,
+    onSelect: (Int) -> Unit,
+) {
+    if (availableIds.isEmpty()) return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        availableIds.forEach { id ->
+            val selected = id == selectedId
+            FilterChip(
+                selected = selected,
+                onClick = { onSelect(id) },
+                label = { Text(semesterName(id)) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                )
+            )
         }
     }
 }

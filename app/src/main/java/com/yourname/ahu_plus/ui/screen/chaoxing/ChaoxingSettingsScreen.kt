@@ -2,6 +2,7 @@ package com.yourname.ahu_plus.ui.screen.chaoxing
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -13,17 +14,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,8 +49,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.yourname.ahu_plus.data.model.AiPlatform
 import com.yourname.ahu_plus.ui.components.AhuShapes
 
 /**
@@ -252,9 +260,9 @@ private fun SettingsContent(
                         Spacer(Modifier.height(12.dp))
                         OutlinedTextField(
                             value = settingsState.tikuToken,
-                            onValueChange = { viewModel.updateTikuToken(it) },
+                            onValueChange = { viewModel.updateCxTokensYanxi(it) },
                             label = { Text("言溪 Token") },
-                            placeholder = { Text("输入言溪题库 Token") },
+                            placeholder = { Text("多个 Token 逗号分隔") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             shape = AhuShapes.Card,
@@ -265,6 +273,21 @@ private fun SettingsContent(
                 AnimatedVisibility(visible = settingsState.tikuType == "AI") {
                     Column {
                         Spacer(Modifier.height(12.dp))
+
+                        // ── AI 平台选择 ────────────────────────────
+                        AiPlatformSelector(
+                            selectedPlatform = AiPlatform.fromBaseUrl(settingsState.aiBaseUrl),
+                            onPlatformSelected = { platform ->
+                                viewModel.updateAiBaseUrl(platform.defaultBaseUrl)
+                                if (platform.defaultModels.isNotEmpty()) {
+                                    viewModel.updateAiModel(platform.defaultModels.first())
+                                }
+                            },
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        // ── API Key ────────────────────────────────
                         OutlinedTextField(
                             value = settingsState.aiApiKey,
                             onValueChange = { viewModel.updateAiApiKey(it) },
@@ -275,6 +298,8 @@ private fun SettingsContent(
                             shape = AhuShapes.Card,
                         )
                         Spacer(Modifier.height(8.dp))
+
+                        // ── Base URL ────────────────────────────────
                         OutlinedTextField(
                             value = settingsState.aiBaseUrl,
                             onValueChange = { viewModel.updateAiBaseUrl(it) },
@@ -283,16 +308,22 @@ private fun SettingsContent(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             shape = AhuShapes.Card,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         )
                         Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = settingsState.aiModel,
-                            onValueChange = { viewModel.updateAiModel(it) },
-                            label = { Text("模型") },
-                            placeholder = { Text("deepseek-chat") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = AhuShapes.Card,
+
+                        // ── 模型选择 ────────────────────────────────
+                        val currentPlatform = AiPlatform.fromBaseUrl(settingsState.aiBaseUrl)
+                        val models = currentPlatform.defaultModels.ifEmpty {
+                            // 自定义平台：显示当前 model 作为唯一选项
+                            settingsState.aiModel.takeIf { it.isNotBlank() }?.let { listOf(it) }
+                                ?: emptyList()
+                        }
+                        AiModelSelector(
+                            models = models,
+                            selectedModel = settingsState.aiModel,
+                            onModelSelected = { viewModel.updateAiModel(it) },
+                            onCustomModelEntered = { viewModel.updateAiModel(it) },
                         )
                     }
                 }
@@ -485,5 +516,151 @@ private fun SwitchSetting(
             )
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  AI 平台选择器
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * AI 平台下拉选择器。
+ *
+ * 选中平台后通过 [onPlatformSelected] 回调,外部负责更新 baseUrl 和模型。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AiPlatformSelector(
+    selectedPlatform: AiPlatform,
+    onPlatformSelected: (AiPlatform) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        OutlinedTextField(
+            value = selectedPlatform.displayName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("AI 平台") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(),
+            shape = AhuShapes.Card,
+            singleLine = true,
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            AiPlatform.entries.forEach { platform ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(platform.displayName, style = MaterialTheme.typography.bodyMedium)
+                            if (platform.defaultBaseUrl.isNotBlank()) {
+                                Text(
+                                    platform.defaultBaseUrl,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
+                    onClick = {
+                        onPlatformSelected(platform)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * AI 模型选择器。
+ *
+ * 固定模型列表(下拉选择)+底部的自定义输入框(可手填任意模型名)。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AiModelSelector(
+    models: List<String>,
+    selectedModel: String,
+    onModelSelected: (String) -> Unit,
+    onCustomModelEntered: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var showCustom by remember { mutableStateOf(models.none { it == selectedModel } && selectedModel.isNotBlank()) }
+
+    Column {
+        // 下拉选择已有的模型
+        ExposedDropdownMenuBox(
+            expanded = expanded && !showCustom,
+            onExpandedChange = { expanded = it },
+        ) {
+            OutlinedTextField(
+                value = if (showCustom) "$selectedModel (自定义)" else selectedModel,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("模型") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(),
+                shape = AhuShapes.Card,
+                singleLine = true,
+            )
+            if (models.isNotEmpty()) {
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                ) {
+                    models.forEach { model ->
+                        DropdownMenuItem(
+                            text = { Text(model) },
+                            onClick = {
+                                showCustom = false
+                                onModelSelected(model)
+                                expanded = false
+                            },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "输入自定义模型...",
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        onClick = {
+                            showCustom = true
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+
+        // 自定义模型输入（用户想输入不在列表中的模型时）
+        if (showCustom || models.isEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = if (showCustom) selectedModel else "",
+                onValueChange = { onCustomModelEntered(it) },
+                label = { Text(if (models.isEmpty()) "自定义模型" else "自定义模型 (覆盖下拉)") },
+                placeholder = {
+                    Text(
+                        if (models.isEmpty()) "输入模型名称" else selectedModel.ifBlank { "输入其他模型名称" },
+                    )
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = AhuShapes.Card,
+            )
+        }
     }
 }
