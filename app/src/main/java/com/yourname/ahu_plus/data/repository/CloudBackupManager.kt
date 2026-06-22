@@ -110,6 +110,7 @@ class CloudBackupManager(
             val json = exportToJson()
             val key = resolveBackupKey()
             cloudStorage.uploadString(key, json, "application/json")
+            appDataStore.dataStore.edit { it[LAST_BACKUP_TIMESTAMP_KEY] = System.currentTimeMillis() }
             Log.i(TAG, "静默备份成功: key=$key, ${json.length} bytes")
         } catch (e: Exception) {
             Log.w(TAG, "静默备份失败: ${e.message}")
@@ -134,8 +135,7 @@ class CloudBackupManager(
         }
 
         Log.i(TAG, "登录触发备份")
-        silentBackup()
-        appDataStore.dataStore.edit { it[LAST_BACKUP_TIMESTAMP_KEY] = now }
+        silentBackup()  // 时间戳在 silentBackup 内部上传成功后才写入
     }
 
     // ═══════════════════════════════════════════════════════

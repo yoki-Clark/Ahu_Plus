@@ -87,6 +87,15 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var userTaskRepository: UserTaskRepository
         private set
+    lateinit var initCoordinator: com.yourname.ahu_plus.data.repository.InitCoordinator
+        private set
+    /**
+     * 首次登录初始化消息流 (LoginScreen 触发 → MainScreen 订阅 → 底部 Snackbar 显示 1 秒)。
+     * 使用 MutableSharedFlow 而非 StateFlow,因为消息不需要保留"最新值"——重复消息不应被吞掉。
+     */
+    val initMessageFlow = kotlinx.coroutines.flow.MutableSharedFlow<String>(
+        replay = 0, extraBufferCapacity = 16
+    )
     lateinit var chaoxingRepository: ChaoxingRepository
         private set
     lateinit var chaoxingTikuRepository: ChaoxingTikuRepository
@@ -160,10 +169,23 @@ class AhuPlusApplication : Application() {
         chaoxingStudyRepository = ChaoxingStudyRepository(
             chaoxingRepository, chaoxingTikuRepository, sessionManager,
             notificationRepo = chaoxingNotificationRepository,
+            context = this,
         )
         // 腾讯云 COS 云存储 (2026-06-20)
         cloudStorageRepository = CloudStorageRepository(this)
         cloudBackupManager = CloudBackupManager(this, sessionManager, appDataStore, cloudStorageRepository)
+
+        // 首次登录初始化协调器 (2026-06-22 新增) — 串行预热 7 项核心数据
+        initCoordinator = com.yourname.ahu_plus.data.repository.InitCoordinator(
+            sessionManager = sessionManager,
+            casAuthRepository = casAuthRepository,
+            studentInfoRepository = studentInfoRepository,
+            ycardRepository = ycardRepository,
+            gradeRepository = gradeRepository,
+            examRepository = examRepository,
+            trainingPlanRepository = trainingPlanRepository,
+            kqAttendanceRepository = attendanceRepository,
+        )
         // 将 backupManager 注入 sessionManager，供数据变更时触发防抖备份
         sessionManager.setBackupManager(cloudBackupManager)
 
@@ -178,6 +200,7 @@ class AhuPlusApplication : Application() {
         // 首次启动排程,后续每次 scheduleNext 自递归。
         // 放在 onCreate 末尾确保所有 Repository 都已构造完毕。
         WidgetUpdateScheduler.scheduleNext(this)
+        WidgetUpdateScheduler.scheduleTicker(this)  // 2026-06-22: 1 分钟 RTC 倒计时刷新
     }
 
     /**

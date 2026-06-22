@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.repository.CasAuthException
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
+import com.yourname.ahu_plus.data.repository.InitCoordinator
 import com.yourname.ahu_plus.data.repository.YcardRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -21,6 +22,10 @@ class LoginViewModel(
     private val ycardRepository: YcardRepository,
     private val adwmhCardRepository: com.yourname.ahu_plus.data.repository.AdwmhCardRepository? = null,
     private val sessionManager: SessionManager,
+    /** 首次登录初始化协调器,可选(若注入则首次登录成功后启动串行预热) */
+    private val initCoordinator: InitCoordinator? = null,
+    /** 初始化消息 SharedFlow (从 app 注入,MainScreen 订阅) */
+    private val initMessageEmitter: kotlinx.coroutines.flow.MutableSharedFlow<String>? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -56,6 +61,9 @@ class LoginViewModel(
             _uiState.update { it.copy(error = "请输入密码") }
             return
         }
+
+        // ★ 是否首次登录 (LoginScreen 手动登录成功时) → 启动串行预热
+        val isFirstLogin = !sessionManager.firstLoginInitDone
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -97,6 +105,15 @@ class LoginViewModel(
                     )
                     _uiState.update { it.copy(isLoggedIn = true, isLoading = false) }
                     sessionManager.notifyBackupOnLogin()
+
+                    // ★ 首次登录: 启动串行预热 (InitCoordinator 内部 try/catch 单步失败不中断)
+                    if (isFirstLogin && initCoordinator != null) {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            initCoordinator.runSequentially { msg ->
+                                initMessageEmitter?.tryEmit(msg)
+                            }
+                        }
+                    }
                 },
                 onFailure = { e ->
                     val message = when (e) {

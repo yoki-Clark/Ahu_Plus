@@ -1,6 +1,7 @@
 package com.yourname.ahu_plus.ui.screen.login
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,13 +19,10 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -40,6 +38,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -155,6 +155,7 @@ fun LoginScreen(
             },
             visualTransformation = if (passwordVisible) VisualTransformation.None
             else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             enabled = !uiState.isLoading,
@@ -174,36 +175,34 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        // 登录按钮 — 蓝渐变品牌色
-        Button(
-            onClick = viewModel::onLogin,
+        // 登录按钮 — 单一蓝渐变 Box（避免 Material3 Button 内部 ripple/elevation 产生嵌套色块）
+        val canLogin = !uiState.isLoading &&
+            uiState.username.isNotBlank() &&
+            uiState.password.isNotBlank()
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
-                .background(AhuGradient.Blue.brush, AhuShapes.IconBox),
-            enabled = !uiState.isLoading &&
-                uiState.username.isNotBlank() &&
-                uiState.password.isNotBlank(),
-            shape = AhuShapes.IconBox,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Transparent
-            ),
-            elevation = ButtonDefaults.buttonElevation(
-                defaultElevation = 4.dp,
-                pressedElevation = 2.dp
-            )
+                .clip(AhuShapes.IconBox)
+                .background(AhuGradient.Blue.brush)
+                .then(
+                    if (canLogin) Modifier.clickable(onClick = viewModel::onLogin)
+                    else Modifier
+                ),
+            contentAlignment = Alignment.Center
         ) {
             if (uiState.isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(24.dp),
                     strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    color = androidx.compose.ui.graphics.Color.White
                 )
             } else {
                 Text(
                     "登录",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = androidx.compose.ui.graphics.Color.White
                 )
             }
         }

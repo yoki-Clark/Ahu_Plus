@@ -87,13 +87,16 @@ object DES {
     ): IntArray {
         var tempBt = bt
         for (x in 0 until firstLength) {
-            tempBt = enc(tempBt, firstKeyBt!![x])
+            val key = firstKeyBt?.getOrNull(x) ?: continue
+            tempBt = enc(tempBt, key)
         }
         for (y in 0 until secondLength) {
-            tempBt = enc(tempBt, secondKeyBt!![y])
+            val key = secondKeyBt?.getOrNull(y) ?: continue
+            tempBt = enc(tempBt, key)
         }
         for (z in 0 until thirdLength) {
-            tempBt = enc(tempBt, thirdKeyBt!![z])
+            val key = thirdKeyBt?.getOrNull(z) ?: continue
+            tempBt = enc(tempBt, key)
         }
         return tempBt
     }

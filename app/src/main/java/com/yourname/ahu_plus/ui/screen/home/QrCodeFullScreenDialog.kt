@@ -80,20 +80,23 @@ fun QrCodeFullScreenDialog(
     val context = LocalContext.current
     val window = remember { context.findActivity()?.window }
 
-    // 仅当设置开启时才调高屏幕亮度；关闭 → 恢复
+    // 记录进入对话框前的原始亮度，退出时始终恢复
+    val originalBrightness = remember {
+        window?.attributes?.screenBrightness
+    }
+
     DisposableEffect(brightnessBoost) {
         if (brightnessBoost) {
-            val original = window?.attributes?.screenBrightness
             window?.attributes = window?.attributes?.apply {
                 screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
             }
-            onDispose {
-                window?.attributes = window?.attributes?.apply {
-                    screenBrightness = original ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-                }
+        }
+        onDispose {
+            // 始终恢复原始亮度（不受 brightnessBoost 变化影响）
+            window?.attributes = window?.attributes?.apply {
+                screenBrightness = originalBrightness
+                    ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             }
-        } else {
-            onDispose { }
         }
     }
 

@@ -96,26 +96,68 @@ object CourseReminderScheduler {
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            alarmManager.set(AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
+            // 优先使用精确闹钟,确保提醒准时;无权限时降级为 inexact
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent
+                    )
+                } else {
+                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
+            }
             Log.i(TAG, "  → ${lesson.courseName} @ $triggerTime (key=${lesson.key})")
         }
     }
 
     /**
      * 取消所有 [LessonKeyPrefix] 开头的 PendingIntent。
-     * 用 AlarmManager 的 cancel() 不便(需知道每个 PendingIntent),
-     * 这里改用遍历 requestCode 范围主动 cancel。
+     * 解析课表缓存生成所有可能的 lessonKey,逐个 cancel。
      */
     fun cancelAll(context: Context) {
         val appContext = context.applicationContext
         val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
             ?: return
-        // requestCode = lessonKey.hashCode(),值域是 Int,只能扫范围。
-        // 为避免扫描整个 Int 空间,这里用一个折中方案:
-        // 用户使用后,lessonKey 的 hashCode 通常分布在 -2^31..2^31 的小范围。
-        // 我们提供一个手动 cancel 接口供 widget 卸载/退出登录时调用。
-        Log.i(TAG, "cancelAll: 课程提醒清理(由下次 scheduleAll 覆盖)")
-        alarmManager // 占位避免 unused warning
+
+        val sessionManager = SessionManager(AppDataStore(appContext))
+        // cancelAll 可能在非协程上下文调用,用 runBlocking 读取 DataStore
+        kotlinx.coroutines.runBlocking {
+            sessionManager.init()
+        }
+        val json = sessionManager.getScheduleJson() ?: run {
+            Log.i(TAG, "cancelAll: 课表缓存为空,无需清理")
+            return
+        }
+        val data = runCatching {
+            GsonProvider.instance.fromJson(json, ScheduleData::class.java)
+        }.getOrNull() ?: run {
+            Log.w(TAG, "cancelAll: 课表 JSON 解析失败,无法清理")
+            return
+        }
+
+        // 收集所有可能的 lessonKey(未来 24h + 过去的历史 key 都覆盖)
+        val lessons = collectFutureLessons(data)
+        var cancelled = 0
+        for (lesson in lessons) {
+            val intent = Intent(appContext, CourseReminderReceiver::class.java).apply {
+                action = CourseReminderReceiver.ACTION_COURSE_REMINDER
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                appContext,
+                lesson.key.hashCode(),
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+            )
+            if (pendingIntent != null) {
+                pendingIntent.cancel()
+                alarmManager.cancel(pendingIntent)
+                cancelled++
+            }
+        }
+        Log.i(TAG, "cancelAll: 清理了 $cancelled 个课程提醒闹钟")
     }
 
     /**
@@ -187,7 +229,7 @@ object CourseReminderScheduler {
      * 格式: `{date}|{courseName}|{startUnit}-{endUnit}`
      */
     private fun buildLessonKey(item: CourseDisplayItem, date: LocalDate): String =
-        "${date}|${item.courseName}|${item.startUnit}-${item.endUnit}"
+        "${LessonKeyPrefix}${date}|${item.courseName}|${item.startUnit}-${item.endUnit}"
 
     private fun CourseDisplayItem.startMinutes(unitTimes: List<CourseUnit>): Int? {
         val text = startTime?.takeIf { it.isNotBlank() }

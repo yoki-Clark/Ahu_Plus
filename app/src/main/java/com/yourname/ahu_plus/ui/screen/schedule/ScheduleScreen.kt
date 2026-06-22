@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -84,6 +85,15 @@ fun ScheduleScreen(
     // 进入 ScheduleScreen 时: 若 resetOnEnter 开启,跳到当前周
     LaunchedEffect(Unit) {
         viewModel.applyEnterReset()
+    }
+
+    // 每 60 秒触发一次时间 tick，驱动 WeekGrid 重新计算 currentTimeLineY 横线位置
+    var timeTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            timeTick++
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
@@ -212,6 +222,7 @@ fun ScheduleScreen(
                             fontScale = uiState.fontScale,
                             showSat = uiState.showSat,
                             showSun = uiState.showSun,
+                            timeTick = timeTick,
                         )
                     }
                 }
@@ -220,9 +231,10 @@ fun ScheduleScreen(
     }
 
     // ── 悬浮"今"按钮 (非当前周时显示) ───────────
+    // 跨学期场景:selectedSemesterId != DEFAULT → jumpToCurrentWeek() 会先切回本学期再 setSelectedWeek
     com.yourname.ahu_plus.ui.screen.schedule.components.TodayFloatingButton(
         visible = uiState.selectedWeek != uiState.currentWeek,
-        onClick = { viewModel.setSelectedWeek(uiState.currentWeek) },
+        onClick = { viewModel.jumpToCurrentWeek() },
     )
 
     // ── 课程详情 BottomSheet (2026-06-17 重写为 5 折叠 section) ──────
@@ -360,7 +372,7 @@ private fun WeekHeader(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            items((1..18).toList()) { week ->
+                            items((minWeek..maxWeek).toList()) { week ->
                                 val isSelected = week == selectedWeek
                                 val isCurrent = week == currentWeek
                                 Surface(

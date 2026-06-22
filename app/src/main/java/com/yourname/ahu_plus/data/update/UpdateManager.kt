@@ -162,9 +162,14 @@ class UpdateManager(
                     }
                     outputStream.flush()
                     downloadProgress = 100
-                    android.util.Log.d("UpdateManag", "download complete, renaming tmp file")
-                    tmpFile.renameTo(apkFile)
-                    android.util.Log.d("UpdateManag", "installing...")
+                    android.util.Log.d("UpdateManager", "download complete, renaming tmp file")
+                    if (tmpFile.renameTo(apkFile)) {
+                        android.util.Log.d("UpdateManager", "installing...")
+                    } else {
+                        android.util.Log.e("UpdateManager", "APK rename failed: ${tmpFile.absolutePath} → ${apkFile.absolutePath}")
+                        isDownloading = false
+                        return@Thread
+                    }
                 } finally {
                     inputStream.close()
                     outputStream.close()

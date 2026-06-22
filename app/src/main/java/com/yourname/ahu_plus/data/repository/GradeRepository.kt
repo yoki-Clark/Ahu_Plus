@@ -198,7 +198,7 @@ class GradeRepository(
                     // Convert single-quoted JS keys to double-quoted JSON keys
                     .let { s -> Regex("'(\\w+)':").replace(s) { "\"${it.groupValues[1]}\":" } }
                 try {
-                    val array = com.google.gson.Gson().fromJson(subsStr, Array<SubEntry>::class.java)
+                    val array = GsonProvider.instance.fromJson(subsStr, Array<SubEntry>::class.java)
                     for (entry in array) {
                         subs.add(SemesterGpaEntry(
                             semesterId = entry.semesterId ?: 0,

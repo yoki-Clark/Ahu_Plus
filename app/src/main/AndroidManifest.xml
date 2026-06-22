@@ -15,8 +15,16 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- 2026-06-22 新增:学习通后台学习 ForegroundService 所需 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 学习通后台悬浮窗 (可选) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <queries>
         <package android:name="com.tencent.mm" />
+        <!-- 2026-06-22 新增:联系开发者 / 推荐给朋友 用 mqqapi:// 加好友/加群 -->
+        <package android:name="com.tencent.mobileqq" />
     </queries>
 
     <application
@@ -91,6 +99,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 2026-06-22 新增:学习通后台学习 ForegroundService (悬浮窗进度) -->
+        <service
+            android:name=".service.ChaoxingStudyService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 
 </manifest>

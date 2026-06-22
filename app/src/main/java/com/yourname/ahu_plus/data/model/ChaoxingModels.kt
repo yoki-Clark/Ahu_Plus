@@ -12,6 +12,7 @@ data class CxCourse(
     @SerializedName("title") val title: String,
     @SerializedName("teacher") val teacher: String = "",
     @SerializedName("desc") val desc: String = "",
+    @SerializedName("url") val url: String = "",  // 课程入口 URL（从课程列表 a href 提取）
 )
 
 /** 课程进度信息（与 CxCourse 分离，由 ViewModel 维护 map） */
@@ -96,12 +97,13 @@ data class CxQuestion(
     @SerializedName("answerField") val answerField: Map<String, String> = emptyMap(),
 )
 
-/** 章节检测表单数据 */
+/** 章节检测/课程作业 表单数据 */
 data class CxWorkData(
     @SerializedName("questions") val questions: List<CxQuestion> = emptyList(),
     @SerializedName("answerwqbid") val answerwqbid: String = "",
     @SerializedName("pyFlag") val pyFlag: String = "",
     val formFields: Map<String, String> = emptyMap(),     // 其他隐藏 input 字段
+    val formActionUrl: String = "",                       // HTML form action URL（作业提交用）
 )
 
 /** 章节检测提交结果 */
@@ -238,4 +240,42 @@ data class CxMessage(
     @SerializedName("userStatus") val userStatus: Int = -1,
     @SerializedName("attendNum") val attendNum: Int = 0,
     @SerializedName("releaseNum") val releaseNum: Int = 0,
+)
+
+// ── 课程作业 (2026-06-22) ──────────────────────────────────────────
+
+/**
+ * 课程作业列表项。
+ *
+ * API: GET mooc1.chaoxing.com/mooc2/work/list → HTML <li data="..."> 解析
+ */
+data class CxHomeworkItem(
+    @SerializedName("workId") val workId: String,
+    @SerializedName("name") val name: String,
+    @SerializedName("status") val status: String,        // "未交" / "已完成" / "待批阅"
+    @SerializedName("courseName") val courseName: String,
+    @SerializedName("courseId") val courseId: String,
+    @SerializedName("classId") val classId: String,
+    @SerializedName("cpi") val cpi: String,
+    @SerializedName("workUrl") val workUrl: String,      // 作业页面 URL
+    @SerializedName("answerId") val answerId: String = "",
+    @SerializedName("enc") val enc: String = "",
+)
+
+/** 作业列表 UI 状态 */
+data class CxHomeworkListState(
+    val isLoading: Boolean = false,
+    val homework: List<CxHomeworkItem> = emptyList(),
+    val error: String? = null,
+)
+
+/** 单个作业的详情状态（题目 + 提交） */
+data class CxHomeworkDetailState(
+    val isLoading: Boolean = false,
+    val workData: CxWorkData? = null,
+    val isSubmitting: Boolean = false,
+    val submitResult: String? = null,
+    val error: String? = null,
+    val userAnswers: Map<String, String> = emptyMap(),  // qId → answer (用户手动输入)
+    val userFiles: Map<String, List<String>> = emptyMap(),  // qId → uploaded objectIds
 )

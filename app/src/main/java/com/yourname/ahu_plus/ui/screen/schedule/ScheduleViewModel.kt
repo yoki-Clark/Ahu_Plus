@@ -261,6 +261,8 @@ class ScheduleViewModel(
                         selectedWeek = data.currentWeek,
                         weekIndices = data.weekIndices,
                         lessons = data.lessons,
+                        // 本地缓存始终是本学期数据(写缓存策略仅 DEFAULT_SEMESTER_ID) → 同步更新
+                        currentSemesterCurrentWeek = data.currentWeek,
                     )
                 }
             }
@@ -400,6 +402,10 @@ class ScheduleViewModel(
                                 selectedWeek = data.currentWeek,
                                 weekIndices = data.weekIndices,
                                 lessons = data.lessons,
+                                // 仅本学期的"当前周"会持久化,其他学期不影响
+                                currentSemesterCurrentWeek = if (isCurrentSemester)
+                                    data.currentWeek
+                                else it.currentSemesterCurrentWeek,
                             )
                         }
                     },
@@ -463,6 +469,7 @@ class ScheduleViewModel(
                 needsLogin = false,
                 // 关闭可能存在的详情 sheet
                 selectedCourseDetail = null,
+                // ★ currentSemesterCurrentWeek 不重置 — 跨学期跳转"今"按钮要用到
             )
         }
 
@@ -619,6 +626,28 @@ class ScheduleViewModel(
             lessons = data.lessons
         )
         _uiState.update { it.copy(selectedWeek = week, displayItems = items) }
+    }
+
+    /**
+     * "今"按钮: 跳转回本学期的本周课表。
+     *
+     * 如果当前查看的是其他学期,先切回 DEFAULT_SEMESTER_ID (触发 selectSemester 异步加载),
+     * 然后在数据到达时 setSelectedWeek 到 currentSemesterCurrentWeek;
+     * 如果已是本学期,直接 setSelectedWeek(currentSemesterCurrentWeek)。
+     *
+     * 解决用户报告的"看其他学期课表时点今会跳到该学期的当前周"bug。
+     */
+    fun jumpToCurrentWeek() {
+        val data = _uiState.value
+        if (data.selectedSemesterId != CourseRepository.DEFAULT_SEMESTER_ID) {
+            // 切回本学期;本学期的当前周在 loadScheduleData 完成后会自动同步 setSelectedWeek
+            selectSemester(CourseRepository.DEFAULT_SEMESTER_ID)
+            // 同步把 selectedWeek 也设为本学期当前周(即使数据尚未加载,等数据到达后
+            // loadScheduleData 会基于 currentSemesterCurrentWeek 触发 setSelectedWeek)
+            _uiState.update { it.copy(selectedWeek = data.currentSemesterCurrentWeek) }
+        } else {
+            setSelectedWeek(data.currentSemesterCurrentWeek)
+        }
     }
 
     /** 进入 ScheduleScreen 时调用: 若开关开启且不在当前周,跳到当前周 */
@@ -1033,6 +1062,15 @@ data class ScheduleUiState(
     val selectedSemesterId: Int = com.yourname.ahu_plus.data.repository.CourseRepository.DEFAULT_SEMESTER_ID,
     /** 切换到非本学期时的 loading 状态(区别于首屏 isLoading) */
     val isLoadingSemester: Boolean = false,
+    /**
+     * 本学期 (DEFAULT_SEMESTER_ID) 的"当前周"。
+     *
+     * 当用户查看其他学期时, `currentWeek` 会被覆写为那个学期的当前周,
+     * 但本学期的当前周需要持久保留,才能让"今"按钮在跨学期场景下正确跳转。
+     *
+     * 仅在 DEFAULT_SEMESTER_ID 学期数据加载成功时更新。
+     */
+    val currentSemesterCurrentWeek: Int = 1,
 )
 
 /**

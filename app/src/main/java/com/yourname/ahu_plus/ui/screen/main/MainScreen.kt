@@ -22,6 +22,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -118,10 +119,26 @@ fun MainScreen(
     /** 仅清除会话并跳转登录(保留凭据/集市token等本地数据) */
     onReauth: () -> Unit,
     /** 完全退出登录(清除所有本地数据) */
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    /** 首次登录初始化消息流 (LoginViewModel emit → MainScreen 订阅 → 底部 Snackbar 1 秒) */
+    initMessageFlow: kotlinx.coroutines.flow.MutableSharedFlow<String>? = null,
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(TAB_HOME) }
     var homePage by rememberSaveable { mutableIntStateOf(HOME_DASHBOARD) }
+
+    // 首次登录初始化冒泡 — SnackbarHost
+    val initSnackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+    LaunchedEffect(initMessageFlow) {
+        if (initMessageFlow != null) {
+            initMessageFlow.collect { msg ->
+                initSnackbarHostState.showSnackbar(
+                    message = msg,
+                    duration = androidx.compose.material3.SnackbarDuration.Short,
+                    withDismissAction = false,
+                )
+            }
+        }
+    }
 
     // 跨 Tab 跳转目标:Dashboard 常用应用点击「浴室/空调/照明/网费」时使用
     // 切到「我的」Tab 并把 scrollTarget 透传给 ProfileScreen,滚动到对应卡片后清空
@@ -140,8 +157,16 @@ fun MainScreen(
         { appKey: String -> scope.launch { sessionManager.recordRecentApp(appKey); recentApps = sessionManager.getRecentApps() } }
     }
 
-    // 系统返回键: 子页面回退 → 跨 Tab 回退 → 双击退出
+    // 2026-06-22: 通知点击 deep-link → 跳到学习通 Tab
     val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        (context as? Activity)?.intent?.getStringExtra("open_tab")?.let { tab ->
+            when (tab) { "chaoxing" -> selectedTab = TAB_CHAOXING }
+            (context as? Activity)?.intent?.removeExtra("open_tab")
+        }
+    }
+
+    // 系统返回键: 子页面回退 → 跨 Tab 回退 → 双击退出
     BackHandler {
         when {
             // 1. 我的 Tab 子页面 → 我的主页 (ProfileScreen 内部 BackHandler 先拦截,这里兜底)
@@ -246,6 +271,7 @@ fun MainScreen(
         // 自适应处理,底部由 NavigationBar 自带 navigationBarsPadding 自动处理。
         // 这样不会出现"双重状态栏空白"。
         contentWindowInsets = WindowInsets(0),
+        snackbarHost = { androidx.compose.material3.SnackbarHost(initSnackbarHostState) },
         bottomBar = {
             if (showBottomNavigation) NavigationBar(
                 tonalElevation = 0.dp,

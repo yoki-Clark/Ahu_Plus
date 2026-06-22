@@ -12,6 +12,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -127,12 +129,15 @@ class EmptyClassroomRepository(
                 return@withContext Result.success(emptyList())
             }
 
-            // 并行发起 N 个窗口调用（N = remaining.size）
+            // 并行发起 N 个窗口调用，用 semaphore 限制并发数避免触发服务端限流
+            val semaphore = Semaphore(3)
             val windowResults = coroutineScope {
                 remaining.indices.map { windowSize ->
                     val windowUnits = remaining.take(windowSize + 1)
                     async {
-                        windowUnits.size to getFreeRooms(buildingId, campusId, windowUnits, date)
+                        semaphore.withPermit {
+                            windowUnits.size to getFreeRooms(buildingId, campusId, windowUnits, date)
+                        }
                     }
                 }.awaitAll()
             }

@@ -4,8 +4,12 @@
     <external-path
         name="downloads"
         path="Download/" />
-    <!-- 应用私有 files 目录下的 Download（Android/data/com.yourname.ahu_plus/files/Download） -->
+    <!-- 应用私有 files 目录下的 Download（Android/data/.../files/Download） -->
     <external-files-path
         name="app_downloads"
         path="Download/" />
+    <!-- 2026-06-22: 分享安装包缓存目录 -->
+    <cache-path
+        name="apk_share"
+        path="apk_share/" />
 </paths>

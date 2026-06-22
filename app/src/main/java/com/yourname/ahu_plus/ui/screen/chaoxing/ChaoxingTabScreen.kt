@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +55,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -82,9 +85,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.CxAttachment
 import com.yourname.ahu_plus.data.model.CxCourse
 import com.yourname.ahu_plus.data.model.CxCourseProgress
+import com.yourname.ahu_plus.data.model.CxHomeworkItem
 import com.yourname.ahu_plus.data.model.CxMessage
 import com.yourname.ahu_plus.data.model.CxMessageSource
 import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.service.ChaoxingStudyService
+import com.yourname.ahu_plus.util.OverlayWindow
 import kotlinx.coroutines.launch
 
 /**
@@ -111,11 +117,13 @@ fun ChaoxingTabScreen(
     )
     val scope = rememberCoroutineScope()
 
-    // 课程详情 / 学习进度覆盖层
+    // 课程详情 / 学习进度 / 作业详情 覆盖层
     var showDetail by rememberSaveable { mutableStateOf(false) }
     var selectedCourse by remember { mutableStateOf<CxCourse?>(null) }
     var showStudySheet by rememberSaveable { mutableStateOf(false) }
     var showStudyScreen by rememberSaveable { mutableStateOf(false) }
+    var showHomeworkDetail by rememberSaveable { mutableStateOf(false) }
+    var selectedHomework by rememberSaveable { mutableStateOf<CxHomeworkItem?>(null) }
 
     // 首次进入时检查登录状态
     LaunchedEffect(Unit) {
@@ -130,6 +138,8 @@ fun ChaoxingTabScreen(
             selectedTab = pagerState.currentPage
         }
     }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     // 系统返回键处理
     BackHandler {
@@ -148,7 +158,10 @@ fun ChaoxingTabScreen(
     if (showStudyScreen) {
         ChaoxingStudyScreen(
             studyState = studyState,
-            onStop = { viewModel.stopStudy() },
+            onStop = {
+                viewModel.stopStudy()
+                ChaoxingStudyService.stop(context)  // 同时停止 Service 释放悬浮窗
+            },
             onBack = { showStudyScreen = false },
         )
         return
@@ -161,12 +174,30 @@ fun ChaoxingTabScreen(
             course = selectedCourse!!,
             onBack = { showDetail = false; selectedCourse = null },
             onStartStudy = { course ->
-                viewModel.studySingleCourse(course)
+                // 2026-06-22: 单课程入口 — Service 后台学习，showStudyScreen 仅显示进度
+                ChaoxingStudyService.start(context, listOf(course.courseId), settingsState.speed, settingsState.concurrency, settingsState.submitMode == "auto")
                 showStudyScreen = true
             },
         )
         return
     }
+
+    // ── 全屏覆盖层: 作业详情 ──────────────────────────────────
+    if (showHomeworkDetail && selectedHomework != null) {
+        HomeworkDetailScreen(
+            viewModel = viewModel,
+            homework = selectedHomework!!,
+            onBack = {
+                showHomeworkDetail = false
+                selectedHomework = null
+            },
+        )
+        return
+    }
+
+    // 悬浮窗权限引导
+    var showOverlayPermissionDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingStartService by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     // ── 确认学习弹窗 ─────────────────────────────────────────
     if (showStudySheet) {
@@ -175,10 +206,51 @@ fun ChaoxingTabScreen(
             settingsState = settingsState,
             onConfirm = {
                 showStudySheet = false
-                viewModel.studyCourses(viewModel.getSelectedCourses())
-                showStudyScreen = true
+                val selectedCourses = viewModel.getSelectedCourses()
+                val courseIds = selectedCourses.mapNotNull { it.courseId }
+                if (courseIds.isEmpty()) return@ChaoxingStudySheet
+
+                val startService: () -> Unit = {
+                    ChaoxingStudyService.start(
+                        context = context,
+                        courseIds = courseIds,
+                        speed = settingsState.speed,
+                        concurrency = settingsState.concurrency,
+                        autoSubmit = settingsState.submitMode == "auto",
+                    )
+                    showStudyScreen = true
+                }
+
+                // 权限未授权时先弹引导对话框,用户确认后再启动 Service
+                if (!OverlayWindow.hasOverlayPermission(context)) {
+                    pendingStartService = startService
+                    showOverlayPermissionDialog = true
+                } else {
+                    startService()
+                }
             },
             onDismiss = { showStudySheet = false },
+        )
+    }
+
+    // ── 悬浮窗权限引导对话框 ──────────────────────────────
+    if (showOverlayPermissionDialog) {
+        OverlayPermissionDialog(
+            onDismiss = {
+                showOverlayPermissionDialog = false
+                pendingStartService?.invoke()
+                pendingStartService = null
+            },
+            onGranted = {
+                showOverlayPermissionDialog = false
+                pendingStartService?.invoke()
+                pendingStartService = null
+            },
+            onSkipped = {
+                showOverlayPermissionDialog = false
+                pendingStartService?.invoke()
+                pendingStartService = null
+            },
         )
     }
 
@@ -218,6 +290,14 @@ fun ChaoxingTabScreen(
                         onNavigateToSettings = {
                             selectedTab = ChaoxingSubTab.SETTINGS.ordinal
                             scope.launch { pagerState.animateScrollToPage(ChaoxingSubTab.SETTINGS.ordinal) }
+                        },
+                    )
+                    ChaoxingSubTab.HOMEWORK -> HomeworkTabContent(
+                        viewModel = viewModel,
+                        loginState = loginState,
+                        onHomeworkClick = { hw ->
+                            selectedHomework = hw
+                            showHomeworkDetail = true
                         },
                     )
                     ChaoxingSubTab.MESSAGES -> MessagesTabContent(
@@ -944,6 +1024,10 @@ private fun CoursesTabContent(
     onCourseClick: (CxCourse) -> Unit,
     onNavigateToSettings: () -> Unit,
 ) {
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val hiddenKeys = viewModel.settingsState.collectAsStateWithLifecycle().value.hiddenCourseKeys
+
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             !loginState.isLoggedIn -> {
@@ -984,11 +1068,15 @@ private fun CoursesTabContent(
                 ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     // 账户头部
+                    val totalJobs = coursesState.courseProgress.values.sumOf { it.totalJobs }
+                    val completedJobs = coursesState.courseProgress.values.sumOf { it.completedJobs }
                     AccountHeader(
                         courseCount = coursesState.courses.size,
                         selectedCount = coursesState.selectedCourseIds.size,
                         onSelectAll = { viewModel.selectAllCourses() },
                         onDeselectAll = { viewModel.deselectAllCourses() },
+                        totalJobs = totalJobs,
+                        completedJobs = completedJobs,
                     )
 
                     // 课程列表
@@ -1001,11 +1089,21 @@ private fun CoursesTabContent(
                         item { Spacer(Modifier.height(4.dp)) }
                         items(coursesState.courses, key = { it.courseId + "_" + it.clazzId }) { course ->
                             val key = course.courseId + "_" + course.clazzId
+                            val isHidden = key in hiddenKeys
                             CourseCard(
                                 course = course,
                                 isSelected = coursesState.selectedCourseIds.contains(key),
                                 onToggle = { viewModel.toggleCourseSelection(key) },
                                 onClick = { onCourseClick(course) },
+                                onLongClick = {
+                                    viewModel.toggleHiddenCourse(key)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            if (isHidden) "已取消隐藏「${course.title.take(12)}」"
+                                            else "已隐藏「${course.title.take(12)}」"
+                                        )
+                                    }
+                                },
                                 progress = coursesState.courseProgress[key],
                             )
                         }
@@ -1024,6 +1122,12 @@ private fun CoursesTabContent(
                 } // PullToRefreshBox
             }
         }
+
+        // Snackbar (放在 Box 最上层)
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+        )
     }
 }
 
@@ -1079,6 +1183,8 @@ private fun AccountHeader(
     selectedCount: Int,
     onSelectAll: () -> Unit,
     onDeselectAll: () -> Unit,
+    totalJobs: Int = 0,
+    completedJobs: Int = 0,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -1102,6 +1208,13 @@ private fun AccountHeader(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (totalJobs > 0) {
+                Text(
+                    text = " · 进度: $completedJobs/$totalJobs",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (selectedCount > 0) {
                 Text(
                     text = " · 已选 $selectedCount",
@@ -1172,6 +1285,7 @@ private fun CourseCard(
     isSelected: Boolean,
     onToggle: () -> Unit,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     progress: CxCourseProgress? = null,
 ) {
     val cardShape = AhuShapes.Card
@@ -1203,7 +1317,10 @@ private fun CourseCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                )
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

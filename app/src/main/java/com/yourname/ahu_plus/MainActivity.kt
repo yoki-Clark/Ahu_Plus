@@ -98,7 +98,9 @@ class MainActivity : ComponentActivity() {
                         coroutineScope.launch {
                             app.sessionManager.saveThemeMode(newThemeMode)
                         }
-                    }
+                    },
+                    initCoordinator = app.initCoordinator,
+                    initMessageFlow = app.initMessageFlow,
                 )
 
                 // ── 更新 Dialog ──────────────────────────────

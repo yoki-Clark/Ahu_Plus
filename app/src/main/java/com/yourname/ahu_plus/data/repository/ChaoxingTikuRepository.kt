@@ -109,6 +109,7 @@ class ChaoxingTikuRepository(
         this.yanxiTokens = yanxiTokensStr.split(",").map { it.trim() }.filter { it.isNotBlank() }
         Log.d(TAG, "configure: chain=$providerChain, yanxiTokens=${this.yanxiTokens}, yanxiDelay=$yanxiDelay, coverRate=$coverRate")
         Log.d(TAG, "configure: aiBaseUrl=$aiBaseUrl, aiModel=$aiModel, aiKey=${aiApiKey.take(8)}...")
+        if (aiApiKey.isNotBlank()) this.aiApiKey = aiApiKey
         if (aiBaseUrl.isNotBlank()) this.aiBaseUrl = aiBaseUrl
         if (aiModel.isNotBlank()) this.aiModel = aiModel
         this.aiMinInterval = aiMinInterval
@@ -150,35 +151,40 @@ class ChaoxingTikuRepository(
     suspend fun query(question: CxQuestion): String? {
         if (providerChain.firstOrNull() == TikuType.DISABLED) return null
 
-        // 1. 始终先查本地缓存（也要过 normalize，因为旧缓存可能是原始格式）
+        // 1. 先查本地缓存（作为兜底，不立即返回）
         val cached = sessionManager.getCxTikuCache(question.title)
-        if (cached != null) {
-            val normalized = normalizeAnswer(cached, question)
-            if (normalized != null) {
-                Log.d(TAG, "缓存命中: ${question.title.take(20)}... → $normalized")
-                return normalized
+        val cachedNormalized = if (cached != null) normalizeAnswer(cached, question) else null
+
+        // 2. 遍历 provider chain（CACHE 不在此列，已在上面处理）
+        val hasActiveProvider = providerChain.any {
+            it != TikuType.DISABLED && it != TikuType.CACHE
+        }
+        if (hasActiveProvider) {
+            for (provider in providerChain) {
+                if (provider == TikuType.DISABLED || provider == TikuType.CACHE) continue
+                val answer = when (provider) {
+                    TikuType.YANXI -> queryYanxi(question)
+                    TikuType.GO -> queryGo(question)
+                    TikuType.LIKE -> queryLike(question)
+                    TikuType.ADAPTER -> queryAdapter(question)
+                    TikuType.AI -> queryAI(question, aiApiKey, aiBaseUrl, aiModel)
+                    TikuType.SILICONFLOW -> queryAI(question, siliconflowKey, siliconflowEndpoint, siliconflowModel)
+                    else -> null
+                }
+                if (answer != null) {
+                    val normalized = normalizeAnswer(answer, question)
+                    if (normalized != null) {
+                        sessionManager.saveCxTikuCache(question.title, normalized)
+                        return normalized
+                    }
+                }
             }
         }
 
-        // 2. 遍历 provider chain
-        for (provider in providerChain) {
-            if (provider == TikuType.DISABLED || provider == TikuType.CACHE) continue
-            val answer = when (provider) {
-                TikuType.YANXI -> queryYanxi(question)
-                TikuType.GO -> queryGo(question)
-                TikuType.LIKE -> queryLike(question)
-                TikuType.ADAPTER -> queryAdapter(question)
-                TikuType.AI -> queryAI(question, aiApiKey, aiBaseUrl, aiModel)
-                TikuType.SILICONFLOW -> queryAI(question, siliconflowKey, siliconflowEndpoint, siliconflowModel)
-                else -> null
-            }
-            if (answer != null) {
-                val normalized = normalizeAnswer(answer, question)
-                if (normalized != null) {
-                    sessionManager.saveCxTikuCache(question.title, normalized)
-                    return normalized
-                }
-            }
+        // 3. 无活跃 provider 或全部未命中 → 回退到缓存
+        if (cachedNormalized != null) {
+            Log.d(TAG, "缓存命中(兜底): ${question.title.take(20)}... → $cachedNormalized")
+            return cachedNormalized
         }
         return null
     }
@@ -395,9 +401,12 @@ class ChaoxingTikuRepository(
                 })
             }.toString()
 
+            // 兼容两种端点配置: baseUrl 已含完整路径则直接使用, 否则追加 /chat/completions
+            // (AI 用 OpenAI SDK 风格的 base URL → 需追加; SiliconFlow 用完整路径 → 不追加)
+            val url = if (baseUrl.endsWith("/chat/completions")) baseUrl else "$baseUrl/chat/completions"
             val requestBody = bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType())
             val request = Request.Builder()
-                .url("$baseUrl/chat/completions")
+                .url(url)
                 .post(requestBody)
                 .header("Authorization", "Bearer $apiKey")
                 .build()
@@ -417,8 +426,10 @@ class ChaoxingTikuRepository(
                 val content = choices[0].asJsonObject
                     .getAsJsonObject("message")
                     ?.get("content")?.asString?.trim()
-                    ?.removeSurrounding("```json")
-                    ?.removeSurrounding("```")
+                    ?.trim()
+                    ?.removePrefix("```json")
+                    ?.removePrefix("```")
+                    ?.removeSuffix("```")
                     ?.trim()
                 if (!content.isNullOrBlank()) {
                     // 优先解析 JSON: 提取 answer 字段
@@ -520,6 +531,17 @@ class ChaoxingTikuRepository(
                     val matched = parts.mapNotNull { p -> matchOptionLetter(p, question) }.sorted().joinToString("")
                     if (matched.isNotEmpty()) return matched
                 }
+                // 长文本块（如言溪返回的选项内容拼接）：逐个选项模糊匹配
+                val opts = question.options.split("\n").filter { it.isNotBlank() }
+                if (opts.isNotEmpty()) {
+                    val matched = opts.mapNotNull { opt ->
+                        val letter = Regex("""^([A-Za-z])""").find(opt.trim())?.groupValues?.get(1)?.uppercase()
+                            ?: return@mapNotNull null
+                        val text = opt.trim().dropWhile { it.isLetter() || it in "、. ）)） " }.trim()
+                        if (text.length >= 2 && fuzzyMatch(text, trimmed)) letter else null
+                    }.sorted().joinToString("")
+                    if (matched.isNotEmpty()) return matched
+                }
                 trimmed
             }
             "judgement" -> {
@@ -552,5 +574,25 @@ class ChaoxingTikuRepository(
             }
         }
         return null
+    }
+
+    /**
+     * 模糊匹配：检查选项文本是否在答案中出现（容忍言溪等题库的 OCR/错字差异）。
+     *
+     * 策略：统计选项有多少个字符在答案中出现（不要求连续），过半即匹配。
+     * 例如选项"启动直接判断"，答案"评价成本低启动直觉判断" → 启/动/直/判/断=5/6=83% → 匹配。
+     * 额外约束：选项的首尾字符必须都在答案中（防止误匹配）。
+     */
+    private fun fuzzyMatch(optionText: String, answerText: String): Boolean {
+        if (optionText.length < 2) return false
+        val ansSet = answerText.toSet()
+        val optChars = optionText.toCharArray()
+
+        // 首尾字符必须在
+        if (optChars.first() !in ansSet || optChars.last() !in ansSet) return false
+
+        val matchCount = optChars.count { it in ansSet }
+        val ratio = matchCount.toFloat() / optChars.size
+        return ratio >= 0.5f // 半数以上字符出现即认定匹配
     }
 }

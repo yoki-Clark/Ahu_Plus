@@ -78,10 +78,10 @@ class CasAuthRepository(
                     hostCookies.removeAll { it.name == cookie.name }
                     hostCookies.add(cookie)
                 }
-            }
-            // 任意 cookie 变化都使 JSESSIONID 缓存失效
-            if (cookies.any { it.name == "JSESSIONID" || it.name == "CASTGC" }) {
-                cachedJsessionId = null
+                // 任意 cookie 变化都使 JSESSIONID 缓存失效（放在锁内保证与 cookie 写入原子性）
+                if (cookies.any { it.name == "JSESSIONID" || it.name == "CASTGC" }) {
+                    cachedJsessionId = null
+                }
             }
         }
     }

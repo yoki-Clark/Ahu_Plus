@@ -107,10 +107,12 @@ class StudentInfoRepository(
         return out
     }
 
+    private val birthdayFormatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        .withZone(java.time.ZoneId.systemDefault())
+
     private fun formatBirthday(timestampMs: Long): String {
         return runCatching {
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-            sdf.format(java.util.Date(timestampMs))
+            birthdayFormatter.format(java.time.Instant.ofEpochMilli(timestampMs))
         }.getOrElse { timestampMs.toString() }
     }
 

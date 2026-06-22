@@ -105,7 +105,7 @@ object JsonUtils {
                 ?: return false
             idField.isAccessible = true
             val value = idField.get(obj)
-            (value as? Long) == 0L
+            (value as? Long) == 0L || (value as? Int) == 0
         }.getOrDefault(false)
     }
 

@@ -187,6 +187,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
+    /** 首次登录初始化是否已完成 */
+    @Volatile var firstLoginInitDone: Boolean = false
+
+    /** 后台学习时是否显示悬浮窗 */
+    @Volatile var showStudyOverlay: Boolean = true
+
+
+
 
 
 
@@ -758,6 +766,36 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
     @Volatile private var cachedCxCoursesJson: String? = null
+
+
+    @Volatile private var cachedCxCoursesProgressJson: String? = null
+
+
+
+
+    @Volatile private var cachedCxHomeworkJson: String? = null
+
+
+
+
+    @Volatile private var cachedCxHomeworkDetailJson: String? = null
+
+
+
+
+    @Volatile private var cachedCxVisitBrushEnabled: String = "false"
+    @Volatile private var cachedCxVisitBrushInterval: String = "30"
+
+
+
+
+    @Volatile private var cachedCxDownloadEnabled: String = "false"
+
+
+
+
+    @Volatile private var cachedCxHideEndedCourses: String = "true"
+    @Volatile private var cachedCxHiddenCourses: String = ""
 
 
 
@@ -1759,6 +1797,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedCxPassword = prefs[CX_PASSWORD_KEY]
 
         cachedCxCoursesJson = prefs[CX_COURSES_JSON_KEY]
+        cachedCxCoursesProgressJson = prefs[CX_COURSES_PROGRESS_JSON_KEY]
+        cachedCxHomeworkJson = prefs[CX_HOMEWORK_JSON_KEY]
+        cachedCxHomeworkDetailJson = prefs[CX_HOMEWORK_DETAIL_JSON_KEY]
+        cachedCxVisitBrushEnabled = prefs[CX_VISIT_BRUSH_ENABLED_KEY] ?: "false"
+        cachedCxVisitBrushInterval = prefs[CX_VISIT_BRUSH_INTERVAL_KEY] ?: "30"
+        cachedCxDownloadEnabled = prefs[CX_DOWNLOAD_ENABLED_KEY] ?: "false"
+        cachedCxHideEndedCourses = prefs[CX_HIDE_ENDED_COURSES_KEY] ?: "true"
+        cachedCxHiddenCourses = prefs[CX_HIDDEN_COURSES_KEY] ?: ""
 
 
 
@@ -6885,6 +6931,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         cachedCxCookies = null
+        cachedCxCoursesProgressJson = null
+        cachedCxHomeworkJson = null
+        cachedCxHomeworkDetailJson = null
+        cachedCxVisitBrushEnabled = "false"
+        cachedCxVisitBrushInterval = "30"
+        cachedCxDownloadEnabled = "false"
+        cachedCxHideEndedCourses = "true"
+        cachedCxHiddenCourses = ""
         cachedCxPhone = null
         cachedCxPassword = null
 
@@ -7783,6 +7837,110 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
+    }
+
+
+
+    fun getCxCoursesProgressJson(): String? = cachedCxCoursesProgressJson
+
+
+
+
+    suspend fun saveCxCoursesProgressJson(value: String) {
+        cachedCxCoursesProgressJson = value
+        appDataStore.dataStore.edit { it[CX_COURSES_PROGRESS_JSON_KEY] = value }
+    }
+
+
+
+
+    fun getCxHomeworkJson(): String? = cachedCxHomeworkJson
+
+
+
+
+    suspend fun saveCxHomeworkJson(value: String) {
+        cachedCxHomeworkJson = value
+        appDataStore.dataStore.edit { it[CX_HOMEWORK_JSON_KEY] = value }
+    }
+
+
+
+
+    fun getCxHomeworkDetailJson(): String? = cachedCxHomeworkDetailJson
+
+
+
+
+    suspend fun saveCxHomeworkDetailJson(value: String) {
+        cachedCxHomeworkDetailJson = value
+        appDataStore.dataStore.edit { it[CX_HOMEWORK_DETAIL_JSON_KEY] = value }
+    }
+
+
+
+
+    fun getCxVisitBrushEnabled(): Boolean = cachedCxVisitBrushEnabled == "true"
+
+
+
+
+    suspend fun saveCxVisitBrushEnabled(v: Boolean) {
+        cachedCxVisitBrushEnabled = v.toString()
+        appDataStore.dataStore.edit { it[CX_VISIT_BRUSH_ENABLED_KEY] = v.toString() }
+    }
+
+
+
+
+    fun getCxVisitBrushInterval(): Int = cachedCxVisitBrushInterval.toIntOrNull() ?: 30
+
+
+
+
+    suspend fun saveCxVisitBrushInterval(v: Int) {
+        cachedCxVisitBrushInterval = v.toString()
+        appDataStore.dataStore.edit { it[CX_VISIT_BRUSH_INTERVAL_KEY] = v.toString() }
+    }
+
+
+
+
+    fun getCxDownloadEnabled(): Boolean = cachedCxDownloadEnabled == "true"
+
+
+
+
+    suspend fun saveCxDownloadEnabled(v: Boolean) {
+        cachedCxDownloadEnabled = v.toString()
+        appDataStore.dataStore.edit { it[CX_DOWNLOAD_ENABLED_KEY] = v.toString() }
+    }
+
+
+
+
+    fun getCxHideEndedCourses(): Boolean = cachedCxHideEndedCourses == "true"
+
+
+
+
+    suspend fun saveCxHideEndedCourses(v: Boolean) {
+        cachedCxHideEndedCourses = v.toString()
+        appDataStore.dataStore.edit { it[CX_HIDE_ENDED_COURSES_KEY] = v.toString() }
+    }
+
+
+
+
+    fun getCxHiddenCourses(): Set<String> = cachedCxHiddenCourses.split(",").filter { it.isNotBlank() }.toSet()
+
+
+
+
+    suspend fun saveCxHiddenCourses(value: Set<String>) {
+        val str = value.joinToString(",")
+        cachedCxHiddenCourses = str
+        appDataStore.dataStore.edit { it[CX_HIDDEN_COURSES_KEY] = str }
     }
 
 
@@ -9134,6 +9292,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
+        val CX_COURSES_PROGRESS_JSON_KEY = stringPreferencesKey("cx_courses_progress_json")
+        val CX_HOMEWORK_JSON_KEY = stringPreferencesKey("cx_homework_json")
+        val CX_HOMEWORK_DETAIL_JSON_KEY = stringPreferencesKey("cx_homework_detail_json")
+        val CX_VISIT_BRUSH_ENABLED_KEY = stringPreferencesKey("cx_visit_brush_enabled")
+        val CX_VISIT_BRUSH_INTERVAL_KEY = stringPreferencesKey("cx_visit_brush_interval")
+        val CX_DOWNLOAD_ENABLED_KEY = stringPreferencesKey("cx_download_enabled")
+        val CX_HIDE_ENDED_COURSES_KEY = stringPreferencesKey("cx_hide_ended_courses")
+        val CX_HIDDEN_COURSES_KEY = stringPreferencesKey("cx_hidden_courses")
 
 
 
@@ -9653,7 +9819,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
-            CX_COOKIES_KEY, CX_COURSES_JSON_KEY, CX_TIKU_CONFIG_KEY, CX_TIKU_CACHE_KEY,
+            CX_COOKIES_KEY, CX_COURSES_JSON_KEY, CX_COURSES_PROGRESS_JSON_KEY, CX_HOMEWORK_JSON_KEY, CX_HOMEWORK_DETAIL_JSON_KEY,
+            CX_VISIT_BRUSH_ENABLED_KEY, CX_VISIT_BRUSH_INTERVAL_KEY, CX_DOWNLOAD_ENABLED_KEY,
+            CX_HIDE_ENDED_COURSES_KEY, CX_HIDDEN_COURSES_KEY, CX_TIKU_CONFIG_KEY, CX_TIKU_CACHE_KEY,
 
 
 

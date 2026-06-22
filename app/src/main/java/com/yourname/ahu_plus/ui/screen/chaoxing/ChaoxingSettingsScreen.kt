@@ -10,11 +10,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,6 +34,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -40,9 +47,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,8 +61,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.AiPlatform
+import com.yourname.ahu_plus.data.model.CxCourse
 import com.yourname.ahu_plus.ui.components.AhuShapes
 
 /**
@@ -76,18 +89,28 @@ fun ChaoxingSettingsScreen(
     onLogin: (String, String) -> Unit = { _, _ -> },
     isEmbedded: Boolean = false,
 ) {
-    val content: @Composable () -> Unit = {
-        SettingsContent(
-            loginState = loginState,
-            settingsState = settingsState,
-            viewModel = viewModel,
-            onLogout = onLogout,
-            onLogin = onLogin,
-        )
-    }
+    var showHiddenCoursesSheet by remember { mutableStateOf(false) }
+    val coursesState by viewModel.coursesState.collectAsStateWithLifecycle()
 
     if (isEmbedded) {
-        content()
+        Box(modifier = Modifier.fillMaxSize()) {
+            SettingsContent(
+                loginState = loginState,
+                settingsState = settingsState,
+                viewModel = viewModel,
+                onLogout = onLogout,
+                onLogin = onLogin,
+                onManageHiddenCourses = { showHiddenCoursesSheet = true },
+            )
+            if (showHiddenCoursesSheet) {
+                HiddenCoursesDialog(
+                    courses = coursesState.allCourses,
+                    hiddenKeys = settingsState.hiddenCourseKeys,
+                    onDismiss = { showHiddenCoursesSheet = false },
+                    onConfirm = { keys -> viewModel.updateHiddenCourses(keys); showHiddenCoursesSheet = false },
+                )
+            }
+        }
     } else {
         Scaffold(
             topBar = {
@@ -101,8 +124,23 @@ fun ChaoxingSettingsScreen(
                 )
             }
         ) { innerPadding ->
-            Column(modifier = Modifier.padding(innerPadding)) {
-                content()
+            Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                SettingsContent(
+                    loginState = loginState,
+                    settingsState = settingsState,
+                    viewModel = viewModel,
+                    onLogout = onLogout,
+                    onLogin = onLogin,
+                    onManageHiddenCourses = { showHiddenCoursesSheet = true },
+                )
+                if (showHiddenCoursesSheet) {
+                    HiddenCoursesDialog(
+                        courses = coursesState.allCourses,
+                        hiddenKeys = settingsState.hiddenCourseKeys,
+                        onDismiss = { showHiddenCoursesSheet = false },
+                        onConfirm = { keys -> viewModel.updateHiddenCourses(keys); showHiddenCoursesSheet = false },
+                    )
+                }
             }
         }
     }
@@ -120,6 +158,7 @@ private fun SettingsContent(
     viewModel: ChaoxingViewModel,
     onLogout: () -> Unit,
     onLogin: (String, String) -> Unit,
+    onManageHiddenCourses: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -203,6 +242,29 @@ private fun SettingsContent(
                         onCheckedChange = { viewModel.updateAutoSign(it) },
                     )
                 }
+
+                Spacer(Modifier.height(12.dp))
+
+                SwitchSetting(
+                    title = "刷访问次数",
+                    subtitle = "学习完成后遍历章节模拟访问，提升学习次数统计",
+                    checked = settingsState.visitBrushEnabled,
+                    onCheckedChange = { viewModel.updateVisitBrushEnabled(it) },
+                )
+
+                AnimatedVisibility(visible = settingsState.visitBrushEnabled) {
+                    Column {
+                        Spacer(Modifier.height(8.dp))
+                        SettingItem(title = "访问间隔", subtitle = "${settingsState.visitBrushInterval} 秒")
+                        Slider(
+                            value = settingsState.visitBrushInterval.toFloat(),
+                            onValueChange = { viewModel.updateVisitBrushInterval(it.toInt()) },
+                            valueRange = 5f..120f,
+                            steps = 22,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
             }
         }
 
@@ -219,6 +281,36 @@ private fun SettingsContent(
                     checked = settingsState.messagesMergeInbox,
                     onCheckedChange = { viewModel.updateMessagesMergeInbox(it) },
                 )
+                Spacer(Modifier.height(12.dp))
+                SwitchSetting(
+                    title = "隐藏已结束课程",
+                    subtitle = "不显示所有作业均已完成/已批阅的课程",
+                    checked = settingsState.hideEndedCourses,
+                    onCheckedChange = { viewModel.updateHideEndedCourses(it) },
+                )
+                Spacer(Modifier.height(12.dp))
+                // 管理显示课程入口
+                val hiddenCount = settingsState.hiddenCourseKeys.size
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onManageHiddenCourses)
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "管理显示课程",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(
+                            if (hiddenCount > 0) "已隐藏 $hiddenCount 门课程" else "所有课程均显示",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
 
@@ -416,6 +508,7 @@ private fun LoginForm(
                 label = { Text("密码") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
                 shape = AhuShapes.Card,
                 enabled = !isLoading,
@@ -663,4 +756,88 @@ private fun AiModelSelector(
             )
         }
     }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  隐藏课程管理 BottomSheet 内容
+// ══════════════════════════════════════════════════════════════
+
+@Composable
+private fun HiddenCoursesDialog(
+    courses: List<CxCourse>,
+    hiddenKeys: Set<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (Set<String>) -> Unit,
+) {
+    // checked = 显示 (visible), unchecked = 隐藏
+    val checkedState = remember { mutableStateMapOf<String, Boolean>() }
+
+    // 只在 courses 变化时同步初始状态（默认全部可见 = 不在 hiddenKeys 中）
+    LaunchedEffect(courses) {
+        courses.forEach { c ->
+            val key = "${c.courseId}_${c.clazzId}"
+            if (key !in checkedState) {
+                checkedState[key] = key !in hiddenKeys  // 不在隐藏集合中 = 可见 = 勾选
+            }
+        }
+        val currentKeys = courses.map { "${it.courseId}_${it.clazzId}" }.toSet()
+        checkedState.keys.removeAll { it !in currentKeys }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("管理显示课程", fontWeight = FontWeight.Bold) },
+        text = {
+            if (courses.isEmpty()) {
+                Text("暂无课程数据，请先加载课程列表",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Text(
+                    "取消勾选的课程将不在课程列表和作业中显示",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                    items(courses, key = { "${it.courseId}_${it.clazzId}" }) { course ->
+                        val key = "${course.courseId}_${course.clazzId}"
+                        val isVisible = checkedState[key] ?: true
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { checkedState[key] = !isVisible }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = isVisible,
+                                onCheckedChange = { checkedState[key] = it },
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(course.title, style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                if (course.teacher.isNotBlank()) {
+                                    Text(course.teacher, style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                // 未勾选的 = 要隐藏的; hiddenKeys = 所有课程 - 勾选的课程
+                val visibleKeys = checkedState.filter { it.value }.keys
+                val allKeys = courses.map { "${it.courseId}_${it.clazzId}" }.toSet()
+                onConfirm(allKeys - visibleKeys)  // 把不显示的传给 onConfirm → updateHiddenCourses
+            }) { Text("确定") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }

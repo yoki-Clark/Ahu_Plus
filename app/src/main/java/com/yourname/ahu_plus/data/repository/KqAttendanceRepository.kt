@@ -118,10 +118,9 @@ class KqAttendanceRepository(
                     .post(bodyJson.toRequestBody(JSON_MEDIA))
                     .build()
 
-                val response = client.newCall(request).execute()
-                val body = response.body?.string() ?: ""
-                val code = response.code
-                response.close()
+                val (body, code) = client.newCall(request).execute().use { response ->
+                    response.body?.string().orEmpty() to response.code
+                }
 
                 Log.d(TAG, "考勤 API page=$currentPage HTTP $code")
 

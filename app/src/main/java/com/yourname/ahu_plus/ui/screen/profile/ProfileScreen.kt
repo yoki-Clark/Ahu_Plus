@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Info
@@ -38,6 +40,7 @@ import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.WaterDrop
@@ -79,8 +82,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.ClipEntry
-import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -163,12 +164,16 @@ fun ProfileScreen(
     var showXzxx by rememberSaveable { mutableStateOf(false) }
     var showUsageGuide by rememberSaveable { mutableStateOf(false) }
     var showFaq by rememberSaveable { mutableStateOf(false) }
+    var showOpenSourceLicenses by rememberSaveable { mutableStateOf(false) }
     var showFullQrCode by rememberSaveable { mutableStateOf(false) }
     val cardUiState by cardViewModel.uiState.collectAsStateWithLifecycle()
     val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
 
+    var utilityTarget by remember { mutableStateOf<String?>(null) }
+
     fun openUtility(target: String) {
-        showUtilities = target == "bathroom" || target == "ac" || target == "lighting" || target == "internet"
+        utilityTarget = target
+        showUtilities = true
     }
 
     val studentInfoUiState by studentInfoViewModel.uiState.collectAsStateWithLifecycle()
@@ -225,7 +230,7 @@ fun ProfileScreen(
             onOpenAnalytics = { showCardAnalytics = true }
         )
     } else if (showUtilities) {
-        BackHandler(enabled = true) { showUtilities = false }
+        BackHandler(enabled = true) { showUtilities = false; utilityTarget = null }
         WaterElectricityUtilityDetailScreen(
             bathroomData = cardUiState.bathroomData,
             bathroomLoading = cardUiState.bathroomLoading,
@@ -259,7 +264,8 @@ fun ProfileScreen(
             onRefreshInternetBills = cardViewModel::loadInternetBills,
             onAcBillRangeSelected = cardViewModel::setAcBillRange,
             onLightingBillRangeSelected = cardViewModel::setLightingBillRange,
-            cardViewModel = cardViewModel
+            cardViewModel = cardViewModel,
+            initialUtility = utilityTarget
         )
     } else if (showMarketSettings) {
         BackHandler(enabled = true) { showMarketSettings = false }
@@ -359,6 +365,9 @@ fun ProfileScreen(
     } else if (showFaq) {
         BackHandler(enabled = true) { showFaq = false }
         FaqScreen(onBack = { showFaq = false })
+    } else if (showOpenSourceLicenses) {
+        BackHandler(enabled = true) { showOpenSourceLicenses = false }
+        OpenSourceLicensesScreen(onBack = { showOpenSourceLicenses = false })
     } else if (showSettings) {
         BackHandler(enabled = true) { showSettings = false }
         AppSettingsScreen(
@@ -426,6 +435,7 @@ fun ProfileScreen(
             onOpenXzxx = { showXzxx = true },
             onOpenUsageGuide = { showUsageGuide = true },
             onOpenFaq = { showFaq = true },
+            onOpenOpenSourceLicenses = { showOpenSourceLicenses = true },
             onLogout = onLogout
         )
     }
@@ -492,6 +502,7 @@ private fun ProfileHomeScreen(
     onOpenXzxx: () -> Unit,
     onOpenUsageGuide: () -> Unit,
     onOpenFaq: () -> Unit,
+    onOpenOpenSourceLicenses: () -> Unit,
     onLogout: () -> Unit
 ) {
     val displayName = studentName?.takeIf { it.isNotBlank() } ?: "未命名同学"
@@ -501,6 +512,7 @@ private fun ProfileHomeScreen(
     ).joinToString(" · ").ifBlank { "学生信息接口待接入" }
     var showLogoutConfirm by rememberSaveable { mutableStateOf(false) }
     var showDeveloperContact by rememberSaveable { mutableStateOf(false) }
+    var showShareSheet by rememberSaveable { mutableStateOf(false) }
     var showQrCard by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -549,6 +561,12 @@ private fun ProfileHomeScreen(
 
     if (showDeveloperContact) {
         DeveloperContactDialog(onDismiss = { showDeveloperContact = false })
+    }
+
+    if (showShareSheet) {
+        ShareSheet(
+            onDismiss = { showShareSheet = false },
+        )
     }
 
     Scaffold(
@@ -622,6 +640,7 @@ private fun ProfileHomeScreen(
                 } else {
                     BalanceCard(
                         balance = balance,
+                        qrBalance = qrBalance,
                         isLoading = balanceLoading,
                         error = balanceError,
                         timestamp = timestamp,
@@ -707,6 +726,22 @@ private fun ProfileHomeScreen(
                         icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                         onClick = onOpenSettings
                     )
+                    HorizontalDivider()
+                    SettingsRow(
+                        title = "开源协议",
+                        description = "本应用使用的所有开源项目与 License",
+                        iconColor = Color(0xFF607D8B),
+                        icon = { Icon(Icons.Filled.Code, contentDescription = null) },
+                        onClick = onOpenOpenSourceLicenses
+                    )
+                    HorizontalDivider()
+                    SettingsRow(
+                        title = "推荐给朋友",
+                        description = "分享下载链接或安装包给好友",
+                        iconColor = Color(0xFF2F80ED),
+                        icon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                        onClick = { showShareSheet = true }
+                    )
                 }
             }
 
@@ -743,32 +778,49 @@ private fun buildMyInfoDescription(
 
 @Composable
 private fun DeveloperContactDialog(onDismiss: () -> Unit) {
-    val clipboard = LocalClipboard.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    fun copy(text: String) {
-        scope.launch {
-            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("label", text)))
-            Toast.makeText(context, "已复制到剪切板", Toast.LENGTH_SHORT).show()
+    /**
+     * 拉起 QQ 加群: 先 mqqapi://scheme(若 QQ 客户端已安装),
+     * 失败则 fallback 到 https://qm.qq.com/q/<groupUin>(QQ 群推广页)
+     */
+    fun openGroup(groupUin: String) {
+        val ok = com.yourname.ahu_plus.util.BrowserOpener.openQQGroup(context, groupUin)
+        if (!ok) {
+            com.yourname.ahu_plus.util.BrowserOpener.open(context, "https://qm.qq.com/q/$groupUin")
+            Toast.makeText(context, "未检测到 QQ,已打开网页版群页", Toast.LENGTH_LONG).show()
         }
+        onDismiss()
+    }
+
+    /**
+     * 拉起 QQ 加好友: 先 mqqapi://scheme,失败则 fallback 到 https://wpa.qq.com/msgrd?v=3&uin=<uin>
+     */
+    fun openFriend(uin: String) {
+        val ok = com.yourname.ahu_plus.util.BrowserOpener.openQQ(context, uin)
+        if (!ok) {
+            com.yourname.ahu_plus.util.BrowserOpener.open(context, "https://wpa.qq.com/msgrd?v=3&uin=$uin")
+            Toast.makeText(context, "未检测到 QQ,已打开网页版加好友", Toast.LENGTH_LONG).show()
+        }
+        onDismiss()
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("联系开发者") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ContactMethodRow(
                     title = "加入 QQ 讨论群",
                     value = "483448621",
-                    onCopy = { copy("483448621") }
+                    onClick = { openGroup("483448621") }
                 )
                 HorizontalDivider()
                 ContactMethodRow(
-                    title = "给开发者发邮件",
-                    value = "2867299793@qq.com",
-                    onCopy = { copy("2867299793@qq.com") }
+                    title = "加开发者 QQ 好友",
+                    value = "2867299793",
+                    onClick = { openFriend("2867299793") }
                 )
             }
         },
@@ -784,10 +836,13 @@ private fun DeveloperContactDialog(onDismiss: () -> Unit) {
 private fun ContactMethodRow(
     title: String,
     value: String,
-    onCopy: () -> Unit
+    onClick: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -802,9 +857,11 @@ private fun ContactMethodRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        TextButton(onClick = onCopy) {
-            Text("复制")
-        }
+        Icon(
+            Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -1448,6 +1505,7 @@ private fun ProfileHeader(
 @Composable
 private fun BalanceCard(
     balance: Double,
+    qrBalance: Double? = null,
     isLoading: Boolean,
     error: String?,
     timestamp: Long,
@@ -1456,6 +1514,7 @@ private fun BalanceCard(
     onQrClick: () -> Unit,
     onClick: () -> Unit
 ) {
+    val displayBalance = qrBalance ?: balance
     val formatter = DecimalFormat("\u00A5#,##0.00")
 
     Card(
@@ -1495,11 +1554,11 @@ private fun BalanceCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = "\u6821\u56ED\u5361\u4F59\u989D",
+                        text = "\u6821\u56ED\u5361",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    val hasBalance = balance > 0.0
+                    val hasBalance = displayBalance > 0.0
                     val subText = when {
                         hasBalance -> null
                         isLoading -> null
@@ -1515,15 +1574,15 @@ private fun BalanceCard(
                     }
                 }
                 when {
-                    isLoading && balance == 0.0 -> {
+                    isLoading && displayBalance == 0.0 -> {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             strokeWidth = 2.dp
                         )
                     }
-                    balance > 0.0 -> {
+                    displayBalance > 0.0 -> {
                         Text(
-                            text = formatter.format(balance),
+                            text = formatter.format(displayBalance),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -2270,6 +2329,10 @@ fun BillDetailScreen(
     onRefresh: () -> Unit,
     onOpenAnalytics: () -> Unit = {}
 ) {
+    // 2026-06-22: 单条账单选中后弹出明细 BottomSheet
+    var selectedBill by remember { mutableStateOf<BillRecord?>(null) }
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -2328,7 +2391,7 @@ fun BillDetailScreen(
                         ) {
                             Column {
                                 bills.forEachIndexed { index, bill ->
-                                    BillRow(bill = bill)
+                                    BillRow(bill = bill, onClick = { selectedBill = bill })
                                     if (index != bills.lastIndex) HorizontalDivider()
                                 }
                             }
@@ -2339,10 +2402,125 @@ fun BillDetailScreen(
             item { Spacer(modifier = Modifier.height(80.dp)) }
         }
     }
+
+    // 单条账单明细 BottomSheet
+    selectedBill?.let { bill ->
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = { selectedBill = null },
+            sheetState = sheetState,
+            shape = AhuShapes.BottomSheet,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            BillDetailSheet(bill = bill)
+        }
+    }
 }
 
 @Composable
-fun BillRow(bill: BillRecord) {
+private fun BillDetailSheet(bill: BillRecord) {
+    val typeText = remember(bill) { (bill.turnoverType + " " + bill.consumeTypeName.orEmpty()).trim() }
+    val isPayment = remember(bill, typeText) {
+        when {
+            bill.tranAmt < 0 -> true
+            typeText.contains("充值") -> false
+            typeText.contains("退款") || typeText.contains("退费") -> false
+            typeText.contains("转入") || typeText.contains("入账") -> false
+            typeText.contains("消费") || typeText.contains("支付") || typeText.contains("扣款") -> true
+            else -> false
+        }
+    }
+    val amount = remember(bill) { abs(bill.tranAmt) / 100.0 }
+    val formatter = remember { DecimalFormat("¥#0.00") }
+    val cardBalance = remember(bill) { abs(bill.cardBalance) / 100.0 }
+    val cardBalanceStr = remember(bill, cardBalance) { if (bill.cardBalance == 0) "—" else formatter.format(cardBalance) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // 顶部：商户 + 金额
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = bill.resume.ifBlank { bill.turnoverType.ifBlank { "校园卡交易" } },
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = if (isPayment) "-${formatter.format(amount)}" else "+${formatter.format(amount)}",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isPayment) MaterialTheme.colorScheme.error else Color(0xFF2A9D8F)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isPayment) "支出" else "收入",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
+        }
+
+        HorizontalDivider()
+
+        // 明细字段
+        BillDetailField("交易时间", bill.effectDateStr.ifBlank { bill.jndatetimeStr }.ifBlank { "—" })
+        BillDetailField("交易类型", bill.turnoverType.ifBlank { "—" })
+        if (!bill.consumeTypeName.isNullOrBlank()) {
+            BillDetailField("消费类型", bill.consumeTypeName)
+        }
+        if (!bill.payName.isNullOrBlank()) {
+            BillDetailField("支付方式", bill.payName)
+        }
+        if (!bill.locationName.isNullOrBlank()) {
+            BillDetailField("地理位置", bill.locationName)
+        }
+        if (!bill.toMerchant.isNullOrBlank()) {
+            BillDetailField("收款方", bill.toMerchant)
+        }
+        BillDetailField("卡余额", cardBalanceStr)
+        if (!bill.icon.isNullOrBlank()) {
+            BillDetailField("商户图标", bill.icon)
+        }
+        BillDetailField("订单号", bill.orderId.ifBlank { "—" }, copyable = true)
+    }
+}
+
+@Composable
+private fun BillDetailField(label: String, value: String, copyable: Boolean = false) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(76.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f).let {
+                if (copyable) it.clickable {
+                    val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(ClipData.newPlainText(label, value))
+                    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                } else it
+            }
+        )
+    }
+}
+
+@Composable
+fun BillRow(bill: BillRecord, onClick: () -> Unit = {}) {
     val typeText = (bill.turnoverType + " " + bill.consumeTypeName.orEmpty()).trim()
     val isPayment = when {
         bill.tranAmt < 0 -> true
@@ -2358,6 +2536,7 @@ fun BillRow(bill: BillRecord) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

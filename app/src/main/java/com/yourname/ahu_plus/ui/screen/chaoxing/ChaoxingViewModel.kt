@@ -10,24 +10,34 @@ import com.yourname.ahu_plus.data.model.CxChapter
 import com.yourname.ahu_plus.data.model.CxCourse
 import com.yourname.ahu_plus.data.model.CxCoursePoints
 import com.yourname.ahu_plus.data.model.CxCourseProgress
+import com.yourname.ahu_plus.data.model.CxHomeworkItem
+import com.yourname.ahu_plus.data.model.CxHomeworkListState
+import com.yourname.ahu_plus.data.model.CxHomeworkDetailState
 import com.yourname.ahu_plus.data.model.CxJob
+import com.yourname.ahu_plus.data.model.CxQuestion
 import com.yourname.ahu_plus.data.model.CxJobInfo
 import com.yourname.ahu_plus.data.model.CxMessage
 import com.yourname.ahu_plus.data.model.CxMessageSource
 import com.yourname.ahu_plus.data.model.CxSignType
 import com.yourname.ahu_plus.data.model.CxStudyUiState
+import com.yourname.ahu_plus.data.model.CxWorkData
 import com.yourname.ahu_plus.data.repository.ChaoxingRepository
 import com.yourname.ahu_plus.data.repository.ChaoxingStudyRepository
 import com.yourname.ahu_plus.data.repository.ChaoxingTikuRepository
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.Collections
 
 class ChaoxingViewModel(
     val cxRepo: ChaoxingRepository,
     private val studyRepo: ChaoxingStudyRepository,
-    private val tikuRepo: ChaoxingTikuRepository,
+    val tikuRepo: ChaoxingTikuRepository,
     val sessionManager: SessionManager,
 ) : ViewModel() {
 
@@ -64,6 +74,13 @@ class ChaoxingViewModel(
     private val _messagesState = MutableStateFlow(CxMessagesState())
     val messagesState: StateFlow<CxMessagesState> = _messagesState.asStateFlow()
 
+    // ── 课程作业 (2026-06-22) ─────────────────────────────────
+    private val _homeworkState = MutableStateFlow(CxHomeworkListState())
+    val homeworkState: StateFlow<CxHomeworkListState> = _homeworkState.asStateFlow()
+
+    private val _homeworkDetailState = MutableStateFlow(CxHomeworkDetailState())
+    val homeworkDetailState: StateFlow<CxHomeworkDetailState> = _homeworkDetailState.asStateFlow()
+
     init {
         cxRepo.loadPersistedCookies()
         loadSettings()
@@ -93,6 +110,12 @@ class ChaoxingViewModel(
             },
             enabledTaskTypes = sessionManager.getCxTaskTypes(),
             messagesMergeInbox = sessionManager.getCxMessagesMerge(),
+            showOverlay = true,
+            hideEndedCourses = sessionManager.getCxHideEndedCourses(),
+            hiddenCourseKeys = sessionManager.getCxHiddenCourses(),
+            visitBrushEnabled = sessionManager.getCxVisitBrushEnabled(),
+            visitBrushInterval = sessionManager.getCxVisitBrushInterval(),
+            downloadEnabled = sessionManager.getCxDownloadEnabled(),
         )
         applyTikuConfig()
     }
@@ -165,6 +188,62 @@ class ChaoxingViewModel(
     fun updateMessagesMergeInbox(v: Boolean) {
         _settingsState.value = _settingsState.value.copy(messagesMergeInbox = v)
         viewModelScope.launch { sessionManager.saveCxMessagesMerge(v) }
+    }
+
+    fun updateShowOverlay(v: Boolean) {
+        _settingsState.value = _settingsState.value.copy(showOverlay = v)
+        sessionManager.showStudyOverlay = v
+    }
+
+    fun updateHideEndedCourses(v: Boolean) {
+        _settingsState.value = _settingsState.value.copy(hideEndedCourses = v)
+        viewModelScope.launch { sessionManager.saveCxHideEndedCourses(v) }
+        // 重新加载作业列表以应用过滤
+        if (_coursesState.value.courses.isNotEmpty()) loadHomework()
+    }
+
+    /** 切换单门课程的隐藏状态。key = "${courseId}_${clazzId}" */
+    fun toggleHiddenCourse(courseKey: String) {
+        val current = _settingsState.value.hiddenCourseKeys.toMutableSet()
+        if (current.contains(courseKey)) current.remove(courseKey) else current.add(courseKey)
+        _settingsState.value = _settingsState.value.copy(hiddenCourseKeys = current)
+        viewModelScope.launch { sessionManager.saveCxHiddenCourses(current) }
+        // 过滤课程列表和作业列表
+        applyHiddenCourseFilter()
+        loadHomework()
+    }
+
+    /** 批量更新隐藏课程 */
+    fun updateHiddenCourses(keys: Set<String>) {
+        _settingsState.value = _settingsState.value.copy(hiddenCourseKeys = keys)
+        viewModelScope.launch { sessionManager.saveCxHiddenCourses(keys) }
+        applyHiddenCourseFilter()
+        loadHomework()
+    }
+
+    /** 对已加载的课程列表应用隐藏过滤（从 allCourses 重新计算 visible courses） */
+    private fun applyHiddenCourseFilter() {
+        val all = _coursesState.value.allCourses
+        if (all.isEmpty()) return
+        val hidden = _settingsState.value.hiddenCourseKeys
+        _coursesState.value = _coursesState.value.copy(
+            courses = all.filter { "${it.courseId}_${it.clazzId}" !in hidden },
+        )
+    }
+
+    fun updateVisitBrushEnabled(v: Boolean) {
+        _settingsState.value = _settingsState.value.copy(visitBrushEnabled = v)
+        viewModelScope.launch { sessionManager.saveCxVisitBrushEnabled(v) }
+    }
+
+    fun updateVisitBrushInterval(v: Int) {
+        _settingsState.value = _settingsState.value.copy(visitBrushInterval = v)
+        viewModelScope.launch { sessionManager.saveCxVisitBrushInterval(v) }
+    }
+
+    fun updateDownloadEnabled(v: Boolean) {
+        _settingsState.value = _settingsState.value.copy(downloadEnabled = v)
+        viewModelScope.launch { sessionManager.saveCxDownloadEnabled(v) }
     }
 
     fun toggleTaskType(type: String) {
@@ -277,12 +356,15 @@ class ChaoxingViewModel(
         viewModelScope.launch {
             cxRepo.clearCookies()
             sessionManager.clearCxCredentials()
+            sessionManager.saveCxHomeworkJson("")  // 清除作业缓存
             _loginState.value = CxLoginState()
             _coursesState.value = CxCoursesState()
             _detailState.value = CxDetailState()
             _signState.value = CxSignState()
             _tikuTestResult.value = null
             _messagesState.value = CxMessagesState()
+            _homeworkState.value = CxHomeworkListState()
+            _homeworkDetailState.value = CxHomeworkDetailState()
         }
     }
 
@@ -423,8 +505,12 @@ class ChaoxingViewModel(
             _coursesState.value = _coursesState.value.copy(isLoading = true, error = null)
             val result = cxRepo.getCourseList()
             result.onSuccess { courses ->
-                _coursesState.value = _coursesState.value.copy(isLoading = false, courses = courses, error = null)
-                sessionManager.saveCxCoursesJson(gson.toJson(courses))
+                val hidden = _settingsState.value.hiddenCourseKeys
+                val filtered = courses.filter { "${it.courseId}_${it.clazzId}" !in hidden }
+                _coursesState.value = _coursesState.value.copy(
+                    isLoading = false, courses = filtered, allCourses = courses, error = null,
+                )
+                sessionManager.saveCxCoursesJson(gson.toJson(courses))  // 缓存完整列表
                 // 后台加载课程进度
                 loadCourseProgress(courses)
             }
@@ -435,19 +521,46 @@ class ChaoxingViewModel(
     }
 
     /**
-     * 后台并行加载所有课程的任务点进度。
+     * 后台并行加载所有课程的任务点进度（本地缓存优先 + 后台刷新）。
      */
     private suspend fun loadCourseProgress(courses: List<CxCourse>) {
         if (courses.isEmpty()) return
-        _coursesState.value = _coursesState.value.copy(isProgressLoading = true)
+
+        // 1. 优先加载本地缓存 — 立即显示进度条
+        val cachedJson = sessionManager.getCxCoursesProgressJson()
+        if (!cachedJson.isNullOrBlank()) {
+            try {
+                val type = TypeToken.getParameterized(
+                    Map::class.java, String::class.java, CxCourseProgress::class.java
+                ).type
+                val cached: Map<String, CxCourseProgress> = gson.fromJson(cachedJson, type)
+                if (cached.isNotEmpty()) {
+                    _coursesState.value = _coursesState.value.copy(
+                        courseProgress = cached,
+                        isProgressLoading = true,
+                    )
+                }
+            } catch (_: Exception) { /* 缓存格式不兼容，忽略 */ }
+        }
+
+        if (_coursesState.value.courseProgress.isEmpty()) {
+            _coursesState.value = _coursesState.value.copy(isProgressLoading = true)
+        }
+
+        // 2. 后台网络刷新
         try {
             val progress = cxRepo.getAllCoursesProgress(courses)
             _coursesState.value = _coursesState.value.copy(
                 courseProgress = progress,
                 isProgressLoading = false,
             )
+            // 网络成功后缓存
+            if (progress.isNotEmpty()) {
+                sessionManager.saveCxCoursesProgressJson(gson.toJson(progress))
+            }
         } catch (e: Exception) {
             Log.w("CxVM", "加载课程进度失败: ${e.message}")
+            // 网络失败时保留缓存数据
             _coursesState.value = _coursesState.value.copy(isProgressLoading = false)
         }
     }
@@ -633,14 +746,275 @@ class ChaoxingViewModel(
     }
 
     // ════════════════════════════════════════════════════════
+    //  课程作业 (2026-06-22)
+    // ════════════════════════════════════════════════════════
+
+    fun loadHomework() {
+        if (_homeworkState.value.isLoading) return
+        _homeworkState.value = _homeworkState.value.copy(isLoading = true, error = null)
+
+        viewModelScope.launch {
+            try {
+                // 1. 优先加载缓存 (快速显示)
+                val cachedJson = sessionManager.getCxHomeworkJson()
+                if (!cachedJson.isNullOrBlank() && _homeworkState.value.homework.isEmpty()) {
+                    try {
+                        val type = TypeToken.getParameterized(
+                            List::class.java, CxHomeworkItem::class.java
+                        ).type
+                        val cached: List<CxHomeworkItem> = gson.fromJson(cachedJson, type)
+                        if (cached.isNotEmpty()) {
+                            _homeworkState.value = CxHomeworkListState(
+                                isLoading = true,
+                                homework = cached,
+                            )
+                        }
+                    } catch (_: Exception) { /* 缓存格式不兼容，忽略 */ }
+                }
+
+                var courses = _coursesState.value.courses
+                // 如果课程列表为空，等待加载（最多等待 8 秒）
+                if (courses.isEmpty()) {
+                    Log.w("CxVM", "loadHomework: 课程列表为空，等待加载...")
+                    var waited = 0
+                    while (courses.isEmpty() && waited < 40) {
+                        delay(200)
+                        waited++
+                        courses = _coursesState.value.courses
+                    }
+                    if (courses.isEmpty()) {
+                        _homeworkState.value = CxHomeworkListState(error = "请先加载课程列表")
+                        return@launch
+                    }
+                }
+
+                // 过滤用户手动隐藏的课程
+                val hidden = _settingsState.value.hiddenCourseKeys
+                val visibleCourses = courses.filter { "${it.courseId}_${it.clazzId}" !in hidden }
+                Log.d("CxVM", "loadHomework: ${visibleCourses.size}/${courses.size} 门可见课程 (隐藏了 ${hidden.size} 门)")
+
+                // 2. 并发请求所有课程的作业列表
+                val allHomework = Collections.synchronizedList(mutableListOf<CxHomeworkItem>())
+                val errors = Collections.synchronizedList(mutableListOf<String>())
+
+                kotlinx.coroutines.coroutineScope {
+                    visibleCourses.map { course ->
+                        async {
+                            val courseUrl = course.url.ifBlank {
+                                "https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction" +
+                                    "?courseid=${course.courseId}&clazzid=${course.clazzId}&cpi=${course.cpi}"
+                            }
+                            val result = cxRepo.getHomeworkList(courseUrl)
+                            result.onSuccess { items ->
+                                items.forEach { item ->
+                                    allHomework.add(item.copy(courseName = course.title))
+                                }
+                                Log.d("CxVM", "loadHomework: ${course.title.take(16)} → ${items.size} 个作业")
+                            }
+                            result.onFailure { e ->
+                                Log.w("CxVM", "loadHomework: ${course.title.take(16)} 失败: ${e.message}")
+                                errors.add("${course.title.take(12)}: ${e.message}")
+                            }
+                        }
+                    }.forEach { it.await() }
+                }
+
+                // 过滤已结束课程（启用时：只保留有未完成/待审批作业的课程）
+                val hideEnded = _settingsState.value.hideEndedCourses
+                val activeStatusSet = setOf("未交", "待做", "待审批", "已提交", "待批阅", "未完成")
+                val filtered = if (hideEnded) {
+                    val activeCourses = allHomework
+                        .filter { hw -> activeStatusSet.any { it in hw.status } }
+                        .map { it.courseName }
+                        .toSet()
+                    allHomework.filter { it.courseName in activeCourses }
+                } else {
+                    allHomework
+                }
+
+                val sorted = filtered.sortedBy { it.status != "未交" }
+                _homeworkState.value = CxHomeworkListState(
+                    isLoading = false,
+                    homework = sorted,
+                    error = if (sorted.isEmpty() && errors.isNotEmpty()) {
+                        "部分课程加载失败: ${errors.take(3).joinToString("; ")}"
+                    } else null,
+                )
+
+                // 3. 网络成功后缓存
+                if (sorted.isNotEmpty()) {
+                    sessionManager.saveCxHomeworkJson(gson.toJson(sorted))
+                }
+            } catch (e: Exception) {
+                Log.e("CxVM", "loadHomework 异常", e)
+                // 网络失败时保留缓存数据
+                if (_homeworkState.value.homework.isNotEmpty()) {
+                    _homeworkState.value = _homeworkState.value.copy(isLoading = false)
+                } else {
+                    _homeworkState.value = CxHomeworkListState(
+                        isLoading = false,
+                        error = e.message ?: "加载作业失败",
+                    )
+                }
+            }
+        }
+    }
+
+    fun refreshHomework() {
+        _homeworkState.value = _homeworkState.value.copy(isLoading = true, error = null)
+        loadHomework()
+    }
+
+    fun loadHomeworkDetail(work: CxHomeworkItem) {
+        _homeworkDetailState.value = CxHomeworkDetailState(isLoading = true, error = null)
+
+        // 1. 优先显示缓存
+        viewModelScope.launch {
+            val cachedJson = sessionManager.getCxHomeworkDetailJson()
+            if (!cachedJson.isNullOrBlank()) {
+                try {
+                    val cachedWorkData = gson.fromJson(cachedJson, CxWorkData::class.java)
+                    if (cachedWorkData.questions.isNotEmpty()) {
+                        _homeworkDetailState.value = CxHomeworkDetailState(
+                            isLoading = true, workData = cachedWorkData,
+                        )
+                    }
+                } catch (_: Exception) { /* 缓存不兼容 */ }
+            }
+
+            // 2. 后台网络刷新
+            val result = cxRepo.getHomeworkPage(
+                workUrl = work.workUrl,
+                courseId = work.courseId,
+                classId = work.classId,
+                cpi = work.cpi,
+            )
+            result.onSuccess { workData ->
+                _homeworkDetailState.value = CxHomeworkDetailState(workData = workData)
+                sessionManager.saveCxHomeworkDetailJson(gson.toJson(workData))
+            }
+            result.onFailure { e ->
+                if (_homeworkDetailState.value.workData == null) {
+                    _homeworkDetailState.value = CxHomeworkDetailState(
+                        error = e.message ?: "加载作业详情失败",
+                    )
+                } else {
+                    // 有缓存时静默失败
+                    _homeworkDetailState.value = _homeworkDetailState.value.copy(isLoading = false)
+                }
+            }
+        }
+    }
+
+    fun refreshHomeworkDetail(work: CxHomeworkItem) {
+        _homeworkDetailState.value = _homeworkDetailState.value.copy(isLoading = true)
+        viewModelScope.launch {
+            val result = cxRepo.getHomeworkPage(
+                workUrl = work.workUrl,
+                courseId = work.courseId,
+                classId = work.classId,
+                cpi = work.cpi,
+            )
+            result.onSuccess { workData ->
+                _homeworkDetailState.value = _homeworkDetailState.value.copy(
+                    isLoading = false, workData = workData, error = null,
+                )
+                sessionManager.saveCxHomeworkDetailJson(gson.toJson(workData))
+            }
+            result.onFailure { e ->
+                _homeworkDetailState.value = _homeworkDetailState.value.copy(
+                    isLoading = false,
+                    error = e.message ?: "刷新失败",
+                )
+            }
+        }
+    }
+
+    fun clearHomeworkDetail() {
+        _homeworkDetailState.value = CxHomeworkDetailState()
+    }
+
+    fun submitHomework(
+        work: CxHomeworkItem,
+        workData: CxWorkData,
+        formActionUrl: String,
+        userAnswers: Map<String, String> = emptyMap(),
+    ) {
+        if (_homeworkDetailState.value.isSubmitting) return
+        if (formActionUrl.isBlank()) {
+            _homeworkDetailState.value = _homeworkDetailState.value.copy(error = "无法提交：缺少表单地址")
+            return
+        }
+        _homeworkDetailState.value = _homeworkDetailState.value.copy(
+            isSubmitting = true, submitResult = null, error = null,
+        )
+
+        viewModelScope.launch {
+            // 填充答案：优先用户输入 → 题库 → 随机
+            val filledFormFields = workData.formFields.toMutableMap()
+            var foundCount = 0
+            for (q in workData.questions) {
+                val userAns = userAnswers[q.id]?.takeIf { it.isNotBlank() }
+                val finalAnswer = if (userAns != null) {
+                    foundCount++
+                    userAns
+                } else {
+                    val tikuAns = tikuRepo.query(q)
+                    if (tikuAns != null) { foundCount++; tikuAns }
+                    else generateRandomAnswerForHomework(q)
+                }
+                filledFormFields["answer${q.id}"] = finalAnswer
+                filledFormFields["answertype${q.id}"] = q.answerField["answertype${q.id}"] ?: ""
+            }
+            val coverage = if (workData.questions.isNotEmpty()) foundCount.toFloat() / workData.questions.size else 0f
+            Log.i("CxVM", "submitHomework: 覆盖率 ${(coverage * 100).toInt()}% ($foundCount/${workData.questions.size})")
+
+            val result = cxRepo.submitHomework(
+                workData.copy(formFields = filledFormFields, pyFlag = ""),
+                formActionUrl,
+            )
+            result.onSuccess { msg ->
+                _homeworkDetailState.value = _homeworkDetailState.value.copy(
+                    isSubmitting = false, submitResult = msg.ifBlank { "提交成功" },
+                )
+                sessionManager.saveCxHomeworkDetailJson("")  // 清除缓存
+                refreshHomework()
+            }
+            result.onFailure { e ->
+                _homeworkDetailState.value = _homeworkDetailState.value.copy(
+                    isSubmitting = false,
+                    error = e.message ?: "提交失败",
+                )
+            }
+        }
+    }
+
+    /** 作业Tab随机答案生成 (与 ChaoxingStudyRepository.generateRandomAnswer 对齐) */
+    private fun generateRandomAnswerForHomework(q: CxQuestion): String {
+        return when (q.type) {
+            "single" -> {
+                val opts = q.options.split("\n").filter { it.isNotBlank() }
+                if (opts.isNotEmpty()) opts.random().take(1) else ""
+            }
+            "multiple" -> {
+                val opts = q.options.split("\n").filter { it.isNotBlank() }
+                if (opts.size >= 3) opts.shuffled().take(2).map { it.take(1) }.sorted().joinToString("")
+                else if (opts.isNotEmpty()) opts.random().take(1) else ""
+            }
+            "judgement" -> if (kotlin.random.Random.nextBoolean()) "true" else "false"
+            "completion" -> "暂未作答"
+            "shortanswer" -> "暂未作答"
+            else -> ""
+        }
+    }
+
+    // ════════════════════════════════════════════════════════
     //  学习控制
     // ════════════════════════════════════════════════════════
 
     fun studyCourses(courses: List<CxCourse>) {
-        // 防止并发：先取消已有任务
         if (studyState.value.isRunning) {
             studyRepo.stop()
-            return
         }
         val s = _settingsState.value
         viewModelScope.launch {
@@ -655,10 +1029,8 @@ class ChaoxingViewModel(
     }
 
     fun studySingleCourse(course: CxCourse) {
-        // 防止并发：先取消已有任务
         if (studyState.value.isRunning) {
             studyRepo.stop()
-            return
         }
         val s = _settingsState.value
         viewModelScope.launch {
@@ -686,7 +1058,8 @@ data class CxLoginState(
 
 data class CxCoursesState(
     val isLoading: Boolean = false,
-    val courses: List<CxCourse> = emptyList(),
+    val courses: List<CxCourse> = emptyList(),           // 过滤后的可见课程
+    val allCourses: List<CxCourse> = emptyList(),         // 全部课程（含隐藏的，供管理对话框使用）
     val selectedCourseIds: Set<String> = emptySet(),
     val error: String? = null,
     /** 课程进度索引: key = "${courseId}_${clazzId}" */
@@ -716,8 +1089,14 @@ data class CxSettingsState(
     val aiApiKey: String = "",
     val aiBaseUrl: String = "https://api.deepseek.com",
     val aiModel: String = "deepseek-v4-flash",
-    val enabledTaskTypes: Set<String> = setOf("video", "document", "read", "workid"),
+    val enabledTaskTypes: Set<String> = setOf("video", "document", "read", "workid", "audio", "live"),
     val messagesMergeInbox: Boolean = false, // 是否将活动通知集合为收件箱
+    val showOverlay: Boolean = true,         // 2026-06-22: 后台学习时是否显示悬浮窗
+    val hideEndedCourses: Boolean = true,    // 2026-06-22: 隐藏已结束课程的作业
+    val hiddenCourseKeys: Set<String> = emptySet(),  // 用户手动隐藏的课程 key
+    val visitBrushEnabled: Boolean = false,     // 刷课程访问次数
+    val visitBrushInterval: Int = 30,           // 访问间隔（秒）
+    val downloadEnabled: Boolean = false,       // 课程资源自动下载
 )
 
 /** 签到 UI 状态(2026-06-20 集成 Phase 3) */

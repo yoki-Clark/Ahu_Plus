@@ -1,6 +1,5 @@
 package com.yourname.ahu_plus.ui.screen.schedule
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
@@ -65,6 +65,8 @@ fun WeekGrid(
     showSat: Boolean = true,
     /** 是否显示周日 (默认 true)。false 时周日列隐藏 */
     showSun: Boolean = true,
+    /** 时间 tick：传入外部递增的 Int，每分钟 +1，触发当前时间线重算（默认 0） */
+    timeTick: Int = 0,
 ) {
     // 可见的星期列表 (用于头部 + 列计算)。1=周一 ... 7=周日。
     val visibleDays: List<Int> = remember(showSat, showSun) {
@@ -97,7 +99,7 @@ fun WeekGrid(
     }
     val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
     // I-007: 红线始终显示（不依赖"当前时间在某个节次内"），课前/课间/课后均可定位
-    val currentTimeLineY = remember(sortedUnits, isCurrentWeek, rowHeight, minUnit) {
+    val currentTimeLineY = remember(sortedUnits, isCurrentWeek, rowHeight, minUnit, timeTick) {
         if (!isCurrentWeek) {
             null
         } else {
@@ -200,15 +202,14 @@ fun WeekGrid(
             }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(verScroll)
-        ) {
+        // 主体：time column + grid body 在同一 Row 中共享 verticalScroll，
+        // time column 不参与 horizontalScroll，确保垂直滚动同步。
+        Row(modifier = Modifier.fillMaxSize().verticalScroll(verScroll)) {
             Column(
                 modifier = Modifier
                     .width(TIME_COL_WIDTH)
                     .height(bodyHeight)
+                    .background(MaterialTheme.colorScheme.surface)
             ) {
                 for (u in minUnit..maxUnit) {
                     TimeCell(
@@ -223,7 +224,6 @@ fun WeekGrid(
 
             Box(
                 modifier = Modifier
-                    .weight(1f)
                     .horizontalScroll(horScroll)
             ) {
                 Box(modifier = Modifier.size(gridWidth, bodyHeight)) {
@@ -244,24 +244,6 @@ fun WeekGrid(
                                         }
                                     )
                                     .border(0.5.dp, lineColor)
-                            )
-                        }
-                    }
-
-                    if (currentTimeLineY != null) {
-                        val todayCol = dayToColIndex[todayDayOfWeek]
-                        if (todayCol != null) {
-                            Box(
-                                modifier = Modifier
-                                    .offset(colWidth * todayCol + 5.dp, currentTimeLineY)
-                                    .size(8.dp, 8.dp)
-                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(999.dp))
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .offset(colWidth * todayCol + 10.dp, currentTimeLineY + 3.dp)
-                                    .size(colWidth - 14.dp, 2.dp)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.80f))
                             )
                         }
                     }
@@ -295,6 +277,27 @@ fun WeekGrid(
                                 .size(w.coerceAtLeast(0.dp), h.coerceAtLeast(0.dp)),
                             fontScale = fontScale,
                         )
+                    }
+
+                    // 当前时间线 — 在课程卡片之后渲染 + zIndex 提升层级，确保浮于课程之上
+                    if (currentTimeLineY != null) {
+                        val todayCol = dayToColIndex[todayDayOfWeek]
+                        if (todayCol != null) {
+                            Box(
+                                modifier = Modifier
+                                    .offset(colWidth * todayCol + 5.dp, currentTimeLineY - 4.dp)
+                                    .size(8.dp, 8.dp)
+                                    .zIndex(10f)
+                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(999.dp))
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .offset(colWidth * todayCol + 10.dp, currentTimeLineY - 1.dp)
+                                    .size(colWidth - 14.dp, 2.dp)
+                                    .zIndex(10f)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+                            )
+                        }
                     }
                 }
             }
@@ -403,9 +406,9 @@ private fun CourseCard(
     Card(
         modifier = modifier.clickable(onClick = onClick),
         shape = AhuShapes.Card,
-        colors = CardDefaults.cardColors(containerColor = bg.copy(alpha = 0.94f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.24f))
+        // 单卡单色：取消 alpha 透明 + 删除边框 + 删除 elevation，避免视觉上"嵌套色块"
+        colors = CardDefaults.cardColors(containerColor = bg),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
             modifier = Modifier
@@ -429,6 +432,8 @@ private fun CourseCard(
                     fontSize = (9 * fontScale).sp,
                     color = Color.White.copy(alpha = 0.9f),
                     softWrap = true,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                     lineHeight = (10 * fontScale).sp
                 )
             }

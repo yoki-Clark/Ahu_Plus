@@ -30,16 +30,18 @@ class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
-        if (action != Intent.ACTION_BOOT_COMPLETED &&
-            action != Intent.ACTION_LOCKED_BOOT_COMPLETED &&
-            action != "android.intent.action.QUICKBOOT_POWERON"  // HTC / 部分国产 ROM
-        ) {
+        val isRelevant = action == Intent.ACTION_BOOT_COMPLETED ||
+            action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
+            action == Intent.ACTION_MY_PACKAGE_REPLACED ||
+            action == "android.intent.action.QUICKBOOT_POWERON"  // HTC / 部分国产 ROM
+        if (!isRelevant) {
             return
         }
         Log.i(TAG, "onReceive: $action, 重新调度 widget + 课程提醒")
 
         val appContext = context.applicationContext
         WidgetUpdateScheduler.scheduleNext(appContext)
+        WidgetUpdateScheduler.scheduleTicker(appContext)  // 2026-06-22: 重启后重设 1 分钟倒计时刷新
 
         // scheduleAll 是 suspend 函数,需要在协程内调用
         GlobalScope.launch(Dispatchers.IO) {

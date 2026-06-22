@@ -34,6 +34,7 @@ import com.yourname.ahu_plus.data.repository.CourseRepository
 import com.yourname.ahu_plus.data.repository.ExamRepository
 import com.yourname.ahu_plus.data.repository.FinanceRepository
 import com.yourname.ahu_plus.data.repository.GradeRepository
+import com.yourname.ahu_plus.data.repository.InitCoordinator
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.MarketRepository
@@ -64,7 +65,11 @@ fun AppNavigation(
     attendanceRepository: KqAttendanceRepository,
     adwmhCardRepository: AdwmhCardRepository,
     themeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    /** 首次登录初始化协调器 (2026-06-22 新增) */
+    initCoordinator: InitCoordinator? = null,
+    /** 首次登录初始化消息流 (LoginViewModel emit → MainScreen 订阅 → 底部 Snackbar) */
+    initMessageFlow: kotlinx.coroutines.flow.MutableSharedFlow<String>? = null,
 ) {
     val navController = rememberNavController()
     val coroutineScope = rememberCoroutineScope()
@@ -129,7 +134,16 @@ fun AppNavigation(
 
         // ── 手动登录页 ─────────────────────────────────
         composable("login") {
-            val viewModel = viewModel { LoginViewModel(casAuthRepository, ycardRepository, adwmhCardRepository, sessionManager) }
+            val viewModel = viewModel {
+                LoginViewModel(
+                    casAuthRepository = casAuthRepository,
+                    ycardRepository = ycardRepository,
+                    adwmhCardRepository = adwmhCardRepository,
+                    sessionManager = sessionManager,
+                    initCoordinator = initCoordinator,
+                    initMessageEmitter = initMessageFlow,
+                )
+            }
             LoginScreen(
                 viewModel = viewModel,
                 savedUsername = sessionManager.getUsername(),
@@ -161,6 +175,7 @@ fun AppNavigation(
                 studentInfoRepository = studentInfoRepository,
                 courseNoteRepository = courseNoteRepository,
                 gradeRepository = gradeRepository,
+                initMessageFlow = initMessageFlow,
                 examRepository = examRepository,
                 financeRepository = financeRepository,
                 attendanceRepository = attendanceRepository,

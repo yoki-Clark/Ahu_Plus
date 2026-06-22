@@ -144,17 +144,6 @@ private fun OverviewCard(studyState: CxStudyUiState, onStop: () -> Unit) {
                 text = if (studyState.isRunning) "学习中..." else "已完成",
                 style = MaterialTheme.typography.titleSmall,
             )
-            Spacer(Modifier.height(8.dp))
-
-            val progress = if (studyState.totalTasks > 0)
-                studyState.completedCount.toFloat() / studyState.totalTasks else 0f
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "${studyState.completedCount} / ${studyState.totalTasks}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
 
             if (studyState.error != null) {
                 Spacer(Modifier.height(8.dp))

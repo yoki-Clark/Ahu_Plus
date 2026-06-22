@@ -173,22 +173,51 @@ class HomeViewModel(
     }
 
     // ── 校园卡余额 ──────────────────────────────────────
+    //
+    // 2026-06-22: 改用 adwmh 智慧安大支付码余额作为主源（与支付码页面数字一致）。
+    // portal 余额作为 fallback (智慧安大登录失败/超时场景)。
+    //
+    // 用户反馈：portal 余额数字与支付码页面右下角"校园卡余额"不一致，
+    // 是因为 portal (one.ahu.edu.cn) 走的是单卡余额（不含补贴/钱包合并），
+    // 而 adwmh 显示的是完整余额。优先用 adwmh 体验更准。
 
     fun loadBalance() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             withContext(Dispatchers.IO) {
-                var result: Result<CardRepository.PortalBalance> = repository.getPortalBalance()
-                if (result.exceptionOrNull() is SessionExpiredException) {
+                // 主源：智慧安大支付码余额（与支付码页面数字一致）
+                val qrRepo = adwmhCardRepository
+                val adwmhBalance: Result<Double> = if (qrRepo != null) {
+                    qrRepo.getBalance()
+                } else {
+                    Result.failure(IllegalStateException("智慧安大未登录"))
+                }
+
+                if (adwmhBalance.isSuccess) {
+                    _uiState.update {
+                        it.copy(
+                            balance = adwmhBalance.getOrThrow(),
+                            timestamp = System.currentTimeMillis(),
+                            isLoading = false,
+                            error = null,
+                        )
+                    }
+                    return@withContext
+                }
+
+                // 兜底：portal 一卡通余额（保持旧逻辑兼容）
+                Log.w("HomeVM", "支付码余额获取失败，fallback 到 portal: ${adwmhBalance.exceptionOrNull()?.message}")
+                var portalResult: Result<CardRepository.PortalBalance> = repository.getPortalBalance()
+                if (portalResult.exceptionOrNull() is SessionExpiredException) {
                     Log.w("HomeVM", "余额接口报 session 失效，尝试重新登录")
                     val reLogin = casAuthRepository.ensureValidSession()
-                    result = if (reLogin.isSuccess) {
+                    portalResult = if (reLogin.isSuccess) {
                         repository.getPortalBalance()
                     } else {
                         Result.failure(reLogin.exceptionOrNull() ?: Exception("登录失败"))
                     }
                 }
-                result.fold(
+                portalResult.fold(
                     onSuccess = { portal ->
                         _uiState.update {
                             it.copy(balance = portal.balance, timestamp = portal.timestamp, isLoading = false)

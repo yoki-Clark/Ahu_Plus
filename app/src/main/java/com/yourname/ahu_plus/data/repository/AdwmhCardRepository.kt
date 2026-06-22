@@ -64,9 +64,11 @@ class AdwmhCardRepository(
     )
 
     /** 两次请求之间的最小间隔（ms），adwmh 服务器有严格速率限制 */
+    @Volatile
     private var lastRequestTimeMs = 0L
 
     /** 确保两次请求之间有足够间隔，避免触发服务器速率限制 */
+    @Synchronized
     private fun cooldown() {
         val elapsed = System.currentTimeMillis() - lastRequestTimeMs
         val minGap = 1500L  // 1.5 秒最小间隔（太大会拖慢整个流程）

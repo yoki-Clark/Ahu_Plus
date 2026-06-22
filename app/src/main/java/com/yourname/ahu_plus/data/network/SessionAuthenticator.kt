@@ -145,25 +145,38 @@ class SessionAuthenticator(
      * 真正触发会话刷新的入口。
      * 用 [InFlightRefresh] 互斥锁,保证并发安全。
      */
+    /** 递归守卫:防止 ensureValidSession → autoLogin → login → 拦截器 → refreshSession 循环 */
+    private val refreshInProgress = ThreadLocal<Boolean>()
+
     private val inFlight = InFlightRefresh()
 
     private fun refreshSession(): Boolean {
+        // 防递归:当前线程已在刷新中则直接返回
+        if (refreshInProgress.get() == true) {
+            Log.w(TAG, "refreshSession: 检测到递归调用,跳过")
+            return false
+        }
         if (!inFlight.tryAcquire()) {
             // 已有其他线程在刷新,等待其完成
             return inFlight.awaitResult()
         }
+        refreshInProgress.set(true)
+        var success = false
         try {
             val result = runBlocking { casAuthRepository.ensureValidSession() }
-            return result.isSuccess
+            success = result.isSuccess
+            return success
         } catch (e: Exception) {
             Log.e(TAG, "refreshSession 异常: ${e.message}", e)
             return false
         } finally {
-            inFlight.release(result = true)
+            refreshInProgress.remove()
+            inFlight.release(result = success)
         }
     }
 
-    /** 简单互斥锁 + 结果传递,避免 N 个并发请求触发 N 次登录 */
+    /** 简单互斥锁 + 结果传递,避免 N 个并发请求触发 N 次登录。
+     *  每次 refreshSession 调用完成后自动复位,支持多次续期。 */
     private class InFlightRefresh {
         private val lock = Object()
         private var completed = false
@@ -171,9 +184,11 @@ class SessionAuthenticator(
 
         fun tryAcquire(): Boolean = synchronized(lock) {
             if (completed) {
-                // 已有结果,直接复用
+                // 已有结果,等待完成即可
                 false
             } else {
+                // 标记正在刷新,防止并发
+                completed = true
                 true
             }
         }
@@ -187,8 +202,8 @@ class SessionAuthenticator(
 
         fun release(result: Boolean) {
             synchronized(lock) {
-                completed = true
                 lastResult = result
+                completed = false     // 复位,允许下次续期
                 (lock as Object).notifyAll()
             }
         }

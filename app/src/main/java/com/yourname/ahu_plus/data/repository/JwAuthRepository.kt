@@ -48,9 +48,11 @@ class JwAuthRepository(
 
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
             val hostCookies = jwCookieStore.getOrPut(url.host) { mutableListOf() }
-            for (cookie in cookies) {
-                hostCookies.removeAll { it.name == cookie.name }
-                hostCookies.add(cookie)
+            synchronized(hostCookies) {
+                for (cookie in cookies) {
+                    hostCookies.removeAll { it.name == cookie.name }
+                    hostCookies.add(cookie)
+                }
             }
         }
     }
@@ -392,9 +394,11 @@ class JwAuthRepository(
             override fun loadForRequest(url: HttpUrl) = store[url.host] ?: emptyList()
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
                 val hostCookies = store.getOrPut(url.host) { mutableListOf() }
-                for (c in cookies) {
-                    hostCookies.removeAll { it.name == c.name }
-                    hostCookies.add(c)
+                synchronized(hostCookies) {
+                    for (c in cookies) {
+                        hostCookies.removeAll { it.name == c.name }
+                        hostCookies.add(c)
+                    }
                 }
             }
         }

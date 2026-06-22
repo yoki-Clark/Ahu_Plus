@@ -194,7 +194,7 @@ fun GradeScreen(
                             CenteredMessage(text = "本学期暂无成绩")
                         }
                     } else {
-                        items(current, key = { it.id ?: it.courseCode.hashCode().toLong() }) { g ->
+                        items(current, key = { it.id ?: "grade_${it.courseCode}" }) { g ->
                             GradeRow(
                                 grade = g,
                                 onClick = { viewModel.onGradeClicked(g) }

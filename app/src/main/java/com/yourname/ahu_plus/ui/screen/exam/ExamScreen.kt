@@ -315,10 +315,19 @@ private fun buildCalendarIntent(exam: Exam): Intent {
             putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginTime)
             putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endTime)
         } else {
-            // 解析失败时设为全天事件（使用当前日期）
-            val cal = Calendar.getInstance()
-            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, cal.timeInMillis)
-            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, cal.timeInMillis + 2 * 60 * 60 * 1000)
+            // 解析失败时尝试提取日期创建全天事件
+            val datePattern = Regex("""(\d{4}-\d{2}-\d{2})""")
+            val dateMatch = datePattern.find(exam.examTime)
+            if (dateMatch != null) {
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val dateMs = sdf.parse(dateMatch.groupValues[1])?.time ?: 0L
+                if (dateMs > 0) {
+                    putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, dateMs)
+                    putExtra(CalendarContract.EXTRA_EVENT_END_TIME, dateMs + 24 * 60 * 60 * 1000)
+                    putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, true)
+                }
+            }
+            // 完全解析失败时静默跳过(不创建事件)
         }
     }
 }

@@ -17,20 +17,26 @@ import com.yourname.ahu_plus.data.model.CxMessage
 import com.yourname.ahu_plus.data.model.CxMessageSource
 import com.yourname.ahu_plus.data.model.CxVideoInfo
 import com.yourname.ahu_plus.data.model.CxWorkData
+import com.yourname.ahu_plus.data.model.CxHomeworkItem
 import com.yourname.ahu_plus.data.model.CxQuestion
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
 import com.yourname.ahu_plus.util.AESCipher
 import com.yourname.ahu_plus.util.CxFontDecoder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody
 import okhttp3.Request
 import org.jsoup.Jsoup
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
@@ -49,8 +55,16 @@ class ChaoxingRepository(
         private const val BASE_MOOC2 = "https://mooc2-ans.chaoxing.com"
         private const val BASE_MOOC1 = "https://mooc1.chaoxing.com"
         private const val BASE_MOBILE = "https://mobilelearn.chaoxing.com"
-        private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        private val UA_POOL = listOf(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        )
+        private fun randomUA(): String = UA_POOL.random()
     }
 
     // ── Cookie 存储 ──────────────────────────────────────────────
@@ -196,7 +210,7 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url("$BASE_PASSPORT/fanyalogin")
                 .post(body)
-                .header("User-Agent", UA)
+                .header("User-Agent", randomUA())
                 .header("X-Requested-With", "XMLHttpRequest")
                 .build()
 
@@ -233,7 +247,7 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url("$BASE_MOOC2/mooc2-ans/visit/courselistdata")
                 .post(body)
-                .header("User-Agent", UA)
+                .header("User-Agent", randomUA())
                 .build()
 
             val resp = client.newCall(request).execute()
@@ -270,7 +284,7 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url("$BASE_MOOC2/mooc2-ans/visit/courselistdata")
                 .post(body)
-                .header("User-Agent", UA)
+                .header("User-Agent", randomUA())
                 .header("Referer", "$BASE_MOOC2/mooc2-ans/visit/interaction?moocDomain=https://mooc1-1.chaoxing.com/mooc-ans")
                 .build()
 
@@ -307,7 +321,7 @@ class ChaoxingRepository(
                     if (points.isEmpty()) return@mapNotNull key to CxCourseProgress()
 
                     val totalJobs = points.sumOf { it.jobCount }
-                    val completedJobs = points.count { it.hasFinished }
+                    val completedJobs = points.sumOf { if (it.hasFinished) it.jobCount else 0 }
                     key to CxCourseProgress(
                         totalJobs = totalJobs,
                         completedJobs = minOf(completedJobs, totalJobs),
@@ -329,7 +343,7 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url(url)
                 .get()
-                .header("User-Agent", UA)
+                .header("User-Agent", randomUA())
                 .build()
 
             val resp = client.newCall(request).execute()
@@ -371,7 +385,7 @@ class ChaoxingRepository(
                     val request = Request.Builder()
                         .url(url)
                         .get()
-                        .header("User-Agent", UA)
+                        .header("User-Agent", randomUA())
                         .header("Referer", "https://mooc2-ans.chaoxing.com/mycourse/studentcourse")
                         .build()
 
@@ -425,7 +439,7 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url(url)
                 .get()
-                .header("User-Agent", UA)
+                .header("User-Agent", randomUA())
                 .header("Referer", "https://mooc1.chaoxing.com/ananas/modules/video/index.html")
                 .build()
 
@@ -507,7 +521,7 @@ class ChaoxingRepository(
                 val request = Request.Builder()
                     .url(url + extraParams)
                     .get()
-                    .header("User-Agent", UA)
+                    .header("User-Agent", randomUA())
                     .header("Referer", "https://mooc1.chaoxing.com/ananas/modules/video/index.html")
                     .build()
 
@@ -554,32 +568,71 @@ class ChaoxingRepository(
         job: CxJob,
         jobInfo: CxJobInfo,
     ): Result<CxWorkData> = withContext(Dispatchers.IO) {
-        try {
-            val url = "$BASE_MOOC1/mooc-ans/api/work" +
-                "?api=1&workId=${job.jobid.removePrefix("work-")}" +
-                "&jobid=${job.jobid}&originJobId=${job.jobid}" +
-                "&needRedirect=true&skipHeader=true" +
-                "&knowledgeid=${jobInfo.knowledgeid}&ktoken=${jobInfo.ktoken}" +
-                "&cpi=${jobInfo.cpi}&ut=s&clazzId=${course.clazzId}" +
-                "&type=&enc=${job.enc}&mooc2=1&courseid=${course.courseId}"
+        val maxRetries = 3
+        var lastException: Exception? = null
 
-            val request = Request.Builder()
-                .url(url)
-                .get()
-                .header("User-Agent", UA)
-                .build()
+        for (attempt in 1..maxRetries) {
+            try {
+                val url = "$BASE_MOOC1/mooc-ans/api/work" +
+                    "?api=1&workId=${job.jobid.removePrefix("work-")}" +
+                    "&jobid=${job.jobid}&originJobId=${job.jobid}" +
+                    "&needRedirect=true&skipHeader=true" +
+                    "&knowledgeid=${jobInfo.knowledgeid}&ktoken=${jobInfo.ktoken}" +
+                    "&cpi=${jobInfo.cpi}&ut=s&clazzId=${course.clazzId}" +
+                    "&type=&enc=${job.enc}&mooc2=1&courseid=${course.courseId}"
 
-            val resp = client.newCall(request).execute()
-            val html = resp.body?.string() ?: ""
-            resp.close()
+                val request = Request.Builder()
+                    .url(url)
+                    .get()
+                    .header("User-Agent", randomUA())
+                    .build()
 
-            val workData = decodeQuestions(html)
-            Log.i(TAG, "获取题目成功: ${workData.questions.size} 道")
-            Result.success(workData)
-        } catch (e: Exception) {
-            Log.e(TAG, "获取题目异常", e)
-            Result.failure(e)
+                val resp = client.newCall(request).execute()
+                val html = resp.body?.string() ?: ""
+                val code = resp.code
+                resp.close()
+
+                // 检查"教师未创建完成该测验" (与 Python study_work 一致)
+                if (html.contains("教师未创建完成该测验")) {
+                    Log.w(TAG, "获取题目: 教师未创建完成该测验 (attempt $attempt/$maxRetries)")
+                    return@withContext Result.failure(IllegalStateException("教师未创建完成该测验，暂无法作答"))
+                }
+
+                if (code != 200 || html.isBlank()) {
+                    if (attempt < maxRetries) {
+                        val delayMs = 1000L * (1 shl (attempt - 1)) // 1s, 2s, 4s 指数退避
+                        Log.w(TAG, "获取题目 HTTP $code 或空响应, ${delayMs}ms 后重试 (attempt $attempt/$maxRetries)")
+                        delay(delayMs)
+                        continue
+                    }
+                    return@withContext Result.failure(IOException("获取题目失败: HTTP $code"))
+                }
+
+                val workData = decodeQuestions(html)
+                if (workData.questions.isEmpty()) {
+                    if (attempt < maxRetries) {
+                        val delayMs = 1000L * (1 shl (attempt - 1))
+                        Log.w(TAG, "解析到 0 道题目, ${delayMs}ms 后重试 (attempt $attempt/$maxRetries)")
+                        delay(delayMs)
+                        continue
+                    }
+                    return@withContext Result.failure(IllegalStateException("题目解析失败：未找到题目 (已重试 $maxRetries 次)"))
+                }
+
+                Log.i(TAG, "获取题目成功: ${workData.questions.size} 道")
+                return@withContext Result.success(workData)
+            } catch (e: Exception) {
+                lastException = e
+                if (attempt < maxRetries) {
+                    val delayMs = 1000L * (1 shl (attempt - 1))
+                    Log.w(TAG, "获取题目异常: ${e.message}, ${delayMs}ms 后重试 (attempt $attempt/$maxRetries)")
+                    delay(delayMs)
+                }
+            }
         }
+
+        Log.e(TAG, "获取题目失败，已达最大重试次数", lastException)
+        Result.failure(lastException ?: IOException("获取题目失败"))
     }
 
     /**
@@ -611,6 +664,23 @@ class ChaoxingRepository(
                 formBuilder.add(k, v)
             }
 
+            // 防御性: 从 question.answerField 补充答案字段
+            // 关键：跳过 answer{qId}（答案已在 formFields 中由 studyWork 填入），只补缺少的元数据
+            val addedKeys = mutableSetOf<String>()
+            // formFields 已添加的 key 集合
+            addedKeys.addAll(workData.formFields.keys)
+            addedKeys.add("answerwqbid")
+            addedKeys.add("pyFlag")
+            for (q in workData.questions) {
+                for ((key, value) in q.answerField) {
+                    // answer{qId} 已在 formFields 中有正确答案，跳过避免空值覆盖
+                    if (key in addedKeys) continue
+                    if (value.isBlank()) continue
+                    formBuilder.add(key, value)
+                    addedKeys.add(key)
+                }
+            }
+
             // 诊断日志 — 完整请求体
             val body = formBuilder.build()
             val bodySize = body.size
@@ -622,7 +692,7 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url("$BASE_MOOC1/mooc-ans/work/addStudentWorkNew")
                 .post(body)
-                .header("User-Agent", UA)
+                .header("User-Agent", randomUA())
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Accept", "*/*")
                 .header("Accept-Language", "zh-CN,zh;q=0.9")
@@ -665,7 +735,7 @@ class ChaoxingRepository(
                     "&courseid=${course.courseId}&clazzid=${course.clazzId}" +
                     "&jtoken=${job.jtoken}&_dc=${System.currentTimeMillis()}"
 
-                val request = Request.Builder().url(url).get().header("User-Agent", UA).build()
+                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
                 val resp = client.newCall(request).execute()
                 resp.close()
                 Result.success(Unit)
@@ -683,7 +753,43 @@ class ChaoxingRepository(
                     "&jtoken=${job.jtoken}&courseid=${course.courseId}" +
                     "&clazzid=${course.clazzId}"
 
-                val request = Request.Builder().url(url).get().header("User-Agent", UA).build()
+                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
+                val resp = client.newCall(request).execute()
+                resp.close()
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    /** 音频任务 */
+    suspend fun studyAudio(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$BASE_MOOC1/ananas/job/audio" +
+                    "?jobid=${job.jobid}&knowledgeid=${jobInfo.knowledgeid}" +
+                    "&jtoken=${job.jtoken}&courseid=${course.courseId}" +
+                    "&clazzid=${course.clazzId}&_dc=${System.currentTimeMillis()}"
+
+                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
+                val resp = client.newCall(request).execute()
+                resp.close()
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    /** 直播回放任务 */
+    suspend fun studyLive(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$BASE_MOOC1/ananas/job/live" +
+                    "?jobid=${job.jobid}&knowledgeid=${jobInfo.knowledgeid}" +
+                    "&jtoken=${job.jtoken}&courseid=${course.courseId}" +
+                    "&clazzid=${course.clazzId}&_dc=${System.currentTimeMillis()}"
+
+                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
                 val resp = client.newCall(request).execute()
                 resp.close()
                 Result.success(Unit)
@@ -701,7 +807,7 @@ class ChaoxingRepository(
                     "&chapterId=${chapter.id}&cpi=${course.cpi}" +
                     "&verificationcode=&mooc2=1&microTopicId=0&editorPreview=0"
 
-                val request = Request.Builder().url(url).get().header("User-Agent", UA).build()
+                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
                 val resp = client.newCall(request).execute()
                 resp.close()
                 Result.success(Unit)
@@ -709,6 +815,99 @@ class ChaoxingRepository(
                 Result.failure(e)
             }
         }
+
+    /** 刷课程访问次数（调用 studentstudyAjax 模拟访问） */
+    suspend fun brushVisitCount(course: CxCourse, chapter: CxChapter): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$BASE_MOOC1/mooc-ans/mycourse/studentstudyAjax" +
+                    "?courseId=${course.courseId}&clazzid=${course.clazzId}" +
+                    "&chapterId=${chapter.id}&cpi=${course.cpi}" +
+                    "&verificationcode=&mooc2=1&microTopicId=0&editorPreview=0"
+
+                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
+                val resp = client.newCall(request).execute()
+                resp.close()
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    /**
+     * 获取课程章节的资源附件列表。
+     * 解析 studentstudyAjax 页面中的附件链接（MP4/PDF/PPTX/PNG/DOC/ZIP 等）。
+     */
+    suspend fun getCourseResources(
+        course: CxCourse, chapter: CxChapter
+    ): Result<List<CxAttachment>> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BASE_MOOC1/mooc-ans/mycourse/studentstudyAjax" +
+                "?courseId=${course.courseId}&clazzid=${course.clazzId}" +
+                "&chapterId=${chapter.id}&cpi=${course.cpi}" +
+                "&verificationcode=&mooc2=1&microTopicId=0&editorPreview=0"
+
+            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
+            val resp = client.newCall(request).execute()
+            val html = resp.body?.string() ?: ""
+            resp.close()
+
+            val doc = org.jsoup.Jsoup.parse(html)
+            val allowedExts = setOf("mp4", "pdf", "pptx", "ppt", "png", "jpg", "doc", "docx", "zip", "rar")
+            val resources = doc.select("a[href]").mapNotNull { el ->
+                val href = el.attr("href")
+                val name = el.text().trim()
+                if (href.isBlank() || name.isBlank()) return@mapNotNull null
+                val ext = name.substringAfterLast('.', "").lowercase()
+                if (ext !in allowedExts && !href.contains("/download/") && !href.contains("attachment"))
+                    return@mapNotNull null
+                CxAttachment(
+                    name = name,
+                    preview = if (href.startsWith("http")) href
+                    else if (href.startsWith("//")) "https:$href"
+                    else "$BASE_MOOC1$href",
+                    suffix = ".$ext",
+                    objectId = "",
+                )
+            }
+            Result.success(resources)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 下载资源文件到外部存储。
+     * 返回本地文件路径。
+     */
+    suspend fun downloadResource(
+        context: android.content.Context,
+        url: String,
+        fileName: String,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder().url(url).get()
+                .header("User-Agent", randomUA())
+                .header("Referer", "https://mooc1.chaoxing.com/")
+                .build()
+            val resp = client.newCall(request).execute()
+            val body = resp.body ?: return@withContext Result.failure(Exception("空响应体"))
+            val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+                ?: context.filesDir
+            if (!dir.exists()) dir.mkdirs()
+            val safeName = fileName.replace(Regex("""[\\/:*?"<>|]"""), "_")
+            val file = java.io.File(dir, safeName)
+            body.byteStream().use { input ->
+                file.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            resp.close()
+            Result.success(file.absolutePath)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     // ══════════════════════════════════════════════════════════════
     //  签到
@@ -721,7 +920,7 @@ class ChaoxingRepository(
                 "?fid=${getFid()}&courseId=${course.courseId}&classId=${course.clazzId}" +
                 "&showNotStartedActive=0&_=${System.currentTimeMillis()}"
 
-            val request = Request.Builder().url(url).get().header("User-Agent", UA).build()
+            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
             val resp = client.newCall(request).execute()
             val json = resp.body?.string() ?: "{}"
             resp.close()
@@ -770,7 +969,7 @@ class ChaoxingRepository(
                 "&uid=${getUid()}&activePrimaryId=$activityId" +
                 "&courseId=${course.courseId}&classId=${course.clazzId}"
 
-            val request = Request.Builder().url(url).get().header("User-Agent", UA).build()
+            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
             val resp = client.newCall(request).execute()
             val text = resp.body?.string() ?: ""
             resp.close()
@@ -801,7 +1000,7 @@ class ChaoxingRepository(
                 "&name=${java.net.URLEncoder.encode(address, "UTF-8")}" +
                 "&useragent=&latitude=$latitude&longitude=$longitude&appType=15"
 
-            val request = Request.Builder().url(url).get().header("User-Agent", UA).build()
+            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
             val resp = client.newCall(request).execute()
             val text = resp.body?.string() ?: ""
             resp.close()
@@ -831,7 +1030,7 @@ class ChaoxingRepository(
                 "&name=${java.net.URLEncoder.encode(gestureCode, "UTF-8")}" +
                 "&useragent=&latitude=-1&longitude=-1&appType=15&signCode=$gestureCode"
 
-            val request = Request.Builder().url(url).get().header("User-Agent", UA).build()
+            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
             val resp = client.newCall(request).execute()
             val text = resp.body?.string() ?: ""
             resp.close()
@@ -850,7 +1049,7 @@ class ChaoxingRepository(
                 "&courseId=${course.courseId}&classId=${course.clazzId}" +
                 "&clientip=&objectId=aaa&name=&useragent=&latitude=-1&longitude=-1&appType=15"
 
-            val request = Request.Builder().url(url).get().header("User-Agent", UA).build()
+            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
             val resp = client.newCall(request).execute()
             val text = resp.body?.string() ?: ""
             resp.close()
@@ -891,11 +1090,15 @@ class ChaoxingRepository(
 
             val clazzId = el.selectFirst("input.clazzId")?.attr("value") ?: continue
             val courseId = el.selectFirst("input.courseId")?.attr("value") ?: continue
-            val cpi = Regex("""cpi=(\d+)&""").find(el.selectFirst("a")?.attr("href") ?: "")?.groupValues?.get(1) ?: ""
+            val aHref = el.selectFirst("a")?.attr("href") ?: ""
+            val cpi = Regex("""cpi=(\d+)&""").find(aHref)?.groupValues?.get(1) ?: ""
             val title = CxFontDecoder.decode(html, el.selectFirst("span.course-name")?.attr("title") ?: "")
             val teacher = CxFontDecoder.decode(html, el.selectFirst("p.color3")?.attr("title") ?: "")
 
-            courses.add(CxCourse(courseId = courseId, clazzId = clazzId, cpi = cpi, title = title, teacher = teacher))
+            // 课程入口 URL：相对路径补全为绝对 URL
+            val courseUrl = if (aHref.startsWith("http")) aHref else "$BASE_MOOC2$aHref"
+
+            courses.add(CxCourse(courseId = courseId, clazzId = clazzId, cpi = cpi, title = title, teacher = teacher, url = courseUrl))
         }
         return courses
     }
@@ -1032,6 +1235,7 @@ class ChaoxingRepository(
             val parsedJob = when {
                 type.contains("live") || prop.str("liveId").isNotBlank() -> parseLiveJob(card, prop, otherInfo)
                 type == "video" -> parseVideoJob(card, prop, otherInfo)
+                type == "audio" -> parseAudioJob(card, prop, otherInfo)
                 type == "document" -> parseDocumentJob(card, prop, otherInfo)
                 type.contains("work") -> parseWorkJob(card, otherInfo)
                 else -> null
@@ -1066,6 +1270,20 @@ class ChaoxingRepository(
             attDuration = card.str("attDuration"),
             attDurationEnc = card.str("attDurationEnc"),
             videoFaceCaptureEnc = card.str("videoFaceCaptureEnc"),
+        )
+    }
+
+    private fun parseAudioJob(card: JsonObject, prop: JsonObject, otherInfo: String): CxJob {
+        return CxJob(
+            type = "audio",
+            jobid = card.str("jobid"),
+            name = prop.str("name").ifBlank { card.str("name") }.ifBlank { "音频" },
+            objectid = card.str("objectId"),
+            otherinfo = otherInfo,
+            jtoken = card.str("jtoken"),
+            mid = card.str("mid"),
+            enc = card.str("enc"),
+            aid = card.str("aid"),
         )
     }
 
@@ -1126,7 +1344,11 @@ class ChaoxingRepository(
     }
 
     /**
-     * 解析章节检测题目 HTML。
+     * 解析章节检测/课程作业 HTML。
+     *
+     * 兼容两种 HTML 结构：
+     * - 章节测验：div.TiMu[data=typeCode] + div.Zy_TItle
+     * - 课程作业：h3.mark_name + input[name^=answertype]
      *
      * 与 Python decode_questions_info 对齐:
      *   1. _extract_form_data: 提取所有非 answer* 的 input 字段
@@ -1135,62 +1357,137 @@ class ChaoxingRepository(
      */
     private fun decodeQuestions(html: String): CxWorkData {
         val doc = Jsoup.parse(html)
-        val form = doc.selectFirst("form") ?: return CxWorkData()
+        val form = doc.selectFirst("form")
+        val formActionUrl = form?.attr("action") ?: ""
 
         // 提取表单隐藏字段 (与 Python _extract_form_data 一致: 跳过所有含 "answer" 的 name)
         val formFields = mutableMapOf<String, String>()
-        for (input in form.select("input")) {
-            val name = input.attr("name")
-            if (name.isBlank() || name.contains("answer")) continue
-            formFields[name] = input.attr("value")
+        if (form != null) {
+            for (input in form.select("input")) {
+                val name = input.attr("name")
+                if (name.isBlank() || name.contains("answer")) continue
+                formFields[name] = input.attr("value")
+            }
         }
 
-        // 提取题目
+        // 题目 div — 可能在 form 内，也可能在整个 doc 中（作业查看模式无 form）
+        val qDivs = (form?.select("div.singleQuesId") ?: emptyList()).ifEmpty {
+            doc.select("div.singleQuesId")
+        }
+
         val questions = mutableListOf<CxQuestion>()
-        for (div in form.select("div.singleQuesId")) {
+        for (div in qDivs) {
             val qId = div.attr("data")
             if (qId.isBlank()) continue
 
+            // ── 题型代码 ──────────────────────────────────────
+            // 优先从 div.TiMu[data] 取（章节测验格式）
             val tiMu = div.selectFirst("div.TiMu")
-            val typeCode = tiMu?.attr("data") ?: ""
+            val typeCodeFromTiMu = tiMu?.attr("data") ?: ""
+            // 其次从 input[name=answertype{qId}] value 取（作业格式）
+            val typeCodeFromInput = div.selectFirst("input[name=answertype$qId]")
+                ?.attr("value") ?: doc.selectFirst("input[name=answertype$qId]")?.attr("value") ?: ""
+            // 合并
+            val typeCode = typeCodeFromTiMu.ifBlank { typeCodeFromInput }
+
             val type = when (typeCode) {
                 "0" -> "single"
                 "1" -> "multiple"
                 "2" -> "completion"
                 "3" -> "judgement"
                 "4" -> "shortanswer"
-                else -> "unknown"
+                // 作业页可能没有 typeCode，尝试从 h3 文本推断
+                else -> {
+                    val h3Text = div.selectFirst("h3.mark_name")?.text() ?: ""
+                    when {
+                        "单选" in h3Text -> "single"
+                        "多选" in h3Text -> "multiple"
+                        "判断" in h3Text -> "judgement"
+                        "填空" in h3Text -> "completion"
+                        "简答" in h3Text -> "shortanswer"
+                        "论述" in h3Text -> "shortanswer"
+                        "编程" in h3Text -> "shortanswer"
+                        else -> "unknown"
+                    }
+                }
             }
 
+            // ── 标题 ──────────────────────────────────────────
             val titleDiv = div.selectFirst("div.Zy_TItle")
-            val titleRaw = titleDiv?.text()?.replace("\r", "")?.replace("\t", "")?.replace("\n", "") ?: ""
-            val title = CxFontDecoder.decode(html, titleRaw)
+            var titleRaw: String
+            if (titleDiv != null) {
+                // 章节测验格式
+                titleRaw = titleDiv.text().replace("\r", "").replace("\t", "").replace("\n", "")
+            } else {
+                // 作业格式：h3.mark_name 文本，去掉前缀 "1." 和题型标记
+                val h3 = div.selectFirst("h3.mark_name")
+                val h3Text = h3?.text()?.trim() ?: ""
+                // 去掉 "1.(简答题, 100分)" 中的题号+题型标记部分，保留后面的内容
+                // 仅匹配题型/分数模式的括号：(单选题|多选题|判断题|填空题|简答题|论述题|编程题, 分数)
+                titleRaw = h3Text.replace(Regex("""^\d+\.\s*\([^)]*(?:单选题|多选题|判断题|填空题|简答题|论述题|编程题)[^)]*\)\s*"""), "")
+                    .trim()
+                    .replace("\r", "").replace("\t", "").replace("\n", "")
+                // 如果去掉前缀后为空，回退到去掉 "1. " 的版本
+                if (titleRaw.isBlank()) {
+                    titleRaw = h3Text.replace(Regex("""^\d+\.\s*"""), "").trim()
+                }
+            }
+            val title = CxFontDecoder.decode(html, titleRaw).ifBlank {
+                // fallback: 尝试不带 class 约束取 h3
+                CxFontDecoder.decode(html, div.selectFirst("h3")?.text()?.trim() ?: "")
+            }
 
+            // ── 选项 ──────────────────────────────────────────
+            // 章节测验格式：ul li
             val optionsList = div.select("ul li").map { li ->
                 val raw = (li.attr("aria-label").ifBlank { li.text() }).trim()
                 var decoded = CxFontDecoder.decode(html, raw).trim()
-                // 去掉末尾 "选择" (与 Python _extract_choices 一致)
                 if (decoded.endsWith("选择")) decoded = decoded.dropLast(2).trimEnd()
                 decoded
             }.sorted()
+            // 作业格式：div.answerBg (多选/单选)
+            val answerBgOptions = if (optionsList.isEmpty()) {
+                div.select("div.answerBg").map { bg ->
+                    val raw = bg.attr("aria-label").ifBlank { bg.text() }.trim()
+                    var decoded = CxFontDecoder.decode(html, raw).trim()
+                    if (decoded.endsWith("选择")) decoded = decoded.dropLast(2).trimEnd()
+                    decoded
+                }.sorted()
+            } else emptyList()
 
-            val options = optionsList.joinToString("\n")
+            val options = (optionsList.ifEmpty { answerBgOptions }).joinToString("\n")
 
+            // ── answerField ───────────────────────────────────
+            val finalTypeCode = typeCode.ifBlank {
+                // 如果还没有 typeCode，尝试从整个 doc 的 answertype input 获取
+                doc.selectFirst("input[name=answertype$qId]")?.attr("value") ?: ""
+            }
             val answerField = mapOf(
                 "answer$qId" to "",
-                "answertype$qId" to typeCode,
+                "answertype$qId" to finalTypeCode,
             )
 
-            questions.add(CxQuestion(id = qId, title = title, options = options, type = type, answerField = answerField))
+            questions.add(CxQuestion(
+                id = qId, title = title, options = options,
+                type = type, answerField = answerField,
+            ))
         }
 
         // answerwqbid 由所有题目 ID 拼接 (与 Python 一致)
         val answerwqbid = questions.joinToString(",") { it.id } + ","
 
+        // 检测 randomOptions 字段 (服务端可能随机打乱选项顺序)
+        val hasRandomOptions = formFields.containsKey("randomOptions") ||
+            doc.selectFirst("input[name=randomOptions]") != null
+        if (hasRandomOptions) {
+            Log.i(TAG, "decodeQuestions: 检测到 randomOptions 字段，选项顺序可能已随机化")
+        }
+
         return CxWorkData(
             questions = questions,
             answerwqbid = answerwqbid,
             formFields = formFields,
+            formActionUrl = formActionUrl,
         )
     }
 
@@ -1222,7 +1519,7 @@ class ChaoxingRepository(
                 val request = Request.Builder()
                     .url(url)
                     .post(body)
-                    .header("User-Agent", UA)
+                    .header("User-Agent", randomUA())
                     .header("X-Requested-With", "XMLHttpRequest")
                     .build()
 
@@ -1284,7 +1581,7 @@ class ChaoxingRepository(
                         "?fid=${getFid()}&courseId=${course.courseId}&classId=${course.clazzId}" +
                         "&showNotStartedActive=0&_=${System.currentTimeMillis()}"
 
-                    val request = Request.Builder().url(url).get().header("User-Agent", UA).build()
+                    val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
                     val resp = client.newCall(request).execute()
                     val json = resp.body?.string() ?: "{}"
                     resp.close()
@@ -1351,7 +1648,7 @@ class ChaoxingRepository(
             val previewUrl = att.preview
             if (previewUrl.isBlank()) return@withContext Result.failure(Exception("无预览地址"))
 
-            val request = Request.Builder().url(previewUrl).get().header("User-Agent", UA).build()
+            val request = Request.Builder().url(previewUrl).get().header("User-Agent", randomUA()).build()
             val resp = client.newCall(request).execute()
             val html = resp.body?.string() ?: ""
             resp.close()
@@ -1410,5 +1707,404 @@ class ChaoxingRepository(
                 cal.timeInMillis
             } else 0
         } catch (e: Exception) { 0 }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  课程作业 (2026-06-22)
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 获取某门课程的作业列表。
+     *
+     * API: GET mooc1.chaoxing.com/mooc2/work/list
+     *
+     * @param courseUrl 课程页面 URL，用于提取 courseId/clazzId/cpi 和 workEnc
+     * @return 作业列表
+     */
+    suspend fun getHomeworkList(courseUrl: String): Result<List<CxHomeworkItem>> = withContext(Dispatchers.IO) {
+        try {
+            // 1. 访问课程页面，提取 workEnc 和 URL 参数
+            val courseUrlWithParams = courseUrl.toHttpUrl().newBuilder()
+                .addQueryParameter("v", System.currentTimeMillis().toString())
+                .addQueryParameter("start", "0")
+                .addQueryParameter("size", "500")
+                .addQueryParameter("catalogId", "0")
+                .addQueryParameter("superstarClass", "0")
+                .build()
+
+            val courseResp = client.newCall(
+                Request.Builder().url(courseUrlWithParams).get().header("User-Agent", randomUA()).build()
+            ).execute()
+
+            val courseHtml = courseResp.body?.string() ?: ""
+            val finalUrl = courseResp.request.url.toString()
+            courseResp.close()
+
+            Log.i(TAG, "getHomeworkList: 访问课程页 finalUrl=${finalUrl.take(120)}")
+
+            val urlParams = finalUrl.toHttpUrl().queryParameterNames.associateWith {
+                finalUrl.toHttpUrl().queryParameter(it) ?: ""
+            }
+
+            val doc = Jsoup.parse(courseHtml)
+            // 多选择器回退: input#workEnc → input[name=workEnc] → input[name=enc_work]
+            var workEnc = doc.selectFirst("input#workEnc")?.attr("value")
+                ?: doc.selectFirst("input[name=workEnc]")?.attr("value")
+                ?: doc.selectFirst("input[name=enc_work]")?.attr("value")
+                ?: doc.selectFirst("input[name=enc]")?.attr("value")
+            if (workEnc == null) {
+                Log.w(TAG, "getHomeworkList: 未找到 workEnc (已尝试 #workEnc/[name=workEnc]/[name=enc_work]/[name=enc], 页面可能无作业)")
+                return@withContext Result.success(emptyList())
+            }
+
+            val courseId = urlParams["courseid"] ?: ""
+            val classId = urlParams["clazzid"] ?: ""
+            val cpi = urlParams["cpi"] ?: ""
+
+            // 2. 请求作业列表
+            val workUrl = "$BASE_MOOC1/mooc2/work/list".toHttpUrl().newBuilder()
+                .addQueryParameter("courseId", courseId)
+                .addQueryParameter("classId", classId)
+                .addQueryParameter("cpi", cpi)
+                .addQueryParameter("ut", "s")
+                .addQueryParameter("enc", workEnc)
+                .build()
+
+            val workResp = client.newCall(
+                Request.Builder()
+                    .url(workUrl)
+                    .get()
+                    .header("User-Agent", randomUA())
+                    .header("Host", "mooc1.chaoxing.com")
+                    .header("Referer", "https://mooc2-ans.chaoxing.com/")
+                    .build()
+            ).execute()
+
+            val workHtml = workResp.body?.string() ?: ""
+            workResp.close()
+
+            // 3. 解析作业列表 HTML
+            val workDoc = Jsoup.parse(workHtml)
+            val items = workDoc.select("li[data]").mapNotNull { li ->
+                try {
+                    val dataUrl = li.attr("data")
+                    if (dataUrl.isBlank()) return@mapNotNull null
+
+                    val queryMap = try {
+                        dataUrl.toHttpUrl().queryParameterNames.associateWith {
+                            dataUrl.toHttpUrl().queryParameter(it) ?: ""
+                        }
+                    } catch (_: Exception) {
+                        // data 属性可能是相对路径，尝试补全
+                        val fullUrl = if (dataUrl.startsWith("/")) {
+                            "$BASE_MOOC1$dataUrl"
+                        } else {
+                            "$BASE_MOOC1/$dataUrl"
+                        }
+                        fullUrl.toHttpUrl().queryParameterNames.associateWith {
+                            fullUrl.toHttpUrl().queryParameter(it) ?: ""
+                        }
+                    }
+
+                    val nameP = li.selectFirst("p")
+                    val name = nameP?.text()?.trim() ?: "未知作业"
+
+                    // 稳健的状态文本提取: 优先取第二个 <p>（原 DOM 方式），
+                    // 回退到关键字匹配（包含所有已知状态）
+                    val statusKeywords = setOf("未交", "已完成", "待批阅", "已批阅", "待做", "已提交", "未完成", "待审批")
+                    var status = li.select("p").getOrNull(1)?.text()?.trim() ?: ""
+                    // 如果第二个 <p> 取到的不是状态文本（可能为空或非状态），用关键字匹配
+                    if (status.isBlank() || statusKeywords.none { it in status }) {
+                        for (p in li.select("p")) {
+                            val text = p.text().trim()
+                            if (statusKeywords.any { it in text }) {
+                                status = text
+                                break
+                            }
+                        }
+                    }
+                    if (status.isBlank()) {
+                        status = li.select("p").lastOrNull()?.text()?.trim() ?: ""
+                    }
+
+                    CxHomeworkItem(
+                        workId = queryMap["workId"] ?: "",
+                        name = name,
+                        status = status,
+                        courseName = "",
+                        courseId = courseId,
+                        classId = classId,
+                        cpi = cpi,
+                        workUrl = dataUrl,
+                        answerId = queryMap["answerId"] ?: "",
+                        enc = queryMap["enc"] ?: "",
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "解析作业项失败: ${e.message}")
+                    null
+                }
+            }
+
+            Log.i(TAG, "getHomeworkList: ${items.size} 个作业")
+            Result.success(items)
+        } catch (e: Exception) {
+            Log.e(TAG, "getHomeworkList 异常", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 获取作业页面，解析题目和表单数据。
+     *
+     * API: GET the workUrl (mooc1.chaoxing.com/mooc-ans/mooc2/work/task?...)
+     *
+     * @param workUrl 作业页面完整 URL
+     * @param courseId 课程 ID（用于构造 Referer）
+     * @param classId  班级 ID（用于构造 Referer）
+     * @param cpi      cpi
+     * @return 解析后的 CxWorkData（题目 + 表单字段 + answerwqbid）
+     */
+    suspend fun getHomeworkPage(
+        workUrl: String,
+        courseId: String,
+        classId: String,
+        cpi: String,
+    ): Result<CxWorkData> = withContext(Dispatchers.IO) {
+        try {
+            val resp = client.newCall(
+                Request.Builder()
+                    .url(workUrl)
+                    .get()
+                    .header("User-Agent", randomUA())
+                    .header("Referer", "$BASE_MOOC1/mooc2/work/list?courseId=$courseId&classId=$classId&cpi=$cpi&ut=s")
+                    .header("Host", "mooc1.chaoxing.com")
+                    .build()
+            ).execute()
+
+            val html = resp.body?.string() ?: ""
+            resp.close()
+
+            if (html.length < 10000 && html.contains("验证码")) {
+                return@withContext Result.failure(Exception("触发验证码保护，请稍后重试"))
+            }
+
+            val workData = decodeQuestions(html)
+            Log.i(TAG, "getHomeworkPage: ${workData.questions.size} 道题")
+            Result.success(workData)
+        } catch (e: Exception) {
+            Log.e(TAG, "getHomeworkPage 异常", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 提交作业答案。
+     *
+     * API: POST mooc1.chaoxing.com/mooc-ans/work/addStudentWorkNewWeb
+     * （注意：作业提交通用此 URL，与章节测验的 addStudentWorkNew 不同）
+     *
+     * @param workData 题目数据和表单字段
+     * @param formActionUrl 从 HTML form action 提取的完整 URL（含查询参数）
+     * @return 提交结果消息
+     */
+    suspend fun submitHomework(workData: CxWorkData, formActionUrl: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            try {
+                // 解析 form action URL 中的查询参数
+                val actionUrl = if (formActionUrl.startsWith("/")) {
+                    "$BASE_MOOC1$formActionUrl"
+                } else if (!formActionUrl.startsWith("http")) {
+                    "$BASE_MOOC1/$formActionUrl"
+                } else {
+                    formActionUrl
+                }
+
+                val formBuilder = FormBody.Builder()
+                formBuilder.add("answerwqbid", workData.answerwqbid)
+                formBuilder.add("pyFlag", workData.pyFlag)
+
+                for ((k, v) in workData.formFields) {
+                    if (k == "pyFlag") continue
+                    formBuilder.add(k, v)
+                }
+
+                // 添加每道题的答案字段 (answer{qId} + answertype{qId})
+                // 注意: answer{qId} 已在 formFields 中, 这里只补缺失的元数据
+                val addedKeys = mutableSetOf<String>()
+                addedKeys.addAll(workData.formFields.keys)
+                addedKeys.add("answerwqbid")
+                addedKeys.add("pyFlag")
+                for (q in workData.questions) {
+                    for ((key, value) in q.answerField) {
+                        if (key in addedKeys) continue // 避免空值覆盖 formFields 中的正确答案
+                        if (value.isBlank()) continue
+                        formBuilder.add(key, value)
+                        addedKeys.add(key)
+                    }
+                }
+
+                // 验证提交 URL 合法性 (避免解析错误时发到错误端点)
+                if (!actionUrl.contains("addStudentWorkNew", ignoreCase = true)) {
+                    Log.e(TAG, "[submitHomework] 非法提交 URL: $actionUrl")
+                    return@withContext Result.failure(Exception("提交地址异常，请刷新后重试"))
+                }
+
+                val body = formBuilder.build()
+                val bodyStr = (0 until body.size).joinToString("&") { i ->
+                    "${body.encodedName(i)}=${body.encodedValue(i)}"
+                }
+                Log.i(TAG, "[submitHomework] pyFlag='${workData.pyFlag}', 共 ${body.size} 字段, body=${bodyStr.take(800)}")
+
+                val request = Request.Builder()
+                    .url(actionUrl)
+                    .post(body)
+                    .header("User-Agent", randomUA())
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("Accept", "*/*")
+                    .header("Accept-Language", "zh-CN,zh;q=0.9")
+                    .header("Origin", BASE_MOOC1)
+                    .header("Referer", actionUrl.takeWhile { it != '?' })
+                    .build()
+
+                val resp = client.newCall(request).execute()
+                val json = resp.body?.string() ?: "{}"
+                resp.close()
+
+                Log.i(TAG, "[submitHomework] HTTP ${resp.code}, 响应: ${json.take(500)}")
+
+                val obj = JsonParser.parseString(json).asJsonObject
+                if (obj.get("status")?.asBoolean == true) {
+                    Result.success(obj.str("msg").ifBlank { "提交成功" })
+                } else {
+                    val errMsg = obj.str("msg").ifBlank { "提交失败: ${json.take(200)}" }
+                    Result.failure(Exception(errMsg))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "submitHomework 异常", e)
+                Result.failure(e)
+            }
+        }
+
+    /**
+     * 重做作业。
+     *
+     * API: GET mooc1.chaoxing.com/work/phone/redo
+     */
+    suspend fun redoHomework(
+        courseId: String,
+        classId: String,
+        cpi: String,
+        workId: String,
+        workAnswerId: String,
+        enc: String = "",
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val urlBuilder = "$BASE_MOOC1/work/phone/redo".toHttpUrl().newBuilder()
+                .addQueryParameter("courseId", courseId)
+                .addQueryParameter("classId", classId)
+                .addQueryParameter("cpi", cpi)
+                .addQueryParameter("workId", workId)
+                .addQueryParameter("workAnswerId", workAnswerId)
+            if (enc.isNotBlank()) {
+                urlBuilder.addQueryParameter("enc", enc)
+            }
+            val url = urlBuilder.build()
+
+            val resp = client.newCall(
+                Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
+            ).execute()
+
+            val json = resp.body?.string() ?: "{}"
+            resp.close()
+
+            val obj = JsonParser.parseString(json).asJsonObject
+            Result.success(obj.get("status")?.asBoolean ?: false)
+        } catch (e: Exception) {
+            Log.e(TAG, "redoHomework 异常", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 上传作业附件到超星云盘。
+     * 端点链: noteyd.chaoxing.com → pan-yz.chaoxing.com → pc/resource/addResource
+     * @return 上传后的 objectId（可在答题字段中引用）
+     */
+    suspend fun uploadHomeworkFile(
+        fileBytes: ByteArray,
+        fileName: String,
+        mimeType: String,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            // 1. 获取上传 token 和 puid
+            val configUrl = "https://noteyd.chaoxing.com/pc/files/getUploadConfig"
+            val configResp = client.newCall(
+                Request.Builder().url(configUrl).get().header("User-Agent", randomUA()).build()
+            ).execute()
+            val configJson = configResp.body?.string() ?: "{}"
+            configResp.close()
+
+            val configObj = JsonParser.parseString(configJson).asJsonObject
+            val token = configObj.getAsJsonObject("msg")?.get("token")?.asString
+                ?: configObj.getAsJsonPrimitive("token")?.asString ?: ""
+            val puid = configObj.getAsJsonObject("msg")?.get("puid")?.asString
+                ?: configObj.getAsJsonPrimitive("puid")?.asString ?: ""
+
+            if (token.isBlank()) return@withContext Result.failure(Exception("获取上传凭证失败"))
+
+            // 2. 上传文件 (multipart)
+            val uploadClient = SecureHttpClientFactory.create(
+                cookieJar = cookieJar,
+                followRedirects = true,
+                trustAll = false,
+                connectTimeoutSec = 30,
+                readTimeoutSec = 60,
+            )
+            val requestBody = okhttp3.MultipartBody.Builder()
+                .setType(okhttp3.MultipartBody.FORM)
+                .addFormDataPart("_token", token)
+                .addFormDataPart("puid", puid)
+                .addFormDataPart(
+                    "file", fileName,
+                    okhttp3.RequestBody.create(mimeType.toMediaType(), fileBytes),
+                )
+                .build()
+
+            val uploadResp = uploadClient.newCall(
+                Request.Builder()
+                    .url("https://pan-yz.chaoxing.com/upload")
+                    .post(requestBody)
+                    .header("User-Agent", randomUA())
+                    .build()
+            ).execute()
+            val uploadJson = uploadResp.body?.string() ?: "{}"
+            uploadResp.close()
+
+            val uploadObj = JsonParser.parseString(uploadJson).asJsonObject
+            val objectId = uploadObj.getAsJsonObject("msg")?.get("objectId")?.asString
+                ?: uploadObj.getAsJsonPrimitive("objectId")?.asString
+                ?: uploadObj.getAsJsonObject("data")?.get("objectId")?.asString
+                ?: return@withContext Result.failure(Exception("上传失败: ${uploadJson.take(200)}"))
+
+            Log.i(TAG, "uploadHomeworkFile: $fileName → objectId=$objectId")
+
+            // 3. 注册文件资源
+            val params = """[{"Key":"$objectId","Cataid":"100000019"}]"""
+            val registerUrl = "https://pan-yz.chaoxing.com/pc/resource/addResource".toHttpUrl().newBuilder()
+                .addQueryParameter("bbsid", "")
+                .addQueryParameter("pid", "")
+                .addQueryParameter("type", "yunpan")
+                .addQueryParameter("params", params)
+                .build()
+            val regResp = client.newCall(
+                Request.Builder().url(registerUrl).get().header("User-Agent", randomUA()).build()
+            ).execute()
+            regResp.close()
+
+            Result.success(objectId)
+        } catch (e: Exception) {
+            Log.e(TAG, "uploadHomeworkFile 异常", e)
+            Result.failure(e)
+        }
     }
 }

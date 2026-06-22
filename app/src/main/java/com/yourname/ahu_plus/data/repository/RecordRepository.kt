@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -30,6 +32,9 @@ class RecordRepository(private val sessionManager: SessionManager) {
     /** 内存索引: lessonId -> 记录列表。StateFlow 驱动 UI。 */
     private val indexFlow = MutableStateFlow<Map<String, List<RecordEntry>>>(emptyMap())
     val records: Flow<Map<String, List<RecordEntry>>> = indexFlow.asStateFlow()
+
+    /** 互斥锁:保护 indexFlow.value 的读-改-写原子性 */
+    private val mutex = Mutex()
 
     init {
         // 首次构造时从 SessionManager 还原
@@ -57,55 +62,61 @@ class RecordRepository(private val sessionManager: SessionManager) {
         }
 
     /** 添加或更新一条记录 (按 id) */
-    suspend fun upsert(entry: RecordEntry) = withContext(Dispatchers.IO) {
-        val current = indexFlow.value.toMutableMap()
-        val list = current[entry.lessonId].orEmpty().toMutableList()
-        val idx = list.indexOfFirst { it.id == entry.id }
-        if (idx >= 0) {
-            list[idx] = entry
-        } else {
-            list.add(entry)
+    suspend fun upsert(entry: RecordEntry) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val current = indexFlow.value.toMutableMap()
+            val list = current[entry.lessonId].orEmpty().toMutableList()
+            val idx = list.indexOfFirst { it.id == entry.id }
+            if (idx >= 0) {
+                list[idx] = entry
+            } else {
+                list.add(entry)
+            }
+            current[entry.lessonId] = list
+            indexFlow.value = current
+            persist(current)
         }
-        current[entry.lessonId] = list
-        indexFlow.value = current
-        persist(current)
     }
 
     /** 切换记录的 completed 状态 (仅对 HOMEWORK 有意义) */
-    suspend fun setCompleted(id: String, completed: Boolean) = withContext(Dispatchers.IO) {
-        val current = indexFlow.value.toMutableMap()
-        var changed = false
-        for ((lessonId, list) in current) {
-            val idx = list.indexOfFirst { it.id == id }
-            if (idx >= 0) {
-                val mutable = list.toMutableList()
-                mutable[idx] = list[idx].copy(completed = completed)
-                current[lessonId] = mutable
-                changed = true
-                break
+    suspend fun setCompleted(id: String, completed: Boolean) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val current = indexFlow.value.toMutableMap()
+            var changed = false
+            for ((lessonId, list) in current) {
+                val idx = list.indexOfFirst { it.id == id }
+                if (idx >= 0) {
+                    val mutable = list.toMutableList()
+                    mutable[idx] = list[idx].copy(completed = completed)
+                    current[lessonId] = mutable
+                    changed = true
+                    break
+                }
             }
-        }
-        if (changed) {
-            indexFlow.value = current
-            persist(current)
+            if (changed) {
+                indexFlow.value = current
+                persist(current)
+            }
         }
     }
 
     /** 删除一条记录 */
-    suspend fun delete(id: String) = withContext(Dispatchers.IO) {
-        val current = indexFlow.value.toMutableMap()
-        var changed = false
-        for ((lessonId, list) in current) {
-            val filtered = list.filter { it.id != id }
-            if (filtered.size != list.size) {
-                current[lessonId] = filtered
-                changed = true
-                break
+    suspend fun delete(id: String) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val current = indexFlow.value.toMutableMap()
+            var changed = false
+            for ((lessonId, list) in current) {
+                val filtered = list.filter { it.id != id }
+                if (filtered.size != list.size) {
+                    current[lessonId] = filtered
+                    changed = true
+                    break
+                }
             }
-        }
-        if (changed) {
-            indexFlow.value = current
-            persist(current)
+            if (changed) {
+                indexFlow.value = current
+                persist(current)
+            }
         }
     }
 

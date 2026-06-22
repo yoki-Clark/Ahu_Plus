@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 /**
  * 作业仓库 (扁平列表,用于首页"近期任务"卡片)。
  *
@@ -28,6 +31,9 @@ class HomeworkRepository(private val sessionManager: SessionManager) {
     private val flow = MutableStateFlow<List<HomeworkRecord>>(emptyList())
     val homework: Flow<List<HomeworkRecord>> = flow.asStateFlow()
 
+    /** 互斥锁:保护 flow.value 的读-改-写原子性 */
+    private val mutex = Mutex()
+
     init {
         runCatching {
             val json = sessionManager.getHomeworkJson() ?: return@runCatching
@@ -36,36 +42,42 @@ class HomeworkRepository(private val sessionManager: SessionManager) {
         }
     }
 
-    suspend fun upsert(record: HomeworkRecord) = withContext(Dispatchers.IO) {
-        val current = flow.value.toMutableList()
-        val idx = current.indexOfFirst { it.id == record.id }
-        if (idx >= 0) {
-            current[idx] = record
-        } else {
-            current.add(record)
-        }
-        flow.value = current
-        persist(current)
-    }
-
-    suspend fun setCompleted(id: String, completed: Boolean) = withContext(Dispatchers.IO) {
-        val current = flow.value.toMutableList()
-        val idx = current.indexOfFirst { it.id == id }
-        if (idx >= 0) {
-            current[idx] = current[idx].copy(
-                completed = completed,
-                completedAt = if (completed) System.currentTimeMillis() else null,
-            )
+    suspend fun upsert(record: HomeworkRecord) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val current = flow.value.toMutableList()
+            val idx = current.indexOfFirst { it.id == record.id }
+            if (idx >= 0) {
+                current[idx] = record
+            } else {
+                current.add(record)
+            }
             flow.value = current
             persist(current)
         }
     }
 
-    suspend fun delete(id: String) = withContext(Dispatchers.IO) {
-        val current = flow.value.filter { it.id != id }
-        if (current.size != flow.value.size) {
-            flow.value = current
-            persist(current)
+    suspend fun setCompleted(id: String, completed: Boolean) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val current = flow.value.toMutableList()
+            val idx = current.indexOfFirst { it.id == id }
+            if (idx >= 0) {
+                current[idx] = current[idx].copy(
+                    completed = completed,
+                    completedAt = if (completed) System.currentTimeMillis() else null,
+                )
+                flow.value = current
+                persist(current)
+            }
+        }
+    }
+
+    suspend fun delete(id: String) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val current = flow.value.filter { it.id != id }
+            if (current.size != flow.value.size) {
+                flow.value = current
+                persist(current)
+            }
         }
     }
 

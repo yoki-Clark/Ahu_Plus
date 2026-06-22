@@ -11,11 +11,11 @@ import com.yourname.ahu_plus.data.model.CxStudyUiState
 import com.yourname.ahu_plus.data.model.CxTaskProgress
 import com.yourname.ahu_plus.data.model.CxTaskStatus
 import com.yourname.ahu_plus.data.model.CxVideoInfo
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.sync.Semaphore
 import kotlin.random.Random
 
 /**
@@ -29,10 +29,11 @@ class ChaoxingStudyRepository(
     private val tikuRepo: ChaoxingTikuRepository,
     private val sessionManager: SessionManager,
     private val notificationRepo: ChaoxingNotificationRepository? = null,
+    private val context: android.content.Context? = null,
 ) {
     companion object {
         private const val TAG = "CxStudy"
-        private const val MAX_403_RETRY = 2
+        private const val MAX_403_RETRY = 3
     }
 
     private val _studyState = MutableStateFlow(CxStudyUiState())
@@ -67,8 +68,10 @@ class ChaoxingStudyRepository(
         speed: Float = 1.0f,
         concurrency: Int = 4,
         autoSubmit: Boolean = true,
-        enabledTaskTypes: Set<String> = setOf("video", "document", "read", "workid"),
+        enabledTaskTypes: Set<String> = setOf("video", "document", "read", "workid", "audio", "live"),
     ) {
+        // 保存当前协程的 Job,供 stop() 取消
+        studyJob = kotlin.coroutines.coroutineContext[Job]
         shouldStop = false
         _studyState.value = CxStudyUiState(isRunning = true)
 
@@ -84,9 +87,11 @@ class ChaoxingStudyRepository(
                 }
 
                 val points = pointsResult.getOrNull()?.points ?: emptyList()
+                // 累加任务点总数（jobCount 来自 API 响应，无需额外请求）
+                _studyState.value = _studyState.value.copy(
+                    totalTasks = _studyState.value.totalTasks + points.sumOf { it.jobCount }
+                )
                 addLog("共 ${points.size} 个章节")
-
-                val semaphore = Semaphore(concurrency)
 
                 for (chapter in points) {
                     if (shouldStop) break
@@ -99,13 +104,7 @@ class ChaoxingStudyRepository(
                         continue
                     }
 
-                    // 并发控制
-                    semaphore.acquire()
-                    try {
-                        processChapter(course, chapter, speed, autoSubmit, enabledTaskTypes)
-                    } finally {
-                        semaphore.release()
-                    }
+                    processChapter(course, chapter, speed, autoSubmit, enabledTaskTypes)
                 }
             }
 
@@ -115,6 +114,13 @@ class ChaoxingStudyRepository(
             if (sessionManager.getCxAutoSign()) {
                 addLog("自动签到: 扫描课程活动...")
                 autoSignAllCourses(courses)
+            }
+
+            // 刷访问次数（学习完成后）
+            if (sessionManager.getCxVisitBrushEnabled() && !shouldStop) {
+                addLog("刷访问计数: 开始...")
+                brushVisitCounts(courses, sessionManager.getCxVisitBrushInterval())
+                addLog("刷访问计数: 完成")
             }
 
             // 推送通知
@@ -164,6 +170,24 @@ class ChaoxingStudyRepository(
         }
     }
 
+    /**
+     * 刷课程访问次数：遍历课程所有章节，间隔调用 API 模拟访问以提升"学习次数"统计。
+     */
+    private suspend fun brushVisitCounts(courses: List<CxCourse>, intervalSec: Int) {
+        for (course in courses) {
+            if (shouldStop) break
+            val pointsResult = cxRepo.getCoursePoints(course)
+            val points = pointsResult.getOrNull()?.points ?: continue
+            for (chapter in points) {
+                if (shouldStop) break
+                if (chapter.needUnlock) continue
+                cxRepo.brushVisitCount(course, chapter)
+                addLog("    刷访问: ${chapter.title}")
+                delay(intervalSec * 1000L)
+            }
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════
     //  单课程学习
     // ══════════════════════════════════════════════════════════════
@@ -175,8 +199,9 @@ class ChaoxingStudyRepository(
         course: CxCourse,
         speed: Float = 1.0f,
         autoSubmit: Boolean = true,
-        enabledTaskTypes: Set<String> = setOf("video", "document", "read", "workid"),
+        enabledTaskTypes: Set<String> = setOf("video", "document", "read", "workid", "audio", "live"),
     ) {
+        studyJob = kotlin.coroutines.coroutineContext[Job]
         shouldStop = false
         _studyState.value = CxStudyUiState(isRunning = true)
 
@@ -190,10 +215,20 @@ class ChaoxingStudyRepository(
             }
 
             val points = pointsResult.getOrNull()?.points ?: emptyList()
-            _studyState.value = _studyState.value.copy(totalTasks = points.size)
+            _studyState.value = _studyState.value.copy(
+                totalTasks = points.sumOf { it.jobCount }
+            )
 
             for (chapter in points) {
                 if (shouldStop) break
+                if (chapter.hasFinished) {
+                    addLog("已完成: ${chapter.title}")
+                    continue
+                }
+                if (chapter.needUnlock) {
+                    addLog("需解锁: ${chapter.title}")
+                    continue
+                }
                 processChapter(course, chapter, speed, autoSubmit, enabledTaskTypes)
             }
 
@@ -214,7 +249,7 @@ class ChaoxingStudyRepository(
         chapter: CxChapter,
         speed: Float,
         autoSubmit: Boolean,
-        enabledTaskTypes: Set<String> = setOf("video", "document", "read", "workid"),
+        enabledTaskTypes: Set<String> = setOf("video", "document", "read", "workid", "audio", "live"),
     ) {
         addLog("章节: ${chapter.title}")
 
@@ -228,32 +263,62 @@ class ChaoxingStudyRepository(
         val (jobs, jobInfo) = jobsResult.getOrNull() ?: return
 
         if (jobs.isEmpty()) {
-            if (chapter.jobCount > 0) {
-                // 有任务点但全部已通过 → 视为已完成，无需 studyEmptyPage
+            val done = if (chapter.jobCount > 0) {
+                // 有任务点但全部已通过 → 视为已完成
                 addLog("  所有任务已完成")
+                chapter.jobCount
             } else {
                 // 真正的空页面（无任务点）
                 cxRepo.studyEmptyPage(course, chapter)
                 addLog("  空页面任务完成")
+                1
             }
-            _studyState.value = _studyState.value.copy(
-                completedCount = _studyState.value.completedCount + 1
-            )
+            synchronized(_studyState) {
+                _studyState.value = _studyState.value.copy(
+                    completedCount = _studyState.value.completedCount + done
+                )
+            }
             return
         }
 
-        for (job in jobs) {
+        // 优先级排序：短任务（文档/阅读/音频/直播）先于长任务（答题/视频）
+        val priorityOrder = mapOf(
+            "document" to 0, "read" to 1, "audio" to 2, "live" to 3, "workid" to 4, "video" to 5
+        )
+        val sortedJobs = jobs.sortedBy { priorityOrder[it.type] ?: 99 }
+        // 已通过的任务点数 = 本章总数 - 当前未通过数
+        val prePassedCount = (chapter.jobCount - jobs.size).coerceAtLeast(0)
+        var processedCount = 0
+
+        for (job in sortedJobs) {
             if (shouldStop) break
             if (job.type !in enabledTaskTypes) {
                 addLog("    跳过: ${job.name.ifBlank { job.type }} (${job.type} 未启用)")
                 continue
             }
             processJob(course, chapter, job, jobInfo, speed, autoSubmit)
+            processedCount++
         }
 
-        _studyState.value = _studyState.value.copy(
-            completedCount = _studyState.value.completedCount + 1
-        )
+        // 自动下载章节资源（如已启用）
+        if (sessionManager.getCxDownloadEnabled() && context != null && !shouldStop) {
+            val resources = cxRepo.getCourseResources(course, chapter).getOrNull() ?: emptyList()
+            for (res in resources) {
+                if (shouldStop) break
+                addLog("    下载: ${res.name}")
+                cxRepo.downloadResource(context, res.preview, res.name).onSuccess { path ->
+                    addLog("    ✓ 已保存: $path")
+                }.onFailure { e ->
+                    addLog("    ✗ 下载失败: ${e.message}")
+                }
+            }
+        }
+
+        synchronized(_studyState) {
+            _studyState.value = _studyState.value.copy(
+                completedCount = _studyState.value.completedCount + prePassedCount + processedCount
+            )
+        }
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -281,12 +346,28 @@ class ChaoxingStudyRepository(
         val result = when (job.type) {
             "video" -> studyVideo(course, job, jobInfo, speed)
             "document" -> {
-                cxRepo.studyDocument(course, job, jobInfo)
-                CxStudyResult.SUCCESS
+                cxRepo.studyDocument(course, job, jobInfo).fold(
+                    onSuccess = { CxStudyResult.SUCCESS },
+                    onFailure = { e -> addLog("    文档任务失败: ${e.message}"); CxStudyResult.ERROR },
+                )
             }
             "read" -> {
-                cxRepo.studyRead(course, job, jobInfo)
-                CxStudyResult.SUCCESS
+                cxRepo.studyRead(course, job, jobInfo).fold(
+                    onSuccess = { CxStudyResult.SUCCESS },
+                    onFailure = { e -> addLog("    阅读任务失败: ${e.message}"); CxStudyResult.ERROR },
+                )
+            }
+            "audio" -> {
+                cxRepo.studyAudio(course, job, jobInfo).fold(
+                    onSuccess = { CxStudyResult.SUCCESS },
+                    onFailure = { e -> addLog("    音频任务失败: ${e.message}"); CxStudyResult.ERROR },
+                )
+            }
+            "live" -> {
+                cxRepo.studyLive(course, job, jobInfo).fold(
+                    onSuccess = { CxStudyResult.SUCCESS },
+                    onFailure = { e -> addLog("    直播任务失败: ${e.message}"); CxStudyResult.ERROR },
+                )
             }
             "workid" -> studyWork(course, job, jobInfo, autoSubmit)
             else -> {
@@ -296,12 +377,12 @@ class ChaoxingStudyRepository(
         }
 
         val status = if (result.isSuccess()) CxTaskStatus.SUCCESS else CxTaskStatus.FAILED
-        val completed = _studyState.value.completedTasks.toMutableList()
-        completed.add(progress.copy(status = status, progress = 1f))
-        _studyState.value = _studyState.value.copy(
-            currentTask = null,
-            completedTasks = completed,
-        )
+        synchronized(_studyState) {
+            _studyState.value = _studyState.value.copy(
+                currentTask = null,
+                completedTasks = _studyState.value.completedTasks + progress.copy(status = status, progress = 1f),
+            )
+        }
 
         addLog("  ${if (result.isSuccess()) "✓ 完成" else "✗ 失败"}: $taskTitle")
     }
@@ -387,7 +468,7 @@ class ChaoxingStudyRepository(
                     }
                     forbiddenRetry++
                     addLog("    403 错误，刷新 dtoken (${forbiddenRetry}/$MAX_403_RETRY)")
-                    delay(Random.nextLong(2000, 4000))
+                    delay(2000L * (1 shl (forbiddenRetry - 1))) // 指数退避: 2s→4s→8s
                     val refreshed = _refreshVideoStatus(job.objectid)
                     if (refreshed != null) {
                         dtoken = refreshed.dtoken
@@ -510,7 +591,7 @@ class ChaoxingStudyRepository(
                 return CxStudyResult.ERROR
             }
             addLog("    ✓ 保存成功")
-            delay(800) // 短暂等待
+            delay(2000) // 等待服务器处理保存完成后再提交
             // 第二步：提交 (pyFlag="")
             val submitResult = cxRepo.submitWork(workData.copy(formFields = formFields, pyFlag = ""))
             if (submitResult.isFailure) {
@@ -548,7 +629,8 @@ class ChaoxingStudyRepository(
             }
             "multiple" -> generateWeightedMultipleAnswer(q)
             "judgement" -> if (Random.nextBoolean()) "true" else "false"
-            "completion" -> ""
+            "completion" -> "暂未作答"
+            "shortanswer" -> "暂未作答"
             else -> ""
         }
     }
@@ -588,10 +670,12 @@ class ChaoxingStudyRepository(
 
     private fun addLog(msg: String) {
         Log.d(TAG, msg)
-        val logs = _studyState.value.logs.toMutableList()
-        logs.add(msg)
-        // 保留最近 200 条
-        if (logs.size > 200) logs.removeAt(0)
-        _studyState.value = _studyState.value.copy(logs = logs)
+        synchronized(_studyState) {
+            val logs = _studyState.value.logs.toMutableList().apply {
+                add(msg)
+                if (size > 200) removeAt(0)
+            }
+            _studyState.value = _studyState.value.copy(logs = logs)
+        }
     }
 }

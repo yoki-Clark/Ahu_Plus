@@ -109,7 +109,7 @@ internal object TodayScheduleWidgetData {
         unitTimes: List<CourseUnit>,
         updatedAt: Long,
     ): TodayScheduleWidgetState {
-        val now = LocalTime.now()
+        val now = com.yourname.ahu_plus.data.debug.DebugClock.nowTime()
         val current = items.firstOrNull { it.isInClass(now, unitTimes) }
         val next = items.firstOrNull { it.isFuture(now, unitTimes) }
         val focused = current ?: next

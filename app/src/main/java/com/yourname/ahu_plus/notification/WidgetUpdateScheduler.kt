@@ -15,32 +15,26 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 
 /**
- * Widget / 课程提醒统一调度器。
+ * Widget / 课程提醒统一调度器 (2026-06-22 重做倒计时刷新机制)。
  *
- * 借鉴 AHUTong-master 的 WidgetUpdateScheduler.scheduleNext() 自递归模式:
- *  - 每天 01:00 (数据校准)
- *  - 07:30 ~ 22:00 每 30 分钟 (课表时段,保证 widget 时效性)
- *  - 失败 / 取消 / 开机后由 BootReceiver 重新拉起
+ * 双闹钟架构:
+ *  - **数据闹钟** (RTC_WAKEUP, requestCode=3001): 每天 01:00 校准 + 触发课程提醒重排
+ *  - **显示闹钟** (RTC setRepeating, requestCode=3002): 1 分钟重复,不唤醒 CPU。
+ *    屏幕亮时约每分钟触发一次 widget 刷新,使"还剩 X 分钟"倒计时实时更新。
+ *    数据来自本地缓存,无网络开销;屏幕灭时 widget 不可见,不浪费电量。
  *
- * 触发时:
- *  1. 更新桌面小部件 [TodayScheduleWidget]
- *  2. 调用 [CourseReminderScheduler.scheduleAll] 重排未来 24h 的课程提醒
- *
- * 关键决策:
- *  - **API 31+ AlarmManager 精确闹钟权限**:`canScheduleExactAlarms()` 返回 false 时
- *    自动降级 `setAndAllowWhileIdle`,不闪退(部分国产 ROM 该权限默认拒绝)
- *  - **PendingIntent.FLAG_IMMUTABLE**:Android 12+ 强制要求,否则启动期崩溃
- *  - **自递归**:`scheduleNext(context)` 在 onReceive 末尾再次调度,无需外部 Service
+ * onReceive 通过 requestCode 区分两种闹钟:
+ *  - 3001 → 更新 widget + 重排课程提醒 + 自递归排下一次
+ *  - 3002 → 仅更新 widget (轻量,不重排课程提醒)
  */
 class WidgetUpdateScheduler : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_UPDATE_WIDGETS) {
-            return
-        }
-        Log.i(TAG, "onReceive: ACTION_UPDATE_WIDGETS，触发刷新")
+        if (intent.action != ACTION_UPDATE_WIDGETS) return
 
-        // 1. 更新桌面小部件(协程内异步执行,Glance.updateAll 是 suspend)
+        val isTicker = intent.getIntExtra(EXTRA_IS_TICKER, 0) == 1
+        Log.i(TAG, "onReceive: isTicker=$isTicker")
+
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -48,125 +42,111 @@ class WidgetUpdateScheduler : BroadcastReceiver() {
             } catch (e: Exception) {
                 Log.e(TAG, "Widget 更新失败: ${e.message}", e)
             } finally {
-                try {
-                    // 2. 重排未来 24h 课程提醒(可能在 widget 更新后才看到最新缓存)
-                    CourseReminderScheduler.scheduleAll(context.applicationContext)
-                } catch (e: Exception) {
-                    Log.e(TAG, "课程提醒重排失败: ${e.message}", e)
+                if (!isTicker) {
+                    // 仅在数据闹钟触发时重排课程提醒
+                    try {
+                        CourseReminderScheduler.scheduleAll(context.applicationContext)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "课程提醒重排失败: ${e.message}", e)
+                    }
                 }
                 pendingResult.finish()
             }
         }
 
-        // 3. 自递归排下一个触发
-        scheduleNext(context)
+        if (!isTicker) {
+            scheduleNext(context)  // 自递归排下一个数据闹钟
+        }
+        // ticker 不需要自递归 — setRepeating 自动重复
     }
 
     companion object {
         private const val TAG = "WidgetUpdateScheduler"
-
         const val ACTION_UPDATE_WIDGETS = "com.yourname.ahu_plus.widget.ACTION_UPDATE_WIDGETS"
+        const val EXTRA_IS_TICKER = "is_ticker"
 
-        /** AlarmManager.PendingIntent requestCode(用于覆盖更新) */
-        private const val REQUEST_CODE = 3001
+        private const val REQUEST_DATA = 3001   // 数据校准闹钟
+        private const val REQUEST_TICKER = 3002 // 显示刷新闹钟
 
-        /**
-         * 计算下一次触发时间,采用 AHUTong-master 验证的策略:
-         *  - 01:00 (数据校准)
-         *  - 07:30 ~ 22:00 每 30 分钟 (课表时段)
-         *  - 找不到今日候选 → 明天的 01:00
-         */
-        fun calculateNextTrigger(now: LocalDateTime): LocalDateTime {
-            val today = now.toLocalDate()
-            val tomorrow = today.plusDays(1)
-            val candidates = mutableListOf<LocalDateTime>()
+        // ── 数据闹钟调度 (RTC_WAKEUP, 每天 01:00) ──────────
 
-            // 今日 01:00
-            candidates.add(today.atTime(1, 0))
-
-            // 今日 07:30~22:00 每 30 分钟
-            var t = today.atTime(7, 30)
-            val endTime = today.atTime(22, 0)
-            while (!t.isAfter(endTime)) {
-                candidates.add(t)
-                t = t.plusMinutes(30)
-            }
-
-            // 兜底:明日 01:00 (用于 now 是 23:xx 的情况)
-            candidates.add(tomorrow.atTime(1, 0))
-
-            // 备用:明日 07:30~22:00 (now 是 22:00~23:59 的情况)
-            var tNext = tomorrow.atTime(7, 30)
-            val endTimeNext = tomorrow.atTime(22, 0)
-            while (!tNext.isAfter(endTimeNext)) {
-                candidates.add(tNext)
-                tNext = tNext.plusMinutes(30)
-            }
-
-            return candidates.firstOrNull { it.isAfter(now) }
-                ?: tomorrow.atTime(1, 0)
-        }
-
-        /**
-         * 调度下一次触发。
-         *
-         * 调用时机:
-         *  - App.onCreate 末尾(启动期首次排程)
-         *  - onReceive 末尾(自递归)
-         *  - BootReceiver.onReceive(开机后重排)
-         */
         fun scheduleNext(context: Context) {
+            // 计算明天 01:00 作为下一次数据校准
             val now = LocalDateTime.now()
-            val nextTrigger = calculateNextTrigger(now)
+            val tomorrow = now.toLocalDate().plusDays(1)
+            val nextTrigger = tomorrow.atTime(1, 0)
             val triggerMillis = nextTrigger.atZone(ZoneId.systemDefault())
                 .toInstant().toEpochMilli()
-            val delayMillis = (triggerMillis - System.currentTimeMillis()).coerceAtLeast(0L)
 
-            Log.i(TAG, "scheduleNext: 下一触发 = $nextTrigger (delay = ${delayMillis / 1000}s)")
+            Log.i(TAG, "scheduleNext: data alarm at $nextTrigger")
 
             val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                REQUEST_CODE,
+                context, REQUEST_DATA,
                 Intent(context, WidgetUpdateScheduler::class.java).apply {
                     action = ACTION_UPDATE_WIDGETS
+                    putExtra(EXTRA_IS_TICKER, 0)
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
 
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
-                ?: return
-
-            // API 31+ 默认拒绝 SCHEDULE_EXACT_ALARMS,降级到 inexact API
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                !alarmManager.canScheduleExactAlarms()
-            ) {
-                alarmManager.setAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerMillis,
-                    pendingIntent,
-                )
-                Log.w(TAG, "scheduleNext: 无精确闹钟权限,使用 setAndAllowWhileIdle")
+            val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
             } else {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerMillis,
-                    pendingIntent,
-                )
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
             }
         }
 
-        /** 取消所有调度(widget 卸载或 App 退出时调用) */
-        fun cancel(context: Context) {
+        // ── 显示刷新闹钟 (RTC setRepeating, 1 分钟) ─────────
+
+        /**
+         * 启动 1 分钟 RTC 重复闹钟,专用于 widget 倒计时刷新。
+         *
+         * RTC = 不唤醒 CPU。屏幕亮时闹钟约每分钟触发一次,
+         * 从 widget 读本地缓存 + LocalTime.now() 重算倒计时。
+         * 屏幕灭时 widget 不可见,闹钟不触发,不耗电。
+         *
+         * setRepeating 是 inexact 的,实际间隔可能 1~5 分钟,
+         * 但远比 30 分钟的 updatePeriodMillis 准确。
+         */
+        fun scheduleTicker(context: Context) {
             val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                REQUEST_CODE,
+                context, REQUEST_TICKER,
                 Intent(context, WidgetUpdateScheduler::class.java).apply {
                     action = ACTION_UPDATE_WIDGETS
+                    putExtra(EXTRA_IS_TICKER, 1)
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
-            alarmManager?.cancel(pendingIntent)
+
+            val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            try {
+                am.setRepeating(
+                    AlarmManager.RTC,
+                    System.currentTimeMillis() + 60_000,
+                    60_000L,
+                    pendingIntent,
+                )
+                Log.i(TAG, "scheduleTicker: RTC setRepeating 60s 已启动")
+            } catch (e: Exception) {
+                Log.e(TAG, "scheduleTicker 失败: ${e.message}")
+            }
+        }
+
+        // ── 取消 ──────────────────────────────────────────
+
+        fun cancel(context: Context) {
+            val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            for (code in listOf(REQUEST_DATA, REQUEST_TICKER)) {
+                val pi = PendingIntent.getBroadcast(
+                    context, code,
+                    Intent(context, WidgetUpdateScheduler::class.java).apply {
+                        action = ACTION_UPDATE_WIDGETS
+                    },
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                am.cancel(pi)
+            }
             Log.i(TAG, "cancel: 已取消所有调度")
         }
     }
