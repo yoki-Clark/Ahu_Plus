@@ -1,5 +1,6 @@
 package com.yourname.ahu_plus.ui.navigation
 
+import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -108,6 +109,50 @@ fun AppNavigation(
         adwmhCardRepository.clearCookies()
     }
 
+    /**
+     * 2026-06-23 静默重新登录(后台自动续期):
+     *
+     * 各业务 ViewModel 触发 `onReauth` 时,先调用此函数尝试通过 CASTGC/凭据
+     * 自动恢复会话:
+     *  1. CAS 续期 → `casAuthRepository.ensureValidSession()` → 拿到新 CASTGC
+     *  2. 清 JW 旧 session/cookie(否则 `authenticate()` 会直接复用旧值,绕过 SSO)
+     *  3. 教务续期 → `jwAuthRepository.authenticate()` → 用新 CASTGC 换新 SESSION
+     *
+     * 返回 true 表示后台续期成功,调用方应让用户手动刷新当前页(emit "会话已恢复"
+     * 提示),不要跳转登录;返回 false 表示凭据丢失或网络问题,只能走 `navigateToLogin`。
+     */
+    suspend fun attemptSilentReauth(): Boolean {
+        // Step 1: CAS 续期
+        val casResult = try {
+            casAuthRepository.ensureValidSession()
+        } catch (e: Exception) {
+            Log.w("AppNavigation", "attemptSilentReauth: CAS 异常 ${e.message}")
+            null
+        }
+        if (casResult == null || casResult.isFailure) {
+            Log.w("AppNavigation", "attemptSilentReauth: CAS 续期失败 ${casResult?.exceptionOrNull()?.message}")
+            return false
+        }
+        // Step 2: 强制丢弃 JW 旧会话(否则 authenticate() 会用旧 session 直接返回 success)
+        try {
+            jwAuthRepository.clearCookies()
+            sessionManager.clearJwSession()
+        } catch (e: Exception) {
+            Log.w("AppNavigation", "attemptSilentReauth: 清 JW cookie 异常 ${e.message}")
+        }
+        // Step 3: JW 续期 — authenticate() 在没 session 时会走 trySimplifiedSso 用新 CASTGC 换 SESSION
+        return try {
+            val jwResult = jwAuthRepository.authenticate()
+            if (!jwResult.isSuccess) {
+                Log.w("AppNavigation", "attemptSilentReauth: JW 续期失败 ${jwResult.exceptionOrNull()?.message}")
+            }
+            jwResult.isSuccess
+        } catch (e: Exception) {
+            Log.w("AppNavigation", "attemptSilentReauth: JW 异常 ${e.message}")
+            false
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = startRoute ?: return
@@ -184,10 +229,18 @@ fun AppNavigation(
                 onThemeModeChange = onThemeModeChange,
                 onReauth = {
                     coroutineScope.launch {
-                        clearAllCookies()
-                        sessionManager.clearSession()
-                        sessionManager.clearJwSession()
-                        navigateToLogin()
+                        // 2026-06-23 修复：先尝试后台静默续期,只有真正失败才清数据+跳登录
+                        val reauthed = attemptSilentReauth()
+                        if (reauthed) {
+                            Log.i("AppNavigation", "onReauth: 后台静默续期成功,通知 UI 刷新")
+                            initMessageFlow?.emit("会话已恢复，请下拉刷新")
+                        } else {
+                            Log.w("AppNavigation", "onReauth: 后台续期失败,跳登录页")
+                            clearAllCookies()
+                            sessionManager.clearSession()
+                            sessionManager.clearJwSession()
+                            navigateToLogin()
+                        }
                     }
                 },
                 onLogout = {

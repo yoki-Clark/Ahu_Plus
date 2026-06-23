@@ -6,23 +6,29 @@ import java.time.LocalTime
  * 安大标准节次时间表 + 工具方法。
  *
  * 用于空教室查询中：确定当前节次 → 计算剩余节次 → 格式化时间范围。
+ *
+ * 2026-06-23 修复：与教务处 `CourseRepository.defaultUnitTimes()` 时间表对齐。
+ * 旧版本第 1 节为 08:20-09:05（与教务实际课表错位 20 分钟），现已改为 08:00-08:45，
+ * 5 节上午 + 5 节下午 + 3 节晚上，与教务处默认布局保持一致，避免空教室与课表页面
+ * 显示同一节次的时间范围不一致。
  */
 object AhuUnitTimes {
-    /** 节次编号 → (开始时间, 结束时间)，格式 "HH:mm"。 */
+    /** 节次编号 → (开始时间, 结束时间)，格式 "HH:mm"。
+     *  来源:教务处 CourseRepository.defaultUnitTimes() (HHMM 整数 → "HH:mm" 字符串)。 */
     val UNIT_TO_TIME: Map<Int, Pair<String, String>> = mapOf(
-        1 to ("08:20" to "09:05"),
-        2 to ("09:15" to "10:00"),
-        3 to ("10:20" to "11:05"),
-        4 to ("11:15" to "12:00"),
-        5 to ("14:00" to "14:45"),
-        6 to ("14:55" to "15:40"),
-        7 to ("15:50" to "16:35"),
-        8 to ("16:45" to "17:30"),
-        9 to ("19:00" to "19:45"),
-        10 to ("19:55" to "20:40"),
-        11 to ("20:50" to "21:35"),
-        12 to ("21:45" to "22:30"),
-        13 to ("22:40" to "23:25")
+        1 to ("08:00" to "08:45"),
+        2 to ("08:50" to "09:35"),
+        3 to ("09:50" to "10:35"),
+        4 to ("10:40" to "11:25"),
+        5 to ("11:30" to "12:15"),
+        6 to ("14:00" to "14:45"),
+        7 to ("14:50" to "15:35"),
+        8 to ("15:50" to "16:35"),
+        9 to ("16:40" to "17:25"),
+        10 to ("17:30" to "18:15"),
+        11 to ("19:00" to "19:45"),
+        12 to ("19:50" to "20:35"),
+        13 to ("20:40" to "21:25")
     )
 
     private val MAX_UNIT: Int = UNIT_TO_TIME.keys.maxOrNull() ?: 13
@@ -48,7 +54,7 @@ object AhuUnitTimes {
         UNIT_TO_TIME.keys.filter { it >= fromUnit }.sorted()
 
     /**
-     * 格式化节次范围，如 "第 5-8 节 (14:00-17:30)"。
+     * 格式化节次范围，如 "第 5-8 节 (14:00-17:25)"。
      */
     fun formatUnitRange(units: List<Int>): String {
         if (units.isEmpty()) return ""

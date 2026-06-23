@@ -424,6 +424,7 @@ fun ProfileScreen(
             onRetryInternet = cardViewModel::loadInternetBalance,
             onRefresh = { cardViewModel.onRefresh() },
             onOpenBills = { showBills = true },
+            onOpenUtilityOverview = { showUtilities = true; utilityTarget = null },
             onOpenBathroom = { openUtility("bathroom") },
             onOpenAc = { openUtility("ac") },
             onOpenLighting = { openUtility("lighting") },
@@ -491,6 +492,8 @@ private fun ProfileHomeScreen(
     onRetryInternet: () -> Unit,
     onRefresh: () -> Unit,
     onOpenBills: () -> Unit,
+    /** 水电费总览（4 张卡片列表）— 2026-06-23 修复：原来点击会直接落到浴室子页 */
+    onOpenUtilityOverview: () -> Unit,
     onOpenBathroom: () -> Unit,
     onOpenAc: () -> Unit,
     onOpenLighting: () -> Unit,
@@ -666,7 +669,9 @@ private fun ProfileHomeScreen(
                         description = "浴室、空调、照明、网费余额",
                         iconColor = Color(0xFF2F80ED),
                         icon = { Icon(Icons.Filled.WaterDrop, contentDescription = null) },
-                        onClick = onOpenBathroom
+                        // 2026-06-23 修复：原 onClick=onOpenBathroom 会直接落到浴室子页，
+                        // 现改为打开总览页（4 张卡片列表），用户可从总览进入具体子项
+                        onClick = onOpenUtilityOverview
                     )
                     HorizontalDivider()
                     SettingsRow(

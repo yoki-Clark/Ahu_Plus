@@ -160,6 +160,14 @@ class GradeViewModel(
                         }
                     },
                     onFailure = { e ->
+                        // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
+                        if (e is SessionExpiredException) {
+                            val retry = retryAfterSilentReauth()
+                            if (retry != null) {
+                                handleGradesResult(retry, wasLoaded)
+                                return@fold
+                            }
+                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -184,6 +192,62 @@ class GradeViewModel(
 
     private companion object {
         private const val TAG = "GradeVM"
+    }
+
+    /**
+     * 2026-06-23: SessionExpiredException 后,先尝试后台静默重连 + 重试一次。
+     * 重连策略与 EmptyClassroomViewModel 一致:清 JW cookie → authenticate() →
+     * trySimplifiedSso (用 CASTGC 换新 JW SESSION) → 失败时 fallback 到 performFullLogin。
+     * 返回 null 表示重连失败,让原 onFailure 继续走 needsLogin 路径。
+     */
+    private suspend fun retryAfterSilentReauth(): com.yourname.ahu_plus.data.model.jw.GradeResponse? {
+        return try {
+            jwAuthRepository.clearCookies()
+            val authOk = jwAuthRepository.authenticate().isSuccess
+            if (!authOk) {
+                Log.w(TAG, "retryAfterSilentReauth: 静默重连失败,放弃重试")
+                return null
+            }
+            gradeRepository.getGrades().getOrNull()
+        } catch (e: Exception) {
+            Log.w(TAG, "retryAfterSilentReauth 异常: ${e.message}")
+            null
+        }
+    }
+
+    /** 应用重连+重试后的成绩结果。GPA 仍用之前缓存的值(I-012)。 */
+    private suspend fun handleGradesResult(
+        resp: com.yourname.ahu_plus.data.model.jw.GradeResponse,
+        @Suppress("UNUSED_PARAMETER") wasLoaded: Boolean
+    ) {
+        val sm = sessionManager
+        if (sm != null) {
+            try {
+                sm.saveGradesJson(gson.toJson(resp), null)
+            } catch (_: Exception) { Log.w(TAG, "Failed to cache grades JSON") }
+        }
+        val semesterIds = resp.semesterId2studentGrades?.keys
+            ?.mapNotNull { it.toIntOrNull() }
+            ?.sortedDescending()
+            ?: emptyList()
+        val gradesBySem = resp.semesterId2studentGrades.orEmpty()
+        val defaultSem = _uiState.value.selectedSemesterId
+            ?.takeIf { it in semesterIds }
+            ?: semesterIds.firstOrNull()
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                gradesBySemester = gradesBySem,
+                availableSemesterIds = semesterIds,
+                selectedSemesterId = defaultSem,
+                semesterName = defaultSem?.let { id ->
+                    gradesBySem[id.toString()]?.firstOrNull()?.semesterName
+                        ?: resp.semesters?.firstOrNull { s -> s.id == id }?.nameZh
+                },
+                error = null,
+                needsLogin = false
+            )
+        }
     }
 }
 

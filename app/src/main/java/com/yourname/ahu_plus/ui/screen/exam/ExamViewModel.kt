@@ -92,6 +92,14 @@ class ExamViewModel(
                         }
                     },
                     onFailure = { e ->
+                        // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
+                        if (e is SessionExpiredException) {
+                            val retry = retryAfterSilentReauth()
+                            if (retry != null) {
+                                handleExamsResult(retry, wasLoaded)
+                                return@fold
+                            }
+                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -115,6 +123,41 @@ class ExamViewModel(
 
     private companion object {
         private const val TAG = "ExamVM"
+    }
+
+    /** 2026-06-23: SessionExpiredException 后尝试静默重连+重试一次。 */
+    private suspend fun retryAfterSilentReauth(): List<com.yourname.ahu_plus.data.model.jw.Exam>? {
+        return try {
+            jwAuthRepository.clearCookies()
+            val authOk = jwAuthRepository.authenticate().isSuccess
+            if (!authOk) {
+                Log.w(TAG, "retryAfterSilentReauth: 静默重连失败,放弃重试")
+                return null
+            }
+            examRepository.getExams().getOrNull()
+        } catch (e: Exception) {
+            Log.w(TAG, "retryAfterSilentReauth 异常: ${e.message}")
+            null
+        }
+    }
+
+    /** 应用重连+重试后的考试结果。 */
+    private suspend fun handleExamsResult(
+        list: List<com.yourname.ahu_plus.data.model.jw.Exam>,
+        @Suppress("UNUSED_PARAMETER") wasLoaded: Boolean
+    ) {
+        val sm = sessionManager
+        if (sm != null) {
+            try { sm.saveExamsJson(gson.toJson(list)) } catch (_: Exception) { Log.w(TAG, "Failed to cache exams JSON") }
+        }
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                exams = list,
+                error = null,
+                needsLogin = false
+            )
+        }
     }
 }
 

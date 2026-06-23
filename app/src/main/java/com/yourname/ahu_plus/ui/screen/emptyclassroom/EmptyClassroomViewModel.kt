@@ -188,6 +188,16 @@ class EmptyClassroomViewModel(
                         }
                     },
                     onFailure = { e ->
+                        // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次,
+                        // 避免直接走到 needsLogin → onReauth 跳转登录的路径。
+                        if (e is SessionExpiredException) {
+                            val retryResult = retryAfterSilentReauth(buildingId, campusId, currentUnit)
+                            if (retryResult != null) {
+                                // 重连+重试成功,直接消费结果
+                                handleRoomsResult(retryResult, buildingId, campusId, wasLoaded)
+                                return@fold
+                            }
+                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -206,6 +216,69 @@ class EmptyClassroomViewModel(
                     needsLogin = !wasLoaded && e is SessionExpiredException
                 )
             }
+        }
+    }
+
+    /**
+     * 2026-06-23: SessionExpiredException 后,先尝试后台静默重连 + 重试一次,
+     * 避免走 needsLogin → onReauth 的跳转路径。返回 null 表示重连失败(让原 onFailure 继续)。
+     *
+     * 重连策略:清掉 JW cookie 后调用 `jwAuthRepository.authenticate()`,
+     * 它在没有 saved session 时会走 `trySimplifiedSso` 用 CAS 的 CASTGC 换新 SESSION;
+     * CASTGC 也过期时会自动 fallback 到 `performFullLogin`(使用本地保存的账号密码)。
+     */
+    private suspend fun retryAfterSilentReauth(
+        buildingId: String,
+        campusId: String,
+        currentUnit: Int
+    ): List<FreeRoomResult>? {
+        return try {
+            // 1. 清掉 JW 旧 cookie,强制 authenticate() 走 SSO(否则它会用 stale session 直接返回 success)
+            jwAuthRepository.clearCookies()
+            val authOk = jwAuthRepository.authenticate().isSuccess
+            if (!authOk) {
+                Log.w(TAG, "retryAfterSilentReauth: 静默重连失败,放弃重试")
+                return null
+            }
+            // 2. 重试一次查询
+            val retry = emptyClassroomRepository.getFreeRoomsWithDuration(
+                buildingId = buildingId,
+                campusId = campusId,
+                currentUnit = currentUnit
+            )
+            retry.getOrNull()
+        } catch (e: Exception) {
+            Log.w(TAG, "retryAfterSilentReauth 异常: ${e.message}")
+            null
+        }
+    }
+
+    /** 应用房间查询结果到 UI state(重连+重试成功后调用)。 */
+    private suspend fun handleRoomsResult(
+        rooms: List<FreeRoomResult>,
+        buildingId: String,
+        campusId: String,
+        @Suppress("UNUSED_PARAMETER") wasLoaded: Boolean
+    ) {
+        val sm = sessionManager
+        if (sm != null) {
+            try {
+                val cacheKey = "${LocalDate.now()}|$buildingId|$campusId"
+                sm.saveEmptyClassroomJson(gson.toJson(rooms), cacheKey)
+            } catch (_: Exception) { Log.w(TAG, "Failed to cache empty classroom JSON") }
+        }
+        val floors = rooms.mapNotNull { it.room.floor }.distinct().sorted()
+        val selectedFloor = _uiState.value.selectedFloor
+        val filtered = if (selectedFloor != null) rooms.filter { it.room.floor == selectedFloor } else rooms
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                rooms = rooms,
+                filteredRooms = filtered,
+                availableFloors = floors,
+                error = null,
+                needsLogin = false
+            )
         }
     }
 

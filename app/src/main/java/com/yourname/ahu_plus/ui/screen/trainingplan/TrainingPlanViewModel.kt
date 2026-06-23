@@ -112,6 +112,18 @@ class TrainingPlanViewModel(
                         applyTrainingPlan(resp)
                     },
                     onFailure = { e ->
+                        // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
+                        if (e is SessionExpiredException) {
+                            val retry = retryAfterSilentReauth()
+                            if (retry != null) {
+                                sessionManager?.let { sm ->
+                                    try { sm.saveTrainingPlanJson(gson.toJson(retry)) }
+                                    catch (_: Exception) { Log.w(TAG, "Failed to cache training plan JSON") }
+                                }
+                                applyTrainingPlan(retry)
+                                return@fold
+                            }
+                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -283,6 +295,22 @@ class TrainingPlanViewModel(
 
     private companion object {
         private const val TAG = "TrainingPlanVM"
+    }
+
+    /** 2026-06-23: SessionExpiredException 后尝试静默重连+重试一次。 */
+    private suspend fun retryAfterSilentReauth(): TrainingPlanResponse? {
+        return try {
+            jwAuthRepository.clearCookies()
+            val authOk = jwAuthRepository.authenticate().isSuccess
+            if (!authOk) {
+                Log.w(TAG, "retryAfterSilentReauth: 静默重连失败,放弃重试")
+                return null
+            }
+            trainingPlanRepository.getTrainingPlan().getOrNull()
+        } catch (e: Exception) {
+            Log.w(TAG, "retryAfterSilentReauth 异常: ${e.message}")
+            null
+        }
     }
 }
 

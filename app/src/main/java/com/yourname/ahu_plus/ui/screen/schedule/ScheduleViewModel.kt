@@ -27,6 +27,7 @@ import com.yourname.ahu_plus.data.repository.HomeworkRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.KqAttendanceRepository
 import com.yourname.ahu_plus.data.repository.RecordRepository
+import com.yourname.ahu_plus.data.repository.SessionExpiredException
 import com.yourname.ahu_plus.data.repository.UserTaskRepository
 import com.yourname.ahu_plus.ui.widget.TodayScheduleWidgetUpdater
 import kotlinx.coroutines.Dispatchers
@@ -410,6 +411,14 @@ class ScheduleViewModel(
                         }
                     },
                     onFailure = { e ->
+                        // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
+                        if (e is SessionExpiredException) {
+                            val retry = retryAfterSilentReauth(semesterId, isCurrentSemester)
+                            if (retry != null) {
+                                applyScheduleData(retry, isCurrentSemester, wasLoaded)
+                                return@fold
+                            }
+                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -999,6 +1008,71 @@ class ScheduleViewModel(
 
     private companion object {
         private const val TAG = "ScheduleVM"
+    }
+
+    /** 2026-06-23: SessionExpiredException 后尝试静默重连+重试一次。 */
+    private suspend fun retryAfterSilentReauth(
+        semesterId: Int,
+        @Suppress("UNUSED_PARAMETER") isCurrentSemester: Boolean
+    ): com.yourname.ahu_plus.data.model.jw.ScheduleData? {
+        return try {
+            jwAuthRepository.clearCookies()
+            val authOk = jwAuthRepository.authenticate().isSuccess
+            if (!authOk) {
+                Log.w(TAG, "retryAfterSilentReauth: 静默重连失败,放弃重试")
+                return null
+            }
+            courseRepository.getSchedule(semesterId).getOrNull()
+        } catch (e: Exception) {
+            Log.w(TAG, "retryAfterSilentReauth 异常: ${e.message}")
+            null
+        }
+    }
+
+    /** 应用重连+重试后的课表数据。 */
+    private suspend fun applyScheduleData(
+        data: com.yourname.ahu_plus.data.model.jw.ScheduleData,
+        isCurrentSemester: Boolean,
+        @Suppress("UNUSED_PARAMETER") wasLoaded: Boolean
+    ) {
+        if (isCurrentSemester) {
+            val sm = sessionManager
+            if (sm != null) {
+                try {
+                    val json = com.yourname.ahu_plus.data.GsonProvider.instance.toJson(data)
+                    sm.saveScheduleJson(json)
+                    getApplication<android.app.Application>().let { app ->
+                        TodayScheduleWidgetUpdater.updateAll(app)
+                    }
+                } catch (e: Exception) { Log.w(TAG, "Failed to cache schedule JSON: ${e.message}") }
+            }
+        }
+        val displayItems = buildDisplayItems(
+            activities = data.activities,
+            selectedWeek = data.currentWeek,
+            lessons = data.lessons
+        )
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                isLoadingSemester = false,
+                error = null,
+                needsLogin = false,
+                studentName = data.studentName,
+                className = data.className,
+                department = data.department,
+                credits = data.credits,
+                allActivities = data.activities,
+                displayItems = displayItems,
+                unitTimes = data.unitTimes,
+                semester = data.semester,
+                currentWeek = data.currentWeek,
+                selectedWeek = data.currentWeek,
+                weekIndices = data.weekIndices,
+                lessons = data.lessons,
+                currentSemesterCurrentWeek = if (isCurrentSemester) data.currentWeek else it.currentSemesterCurrentWeek,
+            )
+        }
     }
 }
 
