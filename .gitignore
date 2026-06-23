@@ -1,3 +1,8 @@
+# ============================================================
+# Ahu_Plus .gitignore — 开源版
+# ============================================================
+
+# ── Android build ──────────────────────────────────────────
 *.iml
 .gradle
 .kotlin/
@@ -15,23 +20,47 @@ app/build/
 .externalNativeBuild
 .cxx
 local.properties
+
+# ── 密钥与凭据 ────────────────────────────────────────────
 .env
-tools/.jwt_token
-tools/exam_prediction/.jwt_token
+.env.*
+*.jks
+*.keystore
+*.p12
+*.pem
 cos_config.properties
 app/src/main/assets/cos_config.properties
+
+# ── 本地技术文档（不上传）────────────────────────────────
+docs/
+AGENTS.md
+BETA_TESTING.md
+BUG_REVIEW.md
+CLAUDE.md
+SECURITY.md
+.obsidian/
+.understand-anything/
+.claude/
+
+# ── 开发工具脚本（不上传）────────────────────────────────
+# tools/exam_prediction/ 例外 — 公开的排考预测工具
+tools/
+!tools/exam_prediction/
+
+# ── 备份与调试产物 ────────────────────────────────────────
 *.log
 *.py[cod]
 __pycache__/
+*.apk
+*.aab
+version.json.v*
+/release-snapshots/
+/downloads/
+/beta_release/
+*.html
+*.csv
+!tools/exam_prediction/output_*.csv
 
-# Local probe/debug artifacts
-/*.png
+# ── 截图与导出 ────────────────────────────────────────────
+*.png
 tools/_cap*.png
-tools/card_analytics_output/
-tools/market_identity_exporter/
-tools/market_identity_exporter_system_python/
-tools/market_identity_exporter*.zip
-
-# Local editor/tool directories
-.obsidian/
-.understand-anything/

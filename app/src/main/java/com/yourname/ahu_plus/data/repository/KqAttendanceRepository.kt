@@ -63,7 +63,8 @@ class KqAttendanceRepository(
     }
 
     private val client: OkHttpClient = SecureHttpClientFactory.create(
-        cookieJar = cookieJar, followRedirects = false, disableGzip = true
+        cookieJar = cookieJar, followRedirects = false, disableGzip = true,
+        trustAll = true  // kqcard.ahu.edu.cn 自签名证书
     )
 
     @Volatile

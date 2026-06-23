@@ -47,6 +47,7 @@ class EmptyClassroomRepository(
         cookieJar = jwAuthRepository.jwCookieJar,
         followRedirects = false,
         disableGzip = false,
+        trustAll = true,  // jw.ahu.edu.cn 自签名证书
         extraInterceptors = listOf(
             okhttp3.Interceptor { chain ->
                 val req = chain.request().newBuilder()

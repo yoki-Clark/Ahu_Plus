@@ -76,7 +76,6 @@ class AutoLoginViewModel(
                         android.util.Log.w("AutoLogin", "ycard 登录失败: ${it.message}")
                     }
                     _uiState.value = AutoLoginState.Success
-                    sessionManager.notifyBackupOnLogin()
                 },
                 onFailure = { e ->
                     _uiState.value = AutoLoginState.Failed(e.message ?: "未知错误")

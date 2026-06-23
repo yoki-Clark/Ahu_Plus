@@ -373,8 +373,6 @@ fun ProfileScreen(
         AppSettingsScreen(
             themeMode = themeMode,
             onThemeModeChange = onThemeModeChange,
-            marketEnabled = marketUiState.marketEnabled,
-            onMarketEnabledChanged = marketViewModel::setMarketEnabled,
             showCompletedTasks = scheduleUiState.showCompletedTasks,
             showCompletedExams = scheduleUiState.showCompletedExams,
             onShowCompletedTasksChanged = onShowCompletedTasksChanged,
@@ -411,7 +409,13 @@ fun ProfileScreen(
             },
             identityCount = marketUiState.identities.size,
             hasMarketIdentity = marketUiState.hasSavedIdentity,
-            marketEnabled = marketUiState.marketEnabled,
+            // 「第三方服务」section: parent (5s 弹窗) + 集市/学习通 子开关
+            thirdPartyEnabled = marketUiState.thirdPartyServicesEnabled,
+            marketChildEnabled = marketUiState.marketChildEnabled,
+            chaoxingChildEnabled = marketUiState.chaoxingChildEnabled,
+            onThirdPartyEnabledChanged = marketViewModel::setMarketEnabled,
+            onMarketChildEnabledChanged = marketViewModel::setMarketChildEnabled,
+            onChaoxingChildEnabledChanged = marketViewModel::setChaoxingChildEnabled,
             bathroomData = cardUiState.bathroomData,
             bathroomLoading = cardUiState.bathroomLoading,
             bathroomError = cardUiState.bathroomError,
@@ -477,7 +481,13 @@ private fun ProfileHomeScreen(
     onQrClick: () -> Unit,
     identityCount: Int,
     hasMarketIdentity: Boolean,
-    marketEnabled: Boolean,
+    // 第三方服务 (parent 总开关 + 集市/学习通 子开关),v1.3.6 引入
+    thirdPartyEnabled: Boolean,
+    marketChildEnabled: Boolean,
+    chaoxingChildEnabled: Boolean,
+    onThirdPartyEnabledChanged: (Boolean) -> Unit,
+    onMarketChildEnabledChanged: (Boolean) -> Unit,
+    onChaoxingChildEnabledChanged: (Boolean) -> Unit,
     // 浴室余额
     bathroomData: com.yourname.ahu_plus.data.model.BathroomBalanceData?,
     bathroomLoading: Boolean,
@@ -514,6 +524,8 @@ private fun ProfileHomeScreen(
         className?.takeIf { it.isNotBlank() }
     ).joinToString(" · ").ifBlank { "学生信息接口待接入" }
     var showLogoutConfirm by rememberSaveable { mutableStateOf(false) }
+    // 第三方服务 parent 启用前的 5s 风险声明弹窗 (子开关不需要二次确认)
+    var showThirdPartyDialog by rememberSaveable { mutableStateOf(false) }
     var showDeveloperContact by rememberSaveable { mutableStateOf(false) }
     var showShareSheet by rememberSaveable { mutableStateOf(false) }
     var showQrCard by rememberSaveable { mutableStateOf(false) }
@@ -534,6 +546,16 @@ private fun ProfileHomeScreen(
     LaunchedEffect(profileListState) {
         snapshotFlow { profileListState.firstVisibleItemIndex to profileListState.firstVisibleItemScrollOffset }
             .collect { (idx, off) -> savedIndex = idx; savedOffset = off }
+    }
+
+    if (showThirdPartyDialog) {
+        ThirdPartyEnableDialog(
+            onConfirm = {
+                onThirdPartyEnabledChanged(true)
+                showThirdPartyDialog = false
+            },
+            onDismiss = { showThirdPartyDialog = false }
+        )
     }
 
     if (showLogoutConfirm) {
@@ -684,6 +706,62 @@ private fun ProfileHomeScreen(
                 }
             }
 
+            // ── 第三方服务 section (v1.3.6) ─────────────────
+            // parent 总开关 (5s 弹窗) → 集市/学习通 子开关 (独立切换)
+            item {
+                AhuSectionHeader(
+                    title = "第三方服务",
+                    subtitle = "非安大官方平台,启用前需确认风险声明"
+                )
+            }
+
+            item {
+                ProfileSection {
+                    // parent: 启用第三方服务 (整体入口,开启前需 5s 弹窗确认风险)
+                    SettingsSwitchRow(
+                        title = "启用第三方服务",
+                        description = if (thirdPartyEnabled) {
+                            "已开启：可单独控制「集市」「学习通」Tab 显示"
+                        } else {
+                            "默认关闭，启用需阅读并确认风险声明"
+                        },
+                        checked = thirdPartyEnabled,
+                        onCheckedChange = { wantEnable ->
+                            if (wantEnable) {
+                                showThirdPartyDialog = true
+                            } else {
+                                onThirdPartyEnabledChanged(false)
+                            }
+                        }
+                    )
+                    // 子开关: 仅在 parent 开启后可见
+                    if (thirdPartyEnabled) {
+                        HorizontalDivider()
+                        SettingsSwitchRow(
+                            title = "校园集市",
+                            description = if (marketChildEnabled) {
+                                "底部导航显示「集市」Tab"
+                            } else {
+                                "已隐藏「集市」Tab,本地 token/设置保留"
+                            },
+                            checked = marketChildEnabled,
+                            onCheckedChange = onMarketChildEnabledChanged
+                        )
+                        HorizontalDivider()
+                        SettingsSwitchRow(
+                            title = "超星学习通",
+                            description = if (chaoxingChildEnabled) {
+                                "底部导航显示「学习通」Tab"
+                            } else {
+                                "已隐藏「学习通」Tab,本地登录态保留"
+                            },
+                            checked = chaoxingChildEnabled,
+                            onCheckedChange = onChaoxingChildEnabledChanged
+                        )
+                    }
+                }
+            }
+
             item {
                 AhuSectionHeader(
                     title = "关于",
@@ -693,7 +771,7 @@ private fun ProfileHomeScreen(
 
             item {
                 ProfileSection {
-                    if (marketEnabled) {
+                    if (marketChildEnabled) {
                         HorizontalDivider()
                         SettingsRow(
                             title = "集市设置",
@@ -875,8 +953,6 @@ private fun ContactMethodRow(
 private fun AppSettingsScreen(
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
-    marketEnabled: Boolean,
-    onMarketEnabledChanged: (Boolean) -> Unit,
     showCompletedTasks: Boolean = false,
     showCompletedExams: Boolean = false,
     onShowCompletedTasksChanged: (Boolean) -> Unit = {},
@@ -969,17 +1045,6 @@ private fun AppSettingsScreen(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        SettingsSwitchRow(
-                            title = "启用集市功能",
-                            description = if (marketEnabled) {
-                                "关闭后底部导航将隐藏「集市」Tab"
-                            } else {
-                                "已关闭，启用后恢复「集市」Tab"
-                            },
-                            checked = marketEnabled,
-                            onCheckedChange = onMarketEnabledChanged
-                        )
-                        HorizontalDivider()
                         SettingsSwitchRow(
                             title = "显示已完成考试",
                             description = if (showCompletedExams) {

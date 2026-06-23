@@ -72,6 +72,7 @@ class YcardRepository(
         cookieJar = cookieJar,
         followRedirects = false,
         disableGzip = true,
+        trustAll = true,  // ycard.ahu.edu.cn 自签名证书
         connectTimeoutSec = 30,
         readTimeoutSec = 30
     )

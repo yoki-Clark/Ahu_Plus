@@ -10,8 +10,6 @@ import com.yourname.ahu_plus.data.repository.AiCommentRepository
 import com.yourname.ahu_plus.data.repository.AssessmentRepository
 import com.yourname.ahu_plus.data.repository.ChaoxingNotificationRepository
 import com.yourname.ahu_plus.data.repository.ChaoxingRepository
-import com.yourname.ahu_plus.data.repository.CloudBackupManager
-import com.yourname.ahu_plus.data.repository.CloudStorageRepository
 import com.yourname.ahu_plus.data.repository.ChaoxingStudyRepository
 import com.yourname.ahu_plus.data.repository.ChaoxingTikuRepository
 import com.yourname.ahu_plus.data.repository.KqAttendanceRepository
@@ -105,10 +103,6 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var chaoxingNotificationRepository: ChaoxingNotificationRepository
         private set
-    lateinit var cloudStorageRepository: CloudStorageRepository
-        private set
-    lateinit var cloudBackupManager: CloudBackupManager
-        private set
     lateinit var updateManager: UpdateManager
         private set
     lateinit var examDataRepository: ExamDataRepository
@@ -177,10 +171,6 @@ class AhuPlusApplication : Application() {
             notificationRepo = chaoxingNotificationRepository,
             context = this,
         )
-        // 腾讯云 COS 云存储 (2026-06-20)
-        cloudStorageRepository = CloudStorageRepository(this)
-        cloudBackupManager = CloudBackupManager(this, sessionManager, appDataStore, cloudStorageRepository)
-
         // 首次登录初始化协调器 (2026-06-22 新增) — 串行预热 7 项核心数据
         initCoordinator = com.yourname.ahu_plus.data.repository.InitCoordinator(
             sessionManager = sessionManager,
@@ -192,8 +182,6 @@ class AhuPlusApplication : Application() {
             trainingPlanRepository = trainingPlanRepository,
             kqAttendanceRepository = attendanceRepository,
         )
-        // 将 backupManager 注入 sessionManager，供数据变更时触发防抖备份
-        sessionManager.setBackupManager(cloudBackupManager)
 
         // 初始化超星加密字体解码器(2026-06-20 集成 Phase 1)
         // 启动时一次性加载 assets/font_map_table.json (1.6MB) 到内存 hash map。
@@ -226,6 +214,5 @@ class AhuPlusApplication : Application() {
 
     override fun onTerminate() {
         super.onTerminate()
-        cloudStorageRepository.shutdown()
     }
 }

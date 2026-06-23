@@ -64,8 +64,11 @@ object SecureHttpClientFactory {
      *                    其他业务 API 应该让 OkHttp 自动 gzip 解压以节省带宽。
      * @param extraInterceptors 额外的应用拦截器(在 network 拦截器之前)
      * @param connectTimeoutSec / readTimeoutSec 超时秒数
-     * @param trustAll 是否禁用证书验证。仅对 *.ahu.edu.cn 自签名证书场景使用;
-     *                 标准 HTTPS 域名(如 api.zxs-bbs.cn)应使用系统信任库。
+     * @param trustAll 是否禁用证书验证。**默认 false**,仅对 *.ahu.edu.cn 自签名证书
+     *                 调用点显式声明 trustAll = true;标准 HTTPS 域名(如 api.zxs-bbs.cn /
+     *                 openahu.org / 集市头像 CDN)必须保持默认值,否则一旦 MITM 接管
+     *                 流量,本工厂创建的所有客户端都会变成开放代理。
+     *                 历史背景:本参数曾默认 true,见 2026-06-24 安全审查改为 false。
      * @param tls12Only 是否仅启用 TLS 1.2。adwmh.ahu.edu.cn 的 nginx
      *                 在 TLS 1.3 下接受握手但永不发送 HTTP 响应，必须降级。
      * @param authenticator OkHttp Authenticator;用于 401/403 时自动重认证。
@@ -80,7 +83,7 @@ object SecureHttpClientFactory {
         extraInterceptors: List<Interceptor> = emptyList(),
         connectTimeoutSec: Long = DEFAULT_TIMEOUT_SEC,
         readTimeoutSec: Long = DEFAULT_TIMEOUT_SEC,
-        trustAll: Boolean = true,
+        trustAll: Boolean = false,
         tls12Only: Boolean = false,
         authenticator: Authenticator? = null,
         sessionExpiredInterceptor: Interceptor? = null,

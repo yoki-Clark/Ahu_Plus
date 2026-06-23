@@ -290,7 +290,7 @@ private val OPEN_SOURCE_LICENSES = listOf(
         groupId = "com.google.code.gson",
         artifactId = "gson",
         version = "2.11.0",
-        description = "Google JSON 序列化库 (云备份 JSON / 课表缓存解析)。",
+        description = "Google JSON 序列化库 (课表缓存解析)。",
         license = "Apache-2.0",
         category = "序列化",
     ),

@@ -36,7 +36,8 @@ class StudentTableClient(
     private val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = casAuthRepository.getCookieJar(),
         followRedirects = true,
-        disableGzip = false
+        disableGzip = false,
+        trustAll = true  // tp_ep_stu / one.ahu.edu.cn 自签名证书
     )
 
     /**

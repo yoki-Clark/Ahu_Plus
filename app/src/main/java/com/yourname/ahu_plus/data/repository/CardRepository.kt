@@ -19,6 +19,7 @@ class CardRepository(
     private val portalClient: OkHttpClient = SecureHttpClientFactory.create(
         followRedirects = true,
         disableGzip = false,
+        trustAll = true,  // one.ahu.edu.cn 自签名证书
         extraInterceptors = listOf(
             okhttp3.Interceptor { chain ->
                 val req = chain.request()

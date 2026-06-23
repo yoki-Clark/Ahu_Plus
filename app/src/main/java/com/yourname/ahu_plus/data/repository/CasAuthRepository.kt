@@ -100,6 +100,7 @@ class CasAuthRepository(
         cookieJar = cookieJar,
         followRedirects = false,
         disableGzip = true,  // CAS 流程关闭 gzip
+        trustAll = true,  // *.ahu.edu.cn 自签名证书
         authenticator = sessionAuthenticator,
         sessionExpiredInterceptor = sessionAuthenticator.asInterceptor(),
     )

@@ -12,6 +12,7 @@ class TrainingPlanRepository(private val jwAuthRepository: JwAuthRepository) {
     private val gson = GsonProvider.instance
     private val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = jwAuthRepository.jwCookieJar, followRedirects = false, disableGzip = false,
+        trustAll = true,  // jw.ahu.edu.cn 自签名证书
         extraInterceptors = listOf(okhttp3.Interceptor { chain ->
             chain.proceed(chain.request().newBuilder()
                 .header("User-Agent", UA).header("x-requested-with", "XMLHttpRequest").build())

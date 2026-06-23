@@ -59,6 +59,7 @@ class AdwmhCardRepository(
     private val client = SecureHttpClientFactory.create(
         cookieJar = cookieJar,
         tls12Only = true,
+        trustAll = true,  // adwmh.ahu.edu.cn 走 DigiCert 但内部 302 跳转混合域名,沿用 trustAll
         connectTimeoutSec = 8,
         readTimeoutSec = 12
     )

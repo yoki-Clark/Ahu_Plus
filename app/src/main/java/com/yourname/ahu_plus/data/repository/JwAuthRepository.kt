@@ -61,14 +61,16 @@ class JwAuthRepository(
     private val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = jwCookieJar,
         followRedirects = false,
-        disableGzip = true
+        disableGzip = true,
+        trustAll = true  // jw.ahu.edu.cn / cas.ahu.edu.cn 自签名证书
     )
 
     // ── CAS 回退客户端(独立 cookie store,不污染主 store)──
     private val casClient: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = createIsolatedCasJar(),
         followRedirects = false,
-        disableGzip = true
+        disableGzip = true,
+        trustAll = true  // cas.ahu.edu.cn 自签名证书
     )
 
     /** 清除所有内存 Cookie(退出登录时调用) */

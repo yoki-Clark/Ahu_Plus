@@ -33,6 +33,7 @@ class CourseRepository(
         cookieJar = jwAuthRepository.jwCookieJar,
         followRedirects = false,
         disableGzip = false,
+        trustAll = true,  // jw.ahu.edu.cn 自签名证书
         extraInterceptors = listOf(
             okhttp3.Interceptor { chain ->
                 // 给每个请求补上 UA 和 X-Requested-With

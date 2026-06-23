@@ -228,9 +228,11 @@ fun MainScreen(
         MarketViewModel(marketRepository, app.aiCommentRepository)
     }
     val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
-    // 集市功能总开关:true=底部 3 Tab(首页/集市/我的),false=仅 2 Tab(首页/我的)
-    // 关闭后即使 selectedTab 指向 TAB_MARKET 也降级到 TAB_HOME
-    val marketEnabled = marketUiState.marketEnabled
+    // 第三方服务聚合 (集市 + 学习通):每个 Tab 可见 = parent 总开关 && 对应子开关
+    // parent 总开关需 5s 弹窗确认;子开关可独立切换;关闭 parent 后即使 selectedTab 残留也降级到首页
+    val thirdPartyEnabled = marketUiState.thirdPartyServicesEnabled
+    val marketVisible = thirdPartyEnabled && marketUiState.marketChildEnabled
+    val chaoxingVisible = thirdPartyEnabled && marketUiState.chaoxingChildEnabled
     val jwcNoticeViewModel = remember {
         JwcNoticeViewModel(jwcNoticeRepository)
     }
@@ -310,7 +312,7 @@ fun MainScreen(
                         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 )
-                if (marketEnabled) {
+                if (marketVisible) {
                     NavigationBarItem(
                         selected = selectedTab == TAB_MARKET,
                         onClick = { selectedTab = TAB_MARKET },
@@ -337,31 +339,33 @@ fun MainScreen(
                         )
                     )
                 }
-                NavigationBarItem(
-                    selected = selectedTab == TAB_CHAOXING,
-                    onClick = { selectedTab = TAB_CHAOXING },
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == TAB_CHAOXING) Icons.Filled.School
-                            else Icons.Outlined.School,
-                            contentDescription = "学习通"
+                if (chaoxingVisible) {
+                    NavigationBarItem(
+                        selected = selectedTab == TAB_CHAOXING,
+                        onClick = { selectedTab = TAB_CHAOXING },
+                        icon = {
+                            Icon(
+                                imageVector = if (selectedTab == TAB_CHAOXING) Icons.Filled.School
+                                else Icons.Outlined.School,
+                                contentDescription = "学习通"
+                            )
+                        },
+                        label = {
+                            Text(
+                                "学习通",
+                                fontWeight = if (selectedTab == TAB_CHAOXING) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        alwaysShowLabel = true,
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    },
-                    label = {
-                        Text(
-                            "学习通",
-                            fontWeight = if (selectedTab == TAB_CHAOXING) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    alwaysShowLabel = true,
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                )
+                }
                 NavigationBarItem(
                     selected = selectedTab == TAB_APPS,
                     onClick = { selectedTab = TAB_APPS },
@@ -417,8 +421,9 @@ fun MainScreen(
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             when {
-                !marketEnabled && selectedTab == TAB_MARKET -> {
-                    // 集市被禁用,但 selectedTab 仍指向 TAB_MARKET (旧状态) — 降级到首页
+                (!marketVisible && selectedTab == TAB_MARKET) ||
+                    (!chaoxingVisible && selectedTab == TAB_CHAOXING) -> {
+                    // 第三方服务对应 Tab 被禁用 (parent 关或对应子开关关) — 降级到首页
                     DashboardScreen(
                         viewModel = scheduleViewModel,
                         noticeViewModel = jwcNoticeViewModel,

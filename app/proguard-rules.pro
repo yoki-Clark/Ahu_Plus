@@ -79,11 +79,15 @@
 #   -mergeinterfacesaggressively → 把 okhttp3.Dns 接口跟其它接口合并,ResilientDns 失去 override 语义
 # 替代方案: 在下面精准 -keep 我们自己依赖的接口实现 + OkHttp 关键 enum/常量
 
-# ---------- 移除日志（release 不输出 debug 日志） ----------
+# ---------- 移除日志（release 不输出任何日志） ----------
+# 2026-06-24 安全审查:把 w/e 也加进来,Log.w/Log.e 中可能含 cookie/异常栈
 -assumenosideeffects class android.util.Log {
     public static int d(...);
     public static int v(...);
     public static int i(...);
+    public static int w(...);
+    public static int e(...);
+    public static int wtf(...);
 }
 
 # ---------- 不保留局部变量名（减少调试信息泄露） ----------
@@ -127,8 +131,3 @@
 # 保留 ExamDataRepository 的 OkHttpClient DSL 构建路径
 # (里面用了 ConnectionSpec / Protocol / Protocol listOf 等反射敏感的 API)
 -keep class com.yourname.ahu_plus.data.repository.ExamDataRepository { *; }
-
-# ---------- 云端备份：不额外 keep，让其自然混淆 ----------
-# CloudBackupManager / CloudStorageRepository 的类名和方法名
-# 会被 R8 重命名为 a.b.c / a() 等，无需显式规则。
-# 仅保留 COS 签名相关的 OkHttp 框架类（已在上面 OkHttp 段处理）。

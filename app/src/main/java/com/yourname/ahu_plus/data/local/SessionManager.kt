@@ -176,82 +176,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
-    // \u2500\u2500 \u4E91\u7AEF\u5907\u4EFD\uFF08\u5EF6\u8FDF\u6CE8\u5165\uFF0C\u907F\u514D\u5FAA\u73AF\u4F9D\u8D56\uFF09 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-
-
-
-
-
-    @Volatile private var backupManager: com.yourname.ahu_plus.data.repository.CloudBackupManager? = null
-    private val backupScope = CoroutineScope(Dispatchers.IO)
-
-
-
     /** 首次登录初始化是否已完成 */
     @Volatile var firstLoginInitDone: Boolean = false
 
     /** 后台学习时是否显示悬浮窗 */
     @Volatile var showStudyOverlay: Boolean = true
-
-
-
-
-
-
-
-
-
-
-
-    fun setBackupManager(bm: com.yourname.ahu_plus.data.repository.CloudBackupManager) {
-
-
-
-
-
-        backupManager = bm
-
-
-
-
-
-    }
-
-
-
-
-
-
-
-
-
-
-
-    /**
-     * 登录成功后触发云端备份（受每日一次节流控制）。
-     * 由 LoginViewModel / AutoLoginViewModel / ChaoxingViewModel 调用。
-     * 全程静默，不通知用户。
-     */
-    fun notifyBackupOnLogin() {
-        backupManager?.let { mgr ->
-            backupScope.launch { mgr.backupOnLogin() }
-        }
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     @Volatile private var initialized = false
 
@@ -362,6 +291,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
     @Volatile private var cachedMarketEnabled: Boolean = false
+    @Volatile private var cachedThirdPartyServicesEnabled: Boolean = false
+    @Volatile private var cachedMarketChildEnabled: Boolean = true
+    @Volatile private var cachedChaoxingChildEnabled: Boolean = true
 
 
 
@@ -1386,7 +1318,18 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
-        cachedMarketEnabled = (prefs[MARKET_ENABLED_KEY] ?: "false") == "true"
+        // 第三方服务聚合开关 (集市 + 学习通): 老用户从 MARKET_ENABLED_KEY 一次性迁移
+        val migratedThirdParty = prefs[THIRD_PARTY_SERVICES_ENABLED_KEY]
+            ?: prefs[MARKET_ENABLED_KEY]
+            ?: "false"
+        cachedThirdPartyServicesEnabled = migratedThirdParty == "true"
+        cachedMarketEnabled = cachedThirdPartyServicesEnabled
+        if (prefs[THIRD_PARTY_SERVICES_ENABLED_KEY] == null && migratedThirdParty == "true") {
+            appDataStore.dataStore.edit { it[THIRD_PARTY_SERVICES_ENABLED_KEY] = "true" }
+        }
+        // 子开关: 默认 false (parent 开启后用户需手动开启每个子开关,默认全部关闭)
+        cachedMarketChildEnabled = (prefs[MARKET_CHILD_ENABLED_KEY] ?: "false") == "true"
+        cachedChaoxingChildEnabled = (prefs[CHAOXING_CHILD_ENABLED_KEY] ?: "false") == "true"
 
 
 
@@ -3040,7 +2983,13 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
-    fun getMarketEnabled(): Boolean = cachedMarketEnabled
+    fun getMarketEnabled(): Boolean = cachedThirdPartyServicesEnabled
+
+    fun getThirdPartyServicesEnabled(): Boolean = cachedThirdPartyServicesEnabled
+
+    fun getMarketChildEnabled(): Boolean = cachedMarketChildEnabled
+
+    fun getChaoxingChildEnabled(): Boolean = cachedChaoxingChildEnabled
 
 
 
@@ -3052,26 +3001,33 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
-    suspend fun setMarketEnabled(enabled: Boolean) {
+    suspend fun setMarketEnabled(enabled: Boolean) = setThirdPartyServicesEnabled(enabled)
+
+    suspend fun setThirdPartyServicesEnabled(enabled: Boolean) {
 
 
 
 
-
+        cachedThirdPartyServicesEnabled = enabled
         cachedMarketEnabled = enabled
 
-
-
-
+        // parent 重新开启时重置两个子开关为 false,确保 "parent ON 后 children 默认关闭" 的语义
+        // 即使用户之前手动开启过某个子开关,关闭 parent 后再开启也会重置
+        if (enabled) {
+            cachedMarketChildEnabled = false
+            cachedChaoxingChildEnabled = false
+        }
 
         appDataStore.dataStore.edit {
 
 
 
 
-
-            it[MARKET_ENABLED_KEY] = if (enabled) "true" else "false"
-
+            it[THIRD_PARTY_SERVICES_ENABLED_KEY] = if (enabled) "true" else "false"
+            if (enabled) {
+                it[MARKET_CHILD_ENABLED_KEY] = "false"
+                it[CHAOXING_CHILD_ENABLED_KEY] = "false"
+            }
 
 
 
@@ -3081,8 +3037,62 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
+    }
+    suspend fun setMarketChildEnabled(enabled: Boolean) {
+
+
+
+
+        cachedMarketChildEnabled = enabled
+
+
+
+
+        appDataStore.dataStore.edit {
+
+
+
+
+            it[MARKET_CHILD_ENABLED_KEY] = if (enabled) "true" else "false"
+
+
+
+
+        }
+
+
+
 
     }
+
+
+    suspend fun setChaoxingChildEnabled(enabled: Boolean) {
+
+
+
+
+        cachedChaoxingChildEnabled = enabled
+
+
+
+
+        appDataStore.dataStore.edit {
+
+
+
+
+            it[CHAOXING_CHILD_ENABLED_KEY] = if (enabled) "true" else "false"
+
+
+
+
+        }
+
+
+
+
+    }
+
 
 
 
@@ -8992,6 +9002,19 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
+        // 第三方服务聚合开关 (集市 + 学习通),v1.3.6 引入
+        val THIRD_PARTY_SERVICES_ENABLED_KEY = stringPreferencesKey("third_party_services_enabled")
+
+
+
+
+        // 第三方服务子开关:parent 开启后控制单个服务的可见性
+        val MARKET_CHILD_ENABLED_KEY = stringPreferencesKey("market_child_enabled")
+        val CHAOXING_CHILD_ENABLED_KEY = stringPreferencesKey("chaoxing_child_enabled")
+
+
+
+
 
         val MARKET_LIST_LAYOUT_KEY = stringPreferencesKey("market_list_layout_mode")
 
@@ -9813,7 +9836,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
-            MARKET_ENABLED_KEY, MARKET_LIST_LAYOUT_KEY, MARKET_SCROLL_TO_TOP_KEY,
+            MARKET_ENABLED_KEY, THIRD_PARTY_SERVICES_ENABLED_KEY, MARKET_CHILD_ENABLED_KEY, CHAOXING_CHILD_ENABLED_KEY, MARKET_LIST_LAYOUT_KEY, MARKET_SCROLL_TO_TOP_KEY,
 
 
 

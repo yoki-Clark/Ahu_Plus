@@ -310,9 +310,8 @@ class ChaoxingViewModel(
             result.onSuccess {
                 val valid = cxRepo.validateSession()
                 if (valid) {
-                    // 保存凭据供自动登录 + 触发云端备份
+                    // 保存凭据供自动登录
                     sessionManager.saveCxCredentials(username, password)
-                    sessionManager.notifyBackupOnLogin()
                     // 2026-06-23: 首次登录时弹出免责警告;已确认过则不再弹
                     val shouldWarn = !sessionManager.getCxLoginWarningShown()
                     _loginState.value = CxLoginState(isLoggedIn = true, showLoginWarning = shouldWarn)
@@ -342,7 +341,6 @@ class ChaoxingViewModel(
                         _loginState.value = CxLoginState(isLoading = true)
                         val success = cxRepo.autoLogin()
                         if (success) {
-                            sessionManager.notifyBackupOnLogin()
                             val shouldWarn = !sessionManager.getCxLoginWarningShown()
                             _loginState.value = CxLoginState(isLoggedIn = true, showLoginWarning = shouldWarn)
                             loadCourses()

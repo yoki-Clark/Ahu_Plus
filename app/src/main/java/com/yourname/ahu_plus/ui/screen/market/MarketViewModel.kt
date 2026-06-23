@@ -45,6 +45,9 @@ class MarketViewModel(
         val blockKeywords = repository.getBlockKeywords()
         val filterNodeIds = repository.getFilterNodeIds()
         val marketEnabled = repository.getMarketEnabled()
+        val thirdPartyServicesEnabled = repository.getMarketEnabled()  // 同源(parent)
+        val marketChildEnabled = repository.getMarketChildEnabled()
+        val chaoxingChildEnabled = repository.getChaoxingChildEnabled()
         val listLayoutMode = repository.getListLayoutMode()
         val scrollToTop = repository.getScrollToTop()
         val aiEnabled = aiCommentRepository.isEnabled()
@@ -63,6 +66,9 @@ class MarketViewModel(
                 blockKeywords = blockKeywords,
                 filterNodeIds = filterNodeIds,
                 marketEnabled = marketEnabled,
+                thirdPartyServicesEnabled = thirdPartyServicesEnabled,
+                marketChildEnabled = marketChildEnabled,
+                chaoxingChildEnabled = chaoxingChildEnabled,
                 listLayoutMode = listLayoutMode,
                 scrollToTopEnabled = scrollToTop,
                 aiCommentEnabled = aiEnabled,
@@ -424,13 +430,33 @@ class MarketViewModel(
         }
     }
 
-    // ── 集市功能总开关 ──────────────────────────────────
-    // 关闭后底部导航「集市」Tab 隐藏,主页只剩「首页」「我的」两栏。
-    // 已保存的 token/屏蔽词等本地数据保留,启用后无需重新输入。
+    // ── 第三方服务:parent 总开关 (5s 弹窗) ──────────────
+    // 开启后子开关可见;关闭后底部「集市」「学习通」Tab 同时隐藏
     fun setMarketEnabled(enabled: Boolean) {
         viewModelScope.launch {
             repository.setMarketEnabled(enabled)
-            _uiState.update { it.copy(marketEnabled = enabled) }
+            _uiState.update {
+                it.copy(
+                    marketEnabled = enabled,
+                    thirdPartyServicesEnabled = enabled,
+                )
+            }
+        }
+    }
+
+    // ── 第三方服务:集市 / 学习通子开关 ─────────────────
+    // parent 必须开启,Tab 才可见;parent 关闭时此 flag 仅作为下次开启时的初始状态
+    fun setMarketChildEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setMarketChildEnabled(enabled)
+            _uiState.update { it.copy(marketChildEnabled = enabled) }
+        }
+    }
+
+    fun setChaoxingChildEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setChaoxingChildEnabled(enabled)
+            _uiState.update { it.copy(chaoxingChildEnabled = enabled) }
         }
     }
 
@@ -1314,6 +1340,10 @@ data class MarketUiState(
     val keywordInput: String = "",
     val filterNodeIds: List<Long> = emptyList(),
     val marketEnabled: Boolean = true,
+    // 第三方服务:parent 总开关 + 两个子开关 (集市 / 学习通)
+    val thirdPartyServicesEnabled: Boolean = false,
+    val marketChildEnabled: Boolean = false,
+    val chaoxingChildEnabled: Boolean = false,
     // ── 搜索 ─────────────────────────────────────
     val isSearching: Boolean = false,
     val searchQuery: String = "",

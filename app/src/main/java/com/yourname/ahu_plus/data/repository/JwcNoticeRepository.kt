@@ -14,7 +14,8 @@ class JwcNoticeRepository(
     private val channelId: String = "10314",
     private val client: OkHttpClient = SecureHttpClientFactory.create(
         followRedirects = true,
-        disableGzip = false
+        disableGzip = false,
+        trustAll = true  // jwc.ahu.edu.cn 自签名证书
     )
 ) {
     /** 通知公告频道首页（用于首页 preview 与分页第一页）。 */

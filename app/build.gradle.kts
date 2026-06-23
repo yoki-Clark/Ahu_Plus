@@ -1,9 +1,25 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     // 2026-06-22 AboutLibraries: 离线仓库未提供 plugin marker,改为手动生成 aboutlibraries.json
     // (运行时库 aboutlibraries-compose 仍可用)
 }
+
+// ── 读取 local.properties(签名等本地敏感配置)──────────────
+// 2026-06-24 安全审查:签名信息禁止硬编码,改从 local.properties 读取。
+// local.properties 已在 .gitignore 中,绝不会被提交。
+// 示例:
+//   AHU_RELEASE_STORE_FILE=/path/to/release.jks
+//   AHU_RELEASE_STORE_PASSWORD=...
+//   AHU_RELEASE_KEY_ALIAS=...
+//   AHU_RELEASE_KEY_PASSWORD=...
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun localProp(key: String): String? = localProps.getProperty(key)?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "com.yourname.ahu_plus"
@@ -23,21 +39,34 @@ android {
         // 导致兜底包也只剩 arm64 libs。splits.abi.include 才是 per-variant 控制。
     }
 
-    // 临时 release 签名:复用 Android SDK 自带 debug.keystore,仅用于本地自测,不能上 Play Store
+    // ── 签名配置 ─────────────────────────────────────────
+    // 优先使用 local.properties 中配置的正式签名;
+    // 未配置时回退到本机 Android SDK 自带的 debug.keystore(仅限本机自测,
+    // 不应分发安装包)。开源版本 fork 后请务必生成自己的 keystore。
     signingConfigs {
         create("release") {
-            val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
-            storeFile = debugKeystore
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            val storeFilePath = localProp("AHU_RELEASE_STORE_FILE")
+            if (storeFilePath != null) {
+                storeFile = file(storeFilePath)
+                storePassword = localProp("AHU_RELEASE_STORE_PASSWORD")
+                    ?: error("AHU_RELEASE_STORE_PASSWORD 未在 local.properties 配置")
+                keyAlias = localProp("AHU_RELEASE_KEY_ALIAS")
+                    ?: error("AHU_RELEASE_KEY_ALIAS 未在 local.properties 配置")
+                keyPassword = localProp("AHU_RELEASE_KEY_PASSWORD")
+                    ?: error("AHU_RELEASE_KEY_PASSWORD 未在 local.properties 配置")
+            } else {
+                // Fallback: 本机 debug.keystore,密码已知,仅用于本地自测
+                val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
+                storeFile = debugKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 
     buildTypes {
         debug {
-            // 内测阶段：debug 构建启用云端备份等测试功能
-            buildConfigField("boolean", "ENABLE_CLOUD_BACKUP", "true")
         }
         release {
             isMinifyEnabled = true
@@ -49,8 +78,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 发布阶段：云端备份由 ProGuard 混淆隐藏，功能仍可用但不可被逆向发现
-            buildConfigField("boolean", "ENABLE_CLOUD_BACKUP", "true")
         }
     }
 

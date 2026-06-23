@@ -369,12 +369,27 @@ class MarketRepository(
         sessionManager.saveFilterNodeIds(nodeIds)
     }
 
-    // ── 集市功能总开关 ──────────────────────────────────
-    // 控制底部导航是否展示「集市」Tab；关闭后用户在「我的 → 集市设置」可重新启用
+    // ── 第三方服务:parent 总开关 (5s 弹窗) ──────────────
+    // 控制底部导航是否展示「集市」+「学习通」Tab 的总闸;开启前需阅读风险声明
     fun getMarketEnabled(): Boolean = sessionManager.getMarketEnabled()
 
     suspend fun setMarketEnabled(enabled: Boolean) {
         sessionManager.setMarketEnabled(enabled)
+    }
+
+    // ── 第三方服务:子开关 (parent 开启后才可见) ──────────
+    // 集市子开关:parent ON && marketChild ON 才显示「集市」Tab
+    fun getMarketChildEnabled(): Boolean = sessionManager.getMarketChildEnabled()
+
+    suspend fun setMarketChildEnabled(enabled: Boolean) {
+        sessionManager.setMarketChildEnabled(enabled)
+    }
+
+    // 学习通子开关:parent ON && chaoxingChild ON 才显示「学习通」Tab
+    fun getChaoxingChildEnabled(): Boolean = sessionManager.getChaoxingChildEnabled()
+
+    suspend fun setChaoxingChildEnabled(enabled: Boolean) {
+        sessionManager.setChaoxingChildEnabled(enabled)
     }
 
     // ── 集市列表布局模式 ────────────────────────────────

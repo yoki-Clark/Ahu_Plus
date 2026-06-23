@@ -104,7 +104,6 @@ class LoginViewModel(
                         }
                     )
                     _uiState.update { it.copy(isLoggedIn = true, isLoading = false) }
-                    sessionManager.notifyBackupOnLogin()
 
                     // ★ 首次登录: 启动串行预热 (InitCoordinator 内部 try/catch 单步失败不中断)
                     if (isFirstLogin && initCoordinator != null) {
