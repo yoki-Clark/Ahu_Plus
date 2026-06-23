@@ -22,10 +22,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -33,11 +37,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,6 +54,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,8 +65,10 @@ import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.theme.AhuGreen
 import com.yourname.ahu_plus.ui.theme.AhuOrange
 import com.yourname.ahu_plus.ui.theme.AhuRed
+import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 private val FreeGreen = AhuGreen
@@ -66,9 +77,11 @@ private val FreeRed = AhuRed
 private val BarBackground = Color(0xFFE0E0E0)
 private val PastUnitGray = Color(0xFFBDBDBD)
 private val BusyUnitGray = Color(0xFFEEEEEE)
+private val NowIndicatorColor = Color(0xFF1976D2)  // Material Blue 700,对比更强
 
 private val dateFormatter = DateTimeFormatter.ofPattern("M月d日")
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EmptyClassroomScreen(
     viewModel: EmptyClassroomViewModel,
@@ -79,6 +92,26 @@ fun EmptyClassroomScreen(
 
     LaunchedEffect(uiState.needsLogin) {
         if (uiState.needsLogin) onNeedsLogin()
+    }
+
+    // 单例 60 秒 tick:驱动「当前时间指示条」位置刷新 + 节次跨越自动刷新
+    // 提升自原来的 per-card LaunchedEffect,避免 20+ 个房间起 20+ 个循环。
+    var minuteTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            minuteTick++
+        }
+    }
+
+    // 节次跨越自动刷新:仅在今天且已选教学楼时,节次变更触发 onRefresh。
+    LaunchedEffect(minuteTick, uiState.isSelectedDateToday, uiState.hasBuildingSelected) {
+        if (uiState.isSelectedDateToday && uiState.hasBuildingSelected) {
+            val nowUnit = AhuUnitTimes.getCurrentUnit(LocalTime.now())
+            if (nowUnit != uiState.currentUnit) {
+                viewModel.onRefresh()
+            }
+        }
     }
 
     Scaffold(
@@ -139,8 +172,13 @@ fun EmptyClassroomScreen(
                 uiState.rooms.isEmpty() && !uiState.isLoading -> {
                     item {
                         CenteredMessage(
-                            text = if (uiState.currentUnit == null) "今天所有课程已结束"
-                            else "当前教学楼暂无空闲教室",
+                            text = when {
+                                uiState.isSelectedDateToday && uiState.currentUnit == null ->
+                                    "今天所有课程已结束"
+                                !uiState.isSelectedDateToday ->
+                                    "所选日期暂无空闲教室"
+                                else -> "当前教学楼暂无空闲教室"
+                            },
                             modifier = Modifier.fillMaxWidth().height(200.dp)
                         )
                     }
@@ -159,7 +197,12 @@ fun EmptyClassroomScreen(
                         items = uiState.filteredRooms,
                         key = { it.room.id }
                     ) { result ->
-                        RoomResultCard(result = result, currentUnit = uiState.currentUnit)
+                        RoomResultCard(
+                            result = result,
+                            currentUnit = uiState.currentUnit,
+                            isToday = uiState.isSelectedDateToday,
+                            minuteTick = minuteTick
+                        )
                     }
                     item { Spacer(modifier = Modifier.height(16.dp)) }
                 }
@@ -170,24 +213,90 @@ fun EmptyClassroomScreen(
 
 // ── 选择区域 ─────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SelectorArea(
     uiState: EmptyClassroomUiState,
     viewModel: EmptyClassroomViewModel
 ) {
-    val today = LocalDate.now().format(dateFormatter)
-    val unitInfo = if (uiState.currentUnit != null) {
-        val timeRange = AhuUnitTimes.formatUnitTime(uiState.currentUnit)
-        "当前第 ${uiState.currentUnit} 节 ($timeRange)"
-    } else {
-        "课程已结束"
+    // Header 文本三态:今天-有当前节 / 今天-课程已结束 / 非今天-全天
+    val unitInfo = when {
+        !uiState.isSelectedDateToday -> "全天"
+        uiState.currentUnit != null -> {
+            val timeRange = AhuUnitTimes.formatUnitTime(uiState.currentUnit)
+            "当前第 ${uiState.currentUnit} 节 ($timeRange)"
+        }
+        else -> "课程已结束"
     }
+    val headerText = "${uiState.selectedDate.format(dateFormatter)} · $unitInfo"
     Text(
-        text = "$today · $unitInfo",
+        text = headerText,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(vertical = 4.dp)
     )
+
+    // 日期选择按钮 (今天/明天/+30天)
+    var showDatePicker by remember { mutableStateOf(false) }
+    val today = LocalDate.now()
+    val tomorrow = today.plusDays(1)
+    val dateButtonLabel = buildString {
+        append(uiState.selectedDate.format(dateFormatter))
+        when (uiState.selectedDate) {
+            today -> append(" (今天)")
+            tomorrow -> append(" (明天)")
+        }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        FilledTonalButton(onClick = { showDatePicker = true }) {
+            Icon(
+                imageVector = Icons.Filled.CalendarMonth,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(dateButtonLabel)
+        }
+    }
+
+    if (showDatePicker) {
+        val todayMillis = today.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val maxMillis = today.plusDays(30).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val state = rememberDatePickerState(
+            initialSelectedDateMillis = uiState.selectedDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                    utcTimeMillis in todayMillis..maxMillis
+
+                override fun isSelectableYear(year: Int): Boolean = year == today.year
+            }
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val picked = state.selectedDateMillis?.let { millis ->
+                        java.time.Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                    }
+                    if (picked != null && !picked.isBefore(today)) {
+                        viewModel.selectDate(picked)
+                    }
+                    showDatePicker = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("取消") }
+            }
+        ) {
+            DatePicker(state = state)
+        }
+    }
 
     // 校区选择
     Text(
@@ -287,7 +396,12 @@ private fun SelectorArea(
 // ── 单间教室卡片 ─────────────────────────────────────────────
 
 @Composable
-private fun RoomResultCard(result: FreeRoomResult, currentUnit: Int?) {
+private fun RoomResultCard(
+    result: FreeRoomResult,
+    currentUnit: Int?,
+    isToday: Boolean = true,
+    @Suppress("UNUSED_PARAMETER") minuteTick: Int = 0
+) {
     val freeColor = when {
         result.freeUnitsCount >= 4 -> FreeGreen
         result.freeUnitsCount >= 2 -> FreeOrange
@@ -319,7 +433,11 @@ private fun RoomResultCard(result: FreeRoomResult, currentUnit: Int?) {
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                FreeDurationChip(unitCount = result.freeUnitsCount, color = freeColor)
+                FreeDurationChip(
+                    unitCount = result.freeUnitsCount,
+                    segmentCount = result.freeSegments.size,
+                    color = freeColor
+                )
             }
 
             // 第二行：类型 + 楼层 + 座位
@@ -371,14 +489,15 @@ private fun RoomResultCard(result: FreeRoomResult, currentUnit: Int?) {
                 )
             }
 
-            // 第四行：可视化空闲条
+            // 第四行：可视化空闲条 (条高度 14dp 留出顶部三角箭头空间)
             FreeTimeBar(
-                freeUnitNumbers = result.freeUnitNumbers,
+                freeSegments = result.freeSegments,
                 currentUnit = currentUnit,
                 freeColor = freeColor,
+                isToday = isToday,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(8.dp)
+                    .height(14.dp)
             )
         }
     }
@@ -387,12 +506,14 @@ private fun RoomResultCard(result: FreeRoomResult, currentUnit: Int?) {
 // ── 空闲时长标签 ─────────────────────────────────────────────
 
 @Composable
-private fun FreeDurationChip(unitCount: Int, color: Color) {
+private fun FreeDurationChip(unitCount: Int, segmentCount: Int, color: Color) {
+    val text = if (segmentCount > 1) "空闲 $unitCount 节 ($segmentCount 段)"
+                else "空闲 $unitCount 节"
     Card(
         colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.15f))
     ) {
         Text(
-            text = "空闲 $unitCount 节",
+            text = text,
             style = MaterialTheme.typography.labelMedium,
             color = color,
             fontWeight = FontWeight.Bold,
@@ -403,25 +524,30 @@ private fun FreeDurationChip(unitCount: Int, color: Color) {
 
 // ── 可视化空闲时间条 ─────────────────────────────────────────
 
+/**
+ * 13 节次全宽可视化条。
+ *
+ * 视觉:
+ * - 每节一个圆角矩形;空闲=品牌色,过去空闲=半透明品牌色,过去占用=深灰,占用=浅灰。
+ * - 当前时间竖线 (仅今天): 加粗到 3dp 蓝色竖线 + 顶端 6×4dp 实心三角箭头,顶部上方延出 4dp。
+ * - 多段空闲支持: 根据 [freeSegments] (折叠后的 IntRange 列表) 渲染多个绿色块。
+ *
+ * 数据来源: [FreeRoomResult.freeSegments] = [AhuUnitTimes.collapseToSegments] 输出。
+ *
+ * tick 由顶层 [EmptyClassroomScreen] 注入 ([minuteTick]),避免每个 card 单独跑 60s 循环。
+ */
 @Composable
 private fun FreeTimeBar(
-    freeUnitNumbers: List<Int>,
+    freeSegments: List<IntRange>,
     currentUnit: Int?,
     freeColor: Color,
+    isToday: Boolean,
     modifier: Modifier = Modifier
 ) {
     val totalUnits = AhuUnitTimes.totalUnits()
-    // 2026 Bug8: 每分钟刷新一次时间标记
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(60_000)
-            tick++
-        }
-    }
-    @Suppress("UNUSED_EXPRESSION") tick
 
-    val nowLineFraction: Float? = remember(tick) {
+    val nowLineFraction: Float? = remember(isToday, currentUnit) {
+        if (!isToday) return@remember null
         val now = LocalTime.now()
         val nowMin = now.hour * 60 + now.minute
         val unit = currentUnit ?: return@remember null
@@ -438,10 +564,12 @@ private fun FreeTimeBar(
         val unitWidth = barWidth / totalUnits
         val cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
 
+        // 1. 绘制 13 节次方块
         for (unit in 1..totalUnits) {
             val x = (unit - 1) * unitWidth
-            val isFree = unit in freeUnitNumbers
-            val isPast = currentUnit != null && unit < (currentUnit)
+            // 多段空闲: 任一区间包含 unit 即视为空闲
+            val isFree = freeSegments.any { unit in it }
+            val isPast = isToday && currentUnit != null && unit < currentUnit
 
             val color = when {
                 isPast && !isFree -> PastUnitGray
@@ -458,16 +586,29 @@ private fun FreeTimeBar(
             )
         }
 
-        // 当前时间竖线 (绘制于所有条形之上)
+        // 2. 当前时间竖线 + 三角箭头 (仅今天 + 有当前节次)
         if (nowLineFraction != null && currentUnit != null) {
             val currentUnitIdx = currentUnit - 1
             val lineX = currentUnitIdx * unitWidth + unitWidth * nowLineFraction
+
+            // 2a. 加粗蓝色竖线 (3dp)
             drawLine(
-                color = Color(0xFF2196F3),
+                color = NowIndicatorColor,
                 start = Offset(lineX, 0f),
                 end = Offset(lineX, barHeight),
-                strokeWidth = 2.dp.toPx()
+                strokeWidth = 3.dp.toPx()
             )
+
+            // 2b. 顶端三角箭头 (从条顶部向上延伸 4dp,宽 6dp)
+            val arrowHalfWidth = 3.dp.toPx()
+            val arrowHeight = 4.dp.toPx()
+            val arrowPath = Path().apply {
+                moveTo(lineX - arrowHalfWidth, 0f)
+                lineTo(lineX + arrowHalfWidth, 0f)
+                lineTo(lineX, -arrowHeight)
+                close()
+            }
+            drawPath(path = arrowPath, color = NowIndicatorColor)
         }
     }
 }

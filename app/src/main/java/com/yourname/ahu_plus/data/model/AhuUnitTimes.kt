@@ -63,6 +63,57 @@ object AhuUnitTimes {
         return "第 ${units.first()}-${units.last()} 节 (${first.first}-${last.second})"
     }
 
+    /**
+     * 将有序节次列表折叠为若干连续区间。
+     *
+     * 例如 [5,6,8,9,11] → [5..6, 8..9, 11..11]
+     * 用于支持「当前节之后任意空闲段都计入」的统计语义。
+     */
+    fun collapseToSegments(units: List<Int>): List<IntRange> {
+        if (units.isEmpty()) return emptyList()
+        val sorted = units.sorted()
+        val segments = mutableListOf<IntRange>()
+        var start = sorted.first()
+        var prev = sorted.first()
+        for (u in sorted.drop(1)) {
+            if (u == prev + 1) {
+                prev = u
+            } else {
+                segments.add(start..prev)
+                start = u
+                prev = u
+            }
+        }
+        segments.add(start..prev)
+        return segments
+    }
+
+    /**
+     * 格式化多段空闲节次：
+     * - 单段连续：与 [formatUnitRange] 一致，附时间范围 — "第 5-8 节 (11:30-15:35)"
+     * - 多段：以逗号分隔每段（仅节次编号，不重复时间范围） — "第 5-6 节, 第 8-9 节, 第 11 节"
+     * - 空：返回 ""。
+     */
+    fun formatSegmentedRange(units: List<Int>): String {
+        if (units.isEmpty()) return ""
+        val segments = collapseToSegments(units)
+        return if (segments.size == 1) {
+            val s = segments.first()
+            if (s.first == s.last) {
+                // 仅有 1 节：第 5 节 (HH:mm-HH:mm)
+                val t = UNIT_TO_TIME[s.first] ?: return "第 ${s.first} 节"
+                "第 ${s.first} 节 (${t.first}-${t.second})"
+            } else {
+                formatUnitRange(units)
+            }
+        } else {
+            segments.joinToString(separator = "，") { seg ->
+                if (seg.first == seg.last) "第 ${seg.first} 节"
+                else "第 ${seg.first}-${seg.last} 节"
+            }
+        }
+    }
+
     /** 格式化单节时间，如 "14:00-14:45"。 */
     fun formatUnitTime(unit: Int): String {
         val (start, end) = UNIT_TO_TIME[unit] ?: return ""

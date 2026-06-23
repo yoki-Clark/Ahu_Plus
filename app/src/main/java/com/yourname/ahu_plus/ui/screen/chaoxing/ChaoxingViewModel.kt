@@ -313,7 +313,9 @@ class ChaoxingViewModel(
                     // 保存凭据供自动登录 + 触发云端备份
                     sessionManager.saveCxCredentials(username, password)
                     sessionManager.notifyBackupOnLogin()
-                    _loginState.value = CxLoginState(isLoggedIn = true)
+                    // 2026-06-23: 首次登录时弹出免责警告;已确认过则不再弹
+                    val shouldWarn = !sessionManager.getCxLoginWarningShown()
+                    _loginState.value = CxLoginState(isLoggedIn = true, showLoginWarning = shouldWarn)
                     loadCourses()
                 } else {
                     _loginState.value = CxLoginState(error = "登录成功但会话验证失败")
@@ -330,7 +332,9 @@ class ChaoxingViewModel(
             if (cxRepo.isLoggedIn()) {
                 val valid = cxRepo.validateSession()
                 if (valid) {
-                    _loginState.value = CxLoginState(isLoggedIn = true)
+                    // 2026-06-23: 首次登录警告(自动登录复用同样逻辑)
+                    val shouldWarn = !sessionManager.getCxLoginWarningShown()
+                    _loginState.value = CxLoginState(isLoggedIn = true, showLoginWarning = shouldWarn)
                     loadCourses()
                 } else {
                     // 会话过期 → 尝试自动续期
@@ -339,7 +343,8 @@ class ChaoxingViewModel(
                         val success = cxRepo.autoLogin()
                         if (success) {
                             sessionManager.notifyBackupOnLogin()
-                            _loginState.value = CxLoginState(isLoggedIn = true)
+                            val shouldWarn = !sessionManager.getCxLoginWarningShown()
+                            _loginState.value = CxLoginState(isLoggedIn = true, showLoginWarning = shouldWarn)
                             loadCourses()
                         } else {
                             _loginState.value = CxLoginState(error = "自动登录失败，请手动登录")
@@ -366,6 +371,16 @@ class ChaoxingViewModel(
             _homeworkState.value = CxHomeworkListState()
             _homeworkDetailState.value = CxHomeworkDetailState()
         }
+    }
+
+    /**
+     * 2026-06-23: 关闭首次登录警告弹窗。
+     * 关闭后写回 SessionManager 标志位,下次登录不再弹。
+     * 注意:退出登录时不应清除这个标志,否则再次登录会重新弹警告。
+     */
+    fun dismissLoginWarning() {
+        _loginState.value = _loginState.value.copy(showLoginWarning = false)
+        viewModelScope.launch { sessionManager.saveCxLoginWarningShown(true) }
     }
 
     // ════════════════════════════════════════════════════════
@@ -1054,6 +1069,7 @@ data class CxLoginState(
     val isLoading: Boolean = false,
     val isLoggedIn: Boolean = false,
     val error: String? = null,
+    val showLoginWarning: Boolean = false,    // 2026-06-23: 首次登录成功后弹出免责警告
 )
 
 data class CxCoursesState(
@@ -1079,8 +1095,8 @@ data class CxDetailState(
 )
 
 data class CxSettingsState(
-    val speed: Float = 1.0f,
-    val concurrency: Int = 4,
+    val speed: Float = 1.0f,             // 2026-06-23: 默认 1x 倍速
+    val concurrency: Int = 1,            // 2026-06-23: 默认 1 节并发,避免速率过高被检测
     val notOpenAction: String = "retry",
     val autoSign: Boolean = false,
     val submitMode: String = "auto",         // auto / save / skip
@@ -1094,7 +1110,7 @@ data class CxSettingsState(
     val showOverlay: Boolean = true,         // 2026-06-22: 后台学习时是否显示悬浮窗
     val hideEndedCourses: Boolean = true,    // 2026-06-22: 隐藏已结束课程的作业
     val hiddenCourseKeys: Set<String> = emptySet(),  // 用户手动隐藏的课程 key
-    val visitBrushEnabled: Boolean = false,     // 刷课程访问次数
+    val visitBrushEnabled: Boolean = false,     // 2026-06-23: 默认关闭刷访问次数
     val visitBrushInterval: Int = 30,           // 访问间隔（秒）
     val downloadEnabled: Boolean = false,       // 课程资源自动下载
 )

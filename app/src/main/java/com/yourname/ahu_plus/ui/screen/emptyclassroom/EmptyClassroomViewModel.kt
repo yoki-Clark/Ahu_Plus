@@ -41,11 +41,21 @@ class EmptyClassroomViewModel(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        currentUnit = AhuUnitTimes.getCurrentUnit(LocalTime.now())
+                        currentUnit = currentUnitForToday()
                     )
                 }
             }
         }
+    }
+
+    /**
+     * 今天=按当前时间计算节次；其他日期=null(全天)。
+     * 把这个分支集中在一处避免 ViewModel 多处重复。
+     */
+    private fun currentUnitForToday(date: LocalDate = LocalDate.now()): Int? {
+        return if (date == LocalDate.now()) {
+            AhuUnitTimes.getCurrentUnit(LocalTime.now())
+        } else null
     }
 
     fun selectCampus(campusId: String) {
@@ -77,6 +87,30 @@ class EmptyClassroomViewModel(
         viewModelScope.launch { loadData(isRefresh = false) }
     }
 
+    /**
+     * 选择查询日期(今天/明天/+30 天内)。过去日期拒绝。
+     * 选中后立即触发一次查询(若已选教学楼)。
+     */
+    fun selectDate(date: LocalDate) {
+        if (date.isBefore(LocalDate.now())) return
+        if (date == _uiState.value.selectedDate) return
+        _uiState.update {
+            it.copy(
+                selectedDate = date,
+                isSelectedDateToday = date == LocalDate.now(),
+                currentUnit = if (date == LocalDate.now()) currentUnitForToday(date) else null,
+                // 切换日期时清空旧结果,避免误用
+                rooms = emptyList(),
+                filteredRooms = emptyList(),
+                availableFloors = emptyList(),
+                error = null
+            )
+        }
+        if (_uiState.value.hasBuildingSelected) {
+            viewModelScope.launch { loadData(isRefresh = false, date = date) }
+        }
+    }
+
     fun selectFloor(floor: Int?) {
         _uiState.update { state ->
             val filtered = if (floor == null) state.rooms
@@ -94,13 +128,12 @@ class EmptyClassroomViewModel(
         val json = sm.getEmptyClassroomJson() ?: return false
         val key = sm.getEmptyClassroomKey() ?: return false
         val updatedAt = sm.getEmptyClassroomUpdatedAt()
-        val today = LocalDate.now().toString()
-
-        if (!key.startsWith(today)) return false
         if (System.currentTimeMillis() - updatedAt > 5 * 60 * 1000) return false
 
+        // 缓存键格式: "<date>|<buildingId>|<campusId>"
         val parts = key.split("|")
         if (parts.size < 3) return false
+        val cachedDate = runCatching { LocalDate.parse(parts[0]) }.getOrNull() ?: return false
         val buildingId = parts[1]
         val campusId = parts[2]
 
@@ -109,6 +142,7 @@ class EmptyClassroomViewModel(
                 val rooms = gson.fromJson(json, Array<FreeRoomResult>::class.java).toList()
                 val campus = CampusBuildingData.campuses.find { it.id == campusId }
                 val floors = rooms.mapNotNull { it.room.floor }.distinct().sorted()
+                val isToday = cachedDate == LocalDate.now()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -118,7 +152,9 @@ class EmptyClassroomViewModel(
                         rooms = rooms,
                         filteredRooms = rooms,
                         availableFloors = floors,
-                        currentUnit = AhuUnitTimes.getCurrentUnit(LocalTime.now()),
+                        selectedDate = cachedDate,
+                        isSelectedDateToday = isToday,
+                        currentUnit = if (isToday) currentUnitForToday(cachedDate) else null,
                         error = null,
                         needsLogin = false
                     )
@@ -128,12 +164,14 @@ class EmptyClassroomViewModel(
         } catch (_: Exception) { false }
     }
 
-    private suspend fun loadData(isRefresh: Boolean) {
+    private suspend fun loadData(isRefresh: Boolean, date: LocalDate = _uiState.value.selectedDate) {
         val buildingId = _uiState.value.selectedBuildingId ?: return
         val campusId = _uiState.value.selectedCampusId ?: return
-        val currentUnit = AhuUnitTimes.getCurrentUnit(LocalTime.now())
+        val isToday = date == LocalDate.now()
+        val currentUnit = currentUnitForToday(date)
 
-        if (currentUnit == null) {
+        // 今天且当前节次为 null (= 当日课程已结束或尚未开始第一波)
+        if (isToday && currentUnit == null) {
             _uiState.update { it.copy(isLoading = false, rooms = emptyList(), filteredRooms = emptyList()) }
             return
         }
@@ -162,13 +200,14 @@ class EmptyClassroomViewModel(
                 emptyClassroomRepository.getFreeRoomsWithDuration(
                     buildingId = buildingId,
                     campusId = campusId,
-                    currentUnit = currentUnit
+                    currentUnit = currentUnit,   // null = 全天(未来日期)
+                    date = date
                 ).fold(
                     onSuccess = { rooms ->
                         val sm = sessionManager
                         if (sm != null) {
                             try {
-                                val cacheKey = "${LocalDate.now()}|$buildingId|$campusId"
+                                val cacheKey = "${date}|$buildingId|$campusId"
                                 sm.saveEmptyClassroomJson(gson.toJson(rooms), cacheKey)
                             } catch (_: Exception) { Log.w(TAG, "Failed to cache empty classroom JSON") }
                         }
@@ -191,10 +230,10 @@ class EmptyClassroomViewModel(
                         // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次,
                         // 避免直接走到 needsLogin → onReauth 跳转登录的路径。
                         if (e is SessionExpiredException) {
-                            val retryResult = retryAfterSilentReauth(buildingId, campusId, currentUnit)
+                            val retryResult = retryAfterSilentReauth(buildingId, campusId, currentUnit, date)
                             if (retryResult != null) {
                                 // 重连+重试成功,直接消费结果
-                                handleRoomsResult(retryResult, buildingId, campusId, wasLoaded)
+                                handleRoomsResult(retryResult, buildingId, campusId, date)
                                 return@fold
                             }
                         }
@@ -230,7 +269,8 @@ class EmptyClassroomViewModel(
     private suspend fun retryAfterSilentReauth(
         buildingId: String,
         campusId: String,
-        currentUnit: Int
+        currentUnit: Int?,
+        date: LocalDate
     ): List<FreeRoomResult>? {
         return try {
             // 1. 清掉 JW 旧 cookie,强制 authenticate() 走 SSO(否则它会用 stale session 直接返回 success)
@@ -244,7 +284,8 @@ class EmptyClassroomViewModel(
             val retry = emptyClassroomRepository.getFreeRoomsWithDuration(
                 buildingId = buildingId,
                 campusId = campusId,
-                currentUnit = currentUnit
+                currentUnit = currentUnit,
+                date = date
             )
             retry.getOrNull()
         } catch (e: Exception) {
@@ -258,12 +299,12 @@ class EmptyClassroomViewModel(
         rooms: List<FreeRoomResult>,
         buildingId: String,
         campusId: String,
-        @Suppress("UNUSED_PARAMETER") wasLoaded: Boolean
+        date: LocalDate
     ) {
         val sm = sessionManager
         if (sm != null) {
             try {
-                val cacheKey = "${LocalDate.now()}|$buildingId|$campusId"
+                val cacheKey = "${date}|$buildingId|$campusId"
                 sm.saveEmptyClassroomJson(gson.toJson(rooms), cacheKey)
             } catch (_: Exception) { Log.w(TAG, "Failed to cache empty classroom JSON") }
         }
@@ -298,7 +339,9 @@ data class EmptyClassroomUiState(
     val availableFloors: List<Int> = emptyList(),
     val currentUnit: Int? = null,
     val error: String? = null,
-    val needsLogin: Boolean = false
+    val needsLogin: Boolean = false,
+    val selectedDate: LocalDate = LocalDate.now(),
+    val isSelectedDateToday: Boolean = true
 ) {
     val availableCampuses: List<CampusInfo>
         get() = CampusBuildingData.campuses

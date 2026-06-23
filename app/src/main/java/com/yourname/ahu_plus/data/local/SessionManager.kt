@@ -804,6 +804,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     @Volatile private var cachedCxHideEndedCourses: String = "true"
     @Volatile private var cachedCxHiddenCourses: String = ""
+    @Volatile private var cachedCxLoginWarningShown: String = "false"   // 2026-06-23: 首次登录警告是否已显示过
 
 
 
@@ -821,7 +822,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
-    @Volatile private var cachedCxConcurrency: String = "4"
+    @Volatile private var cachedCxConcurrency: String = "1"   // 2026-06-23: 默认 1 节并发,避免速率过高被检测
 
 
 
@@ -1815,6 +1816,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedCxDownloadEnabled = prefs[CX_DOWNLOAD_ENABLED_KEY] ?: "false"
         cachedCxHideEndedCourses = prefs[CX_HIDE_ENDED_COURSES_KEY] ?: "true"
         cachedCxHiddenCourses = prefs[CX_HIDDEN_COURSES_KEY] ?: ""
+        cachedCxLoginWarningShown = prefs[CX_LOGIN_WARNING_SHOWN_KEY] ?: "false"
 
 
 
@@ -6967,6 +6969,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedCxDownloadEnabled = "false"
         cachedCxHideEndedCourses = "true"
         cachedCxHiddenCourses = ""
+        cachedCxLoginWarningShown = "false"
         cachedCxPhone = null
         cachedCxPassword = null
 
@@ -7919,6 +7922,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it[CX_VISIT_BRUSH_ENABLED_KEY] = v.toString() }
     }
 
+    // 2026-06-23: 首次登录警告一次性标志。登录成功时若未显示过 → 弹窗;用户关闭后置 true。
+    fun getCxLoginWarningShown(): Boolean = cachedCxLoginWarningShown == "true"
+
+    suspend fun saveCxLoginWarningShown(v: Boolean) {
+        cachedCxLoginWarningShown = v.toString()
+        appDataStore.dataStore.edit { it[CX_LOGIN_WARNING_SHOWN_KEY] = v.toString() }
+    }
+
 
 
 
@@ -8192,7 +8203,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
-    fun getCxConcurrency(): Int = cachedCxConcurrency.toIntOrNull() ?: 4
+    fun getCxConcurrency(): Int = cachedCxConcurrency.toIntOrNull() ?: 1
 
 
 
@@ -9330,6 +9341,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val CX_DOWNLOAD_ENABLED_KEY = stringPreferencesKey("cx_download_enabled")
         val CX_HIDE_ENDED_COURSES_KEY = stringPreferencesKey("cx_hide_ended_courses")
         val CX_HIDDEN_COURSES_KEY = stringPreferencesKey("cx_hidden_courses")
+        val CX_LOGIN_WARNING_SHOWN_KEY = stringPreferencesKey("cx_login_warning_shown")   // 2026-06-23: 首次登录警告一次性标志
 
 
 

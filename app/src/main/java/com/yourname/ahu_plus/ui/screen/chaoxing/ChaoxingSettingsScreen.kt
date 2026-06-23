@@ -161,6 +161,11 @@ private fun SettingsContent(
     onManageHiddenCourses: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // 2026-06-23: 首次登录免责警告弹窗(AlertDialog 通过 Window/Popup 渲染,无需 Box 包裹)
+    if (loginState.showLoginWarning) {
+        LoginWarningDialog(onDismiss = { viewModel.dismissLoginWarning() })
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -610,6 +615,62 @@ private fun SwitchSetting(
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  首次登录免责警告对话框 (2026-06-23)
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * 首次登录学习通成功后弹出的一次性警告。
+ * 警告内容:
+ *  - 非必要不要开倍速 / 并发 / 刷访问次数,可能导致账号异常
+ *  - 后果由用户自行承担
+ *  - 备注:支持后台刷,不影响前台使用,挂在后台即可
+ *
+ * 用户点 "我已知晓" 后通过 SessionManager 持久化标志,不再重复弹出。
+ */
+@Composable
+private fun LoginWarningDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "学习通使用提示",
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    "非必要情况下,请勿开启：",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "• 视频倍速\n• 多节并发\n• 刷访问次数",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "异常配置可能触发平台风控,导致账号异常。开启上述选项产生的所有后果,由您自行承担。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "提示:现已支持后台自动刷课,不会影响您前台正常使用,挂到后台即可。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("我已知晓")
+            }
+        },
+    )
 }
 
 // ══════════════════════════════════════════════════════════════

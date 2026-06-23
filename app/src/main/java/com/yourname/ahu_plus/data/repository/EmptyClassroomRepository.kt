@@ -27,11 +27,15 @@ import java.time.LocalDate
  * 端点：`POST /student/ws/room-borrow/free-list`
  * 鉴权：复用 [JwAuthRepository.jwCookieJar] 的 JW SESSION cookie。
  *
- * 核心算法 —— 滑动窗口 + 并行请求：
- * 1. 确定当前节次，计算剩余节次列表 [now, ..., end]
- * 2. 并行发起 N 次 API 调用，窗口从大到小递减
- * 3. 每间教室的连续空闲节次 = 它出现的最大窗口大小
- * 4. 结果按空闲节次降序、教室名升序排列
+ * 核心算法 —— 逐节并行 + 段折叠：
+ * 1. 确定起始节次 (今天=currentUnit，未来日期=null → 全天 1-13)
+ * 2. 并行发起 N 次 API 调用，每次仅查询单个节次 u
+ * 3. 每间教室在哪些节次空闲 = 它在哪些调用中出现
+ * 4. 用 [AhuUnitTimes.collapseToSegments] 把分散的空闲节次折叠成连续段
+ * 5. 结果按空闲节次总数降序、教室名升序排列
+ *
+ * 设计动机：用户期望「当前节之后任何空闲段都计入」，
+ * 例如 5-6 空闲、7 占用、8-9 空闲、10 占用、11 空闲，应显示「空闲 5 节 (3 段)」。
  */
 class EmptyClassroomRepository(
     private val jwAuthRepository: JwAuthRepository
@@ -110,61 +114,61 @@ class EmptyClassroomRepository(
     }
 
     /**
-     * 滑动窗口并行查询 + 空闲持续时间计算。
+     * 逐节并行查询 + 多段空闲统计。
      *
-     * 对 [currentUnit] 起的所有剩余节次，并行发起逐级缩小的窗口调用。
-     * 每间教室的空闲节次数 = 它出现的最大窗口大小。
+     * 对 [currentUnit] (若非 null) 起的所有节次，每节单独调用一次 API，
+     * 汇总每间教室的「全部空闲节次」集合，再折叠为连续段。
      *
-     * @return 按空闲节次降序、教室名升序排列的 [FreeRoomResult] 列表
+     * @param currentUnit 今天查询的起始节次 (从当前时刻推算)；传 null 表示全天 1-13 节 (用于未来日期)。
+     * @param date 查询日期 (默认今天)
+     * @return 按空闲节次总数降序、教室名升序排列的 [FreeRoomResult] 列表
      */
     suspend fun getFreeRoomsWithDuration(
         buildingId: String,
         campusId: String,
-        currentUnit: Int,
+        currentUnit: Int?,
         date: LocalDate = LocalDate.now()
     ): Result<List<FreeRoomResult>> = withContext(Dispatchers.IO) {
         try {
-            val remaining = AhuUnitTimes.getRemainingUnits(currentUnit)
-            if (remaining.isEmpty()) {
+            // 起始节次: currentUnit 非空则从它起；为空 (未来日期) 则全天 1..13
+            val startUnit = currentUnit ?: 1
+            val periodList = AhuUnitTimes.getRemainingUnits(startUnit)
+            if (periodList.isEmpty()) {
                 return@withContext Result.success(emptyList())
             }
 
-            // 并行发起 N 个窗口调用，用 semaphore 限制并发数避免触发服务端限流
+            // 并行发起 N 个单节次调用，semaphore 限流避免服务端限流
             val semaphore = Semaphore(3)
-            val windowResults = coroutineScope {
-                remaining.indices.map { windowSize ->
-                    val windowUnits = remaining.take(windowSize + 1)
+            val perPeriod = coroutineScope {
+                periodList.map { unit ->
                     async {
                         semaphore.withPermit {
-                            windowUnits.size to getFreeRooms(buildingId, campusId, windowUnits, date)
+                            unit to getFreeRooms(buildingId, campusId, listOf(unit), date)
                         }
                     }
                 }.awaitAll()
             }
 
-            // roomId → 最大空闲窗口大小
-            val roomToMaxWindow = mutableMapOf<Int, Int>()
-            // roomId → 去重后的 FreeRoom 对象
+            // roomId -> 已确认空闲的节次集合 (可能跨多个非连续段)
+            val roomToFreeUnits = mutableMapOf<Int, MutableSet<Int>>()
+            // roomId -> 去重后的 FreeRoom 对象
             val roomMap = mutableMapOf<Int, FreeRoom>()
 
-            for ((windowSize, result) in windowResults) {
+            for ((unit, result) in perPeriod) {
                 result.getOrNull()?.forEach { room ->
                     roomMap.putIfAbsent(room.id, room)
-                    val current = roomToMaxWindow[room.id] ?: 0
-                    if (windowSize > current) {
-                        roomToMaxWindow[room.id] = windowSize
-                    }
+                    roomToFreeUnits.getOrPut(room.id) { mutableSetOf() }.add(unit)
                 }
             }
 
             val results = roomMap.values.map { room ->
-                val freeUnits = roomToMaxWindow[room.id] ?: 1
-                val freeUnitNumbers = remaining.take(freeUnits)
+                val freeUnits = roomToFreeUnits[room.id]?.sorted() ?: emptyList()
                 FreeRoomResult(
                     room = room,
-                    freeUnitsCount = freeUnits,
-                    freeUnitNumbers = freeUnitNumbers,
-                    freeTimeRange = AhuUnitTimes.formatUnitRange(freeUnitNumbers)
+                    freeUnitsCount = freeUnits.size,
+                    freeUnitNumbers = freeUnits,
+                    freeSegments = AhuUnitTimes.collapseToSegments(freeUnits),
+                    freeTimeRange = AhuUnitTimes.formatSegmentedRange(freeUnits)
                 )
             }.sortedWith(
                 compareByDescending<FreeRoomResult> { it.freeUnitsCount }
@@ -172,7 +176,7 @@ class EmptyClassroomRepository(
             )
 
             Log.i(TAG, "getFreeRoomsWithDuration: ${results.size} rooms (building=$buildingId, " +
-                "currentUnit=$currentUnit, remaining=${remaining.size} units)")
+                "currentUnit=$currentUnit, date=$date, periods=${periodList.size})")
             Result.success(results)
         } catch (e: Exception) {
             Log.e(TAG, "getFreeRoomsWithDuration 失败", e)
@@ -191,10 +195,15 @@ class EmptyClassroomRepository(
 
 /**
  * 单间教室的空闲查询结果（UI 层使用）。
+ *
+ * - [freeUnitNumbers] 是全部空闲节次的有序集合（语义：当前节之后任意空闲段都计入）
+ * - [freeSegments] 是 [freeUnitNumbers] 折叠后的连续区间列表，供 [com.yourname.ahu_plus.ui.screen.emptyclassroom.FreeTimeBar] 多段渲染使用
+ * - [freeTimeRange] 是格式化好的展示文本；单段附时间范围，多段为「第 X-Y 节, ...」逗号分隔
  */
 data class FreeRoomResult(
     val room: FreeRoom,
     val freeUnitsCount: Int,
     val freeUnitNumbers: List<Int>,
+    val freeSegments: List<IntRange> = emptyList(),
     val freeTimeRange: String
 )
