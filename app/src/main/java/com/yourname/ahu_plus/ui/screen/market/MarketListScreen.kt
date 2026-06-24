@@ -65,7 +65,7 @@ import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.MarketIdentity
 import com.yourname.ahu_plus.data.model.MarketTopic
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.theme.MarketColors
 import kotlinx.coroutines.launch
 

@@ -37,7 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.task.RecentTaskItem
 import com.yourname.ahu_plus.data.model.task.RecentTaskSource
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 
 /**
  * "全部近期任务"对话框 (2026-06-17 Bug9)。

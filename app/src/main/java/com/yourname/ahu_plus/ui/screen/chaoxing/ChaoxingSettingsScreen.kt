@@ -66,7 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.AiPlatform
 import com.yourname.ahu_plus.data.model.CxCourse
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 
 /**
  * 学习通设置页(2026-06-20 重做)。

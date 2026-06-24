@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
@@ -41,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import com.yourname.ahu_plus.AhuPlusApplication
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.local.AppThemeMode
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
@@ -187,7 +189,7 @@ fun MainScreen(
             }
             // 4. 顶层页: 双击返回键退出
             else -> {
-                val now = System.currentTimeMillis()
+                val now = DebugClock.nowMillis()
                 if (now - backPressedTime < 1500) {
                     (context as? Activity)?.finish()
                 } else {
@@ -198,71 +200,52 @@ fun MainScreen(
         }
     }
 
-    val cardViewModel = remember {
-        HomeViewModel(
-            cardRepository,
-            casAuthRepository,
-            ycardRepository,
-            sessionManager,
-            studentInfoRepository,
-            adwmhCardRepository
-        )
-    }
     val app = LocalContext.current.applicationContext as AhuPlusApplication
-    val scheduleViewModel = remember {
-        ScheduleViewModel(
+    // 用 ViewModelProvider.Factory 注入 Repository,Activity 重建 / 进程死亡后能复用 VM,
+    // 避免之前 `remember { XxxViewModel(...) }` 写法在重建时丢失所有 VM 状态。
+    val factory = remember(app) {
+        MainScreenViewModelFactory(
             application = app,
+            sessionManager = sessionManager,
+            cardRepository = cardRepository,
+            casAuthRepository = casAuthRepository,
             jwAuthRepository = jwAuthRepository,
             courseRepository = courseRepository,
-            noteRepository = courseNoteRepository,
-            sessionManager = sessionManager,
-            assessmentRepository = app.assessmentRepository,
-            recordRepository = app.recordRepository,
-            homeworkRepository = app.homeworkRepository,
-            userTaskRepository = app.userTaskRepository,
+            ycardRepository = ycardRepository,
+            marketRepository = marketRepository,
+            jwcNoticeRepository = jwcNoticeRepository,
+            studentInfoRepository = studentInfoRepository,
+            courseNoteRepository = courseNoteRepository,
+            gradeRepository = gradeRepository,
             examRepository = examRepository,
-            kqAttendanceRepository = app.attendanceRepository,
+            financeRepository = financeRepository,
+            attendanceRepository = attendanceRepository,
+            adwmhCardRepository = adwmhCardRepository,
         )
     }
-    val marketViewModel = remember {
-        MarketViewModel(marketRepository, app.aiCommentRepository)
-    }
+    val cardViewModel: com.yourname.ahu_plus.ui.screen.home.HomeViewModel = viewModel(factory = factory)
+    val scheduleViewModel: com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel =
+        viewModel(factory = factory)
+    val marketViewModel: MarketViewModel = viewModel(factory = factory)
     val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
     // 第三方服务聚合 (集市 + 学习通):每个 Tab 可见 = parent 总开关 && 对应子开关
     // parent 总开关需 5s 弹窗确认;子开关可独立切换;关闭 parent 后即使 selectedTab 残留也降级到首页
     val thirdPartyEnabled = marketUiState.thirdPartyServicesEnabled
     val marketVisible = thirdPartyEnabled && marketUiState.marketChildEnabled
     val chaoxingVisible = thirdPartyEnabled && marketUiState.chaoxingChildEnabled
-    val jwcNoticeViewModel = remember {
-        JwcNoticeViewModel(jwcNoticeRepository)
-    }
-    val jwcNoticeListViewModel = remember {
-        JwcNoticeListViewModel(jwcNoticeRepository)
-    }
-    val studentInfoViewModel = remember {
-        StudentInfoViewModel(studentInfoRepository, sessionManager)
-    }
-    val gradeViewModel = remember {
-        GradeViewModel(jwAuthRepository, gradeRepository, sessionManager)
-    }
-    val examViewModel = remember {
-        ExamViewModel(jwAuthRepository, examRepository, sessionManager)
-    }
-    val financeViewModel = remember {
-        FinanceViewModel(financeRepository, sessionManager)
-    }
-    val attendanceViewModel = remember {
-        AttendanceViewModel(attendanceRepository, sessionManager)
-    }
-    val trainingPlanViewModel = remember {
-        TrainingPlanViewModel(jwAuthRepository, app.trainingPlanRepository, app.programCompletionRepository, sessionManager)
-    }
-    val emptyClassroomViewModel = remember {
-        EmptyClassroomViewModel(jwAuthRepository, app.emptyClassroomRepository, sessionManager)
-    }
-    val chaoxingViewModel = remember {
-        ChaoxingViewModel(app.chaoxingRepository, app.chaoxingStudyRepository, app.chaoxingTikuRepository, sessionManager)
-    }
+    val jwcNoticeViewModel: com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel =
+        viewModel(factory = factory)
+    val jwcNoticeListViewModel: com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel =
+        viewModel(factory = factory)
+    val studentInfoViewModel: StudentInfoViewModel = viewModel(factory = factory)
+    val gradeViewModel: GradeViewModel = viewModel(factory = factory)
+    val examViewModel: ExamViewModel = viewModel(factory = factory)
+    val financeViewModel: FinanceViewModel = viewModel(factory = factory)
+    val attendanceViewModel: AttendanceViewModel = viewModel(factory = factory)
+    val trainingPlanViewModel: TrainingPlanViewModel = viewModel(factory = factory)
+    val emptyClassroomViewModel: com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel =
+        viewModel(factory = factory)
+    val chaoxingViewModel: ChaoxingViewModel = viewModel(factory = factory)
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
     val showBottomNavigation = selectedTab != TAB_MARKET || (
         marketUiState.selectedTopic == null &&

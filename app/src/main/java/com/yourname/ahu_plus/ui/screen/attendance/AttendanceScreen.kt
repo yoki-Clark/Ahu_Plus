@@ -40,7 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.KqAttendanceRecord
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.screen.profile.EmptyBlock
 import com.yourname.ahu_plus.ui.screen.profile.ErrorBlock
 import com.yourname.ahu_plus.ui.screen.profile.LoadingBlock

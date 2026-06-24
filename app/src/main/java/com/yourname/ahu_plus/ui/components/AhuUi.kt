@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -38,33 +39,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-// AhuSpacing / AhuShapes 已迁移至 ui/theme/Spacing.kt 与 ui/theme/Shape.kt。
-// 这里保留兼容层（object 用 getter 委托给 theme 包），所有历史 import 路径不变。
-// 后续可渐进删除本文件 object 并把所有 Screen 的 import 改为 ui.theme。
-private typealias ThemeSpacing = com.yourname.ahu_plus.ui.theme.AhuSpacing
-private typealias ThemeShapes = com.yourname.ahu_plus.ui.theme.AhuShapes
-
-object AhuSpacing {
-    val ScreenHorizontal get() = ThemeSpacing.ScreenHorizontal
-    val Card get() = ThemeSpacing.Card
-    val Section get() = ThemeSpacing.Section
-    val CardGap get() = ThemeSpacing.CardGap
-    val xs get() = ThemeSpacing.xs
-    val sm get() = ThemeSpacing.sm
-    val md get() = ThemeSpacing.md
-    val lg get() = ThemeSpacing.lg
-    val xl get() = ThemeSpacing.xl
-}
-
-object AhuShapes {
-    val Card get() = ThemeShapes.Card
-    val LargeCard get() = ThemeShapes.LargeCard
-    val IconBox get() = ThemeShapes.IconBox
-    val Pill get() = ThemeShapes.Pill
-    val Dialog get() = ThemeShapes.Dialog
-    val BottomSheet get() = ThemeShapes.BottomSheet
-    val Sheet get() = ThemeShapes.Sheet
-}
+import com.yourname.ahu_plus.ui.theme.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuSpacing
 
 @Composable
 fun AhuTopAppBar(
@@ -370,6 +346,8 @@ fun AhuHeroCard(
 
 /**
  * 统一空状态组件 — 图标 + 标题 + 可选描述 + 可选操作按钮。
+ *
+ * @param centered 是否居中铺满父容器(占位屏状态)。true 时外层套 fillMaxSize Box。
  */
 @Composable
 fun AhuEmptyState(
@@ -378,93 +356,153 @@ fun AhuEmptyState(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     actionText: String? = null,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    centered: Boolean = false,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 32.dp, horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(AhuShapes.IconBox)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-            contentAlignment = Alignment.Center
+    val content: @Composable () -> Unit = {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 32.dp, horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(28.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-            )
-        }
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center
-        )
-        if (subtitle != null) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(AhuShapes.IconBox)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
             Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center
             )
-        }
-        if (actionText != null && onAction != null) {
-            Spacer(modifier = Modifier.height(AhuSpacing.xs))
-            TextButton(onClick = onAction) {
-                Text(actionText)
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+            if (actionText != null && onAction != null) {
+                Spacer(modifier = Modifier.height(AhuSpacing.xs))
+                TextButton(onClick = onAction) {
+                    Text(actionText)
+                }
             }
         }
+    }
+    if (centered) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
+    } else {
+        content()
     }
 }
 
 /**
  * 统一错误状态组件 — 红色警告图标 + 错误信息 + 重试按钮。
+ *
+ * @param centered 是否居中铺满父容器(占位屏状态)。true 时外层套 fillMaxSize Box。
  */
 @Composable
 fun AhuErrorState(
     message: String,
     modifier: Modifier = Modifier,
-    onRetry: (() -> Unit)? = null
+    onRetry: (() -> Unit)? = null,
+    centered: Boolean = false,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 32.dp, horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(AhuShapes.IconBox)
-                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)),
-            contentAlignment = Alignment.Center
+    val content: @Composable () -> Unit = {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 32.dp, horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm)
         ) {
-            Icon(
-                imageVector = Icons.Filled.Refresh,
-                contentDescription = null,
-                modifier = Modifier.size(28.dp),
-                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(AhuShapes.IconBox)
+                    .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                )
+            }
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center
             )
-        }
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.error,
-            textAlign = TextAlign.Center
-        )
-        if (onRetry != null) {
-            TextButton(onClick = onRetry) {
-                Text("重试")
+            if (onRetry != null) {
+                Spacer(modifier = Modifier.height(AhuSpacing.xs))
+                TextButton(onClick = onRetry) {
+                    Text("重试")
+                }
             }
         }
+    }
+    if (centered) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
+    } else {
+        content()
+    }
+}
+
+/**
+ * 居中加载指示器。用于页面初始加载状态。
+ */
+@Composable
+fun CenteredLoader(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator()
+    }
+}
+
+/**
+ * 居中错误提示 + 重试按钮。统一委托 [AhuErrorState](centered=true),保证两套样式一致。
+ */
+@Composable
+fun CenteredError(
+    message: String,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AhuErrorState(
+        message = message,
+        onRetry = onRetry,
+        modifier = modifier,
+        centered = true,
+    )
+}
+
+/**
+ * 居中文字提示。用于空数据等中间状态。
+ */
+@Composable
+fun CenteredMessage(text: String, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

@@ -80,7 +80,7 @@ import androidx.core.content.ContextCompat
 import com.yourname.ahu_plus.data.model.MarketComment
 import com.yourname.ahu_plus.data.model.AiCommentTemplate
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)

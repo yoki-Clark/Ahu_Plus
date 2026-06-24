@@ -3,6 +3,7 @@ package com.yourname.ahu_plus.ui.screen.home
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.local.ElectricityRoomConfig
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.model.BathroomBalanceData
@@ -21,6 +22,7 @@ import com.yourname.ahu_plus.data.repository.CardRepository
 import com.yourname.ahu_plus.data.repository.CasAuthRepository
 import com.yourname.ahu_plus.data.repository.SessionExpiredException
 import com.yourname.ahu_plus.data.repository.StudentInfoRepository
+import com.yourname.ahu_plus.data.repository.YcardAuthExpiredException
 import com.yourname.ahu_plus.data.repository.YcardRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,6 +34,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
@@ -197,7 +201,7 @@ class HomeViewModel(
                     _uiState.update {
                         it.copy(
                             balance = adwmhBalance.getOrThrow(),
-                            timestamp = System.currentTimeMillis(),
+                            timestamp = DebugClock.nowMillis(),
                             isLoading = false,
                             error = null,
                         )
@@ -379,7 +383,7 @@ class HomeViewModel(
                 return@launch
             }
             _uiState.update { it.updateBillsLoading(target, range, true, null) }
-            val endDate = LocalDate.now()
+            val endDate = DebugClock.todayDate()
             withContext(Dispatchers.IO) {
                 getElectricityBillsByRange(
                     feeitemid = feeitemid,
@@ -441,12 +445,15 @@ class HomeViewModel(
                         val campusCode = campus.value.substringBefore("&")
                         campusMap[campusCode] = campus.value
                     }
-                    // 并行拉取每个校区的楼栋
+                    // 并行拉取每个校区的楼栋,限制并发 3 避免一瞬间打爆 ycard
+                    val campusSem = Semaphore(3)
                     val campusJobs = campuses.map { campus ->
                         async {
-                            withYcardRelogin {
-                                ycardRepository.getFeeItemBuildings("488", campus.value)
-                            }.getOrDefault(emptyList()) to campus.value
+                            campusSem.withPermit {
+                                withYcardRelogin {
+                                    ycardRepository.getFeeItemBuildings("488", campus.value)
+                                }.getOrDefault(emptyList()) to campus.value
+                            }
                         }
                     }
                     for (deferred in campusJobs) {
@@ -1139,14 +1146,14 @@ class HomeViewModel(
         return request()
     }
 
-    // TODO: 通过异常消息字符串匹配 HTTP 状态码是脆弱做法，未来应改为抛出/匹配类型化异常 (如 YcardAuthExpiredException)
-    private fun Result<*>.isYcardAuthExpired(): Boolean {
-        val message = exceptionOrNull()?.message.orEmpty()
-        return message.contains("HTTP 401") ||
-            message.contains("HTTP 403") ||
-            message.contains("未登录 ycard") ||
-            message.contains("登录状态过期")
-    }
+    /**
+     * 类型化检测 ycard 认证过期。
+     *
+     * ycard HTTP 401/403 由 [YcardRepository] 抛 [YcardAuthExpiredException];
+     * "未登录 ycard" 走未登录分支(此处不重试,直接返回首次结果)。
+     */
+    private fun Result<*>.isYcardAuthExpired(): Boolean =
+        exceptionOrNull() is YcardAuthExpiredException
 
     fun onRefresh() {
         loadBalanceAndBills()

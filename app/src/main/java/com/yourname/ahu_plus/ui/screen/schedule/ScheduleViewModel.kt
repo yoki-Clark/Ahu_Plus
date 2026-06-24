@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.model.course.AssessmentPlan
@@ -87,6 +88,19 @@ class ScheduleViewModel(
     // ── 设置变更触发器 (Profile 页改开关时 bump) ───────
     private val _settingsTicker = MutableStateFlow(0)
 
+    // ── 跨 Repository 缓存(从 SessionManager / kq Repo 反序列化) ─────
+    // 这两个原本是 `MutableStateFlow(loadXxxCached())` 内联表达式 — 由于属性只初始化一次,
+    // 后续考勤/考试缓存更新 UI 看不到。这里抽出为字段,onRefresh / 外部刷新成功时
+    // 调用 reload 重新读 cache 触发下游 combine 重算。
+    private val _kqAttendanceCache = MutableStateFlow(loadKqAttendanceCached())
+    private val _examsCache = MutableStateFlow(loadExamsSnapshot())
+
+    /** 重新从持久层读 kqcard 考勤 / 考试缓存,driver 首页"今日考勤"和"近期任务"刷新 */
+    private fun reloadCrossRepoCaches() {
+        _kqAttendanceCache.value = loadKqAttendanceCached()
+        _examsCache.value = loadExamsSnapshot()
+    }
+
     /**
      * 首页今日课程考勤状态。
      * key = "课程名"，value = status (1=正常/已签到, 2=迟到, 3=缺勤)。
@@ -95,9 +109,9 @@ class ScheduleViewModel(
     val todayCourseAttendance: StateFlow<Map<String, Int>> = combine(
         _uiState,
         _settingsTicker,
-        MutableStateFlow(loadKqAttendanceCached()),
+        _kqAttendanceCache,
     ) { state, _, cached ->
-        val today = java.time.LocalDate.now()
+        val today = DebugClock.todayDate()
         val todayStr = today.toString()
         val currentWeek = state.currentWeek
         val result = mutableMapOf<String, Int>()
@@ -125,7 +139,7 @@ class ScheduleViewModel(
         userTaskRepository.tasks,
         _settingsTicker,
     ) { hw, tasks, _ -> hw to tasks }
-        .combine(MutableStateFlow(loadExamsSnapshot())) { (hw, tasks), exams ->
+        .combine(_examsCache) { (hw, tasks), exams ->
             val sm = sessionManager
             val showCompleted = sm?.getShowCompletedTasks() ?: false
             val showCompletedExams = sm?.getShowCompletedExams() ?: true
@@ -518,6 +532,8 @@ class ScheduleViewModel(
 
     fun onRefresh() {
         viewModelScope.launch {
+            // 跨 Repository 缓存(考勤 / 考试)可能在外部刷新过 — 重读一次让首页今日卡片同步
+            reloadCrossRepoCaches()
             loadScheduleData(isRefresh = true)
         }
     }
@@ -752,9 +768,9 @@ class ScheduleViewModel(
 
     /** 不依赖 selectedCourseDetail 的添加作业 (2026-06-17 Bug4 修复)。 */
     fun addQuickHomeworkForToday(text: String, deadline: Long?) {
-        val today = java.time.LocalDate.now()
+        val today = DebugClock.todayDate()
         val todayWd = today.dayOfWeek.value
-        val now = java.time.LocalTime.now()
+        val now = DebugClock.nowTime()
         val currentWeek = _uiState.value.currentWeek
         val items = _uiState.value.allActivities
             .filter { it.weekday == todayWd && (it.weekIndexes ?: emptyList()).contains(currentWeek) }

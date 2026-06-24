@@ -56,7 +56,7 @@ import com.yourname.ahu_plus.data.model.AiCommentTemplate
 import com.yourname.ahu_plus.data.model.MarketIdentity
 import com.yourname.ahu_plus.data.remote.market.MarketApi
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

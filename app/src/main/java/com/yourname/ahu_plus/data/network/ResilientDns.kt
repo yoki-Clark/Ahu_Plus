@@ -4,6 +4,7 @@ import android.util.Log
 import okhttp3.Dns
 import java.net.InetAddress
 import java.net.UnknownHostException
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 抗 DNS 污染的自定义 OkHttp DNS 解析器 (2026-06-23)
@@ -103,7 +104,39 @@ object ResilientDns : Dns {
             runCatching { InetAddress.getByName(addr) }.getOrNull()
         }
 
+    // ── 应用层 DNS 缓存 (2026-06-24 性能优化) ─────────────────
+    //
+    // OkHttp 默认 Dns 委托给系统 InetAddress.getAllByName,系统层面有 cache
+    // 但跨连接、跨 OkHttpClient 实例命中率不高。校园网环境下系统 DNS 解析
+    // 100-300ms,加 5 分钟 cache 显著降低重复解析开销。
+    //
+    // 缓存仅对成功解析的结果生效,失败 lookup 不缓存(避免临时网络问题
+    // 长期把 host 标记成不可达)。
+    private data class CacheEntry(val addrs: List<InetAddress>, val expireAt: Long)
+    private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private const val CACHE_TTL_MS = 5L * 60_000L
+
+    /** 测试/调试可清空缓存 */
+    @Suppress("unused")
+    fun clearCache() {
+        cache.clear()
+    }
+
     override fun lookup(hostname: String): List<InetAddress> {
+        val now = System.currentTimeMillis()
+        cache[hostname]?.let { entry ->
+            if (entry.expireAt > now && entry.addrs.isNotEmpty()) {
+                return entry.addrs
+            }
+        }
+        val result = doLookup(hostname)
+        if (result.isNotEmpty()) {
+            cache[hostname] = CacheEntry(result, now + CACHE_TTL_MS)
+        }
+        return result
+    }
+
+    private fun doLookup(hostname: String): List<InetAddress> {
         // 1) 优先系统 DNS
         val systemAddrs = try {
             InetAddress.getAllByName(hostname).toList()

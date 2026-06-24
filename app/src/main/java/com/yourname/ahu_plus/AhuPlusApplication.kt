@@ -34,6 +34,10 @@ import com.yourname.ahu_plus.data.repository.UserTaskRepository
 import com.yourname.ahu_plus.data.repository.YcardRepository
 import com.yourname.ahu_plus.notification.WidgetUpdateScheduler
 import com.yourname.ahu_plus.util.CxFontDecoder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.conscrypt.Conscrypt
 import java.security.Security
 
@@ -185,7 +189,12 @@ class AhuPlusApplication : Application() {
 
         // 初始化超星加密字体解码器(2026-06-20 集成 Phase 1)
         // 启动时一次性加载 assets/font_map_table.json (1.6MB) 到内存 hash map。
-        CxFontDecoder.init(this)
+        // 异步加载避免主线程冷启动卡顿:CxFontDecoder.decodeFromHtml 内部已检查
+        // hashMap 是否就绪,未就绪时直接返回原文。超星 Tab 进入后第一次解码若
+        // 仍未加载完,会显示原文一次,后续秒读。
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            CxFontDecoder.init(this@AhuPlusApplication)
+        }
 
         // 自动更新管理器
         updateManager = UpdateManager(this, sessionManager)

@@ -8,6 +8,9 @@ import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -68,13 +71,15 @@ class AdwmhCardRepository(
     @Volatile
     private var lastRequestTimeMs = 0L
 
+    /** 协程互斥锁:取代旧的 Thread.sleep + @Synchronized,避免阻塞 IO 线程。 */
+    private val cooldownMutex = Mutex()
+
     /** 确保两次请求之间有足够间隔，避免触发服务器速率限制 */
-    @Synchronized
-    private fun cooldown() {
+    private suspend fun cooldown() = cooldownMutex.withLock {
         val elapsed = System.currentTimeMillis() - lastRequestTimeMs
         val minGap = 1500L  // 1.5 秒最小间隔（太大会拖慢整个流程）
         if (elapsed < minGap && lastRequestTimeMs > 0) {
-            Thread.sleep(minGap - elapsed)
+            delay(minGap - elapsed)
         }
         lastRequestTimeMs = System.currentTimeMillis()
     }
@@ -135,7 +140,7 @@ class AdwmhCardRepository(
     }
 
     /** 获取验证码图片字节。 */
-    private fun getCaptchaRaw(): ByteArray {
+    private suspend fun getCaptchaRaw(): ByteArray {
         cooldown()
         val request = Request.Builder()
             .url("https://$HOST/remind/authcode")
@@ -306,7 +311,7 @@ class AdwmhCardRepository(
         )
     }
 
-    private fun getJson(path: String, method: String = "GET"): JsonObject {
+    private suspend fun getJson(path: String, method: String = "GET"): JsonObject {
         cooldown()
         val url = "https://$HOST$path"
         Log.d(TAG, "$method $url")

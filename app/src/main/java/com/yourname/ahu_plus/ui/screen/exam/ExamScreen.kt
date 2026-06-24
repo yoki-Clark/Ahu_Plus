@@ -52,12 +52,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.model.jw.Exam
 import com.yourname.ahu_plus.ui.components.CenteredError
 import com.yourname.ahu_plus.ui.components.CenteredLoader
 import com.yourname.ahu_plus.ui.components.CenteredMessage
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.components.CollapsibleSection
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -117,7 +118,7 @@ fun ExamScreen(
                 )
             }
             else -> {
-                val now = System.currentTimeMillis()
+                val now = DebugClock.nowMillis()
                 val unfinished = uiState.exams
                     .filter { !isExamFinished(it, now) }
                     .sortedWith(compareBy { parseExamStartMillis(it.examTime) ?: Long.MAX_VALUE })
@@ -363,7 +364,7 @@ private fun examTypeColor(type: String?): Color = when {
 }
 
 /** 解析考试时间字符串判断是否已结束 (已过当前时间)。 */
-private fun isExamFinished(exam: Exam, now: Long = System.currentTimeMillis()): Boolean {
+private fun isExamFinished(exam: Exam, now: Long = DebugClock.nowMillis()): Boolean {
     val endTime = parseExamEndMillis(exam.examTime) ?: return false
     return now > endTime
 }

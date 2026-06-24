@@ -70,7 +70,7 @@ import com.yourname.ahu_plus.data.model.jw.PlanCourseInfo
 import com.yourname.ahu_plus.data.model.jw.PlanEnumValue
 import com.yourname.ahu_plus.data.model.jw.PlanModuleNode
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 
 // ── 颜色常量 ──────────────────────────────────────────────────────────
 private val PropRequired = Color(0xFF1565C0)

@@ -88,21 +88,17 @@ class CasAuthRepository(
 
     // ── OkHttp 客户端(手动跟随重定向以捕获 Set-Cookie)───────
     //
-    // 自动续期:SessionAuthenticator 嗅探响应 body 里的 CAS 登录表单
-    // (HTML 中含 name="lt"),识别"静默过期",自动调 ensureValidSession() 刷 JSESSIONID
-    // 并重发原请求。Authenticator 仅在 401/403 时触发。
-    //
-    // 注意:CAS 自身登录流程(client 内的 exchangeForJsessionid 等)走另一条 client,
-    // 不会触发续期;只有业务请求才需要这个保护。
-    private val sessionAuthenticator = com.yourname.ahu_plus.data.network.SessionAuthenticator(this)
-
+    // 此 client 仅服务 CAS 登录链本身(fetchLoginPage / device / submitLoginForm
+    // / exchangeForServiceTicket / exchangeForJsessionid)。
+    // 登录第 1 步的响应天然就是 CAS 登录表单(含 name="lt"),若挂上
+    // SessionAuthenticator.asInterceptor() 会被误判为"会话过期",触发
+    // runBlocking { ensureValidSession() } 套娃,显著拖慢登录。
+    // 业务 Repository 的 session 续期保护应在各自的 client 上挂,不在这里。
     val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = cookieJar,
         followRedirects = false,
         disableGzip = true,  // CAS 流程关闭 gzip
         trustAll = true,  // *.ahu.edu.cn 自签名证书
-        authenticator = sessionAuthenticator,
-        sessionExpiredInterceptor = sessionAuthenticator.asInterceptor(),
     )
 
     /** 公开给 YcardRepository 等复用 CAS cookie 的系统 */

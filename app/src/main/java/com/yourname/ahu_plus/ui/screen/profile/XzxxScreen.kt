@@ -89,7 +89,7 @@ import com.yourname.ahu_plus.data.model.XzxxLetterDetail
 import com.yourname.ahu_plus.data.model.XzxxSubmitResult
 import com.yourname.ahu_plus.data.repository.XzxxRepository
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

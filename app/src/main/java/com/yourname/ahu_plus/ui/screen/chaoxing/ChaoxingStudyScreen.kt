@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.CxStudyUiState
 import com.yourname.ahu_plus.data.model.CxTaskProgress
 import com.yourname.ahu_plus.data.model.CxTaskStatus
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -64,7 +64,7 @@ import com.yourname.ahu_plus.data.model.MerchantStat
 import com.yourname.ahu_plus.data.model.TransactionItem
 import com.yourname.ahu_plus.data.model.toAnalyticsReport
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import java.text.DecimalFormat
 
 private val MoneyFormat = DecimalFormat("¥#,##0.00")

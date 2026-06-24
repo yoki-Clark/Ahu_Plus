@@ -1,13 +1,25 @@
 {
-    "latestVersion": "1.4.0",
-    "latestVersionCode": 140,
-    "minSupportedVersionCode": 0,
-    "downloadUrl": "https://gitee.com/yao-enqi/Ahu_Plus/releases/download/v1.4.0/app-arm64-v8a-release.apk",
-    "apkFileName": "ahu_plus_1.4.0.apk",
-    "fileSize": 31457280,
-    "sha256": "",
-    "releaseNotes": [
-      "自动更新模块改造",
-      "..."
-    ]
-  }
+  "latestVersion": "2.1.2",
+  "latestVersionCode": 14,
+  "minSupportedVersionCode": 13,
+  "downloadUrl": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/app-release.apk",
+  "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
+  "apkFileName": "ahu_plus_v2.1.2.apk",
+  "releaseNotes": [
+    "本次为性能优化版本,主打启动更快、网络更稳、后台更省心,无新增功能。",
+    "网络提速:全 App 共享连接池,相同站点复用 HTTPS 连接、减少重复 TLS 握手;新增 DNS 解析缓存,各页面加载更快。",
+    "登录初始化提速:首次登录的校园数据(成绩 / 考试 / 培养方案 / 账单 / 考勤 / 水电费)由逐项串行改为并行加载,等待时间明显缩短。",
+    "冷启动优化:超星字体解码表改为后台异步加载,打开 App 首屏不再卡顿。",
+    "登录更稳:修复登录流程中的重复鉴权(套娃)导致的拖慢;一卡通并发请求加锁去重,5 秒内不再重复走完整登录。",
+    "会话保活加固:统一身份连续多次续期失败后自动进入冷却(最长 32 分钟),避免频繁打 CAS 触发学校风控 / IP 限制。",
+    "智慧安大支付码:请求限流由阻塞式 sleep 改为协程非阻塞实现,不再卡住后台线程。",
+    "状态保持:切后台或被系统回收重建后,各页面数据不再丢失(改用 ViewModel 工厂注入)。",
+    "更新模块重构:支持多源下载自动回退(Gitee 主源 / 备用源 + GitHub)、APK 完整性校验、下载进度显示与取消 / 重试。",
+    "其它:一卡通鉴权失效改为类型化判断更精准,排考预测数据请求超时收敛,超星模块配色与圆角统一,若干稳定性修复。"
+  ],
+  "forceUpdate": false,
+  "updateTime": "2026-06-24T20:00:00+08:00",
+  "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus",
+  "sha256": "d845b700f343382832edd3a1d63c727a6b3df891f11ff1bbf10c10094307b8ff",
+  "fileSize": 8023894
+}

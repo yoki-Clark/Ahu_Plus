@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.CxActivity
 import com.yourname.ahu_plus.data.model.CxSignType
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -117,7 +118,7 @@ private fun SignActivityCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = com.yourname.ahu_plus.ui.components.AhuShapes.Card,
+        shape = AhuShapes.Card,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -181,7 +182,7 @@ private fun SignActivityCard(
 private fun HintBox(text: String) {
     Surface(
         color = MaterialTheme.colorScheme.tertiaryContainer,
-        shape = com.yourname.ahu_plus.ui.components.AhuShapes.IconBox,
+        shape = AhuShapes.IconBox,
     ) {
         Text(
             text = text,

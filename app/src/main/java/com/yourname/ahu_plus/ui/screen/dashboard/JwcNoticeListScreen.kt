@@ -66,7 +66,7 @@ import com.yourname.ahu_plus.data.model.JwcNotice
 import com.yourname.ahu_plus.data.model.JwcNoticeAttachment
 import com.yourname.ahu_plus.data.model.JwcNoticeDetail
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import org.json.JSONArray
 
 @OptIn(ExperimentalMaterial3Api::class)

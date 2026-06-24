@@ -5,6 +5,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -41,29 +42,33 @@ fun WeekPager(
         return
     }
 
-    val pagerState = rememberPagerState(
-        initialPage = currentPage.coerceIn(0, maxPage - 1),
-    ) { maxPage }
+    // 用 maxPage 作 key 强制重建 pagerState,避免学期切换 / 数据加载导致总周数变化时
+    // pagerState.currentPage 越界或 initialPage 不更新。
+    key(maxPage) {
+        val pagerState = rememberPagerState(
+            initialPage = currentPage.coerceIn(0, maxPage - 1),
+        ) { maxPage }
 
-    // 用户滑动 → 通知外部
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }
-            .distinctUntilChanged()
-            .collect { page -> onPageChanged(page) }
-    }
-
-    // 外部 setSelectedWeek → 同步 Pager
-    LaunchedEffect(currentPage) {
-        if (pagerState.currentPage != currentPage && currentPage in 0 until maxPage) {
-            pagerState.scrollToPage(currentPage)
+        // 用户滑动 → 通知外部
+        LaunchedEffect(pagerState) {
+            snapshotFlow { pagerState.currentPage }
+                .distinctUntilChanged()
+                .collect { page -> onPageChanged(page) }
         }
-    }
 
-    HorizontalPager(
-        state = pagerState,
-        modifier = modifier,
-        userScrollEnabled = enabled,
-    ) { page ->
-        content(page)
+        // 外部 setSelectedWeek → 同步 Pager
+        LaunchedEffect(currentPage) {
+            if (pagerState.currentPage != currentPage && currentPage in 0 until maxPage) {
+                pagerState.scrollToPage(currentPage)
+            }
+        }
+
+        HorizontalPager(
+            state = pagerState,
+            modifier = modifier,
+            userScrollEnabled = enabled,
+        ) { page ->
+            content(page)
+        }
     }
 }

@@ -71,7 +71,7 @@ import com.yourname.ahu_plus.data.repository.AdwmhQrCode
 import com.yourname.ahu_plus.data.model.InternetBalanceData
 import com.yourname.ahu_plus.ui.components.AhuHeroCard
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.components.CountdownArc
 import com.yourname.ahu_plus.ui.theme.AhuGradient
 import com.yourname.ahu_plus.util.BrowserOpener

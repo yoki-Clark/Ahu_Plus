@@ -38,7 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.KqAttendanceRecord
 import com.yourname.ahu_plus.ui.components.CollapsibleSection
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 
 /**
  * 课程考勤记录 section (教务考勤联动)。
