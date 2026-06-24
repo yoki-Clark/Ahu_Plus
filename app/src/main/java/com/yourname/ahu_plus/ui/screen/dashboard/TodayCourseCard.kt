@@ -38,8 +38,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
 import kotlinx.coroutines.delay
@@ -68,15 +69,15 @@ fun TodayCourseCard(
     todayHasHomework: Boolean = false,
     todayAttendance: Map<String, Int> = emptyMap(),
 ) {
-    // 每 30s tick 一次,驱动倒计时/进度条重算
+    // 每 30s tick 一次驱动倒计时/进度条重算；用 tick 当 remember 的 key,
+    // 比 @Suppress("UNUSED_EXPRESSION") 更可靠 — 不依赖编译器保留无意义读取。
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) { delay(30_000); tick++ }
     }
-    @Suppress("UNUSED_EXPRESSION") tick
 
-    val now = LocalTime.now()
-    val today = LocalDate.now()
+    val now = remember(tick) { DebugClock.nowTime() }
+    val today = remember(tick) { DebugClock.todayDate() }
     val todayItems = remember(uiState.todayItems, today) {
         uiState.todayItems.filter { it.weekday == today.dayOfWeek.value }
             .sortedBy { it.startUnit }

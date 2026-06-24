@@ -17,6 +17,8 @@ import com.yourname.ahu_plus.data.model.InternetBalanceResponse
 import com.yourname.ahu_plus.data.model.InternetBillResponse
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
 import com.yourname.ahu_plus.util.DES
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
@@ -48,6 +50,20 @@ class YcardRepository(
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
         private const val CAS_HOST = "one.ahu.edu.cn"
         private const val YCARD_HOST = "ycard.ahu.edu.cn"
+
+        /**
+         * 把 HTTP code 翻译为异常类型,供调用方 is 检查。
+         *
+         * 401 / 403 抛 [YcardAuthExpiredException],其余 HTTP 失败抛普通 Exception。
+         * 取代旧的字符串匹配 `message.contains("HTTP 401")` 做法。
+         */
+        internal fun ycardExceptionFor(httpCode: Int, fallbackMessage: String): Exception {
+            return if (httpCode == 401 || httpCode == 403) {
+                YcardAuthExpiredException("ycard 认证过期 HTTP $httpCode")
+            } else {
+                Exception("$fallbackMessage HTTP $httpCode")
+            }
+        }
     }
 
     private val gson = GsonProvider.instance
@@ -86,10 +102,16 @@ class YcardRepository(
     @Volatile
     private var cachedJwt: String? = null
 
+    /** ycard.login 互斥锁 + 5 秒成功复用窗口,避免并发请求重复打 CAS */
+    private val loginMutex = Mutex()
+    @Volatile private var lastLoginSuccessMs = 0L
+    private val LOGIN_REUSE_WINDOW_MS = 5_000L
+
     /** 清除内存 cookie 和 JWT(退出登录时调用) */
     fun clearCookies() {
         cookieStore.clear()
         cachedJwt = null
+        lastLoginSuccessMs = 0L
     }
 
     // ══════════════════════════════════════════════════════
@@ -99,9 +121,19 @@ class YcardRepository(
     /**
      * 登录 ycard。
      * 优先复用 CasAuthRepository 的 CASTGC,失败时回退到完整 CAS 登录。
+     *
+     * 并发保护 (2026-06-24): InitCoordinator 并行预热和 HomeViewModel
+     * 6 个请求并发场景下,任何一个触发 ycard.login 都会带动其它请求一起重试。
+     * 用 [loginMutex] + 5 秒成功复用窗口,确保短时间内只跑一次完整登录流程。
      */
-    suspend fun login(username: String, password: String): Result<Unit> {
-        return try {
+    suspend fun login(username: String, password: String): Result<Unit> = loginMutex.withLock {
+        // 5 秒内已经成功登录过 → 直接复用,避免并发请求重复打 CAS
+        val now = System.currentTimeMillis()
+        if (cachedJwt != null && now - lastLoginSuccessMs < LOGIN_REUSE_WINDOW_MS) {
+            Log.d(TAG, "ycard 登录复用 (距上次 ${now - lastLoginSuccessMs}ms)")
+            return@withLock Result.success(Unit)
+        }
+        return@withLock try {
             Log.d(TAG, "开始 ycard 认证...")
             cookieStore.clear()
             cachedJwt = null
@@ -114,7 +146,8 @@ class YcardRepository(
                     Log.i(TAG, "尝试复用 CAS 登录态走简易 SSO")
                     loginWithCastgc(castgc)
                     Log.d(TAG, "ycard 简易 SSO 成功")
-                    return Result.success(Unit)
+                    lastLoginSuccessMs = System.currentTimeMillis()
+                    return@withLock Result.success(Unit)
                 } catch (e: Exception) {
                     Log.e(TAG, "简易 SSO 失败，回退到完整登录: ${e.message}")
                     cookieStore.clear()
@@ -124,6 +157,7 @@ class YcardRepository(
 
             // 策略 2: 完整 CAS 登录(走 6 步流程)
             performFullLogin(username, password)
+            lastLoginSuccessMs = System.currentTimeMillis()
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "ycard 认证失败", e)
@@ -155,7 +189,7 @@ class YcardRepository(
                 Log.d(TAG, "账单 API HTTP $code")
 
                 if (code != 200) {
-                    return Result.failure(Exception("账单查询失败 HTTP $code"))
+                    return Result.failure(ycardExceptionFor(code, "账单查询失败"))
                 }
 
                 val billResp = gson.fromJson(body, BillResponse::class.java)
@@ -232,7 +266,7 @@ class YcardRepository(
                 Log.d(TAG, "浴室余额 API HTTP $code")
 
                 if (code != 200) {
-                    return Result.failure(Exception("浴室余额查询失败 HTTP $code"))
+                    return Result.failure(ycardExceptionFor(code, "浴室余额查询失败"))
                 }
 
                 val resp = gson.fromJson(body, BathroomBalanceResponse::class.java)
@@ -300,7 +334,7 @@ class YcardRepository(
                 Log.d(TAG, "电费 API feeitemid=$feeitemid HTTP $code")
 
                 if (code != 200) {
-                    return Result.failure(Exception("电费查询失败 HTTP $code"))
+                    return Result.failure(ycardExceptionFor(code, "电费查询失败"))
                 }
 
                 val resp = gson.fromJson(body, ElectricityBalanceResponse::class.java)
@@ -350,7 +384,7 @@ class YcardRepository(
                 Log.d(TAG, "网费余额 API HTTP $code")
 
                 if (code != 200) {
-                    return Result.failure(Exception("网费查询失败 HTTP $code"))
+                    return Result.failure(ycardExceptionFor(code, "网费查询失败"))
                 }
 
                 val resp = gson.fromJson(body, InternetBalanceResponse::class.java)
@@ -395,7 +429,7 @@ class YcardRepository(
                 Log.d(TAG, "网费账单 API HTTP $code")
 
                 if (code != 200) {
-                    return Result.failure(Exception("网费账单查询失败 HTTP $code"))
+                    return Result.failure(ycardExceptionFor(code, "网费账单查询失败"))
                 }
 
                 val billResp = gson.fromJson(body, InternetBillResponse::class.java)
@@ -459,7 +493,7 @@ class YcardRepository(
                 Log.d(TAG, "电费账单 API feeitemid=$feeitemid HTTP $code")
 
                 if (code != 200) {
-                    return Result.failure(Exception("电费账单查询失败 HTTP $code"))
+                    return Result.failure(ycardExceptionFor(code, "电费账单查询失败"))
                 }
 
                 val billResp = gson.fromJson(body, ElectricityBillResponse::class.java)
@@ -606,7 +640,7 @@ class YcardRepository(
                 Log.d(TAG, "feeitem select feeitemid=$feeitemid level=$level HTTP $code")
 
                 if (code != 200) {
-                    return Result.failure(Exception("元数据查询失败 HTTP $code"))
+                    return Result.failure(ycardExceptionFor(code, "元数据查询失败"))
                 }
 
                 val resp = gson.fromJson(body, FeeItemSelectResponse::class.java)

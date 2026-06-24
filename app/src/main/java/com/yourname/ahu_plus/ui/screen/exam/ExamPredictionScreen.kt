@@ -58,10 +58,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.model.exam.AggregatedCourse
 import com.yourname.ahu_plus.data.model.exam.MATCH_TYPE_TEACHER
 import com.yourname.ahu_plus.data.model.exam.ExamPrediction
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
@@ -530,7 +531,7 @@ private fun formatGeneratedAt(raw: String): String {
 }
 
 private fun formatRelativeTime(epochMs: Long): String {
-    val diffMs = System.currentTimeMillis() - epochMs
+    val diffMs = DebugClock.nowMillis() - epochMs
     val minutes = diffMs / 60_000
     return when {
         diffMs < 0 -> "刚刚"

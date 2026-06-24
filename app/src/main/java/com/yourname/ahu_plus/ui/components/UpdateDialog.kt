@@ -1,6 +1,5 @@
 package com.yourname.ahu_plus.ui.components
 
-import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,68 +23,120 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.UpdateInfo
+import com.yourname.ahu_plus.data.update.UpdateUiState
 
 /**
- * 应用更新弹窗。
+ * 自动更新弹窗。直接消费 [UpdateUiState],按状态切换 4 种形态:
+ *  - UpdateReady     → 更新日志 + 立即更新 / 关闭(可勾选忽略)
+ *  - Downloading     → 进度条 + 字节数 + 取消(强制更新时禁用取消)
+ *  - DownloadFailed  → 错误信息 + 重试 / 关闭
+ *  - ReadyToInstall  → 提示已下载完成 + 安装 / 取消
  *
- * 初始状态 → 两个按钮：立即更新 / 关闭（可选"忽略此次版本更新"复选框）
- * 下载中状态 → 进度条 + 百分比数字
+ * 强制更新场景: 隐藏关闭按钮、不可取消下载、AlertDialog 不响应 onDismissRequest。
  */
 @Composable
 fun UpdateDialog(
-    info: UpdateInfo,
-    downloading: Boolean = false,
-    downloadProgress: Int = 0,
-    onUpdate: () -> Unit,
-    onLater: () -> Unit,
+    state: UpdateUiState,
+    onUpdate: (UpdateInfo, Boolean) -> Unit,
+    onCancelDownload: () -> Unit,
+    onRetryInstall: () -> Unit,
     onIgnore: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    Log.d("UpdateDialog", "rendering: downloading=$downloading progress=$downloadProgress")
+    if (state is UpdateUiState.Idle) return
+
+    val info: UpdateInfo = when (state) {
+        is UpdateUiState.UpdateReady -> state.info
+        is UpdateUiState.Downloading -> state.info
+        is UpdateUiState.DownloadFailed -> state.info
+        is UpdateUiState.ReadyToInstall -> state.info
+        UpdateUiState.Idle -> return
+    }
+    val forceUpdate: Boolean = when (state) {
+        is UpdateUiState.UpdateReady -> state.forceUpdate
+        is UpdateUiState.Downloading -> state.forceUpdate
+        is UpdateUiState.DownloadFailed -> state.forceUpdate
+        is UpdateUiState.ReadyToInstall -> state.forceUpdate
+        UpdateUiState.Idle -> false
+    }
+
     var ignoreThisVersion by remember { mutableStateOf(false) }
+
     AlertDialog(
         onDismissRequest = {
-            if (!downloading) {
-                if (ignoreThisVersion) onIgnore() else onDismiss()
+            if (forceUpdate) return@AlertDialog
+            when (state) {
+                is UpdateUiState.Downloading -> Unit
+                is UpdateUiState.UpdateReady,
+                is UpdateUiState.DownloadFailed,
+                is UpdateUiState.ReadyToInstall -> {
+                    if (ignoreThisVersion && state is UpdateUiState.UpdateReady) onIgnore() else onDismiss()
+                }
+                UpdateUiState.Idle -> Unit
             }
         },
         title = {
             Text(
-                text = if (downloading) "正在下载 ${info.latestVersion}" else "发现新版本 ${info.latestVersion}",
+                text = dialogTitle(state, info),
                 fontWeight = FontWeight.Bold
             )
         },
-        text = {
-            if (downloading) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        progress = { downloadProgress / 100f },
-                        modifier = Modifier.fillMaxWidth().height(8.dp),
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+        text = { DialogBody(state, info, forceUpdate, ignoreThisVersion) { ignoreThisVersion = it } },
+        confirmButton = {
+            DialogConfirmButton(
+                state = state,
+                forceUpdate = forceUpdate,
+                onUpdate = { onUpdate(info, forceUpdate) },
+                onRetryInstall = onRetryInstall
+            )
+        },
+        dismissButton = {
+            DialogDismissButton(
+                state = state,
+                forceUpdate = forceUpdate,
+                ignoreThisVersion = ignoreThisVersion,
+                onCancelDownload = onCancelDownload,
+                onIgnore = onIgnore,
+                onDismiss = onDismiss
+            )
+        }
+    )
+}
+
+private fun dialogTitle(state: UpdateUiState, info: UpdateInfo): String = when (state) {
+    is UpdateUiState.UpdateReady ->
+        if (state.forceUpdate) "需要更新到 ${info.latestVersion}" else "发现新版本 ${info.latestVersion}"
+    is UpdateUiState.Downloading -> "正在下载 ${info.latestVersion}"
+    is UpdateUiState.DownloadFailed -> "下载失败"
+    is UpdateUiState.ReadyToInstall -> "已下载完成"
+    UpdateUiState.Idle -> ""
+}
+
+@Composable
+private fun DialogBody(
+    state: UpdateUiState,
+    info: UpdateInfo,
+    forceUpdate: Boolean,
+    ignoreThisVersion: Boolean,
+    onIgnoreChange: (Boolean) -> Unit
+) {
+    when (state) {
+        is UpdateUiState.UpdateReady -> {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (forceUpdate) {
                     Text(
-                        text = "$downloadProgress%",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.fillMaxWidth()
+                        text = "当前版本过旧,必须更新后才能继续使用。",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "下载完成后将自动安装",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
-            } else {
                 val notes = info.releaseNotesText()
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = notes.ifBlank { "新版本已发布，建议立即更新以获得更好的体验。" },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                Text(
+                    text = notes.ifBlank { "新版本已发布,建议立即更新以获得更好的体验。" },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (!forceUpdate) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -93,7 +144,7 @@ fun UpdateDialog(
                     ) {
                         Checkbox(
                             checked = ignoreThisVersion,
-                            onCheckedChange = { ignoreThisVersion = it }
+                            onCheckedChange = onIgnoreChange
                         )
                         Text(
                             text = "忽略此次版本更新",
@@ -102,42 +153,141 @@ fun UpdateDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            if (downloading) {
-                Button(
-                    onClick = {},
-                    enabled = false,
+        }
+        is UpdateUiState.Downloading -> {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (state.progress >= 0) {
+                    LinearProgressIndicator(
+                        progress = { state.progress / 100f },
+                        modifier = Modifier.fillMaxWidth().height(8.dp)
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(8.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (state.progress >= 0) "${state.progress}%" else "正在连接…",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("下载中…")
+                )
+                if (state.totalBytes > 0) {
+                    Text(
+                        text = "${formatBytes(state.downloadedBytes)} / ${formatBytes(state.totalBytes)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-            } else {
-                Button(
-                    onClick = {
-                        Log.d("UpdateDialog", "立即更新 clicked")
-                        onUpdate()
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("立即更新")
-                }
-            }
-        },
-        dismissButton = {
-            if (!downloading) {
-                TextButton(onClick = {
-                    if (ignoreThisVersion) {
-                        Log.d("UpdateDialog", "关闭 (ignore=true)")
-                        onIgnore()
-                    } else {
-                        Log.d("UpdateDialog", "关闭 (ignore=false)")
-                        onLater()
-                    }
-                }) {
-                    Text("关闭", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "下载完成后将自动安装",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
-    )
+        is UpdateUiState.DownloadFailed -> {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = state.message,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "请检查网络后重试。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        is UpdateUiState.ReadyToInstall -> {
+            Text(
+                text = "${info.latestVersion} 已下载完成。如果系统未弹出安装界面,请点击 \"安装\" 重新触发,并在系统提示中授予安装权限。",
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        UpdateUiState.Idle -> Unit
+    }
+}
+
+@Composable
+private fun DialogConfirmButton(
+    state: UpdateUiState,
+    forceUpdate: Boolean,
+    onUpdate: () -> Unit,
+    onRetryInstall: () -> Unit
+) {
+    when (state) {
+        is UpdateUiState.UpdateReady -> {
+            Button(onClick = onUpdate, modifier = Modifier.fillMaxWidth()) {
+                Text(if (forceUpdate) "立即更新" else "立即更新")
+            }
+        }
+        is UpdateUiState.Downloading -> {
+            Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+                Text("下载中…")
+            }
+        }
+        is UpdateUiState.DownloadFailed -> {
+            Button(onClick = onUpdate, modifier = Modifier.fillMaxWidth()) {
+                Text("重试")
+            }
+        }
+        is UpdateUiState.ReadyToInstall -> {
+            Button(onClick = onRetryInstall, modifier = Modifier.fillMaxWidth()) {
+                Text("安装")
+            }
+        }
+        UpdateUiState.Idle -> Unit
+    }
+}
+
+@Composable
+private fun DialogDismissButton(
+    state: UpdateUiState,
+    forceUpdate: Boolean,
+    ignoreThisVersion: Boolean,
+    onCancelDownload: () -> Unit,
+    onIgnore: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    when (state) {
+        is UpdateUiState.UpdateReady -> {
+            if (forceUpdate) return
+            TextButton(onClick = {
+                if (ignoreThisVersion) onIgnore() else onDismiss()
+            }) {
+                Text("关闭", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        is UpdateUiState.Downloading -> {
+            if (forceUpdate) return
+            TextButton(onClick = onCancelDownload) {
+                Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        is UpdateUiState.DownloadFailed -> {
+            if (forceUpdate) return
+            TextButton(onClick = onDismiss) {
+                Text("关闭", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        is UpdateUiState.ReadyToInstall -> {
+            if (forceUpdate) return
+            TextButton(onClick = onDismiss) {
+                Text("稍后", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        UpdateUiState.Idle -> Unit
+    }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
+    bytes >= 1024 -> "%.1f KB".format(bytes / 1024.0)
+    else -> "$bytes B"
 }

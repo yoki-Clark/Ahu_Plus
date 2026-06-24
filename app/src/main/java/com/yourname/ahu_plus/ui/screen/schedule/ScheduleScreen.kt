@@ -64,7 +64,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.jw.UserScheduleItem
 import com.yourname.ahu_plus.ui.screen.schedule.components.WeekPager
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import kotlin.math.roundToInt
 import java.util.UUID
 

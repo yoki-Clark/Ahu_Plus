@@ -65,7 +65,7 @@ fun ShareSheet(onDismiss: () -> Unit) {
                 val app = context.applicationContext as AhuPlusApplication
                 var info = app.updateManager.lastFetchedUpdateInfo
                 if (info == null) {
-                    app.updateManager.checkForUpdate()
+                    app.updateManager.checkManually()
                     info = app.updateManager.lastFetchedUpdateInfo
                 }
                 val url = info?.downloadUrl

@@ -55,6 +55,14 @@ class SessionAuthenticator(
 
         /** 嗅探 body 前 4KB 足以识别 CAS 表单 */
         private const val PEEK_BYTES = 4L * 1024
+
+        /**
+         * 跨请求熔断阈值:连续 [CIRCUIT_BREAK_AFTER] 次刷新失败后进入冷却,
+         * 避免账号被锁/学校 CAS 故障时持续打 one.ahu 触发 IP 风控。
+         * 冷却时长按失败次数指数增长:1/2/4/8/16/32 分钟,上限 32 分钟。
+         */
+        private const val CIRCUIT_BREAK_AFTER = 3
+        private const val MAX_COOLDOWN_MS = 32L * 60_000L
     }
 
     /**
@@ -150,12 +158,32 @@ class SessionAuthenticator(
 
     private val inFlight = InFlightRefresh()
 
+    // ── 跨请求熔断 (2026-06-24 加固) ─────────────────────────
+    @Volatile private var consecutiveFailures = 0
+    @Volatile private var lastFailureMs = 0L
+
+    /** 当前是否处于熔断冷却期 */
+    private fun isInCooldown(): Boolean {
+        if (consecutiveFailures < CIRCUIT_BREAK_AFTER) return false
+        // 1/2/4/8/16/32 分钟指数,从 CIRCUIT_BREAK_AFTER 开始计算
+        val excess = (consecutiveFailures - CIRCUIT_BREAK_AFTER).coerceAtMost(5)
+        val cooldownMs = (60_000L shl excess).coerceAtMost(MAX_COOLDOWN_MS)
+        val remaining = cooldownMs - (System.currentTimeMillis() - lastFailureMs)
+        if (remaining > 0) {
+            Log.w(TAG, "熔断冷却中,剩余 ${remaining / 1000}s (连续失败 $consecutiveFailures 次)")
+            return true
+        }
+        return false
+    }
+
     private fun refreshSession(): Boolean {
         // 防递归:当前线程已在刷新中则直接返回
         if (refreshInProgress.get() == true) {
             Log.w(TAG, "refreshSession: 检测到递归调用,跳过")
             return false
         }
+        // 跨请求熔断:连续失败过多时直接放弃,避免持续打 CAS
+        if (isInCooldown()) return false
         if (!inFlight.tryAcquire()) {
             // 已有其他线程在刷新,等待其完成
             return inFlight.awaitResult()
@@ -165,9 +193,17 @@ class SessionAuthenticator(
         try {
             val result = runBlocking { casAuthRepository.ensureValidSession() }
             success = result.isSuccess
+            if (success) {
+                consecutiveFailures = 0
+            } else {
+                consecutiveFailures++
+                lastFailureMs = System.currentTimeMillis()
+            }
             return success
         } catch (e: Exception) {
             Log.e(TAG, "refreshSession 异常: ${e.message}", e)
+            consecutiveFailures++
+            lastFailureMs = System.currentTimeMillis()
             return false
         } finally {
             refreshInProgress.remove()

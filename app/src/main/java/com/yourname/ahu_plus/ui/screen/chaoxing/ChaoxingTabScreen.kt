@@ -88,7 +88,8 @@ import com.yourname.ahu_plus.data.model.CxCourseProgress
 import com.yourname.ahu_plus.data.model.CxHomeworkItem
 import com.yourname.ahu_plus.data.model.CxMessage
 import com.yourname.ahu_plus.data.model.CxMessageSource
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
+import com.yourname.ahu_plus.ui.theme.ChaoxingColors
 import com.yourname.ahu_plus.service.ChaoxingStudyService
 import com.yourname.ahu_plus.util.OverlayWindow
 import kotlinx.coroutines.launch
@@ -600,12 +601,12 @@ private fun MessageCard(message: CxMessage, isEffectivelyRead: Boolean, onClick:
 
     // 图标和颜色
     val (icon, iconColor) = when {
-        isActivity && message.type == 2 -> Icons.Filled.LocationOn to Color(0xFF4CAF50)      // 签到 - 绿色
-        isActivity && message.type == 42 -> Icons.Filled.Edit to Color(0xFF2196F3)           // 练习 - 蓝色
-        isActivity && message.type == 45 -> Icons.Filled.Notifications to Color(0xFFFF9800)  // 通知 - 橙色
-        isActivity && message.type == 11 -> Icons.AutoMirrored.Filled.Chat to Color(0xFF9C27B0) // 选人 - 紫色
-        isActivity -> Icons.Filled.AccessTime to Color(0xFF607D8B)                           // 其他活动 - 灰蓝
-        else -> Icons.Filled.Email to MaterialTheme.colorScheme.primary                       // 收件箱 - 主色
+        isActivity && message.type == 2 -> Icons.Filled.LocationOn to ChaoxingColors.Signin
+        isActivity && message.type == 42 -> Icons.Filled.Edit to ChaoxingColors.Exercise
+        isActivity && message.type == 45 -> Icons.Filled.Notifications to ChaoxingColors.Notice
+        isActivity && message.type == 11 -> Icons.AutoMirrored.Filled.Chat to ChaoxingColors.Selection
+        isActivity -> Icons.Filled.AccessTime to ChaoxingColors.OtherActivity
+        else -> Icons.Filled.Email to MaterialTheme.colorScheme.primary
     }
 
     Card(
@@ -693,12 +694,12 @@ private fun MessageCard(message: CxMessage, isEffectivelyRead: Boolean, onClick:
                         Spacer(Modifier.width(6.dp))
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF4CAF50).copy(alpha = 0.1f),
+                            color = ChaoxingColors.Active.copy(alpha = 0.1f),
                         ) {
                             Text(
                                 text = "进行中",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF4CAF50),
+                                color = ChaoxingColors.Active,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                             )
                         }
@@ -709,7 +710,7 @@ private fun MessageCard(message: CxMessage, isEffectivelyRead: Boolean, onClick:
                             Icons.Filled.CheckCircle,
                             contentDescription = "已参与",
                             modifier = Modifier.size(12.dp),
-                            tint = Color(0xFF4CAF50),
+                            tint = ChaoxingColors.Active,
                         )
                     }
                 }
@@ -743,7 +744,7 @@ private fun MessageDetailSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = AhuShapes.BottomSheet,
     ) {
         Column(
             modifier = Modifier
@@ -836,13 +837,13 @@ private fun MessageDetailSheet(
                             modifier = Modifier.weight(1f),
                         )
                         if (message.activityStatus == 1) {
-                            Text("进行中", style = MaterialTheme.typography.labelSmall, color = Color(0xFF4CAF50))
+                            Text("进行中", style = MaterialTheme.typography.labelSmall, color = ChaoxingColors.Active)
                         } else if (message.activityStatus == 2) {
                             Text("已结束", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (message.userStatus == 1) {
                             Spacer(Modifier.width(8.dp))
-                            Icon(Icons.Filled.CheckCircle, contentDescription = "已参与", modifier = Modifier.size(14.dp), tint = Color(0xFF4CAF50))
+                            Icon(Icons.Filled.CheckCircle, contentDescription = "已参与", modifier = Modifier.size(14.dp), tint = ChaoxingColors.Active)
                         }
                     }
                 }
@@ -935,12 +936,12 @@ private fun MessageDetailSheet(
 private fun AttachmentCard(attachment: CxAttachment, onDownload: () -> Unit) {
     // 文件类型图标颜色
     val suffixColor = when (attachment.suffix.lowercase()) {
-        "pdf" -> Color(0xFFE53935)
-        "doc", "docx" -> Color(0xFF1565C0)
-        "xls", "xlsx" -> Color(0xFF2E7D32)
-        "ppt", "pptx" -> Color(0xFFEF6C00)
-        "zip", "rar", "7z" -> Color(0xFF6A1B9A)
-        "jpg", "jpeg", "png", "gif" -> Color(0xFF00838F)
+        "pdf" -> ChaoxingColors.FilePdf
+        "doc", "docx" -> ChaoxingColors.FileDoc
+        "xls", "xlsx" -> ChaoxingColors.FileSheet
+        "ppt", "pptx" -> ChaoxingColors.FileSlide
+        "zip", "rar", "7z" -> ChaoxingColors.FileArchive
+        "jpg", "jpeg", "png", "gif" -> ChaoxingColors.FileImage
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 

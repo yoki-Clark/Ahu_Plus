@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.GsonProvider
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.model.AhuUnitTimes
 import com.yourname.ahu_plus.data.model.BuildingInfo
@@ -21,7 +22,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-import java.time.LocalTime
 
 class EmptyClassroomViewModel(
     private val jwAuthRepository: JwAuthRepository,
@@ -52,9 +52,9 @@ class EmptyClassroomViewModel(
      * 今天=按当前时间计算节次；其他日期=null(全天)。
      * 把这个分支集中在一处避免 ViewModel 多处重复。
      */
-    private fun currentUnitForToday(date: LocalDate = LocalDate.now()): Int? {
-        return if (date == LocalDate.now()) {
-            AhuUnitTimes.getCurrentUnit(LocalTime.now())
+    private fun currentUnitForToday(date: LocalDate = DebugClock.todayDate()): Int? {
+        return if (date == DebugClock.todayDate()) {
+            AhuUnitTimes.getCurrentUnit(DebugClock.nowTime())
         } else null
     }
 
@@ -92,13 +92,13 @@ class EmptyClassroomViewModel(
      * 选中后立即触发一次查询(若已选教学楼)。
      */
     fun selectDate(date: LocalDate) {
-        if (date.isBefore(LocalDate.now())) return
+        if (date.isBefore(DebugClock.todayDate())) return
         if (date == _uiState.value.selectedDate) return
         _uiState.update {
             it.copy(
                 selectedDate = date,
-                isSelectedDateToday = date == LocalDate.now(),
-                currentUnit = if (date == LocalDate.now()) currentUnitForToday(date) else null,
+                isSelectedDateToday = date == DebugClock.todayDate(),
+                currentUnit = if (date == DebugClock.todayDate()) currentUnitForToday(date) else null,
                 // 切换日期时清空旧结果,避免误用
                 rooms = emptyList(),
                 filteredRooms = emptyList(),
@@ -128,7 +128,7 @@ class EmptyClassroomViewModel(
         val json = sm.getEmptyClassroomJson() ?: return false
         val key = sm.getEmptyClassroomKey() ?: return false
         val updatedAt = sm.getEmptyClassroomUpdatedAt()
-        if (System.currentTimeMillis() - updatedAt > 5 * 60 * 1000) return false
+        if (DebugClock.nowMillis() - updatedAt > 5 * 60 * 1000) return false
 
         // 缓存键格式: "<date>|<buildingId>|<campusId>"
         val parts = key.split("|")
@@ -142,7 +142,7 @@ class EmptyClassroomViewModel(
                 val rooms = gson.fromJson(json, Array<FreeRoomResult>::class.java).toList()
                 val campus = CampusBuildingData.campuses.find { it.id == campusId }
                 val floors = rooms.mapNotNull { it.room.floor }.distinct().sorted()
-                val isToday = cachedDate == LocalDate.now()
+                val isToday = cachedDate == DebugClock.todayDate()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -167,7 +167,7 @@ class EmptyClassroomViewModel(
     private suspend fun loadData(isRefresh: Boolean, date: LocalDate = _uiState.value.selectedDate) {
         val buildingId = _uiState.value.selectedBuildingId ?: return
         val campusId = _uiState.value.selectedCampusId ?: return
-        val isToday = date == LocalDate.now()
+        val isToday = date == DebugClock.todayDate()
         val currentUnit = currentUnitForToday(date)
 
         // 今天且当前节次为 null (= 当日课程已结束或尚未开始第一波)
@@ -340,7 +340,7 @@ data class EmptyClassroomUiState(
     val currentUnit: Int? = null,
     val error: String? = null,
     val needsLogin: Boolean = false,
-    val selectedDate: LocalDate = LocalDate.now(),
+    val selectedDate: LocalDate = DebugClock.todayDate(),
     val isSelectedDateToday: Boolean = true
 ) {
     val availableCampuses: List<CampusInfo>

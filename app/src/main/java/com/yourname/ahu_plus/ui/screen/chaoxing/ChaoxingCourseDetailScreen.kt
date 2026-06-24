@@ -46,7 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.CxChapter
 import com.yourname.ahu_plus.data.model.CxCourse
 import com.yourname.ahu_plus.data.model.CxJob
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

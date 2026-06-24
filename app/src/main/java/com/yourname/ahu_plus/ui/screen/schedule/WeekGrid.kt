@@ -34,13 +34,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.theme.CourseColors
-import java.time.LocalDate
-import java.time.LocalTime
 
 // (CourseColors moved to ui/theme/CourseColors.kt in 2026-06-17 refactor)
 
@@ -81,7 +80,7 @@ fun WeekGrid(
     }
     if (sortedUnits.isEmpty()) return
 
-    val todayDayOfWeek = LocalDate.now().dayOfWeek.value
+    val todayDayOfWeek = DebugClock.todayDate().dayOfWeek.value
     val isCurrentWeek = selectedWeek == currentWeek
 
     val minUnit = sortedUnits.minOf { it.indexNo ?: 1 }
@@ -103,7 +102,7 @@ fun WeekGrid(
         if (!isCurrentWeek) {
             null
         } else {
-            val now = LocalTime.now()
+            val now = DebugClock.nowTime()
             val nowMinutes = now.hour * 60 + now.minute
             // 优先：当前时间在某个节次内 → 精确插值
             sortedUnits.firstNotNullOfOrNull { unit ->

@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.data.GsonProvider
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.model.exam.AggregatedCourse
 import com.yourname.ahu_plus.data.model.exam.ExamPrediction
@@ -136,7 +137,7 @@ class ExamPredictionViewModel(
                 aggregated = aggregated,
                 isFromCache = false,
                 generatedAt = examDataRepository.getCachedMeta()?.generatedAt,
-                lastFetchedAt = System.currentTimeMillis(),
+                lastFetchedAt = DebugClock.nowMillis(),
                 error = null,
             )
         }

@@ -77,6 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.model.JwcNotice
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
@@ -87,7 +88,7 @@ import com.yourname.ahu_plus.data.home.AppRegistry
 import com.yourname.ahu_plus.ui.components.AhuCard
 import com.yourname.ahu_plus.ui.components.AhuIconBox
 import com.yourname.ahu_plus.ui.components.AhuSectionTitle
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleUiState
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel
@@ -100,8 +101,6 @@ import com.yourname.ahu_plus.ui.theme.AhuTeal
 import com.yourname.ahu_plus.ui.theme.AhuViolet
 import com.yourname.ahu_plus.ui.theme.AhuGradient
 import org.json.JSONArray
-import java.time.LocalDate
-import java.time.LocalTime
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -599,7 +598,8 @@ private fun CountdownChip(
 ) {
     val minutes = courseStartMinutes(course, unitTimes) ?: return
 
-    // 每 30 秒 tick 一次，驱动倒计时动态刷新
+    // 每 30 秒 tick 一次驱动倒计时；用 tick 当 remember 的 key,
+    // 比 @Suppress("UNUSED_EXPRESSION") 更可靠 — 不依赖编译器保留无意义读取。
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -607,9 +607,8 @@ private fun CountdownChip(
             tick++
         }
     }
-    @Suppress("UNUSED_EXPRESSION") tick // 读取 tick 确保 LaunchedEffect 触发重组
 
-    val now = LocalTime.now()
+    val now = remember(tick) { DebugClock.nowTime() }
     val diff = minutes - (now.hour * 60 + now.minute)
     val (label, color) = when {
         diff < 0 -> "已开始" to Color(0xFFFFCDD2)
@@ -842,7 +841,7 @@ private fun isNotStarted(
     unitTimes: List<CourseUnit>
 ): Boolean {
     val minutes = courseStartMinutes(course, unitTimes) ?: return true
-    val now = LocalTime.now()
+    val now = DebugClock.nowTime()
     return minutes >= now.hour * 60 + now.minute
 }
 

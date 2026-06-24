@@ -51,13 +51,15 @@ class ExamDataRepository(
      * 策略 A: 手动跟踪 302,带详细日志。
      * - HTTP/1.1 (避免 HTTP/2 协商问题)
      * - COMPATIBLE_TLS (支持 TLS 1.0/1.1/1.2,兼容老 CDN)
-     * - 30s 连接超时,90s 读取超时 (Gitee 1.2MB JSON 在弱网下需更久)
+     * - 10s 连接 / 20s 读取 / 30s call 兜底 (2026-06-24 缩短:Gitee 1.2MB JSON
+     *   即使弱网也应在 20s 内返回,长超时只是放大用户感知卡顿;三策略加起来
+     *   最坏 ~70s 仍可接受)。
      */
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(120, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .protocols(listOf(Protocol.HTTP_1_1))  // 关键: 部分 vivo ROM 上 HTTP/2 握手挂死
         .connectionSpecs(listOf(ConnectionSpec.COMPATIBLE_TLS, ConnectionSpec.CLEARTEXT))
@@ -69,9 +71,9 @@ class ExamDataRepository(
      * 作为手动策略的兜底,排除「我们手动实现有 bug」的可能。
      */
     private val fallbackClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .callTimeout(120, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .dns(ResilientDns)
         .build()

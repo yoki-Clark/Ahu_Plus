@@ -34,8 +34,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.model.task.RecentTaskItem
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.data.model.task.RecentTaskSource
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -185,14 +186,14 @@ private fun TaskRow(
 
         // 截止时间 chip
         item.dueAt?.let { epoch ->
-            DueChip(epoch = epoch, isOverdue = !item.isCompleted && epoch < System.currentTimeMillis())
+            DueChip(epoch = epoch, isOverdue = !item.isCompleted && epoch < DebugClock.nowMillis())
         }
     }
 }
 
 @Composable
 private fun DueChip(epoch: Long, isOverdue: Boolean) {
-    val now = System.currentTimeMillis()
+    val now = DebugClock.nowMillis()
     val diffMs = epoch - now
     val isPast = diffMs < 0
     val color = when {

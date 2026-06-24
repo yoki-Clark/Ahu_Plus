@@ -83,7 +83,7 @@ import com.yourname.ahu_plus.data.model.MarketComment
 import com.yourname.ahu_plus.data.model.MarketIdentity
 import com.yourname.ahu_plus.data.model.MarketTopic
 import com.yourname.ahu_plus.data.model.MarketUser
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.components.AhuTag
 import com.yourname.ahu_plus.ui.theme.MarketColors
 import java.text.SimpleDateFormat

@@ -60,7 +60,7 @@ import com.yourname.ahu_plus.data.model.jw.GpaMetadata
 import com.yourname.ahu_plus.data.model.jw.Grade
 import com.yourname.ahu_plus.data.model.jw.SemesterGpaEntry
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.theme.AhuGradient
 
 // ── 语义色 ──

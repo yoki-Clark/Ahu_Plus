@@ -1,8 +1,10 @@
 package com.yourname.ahu_plus.data.network
 
 import okhttp3.Authenticator
+import okhttp3.ConnectionPool
 import okhttp3.ConnectionSpec
 import okhttp3.CookieJar
+import okhttp3.Dispatcher
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.TlsVersion
@@ -27,6 +29,24 @@ import javax.net.ssl.X509TrustManager
 object SecureHttpClientFactory {
 
     private const val DEFAULT_TIMEOUT_SEC = 15L
+
+    // ── 共享连接池与调度器 (2026-06-24 性能优化) ──────────────
+    //
+    // 整个 App 30+ 个 OkHttpClient 共享同一个 ConnectionPool/Dispatcher,
+    // 让相同 host 的 HTTPS 连接得以复用,避免重复 TLS 握手 (校园网下省 100-300ms/次)。
+    //
+    // - sharedPool: 16 idle keep 5min。校园网常见 host 6-8 个,16 足够覆盖。
+    // - sharedDispatcher: maxRequests=24 (默认 64) / maxRequestsPerHost=6 (默认 5),
+    //   稍调高单 host 并发以适配 InitCoordinator 并行预热;但保守的总并发避免风控。
+    //
+    // 注: 不同 SSL/Cookie/Authenticator 的 client 仍是独立实例,但底层连接池是共享的 ——
+    // OkHttp 用 (host, port, sslSocketFactory, hostnameVerifier, ...) 作为连接复用 key,
+    // trustAll client 与默认 client 各自走自己的连接,正确隔离。
+    private val sharedPool = ConnectionPool(16, 5, TimeUnit.MINUTES)
+    private val sharedDispatcher = Dispatcher().apply {
+        maxRequests = 24
+        maxRequestsPerHost = 6
+    }
 
     // ── 共享的 trust-all SSL(仅用于 *.ahu.edu.cn 自签名证书)────
 
@@ -89,6 +109,8 @@ object SecureHttpClientFactory {
         sessionExpiredInterceptor: Interceptor? = null,
     ): OkHttpClient {
         val builder = OkHttpClient.Builder()
+            .connectionPool(sharedPool)
+            .dispatcher(sharedDispatcher)
         if (trustAll) {
             builder.sslSocketFactory(trustAllSslContext.socketFactory, trustAllManager)
             builder.hostnameVerifier { _, _ -> true }

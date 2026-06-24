@@ -60,14 +60,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.AhuUnitTimes
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.repository.FreeRoomResult
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.theme.AhuGreen
 import com.yourname.ahu_plus.ui.theme.AhuOrange
 import com.yourname.ahu_plus.ui.theme.AhuRed
 import kotlinx.coroutines.delay
-import java.time.LocalDate
-import java.time.LocalTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
@@ -107,7 +106,7 @@ fun EmptyClassroomScreen(
     // 节次跨越自动刷新:仅在今天且已选教学楼时,节次变更触发 onRefresh。
     LaunchedEffect(minuteTick, uiState.isSelectedDateToday, uiState.hasBuildingSelected) {
         if (uiState.isSelectedDateToday && uiState.hasBuildingSelected) {
-            val nowUnit = AhuUnitTimes.getCurrentUnit(LocalTime.now())
+            val nowUnit = AhuUnitTimes.getCurrentUnit(DebugClock.nowTime())
             if (nowUnit != uiState.currentUnit) {
                 viewModel.onRefresh()
             }
@@ -238,7 +237,7 @@ private fun SelectorArea(
 
     // 日期选择按钮 (今天/明天/+30天)
     var showDatePicker by remember { mutableStateOf(false) }
-    val today = LocalDate.now()
+    val today = DebugClock.todayDate()
     val tomorrow = today.plusDays(1)
     val dateButtonLabel = buildString {
         append(uiState.selectedDate.format(dateFormatter))
@@ -548,7 +547,7 @@ private fun FreeTimeBar(
 
     val nowLineFraction: Float? = remember(isToday, currentUnit) {
         if (!isToday) return@remember null
-        val now = LocalTime.now()
+        val now = DebugClock.nowTime()
         val nowMin = now.hour * 60 + now.minute
         val unit = currentUnit ?: return@remember null
         val times = AhuUnitTimes.UNIT_TO_TIME[unit] ?: return@remember null

@@ -50,7 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.AhuPlusApplication
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.ui.components.AhuIconBox
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.theme.AhuGradient
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box

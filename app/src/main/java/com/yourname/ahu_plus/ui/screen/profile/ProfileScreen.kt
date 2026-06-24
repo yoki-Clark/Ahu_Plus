@@ -95,13 +95,11 @@ import com.yourname.ahu_plus.data.model.FinanceSummary
 import com.yourname.ahu_plus.data.model.StudentInfo
 import com.yourname.ahu_plus.data.model.StudentInfoCodeLookup
 import com.yourname.ahu_plus.data.model.StudentInfoField
-import com.yourname.ahu_plus.data.model.UpdateInfo
 import com.yourname.ahu_plus.data.repository.AdwmhQrCode
 import com.yourname.ahu_plus.ui.components.AhuInfoRow
 import com.yourname.ahu_plus.ui.components.AhuSectionHeader
-import com.yourname.ahu_plus.ui.components.AhuShapes
+import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.components.AhuStatusCard
-import com.yourname.ahu_plus.ui.components.UpdateDialog
 import com.yourname.ahu_plus.data.local.ElectricityRoomConfig
 import com.yourname.ahu_plus.data.model.ElectricityDailyRecord
 import com.yourname.ahu_plus.data.model.ElectricityUiData
@@ -948,31 +946,9 @@ private fun AppSettingsScreen(
     val scope = rememberCoroutineScope()
     val app = context.applicationContext as com.yourname.ahu_plus.AhuPlusApplication
 
-    // ── 手动检查更新 Dialog ───────────────────────────
-    var manualUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     // 本地状态确保开关即时响应
     var localQrBrightness by remember { mutableStateOf(qrBrightnessBoost) }
     var localAdwmhRetry by remember { mutableStateOf(adwmhConcurrentRetry) }
-
-    manualUpdateInfo?.let { info ->
-        UpdateDialog(
-            info = info,
-            downloading = app.updateManager.isDownloading,
-            downloadProgress = app.updateManager.downloadProgress,
-            onUpdate = {
-                // 不关弹窗，直接开始下载
-                app.updateManager.downloadApk(info)
-            },
-            onLater = { manualUpdateInfo = null },
-            onIgnore = {
-                manualUpdateInfo = null
-                scope.launch {
-                    app.sessionManager.saveIgnoredVersionCode(info.latestVersionCode)
-                }
-            },
-            onDismiss = { manualUpdateInfo = null }
-        )
-    }
 
     Scaffold(
         topBar = {
@@ -1084,17 +1060,14 @@ private fun AppSettingsScreen(
                             onClick = {
                                 scope.launch {
                                     Toast.makeText(context, "正在检查更新…", Toast.LENGTH_SHORT).show()
-                                    when (app.updateManager.checkForUpdateWithIgnore()) {
-                                        CheckResult.UPDATE_AVAILABLE -> {
-                                            app.updateManager.lastFetchedUpdateInfo?.let { info ->
-                                                manualUpdateInfo = info
-                                            }
-                                        }
+                                    when (app.updateManager.checkManually()) {
+                                        CheckResult.UPDATE_AVAILABLE,
+                                        CheckResult.FORCE_UPDATE -> Unit
                                         CheckResult.LATEST -> {
                                             Toast.makeText(context, "已是最新版本", Toast.LENGTH_SHORT).show()
                                         }
                                         CheckResult.ERROR -> {
-                                            Toast.makeText(context, "检查更新失败，请检查网络连接", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "检查更新失败,请检查网络连接", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 }

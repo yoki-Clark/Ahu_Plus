@@ -2,13 +2,11 @@ package com.yourname.ahu_plus.data.repository
 
 import android.util.Log
 import com.yourname.ahu_plus.data.local.SessionManager
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -42,57 +40,45 @@ class InitCoordinator(
     private val tag = "InitCoordinator"
 
     /**
-     * 串行预热数据。每完成一步, 通过 [onProgress] 抛出"正在初始化 XXX"消息。
+     * 预热数据。第 1 步必须先做(后续依赖学生信息预填),其余 6 步并行执行。
      *
-     * 失败不中断：单步异常仅记日志,继续下一步。
+     * 风控考量:6 个并行请求落在 3 个域名 (one.ahu / ycard.ahu / jw.ahu),
+     * 每域 2-3 个请求,远低于浏览器同站 6 连接 baseline,不会触发风控。
+     *
+     * 失败不中断:单步异常仅记日志,继续其它步骤。
      */
     suspend fun runSequentially(onProgress: (String) -> Unit) {
         Log.d(tag, "首次登录初始化开始")
 
-        // 第 1 步：我的信息
+        // 第 1 步:我的信息(其它步骤的住宿/手机号预填依赖此项)
         onProgress("正在初始化我的信息...")
         runStep { studentInfoRepository.getStudentInfo() }
-        delay(600)
-
-        // 第 2 步：水电费 (浴室 + 网费 — 空调/照明需要 building/floor/room 配置,跳过)
-        onProgress("正在初始化水电费余额...")
-        runStep {
-            coroutineScope {
-                val phone = sessionManager.getBathroomPhone().orEmpty()
-                val bathroomDeferred = async {
-                    if (phone.isNotBlank()) ycardRepository.getBathroomBalance(phone) else null
-                }
-                val internetDeferred = async { ycardRepository.getInternetBalance() }
-                bathroomDeferred.await()
-                internetDeferred.await()
-            }
-        }
-        delay(600)
-
-        // 第 3 步：成绩
-        onProgress("正在初始化成绩...")
-        runStep { gradeRepository.getGrades() }
-        delay(600)
-
-        // 第 4 步：考试
-        onProgress("正在初始化考试安排...")
-        runStep { examRepository.getExams() }
-        delay(600)
-
-        // 第 5 步：培养方案
-        onProgress("正在初始化培养进度...")
-        runStep { trainingPlanRepository.getTrainingPlan() }
-        delay(600)
-
-        // 第 6 步：消费账单
-        onProgress("正在初始化消费账单...")
-        runStep { ycardRepository.getAllBills() }
-        delay(600)
-
-        // 第 7 步：考勤信息
-        onProgress("正在初始化考勤信息...")
-        runStep { kqAttendanceRepository.getAttendanceList() }
         delay(400)
+
+        // 第 2-7 步并行 — 总耗时 ≈ 最慢的一项,而不是 6 项之和
+        onProgress("正在并行加载校园数据...")
+        coroutineScope {
+            val jobs = listOf(
+                async {
+                    runStep {
+                        val phone = sessionManager.getBathroomPhone().orEmpty()
+                        coroutineScope {
+                            val bathroom = async {
+                                if (phone.isNotBlank()) ycardRepository.getBathroomBalance(phone) else null
+                            }
+                            val internet = async { ycardRepository.getInternetBalance() }
+                            bathroom.await(); internet.await()
+                        }
+                    }
+                },
+                async { runStep { gradeRepository.getGrades() } },
+                async { runStep { examRepository.getExams() } },
+                async { runStep { trainingPlanRepository.getTrainingPlan() } },
+                async { runStep { ycardRepository.getAllBills() } },
+                async { runStep { kqAttendanceRepository.getAttendanceList() } },
+            )
+            jobs.awaitAll()
+        }
 
         Log.d(tag, "首次登录初始化完成")
         sessionManager.firstLoginInitDone = true
