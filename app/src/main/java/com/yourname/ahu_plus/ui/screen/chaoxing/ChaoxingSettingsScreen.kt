@@ -55,9 +55,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -237,7 +243,7 @@ private fun SettingsContent(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("自动签到", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
                         Text(
-                            "老师发起签到时自动完成",
+                            "老师发起签到时自动用下方预设完成",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -246,6 +252,15 @@ private fun SettingsContent(
                         checked = settingsState.autoSign,
                         onCheckedChange = { viewModel.updateAutoSign(it) },
                     )
+                }
+
+                // 签到参数预设仅服务于"自动签到":开启后才需要、才显示。
+                // 手动签到走"立即签到"按钮当场输入,无需预设。
+                AnimatedVisibility(visible = settingsState.autoSign) {
+                    Column {
+                        Spacer(Modifier.height(12.dp))
+                        SignConfigSetting(viewModel = viewModel)
+                    }
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -616,6 +631,109 @@ private fun SwitchSetting(
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
+
+// ══════════════════════════════════════════════════════════════
+//  签到配置(位置经纬度 + 手势码)
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * 可展开的签到参数配置区。
+ *
+ * 位置签到需要经纬度 + 地址描述;手势签到需要 9 宫格手势码(1-9 数字串)。
+ * 配置值经 [ChaoxingViewModel.signState] 读出,保存时分别调
+ * [ChaoxingViewModel.updateSignLocation] / [ChaoxingViewModel.updateSignGesture]
+ * 落盘到 SessionManager。
+ */
+@Composable
+private fun SignConfigSetting(viewModel: ChaoxingViewModel) {
+    val signState by viewModel.signState.collectAsStateWithLifecycle()
+    var expanded by remember { mutableStateOf(false) }
+
+    // 进入设置页时确保配置值已从 SessionManager 载入(signState 默认值为 -1.0/空)
+    LaunchedEffect(Unit) { viewModel.loadSignConfig() }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("签到参数配置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+            val locOk = signState.configuredLat >= 0 && signState.configuredLon >= 0
+            val gesOk = signState.configuredGesture.isNotBlank()
+            val summary = when {
+                locOk && gesOk -> "位置 + 手势已配置"
+                locOk -> "位置已配置"
+                gesOk -> "手势已配置"
+                else -> "位置 / 手势签到需先配置"
+            }
+            Text(
+                summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            Icons.Filled.ExpandMore,
+            contentDescription = if (expanded) "收起" else "展开",
+            modifier = Modifier.rotate(if (expanded) 180f else 0f),
+        )
+    }
+
+    AnimatedVisibility(visible = expanded) {
+        Column {
+            Spacer(Modifier.height(8.dp))
+            // 位置:复用即时签到的共享选择器(校区二级 + 自定义 + GPS + 手动)
+            Text(
+                "位置签到预设",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            val savedLoc = if (signState.configuredLat >= 0 && signState.configuredLon >= 0)
+                "已保存:%.5f, %.5f%s".format(
+                    signState.configuredLat, signState.configuredLon,
+                    if (signState.configuredAddress.isNotBlank()) " · ${signState.configuredAddress}" else "",
+                ) else "未配置;选择下方任一来源即保存为自动签到用坐标"
+            Text(savedLoc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            com.yourname.ahu_plus.ui.screen.chaoxing.sign.LocationPicker(
+                viewModel = viewModel,
+                onPicked = { lat, lon, name -> viewModel.updateSignLocation(lat, lon, name) },
+            )
+
+            Spacer(Modifier.height(16.dp))
+            // 手势:按钮 → 弹窗绘制(避免内联画板清除残留)
+            Text(
+                "手势签到预设",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                if (signState.configuredGesture.isBlank()) "未配置"
+                else "已保存手势:${signState.configuredGesture}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            var showGestureDialog by remember { mutableStateOf(false) }
+            OutlinedButton(onClick = { showGestureDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (signState.configuredGesture.isBlank()) "绘制手势" else "重新绘制手势")
+            }
+            if (showGestureDialog) {
+                com.yourname.ahu_plus.ui.screen.chaoxing.sign.GesturePadDialog(
+                    initial = signState.configuredGesture,
+                    onConfirm = { code -> viewModel.updateSignGesture(code); showGestureDialog = false },
+                    onDismiss = { showGestureDialog = false },
+                )
+            }
+        }
+    }
+}
+
 
 // ══════════════════════════════════════════════════════════════
 //  首次登录免责警告对话框 (2026-06-23)

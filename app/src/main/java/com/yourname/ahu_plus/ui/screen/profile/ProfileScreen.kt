@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ChevronRight
@@ -147,6 +148,10 @@ fun ProfileScreen(
     onProfileSubPageConsumed: () -> Unit = {},
     openCardAnalytics: Boolean = false,
     onCardAnalyticsConsumed: () -> Unit = {},
+    /** 使用帮助首开说明弹窗是否已看过（持久化，退登不清）。 */
+    guideIntroSeen: Boolean = true,
+    /** 首次展示帮助弹窗后落盘标记。 */
+    onGuideIntroSeen: () -> Unit = {},
     onLogout: () -> Unit
 ) {
     var showBills by rememberSaveable { mutableStateOf(false) }
@@ -160,8 +165,8 @@ fun ProfileScreen(
     var showUtilities by rememberSaveable { mutableStateOf(false) }
     var showCardAnalytics by rememberSaveable { mutableStateOf(false) }
     var showXzxx by rememberSaveable { mutableStateOf(false) }
-    var showUsageGuide by rememberSaveable { mutableStateOf(false) }
-    var showFaq by rememberSaveable { mutableStateOf(false) }
+    var showGuide by rememberSaveable { mutableStateOf(false) }
+    var showAnnouncements by rememberSaveable { mutableStateOf(false) }
     var showOpenSourceLicenses by rememberSaveable { mutableStateOf(false) }
     var showFullQrCode by rememberSaveable { mutableStateOf(false) }
     val cardUiState by cardViewModel.uiState.collectAsStateWithLifecycle()
@@ -357,12 +362,16 @@ fun ProfileScreen(
     } else if (showXzxx) {
         BackHandler(enabled = true) { showXzxx = false }
         XzxxScreen(onBack = { showXzxx = false })
-    } else if (showUsageGuide) {
-        BackHandler(enabled = true) { showUsageGuide = false }
-        UsageGuideScreen(onBack = { showUsageGuide = false })
-    } else if (showFaq) {
-        BackHandler(enabled = true) { showFaq = false }
-        FaqScreen(onBack = { showFaq = false })
+    } else if (showGuide) {
+        BackHandler(enabled = true) { showGuide = false }
+        GuideScreen(
+            introSeen = guideIntroSeen,
+            onIntroSeen = onGuideIntroSeen,
+            onBack = { showGuide = false }
+        )
+    } else if (showAnnouncements) {
+        BackHandler(enabled = true) { showAnnouncements = false }
+        AnnouncementHistoryScreen(onBack = { showAnnouncements = false })
     } else if (showOpenSourceLicenses) {
         BackHandler(enabled = true) { showOpenSourceLicenses = false }
         OpenSourceLicensesScreen(onBack = { showOpenSourceLicenses = false })
@@ -436,8 +445,8 @@ fun ProfileScreen(
             themeMode = themeMode,
             onOpenSettings = { showSettings = true },
             onOpenXzxx = { showXzxx = true },
-            onOpenUsageGuide = { showUsageGuide = true },
-            onOpenFaq = { showFaq = true },
+            onOpenGuide = { showGuide = true },
+            onOpenAnnouncements = { showAnnouncements = true },
             onOpenOpenSourceLicenses = { showOpenSourceLicenses = true },
             onLogout = onLogout
         )
@@ -511,8 +520,8 @@ private fun ProfileHomeScreen(
     themeMode: AppThemeMode,
     onOpenSettings: () -> Unit,
     onOpenXzxx: () -> Unit,
-    onOpenUsageGuide: () -> Unit,
-    onOpenFaq: () -> Unit,
+    onOpenGuide: () -> Unit,
+    onOpenAnnouncements: () -> Unit,
     onOpenOpenSourceLicenses: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -785,19 +794,19 @@ private fun ProfileHomeScreen(
                     }
                     HorizontalDivider()
                     SettingsRow(
-                        title = "使用指南",
-                        description = "功能说明与操作指引",
+                        title = "使用帮助",
+                        description = "功能说明、操作指引与常见问题",
                         iconColor = Color(0xFF2F80ED),
-                        icon = { Icon(Icons.Filled.Info, contentDescription = null) },
-                        onClick = onOpenUsageGuide
+                        icon = { Icon(Icons.AutoMirrored.Filled.Help, contentDescription = null) },
+                        onClick = onOpenGuide
                     )
                     HorizontalDivider()
                     SettingsRow(
-                        title = "常见问题",
-                        description = "登录、数据、集市、学习通等常见问题",
-                        iconColor = Color(0xFF6C63FF),
-                        icon = { Icon(Icons.AutoMirrored.Filled.Help, contentDescription = null) },
-                        onClick = onOpenFaq
+                        title = "通知公告",
+                        description = "查看开发者发布的历史公告",
+                        iconColor = Color(0xFFE67E22),
+                        icon = { Icon(Icons.Filled.Campaign, contentDescription = null) },
+                        onClick = onOpenAnnouncements
                     )
                     HorizontalDivider()
                     SettingsRow(

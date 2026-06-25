@@ -374,6 +374,16 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedRecentApps: String = ""
 
 
+    /** 已注册的课程提醒 lessonKey 集合(换行分隔),供 cancelAll 精确清理,避免课表变更后旧闹钟成孤儿 */
+    @Volatile private var cachedReminderKeys: String = ""
+
+    /** 课程提醒总开关(默认启用) */
+    @Volatile private var cachedCourseReminderEnabled: String = "true"
+
+    /** 课程提醒提前分钟数(默认 15) */
+    @Volatile private var cachedCourseReminderLead: String = "15"
+
+
 
 
 
@@ -430,6 +440,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
+
+    @Volatile private var cachedShowOtherSemesters: Boolean = true
 
     @Volatile private var cachedShowCompletedTasks: Boolean = false
 
@@ -633,6 +645,20 @@ class SessionManager(private val appDataStore: AppDataStore) {
      */
     @Volatile private var cachedExamPredictionsJson: String? = null
 
+    /**
+     * 开发者公告 Gitee JSON 缓存:
+     * 由 [com.yourname.ahu_plus.data.repository.AnnouncementRepository]
+     * 从 Gitee `yao-enqi/ahu-plus-update` 仓库的
+     * `announcements/announcements.json` 拉取后写入。
+     */
+    @Volatile private var cachedAnnouncementsJson: String? = null
+
+    /** 用户已"不再提示"的公告 id 集合(逗号分隔持久化)。退登保留,避免重复弹。 */
+    @Volatile private var cachedDismissedAnnouncementIds: Set<String> = emptySet()
+
+    /** 使用帮助首次打开弹窗是否已看过。退登不清除。 */
+    @Volatile private var cachedGuideIntroSeen: Boolean = false
+
 
 
 
@@ -791,6 +817,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
     @Volatile private var cachedCxSignGesture: String = ""
+
+    /** 用户自定义签到位置(JSON 数组字符串) */
+    @Volatile private var cachedCustomSignLocations: String = ""
 
 
 
@@ -1420,6 +1449,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         cachedRecentApps = prefs[RECENT_APPS_KEY] ?: ""
+        cachedReminderKeys = prefs[REMINDER_KEYS_KEY] ?: ""
+        cachedCourseReminderEnabled = prefs[COURSE_REMINDER_ENABLED_KEY] ?: "true"
+        cachedCourseReminderLead = prefs[COURSE_REMINDER_LEAD_KEY] ?: "15"
 
 
 
@@ -1484,6 +1516,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
+
+        cachedShowOtherSemesters = (prefs[KEY_SHOW_OTHER_SEMESTERS] ?: "true") == "true"
 
         cachedShowCompletedTasks = (prefs[KEY_SHOW_COMPLETED_TASKS] ?: "false") == "true"
 
@@ -1681,6 +1715,17 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedExamPredictionsJson = prefs[EXAM_PREDICTIONS_JSON_KEY]
 
+        cachedAnnouncementsJson = prefs[ANNOUNCEMENTS_JSON_KEY]
+        cachedDismissedAnnouncementIds =
+            prefs[DISMISSED_ANNOUNCEMENT_IDS_KEY]
+                ?.split(",")
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.toSet()
+                ?: emptySet()
+
+        cachedGuideIntroSeen = (prefs[GUIDE_INTRO_SEEN_KEY] ?: "false") == "true"
+
 
 
 
@@ -1814,6 +1859,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         cachedCxSignGesture = prefs[CX_SIGN_GESTURE_KEY] ?: ""
+        cachedCustomSignLocations = prefs[CX_CUSTOM_SIGN_LOCATIONS_KEY] ?: ""
 
 
 
@@ -5312,6 +5358,32 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     }
 
+    fun getShowOtherSemesters(): Boolean = cachedShowOtherSemesters
+
+
+
+
+
+    suspend fun setShowOtherSemesters(value: Boolean) {
+
+
+
+
+
+        cachedShowOtherSemesters = value
+
+
+
+
+
+        appDataStore.dataStore.edit { it[KEY_SHOW_OTHER_SEMESTERS] = if (value) "true" else "false" }
+
+
+
+
+
+    }
+
 
 
 
@@ -6500,6 +6572,41 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it.remove(EXAM_PREDICTIONS_JSON_KEY) }
     }
 
+    // ── 开发者公告 Gitee JSON 缓存 ─────────────────────────
+    // 由 AnnouncementRepository 从 Gitee yao-enqi/ahu-plus-update 仓库的
+    // announcements/announcements.json 拉取后写入。零登录。
+
+    fun getAnnouncementsJson(): String? = cachedAnnouncementsJson
+
+    suspend fun saveAnnouncementsJson(json: String) {
+        cachedAnnouncementsJson = json
+        appDataStore.dataStore.edit { it[ANNOUNCEMENTS_JSON_KEY] = json }
+    }
+
+    /** 已"不再提示"的公告 id 集合。 */
+    fun getDismissedAnnouncementIds(): Set<String> = cachedDismissedAnnouncementIds
+
+    /** 追加一个"不再提示"的公告 id(幂等)。退登不清除,避免重复弹。 */
+    suspend fun addDismissedAnnouncementId(id: String) {
+        if (id.isBlank() || id in cachedDismissedAnnouncementIds) return
+        val updated = cachedDismissedAnnouncementIds + id
+        cachedDismissedAnnouncementIds = updated
+        appDataStore.dataStore.edit {
+            it[DISMISSED_ANNOUNCEMENT_IDS_KEY] = updated.joinToString(",")
+        }
+    }
+
+    /** 使用帮助首次打开弹窗是否已看过。 */
+    fun getGuideIntroSeen(): Boolean = cachedGuideIntroSeen
+
+    /** 标记使用帮助首次打开弹窗已看过(幂等)。退登不清除,避免重复弹。 */
+    suspend fun setGuideIntroSeen() {
+        if (cachedGuideIntroSeen) return
+        cachedGuideIntroSeen = true
+        appDataStore.dataStore.edit { it[GUIDE_INTRO_SEEN_KEY] = "true" }
+    }
+
+
     fun getTrainingPlanJson(): String? =
 
 
@@ -7106,6 +7213,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
+
+        cachedShowOtherSemesters = true
 
         cachedShowCompletedTasks = false
 
@@ -8306,6 +8415,35 @@ class SessionManager(private val appDataStore: AppDataStore) {
     suspend fun saveCxSignAddress(v: String) { cachedCxSignAddress = v; appDataStore.dataStore.edit { it[CX_SIGN_ADDRESS_KEY] = v } }
 
 
+    /** 读取上次注册的课程提醒 lessonKey 列表(供 CourseReminderScheduler.cancelAll 精确清理) */
+    fun getReminderKeys(): List<String> =
+        cachedReminderKeys.split("\n").filter { it.isNotBlank() }
+
+    /** 覆盖保存当前已注册的课程提醒 lessonKey 列表 */
+    suspend fun saveReminderKeys(keys: List<String>) {
+        val value = keys.filter { it.isNotBlank() }.joinToString("\n")
+        cachedReminderKeys = value
+        appDataStore.dataStore.edit { it[REMINDER_KEYS_KEY] = value }
+    }
+
+    /** 课程提醒总开关。默认 true(保持启用前的无条件调度行为) */
+    fun getCourseReminderEnabled(): Boolean = cachedCourseReminderEnabled != "false"
+
+    suspend fun saveCourseReminderEnabled(v: Boolean) {
+        cachedCourseReminderEnabled = v.toString()
+        appDataStore.dataStore.edit { it[COURSE_REMINDER_ENABLED_KEY] = v.toString() }
+    }
+
+    /** 课程提醒提前分钟数。默认 15。 */
+    fun getCourseReminderLeadMinutes(): Int = cachedCourseReminderLead.toIntOrNull() ?: 15
+
+    suspend fun saveCourseReminderLeadMinutes(v: Int) {
+        cachedCourseReminderLead = v.toString()
+        appDataStore.dataStore.edit { it[COURSE_REMINDER_LEAD_KEY] = v.toString() }
+    }
+
+
+
 
 
 
@@ -8316,6 +8454,23 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
     suspend fun saveCxSignGesture(v: String) { cachedCxSignGesture = v; appDataStore.dataStore.edit { it[CX_SIGN_GESTURE_KEY] = v } }
+
+    /** 读取用户自定义签到位置列表(2026-06-24) */
+    fun getCustomSignLocations(): List<com.yourname.ahu_plus.data.model.CustomSignLocation> =
+        if (cachedCustomSignLocations.isBlank()) emptyList()
+        else runCatching {
+            gson.fromJson(
+                cachedCustomSignLocations,
+                Array<com.yourname.ahu_plus.data.model.CustomSignLocation>::class.java,
+            ).toList()
+        }.getOrDefault(emptyList())
+
+    /** 覆盖保存自定义签到位置列表 */
+    suspend fun saveCustomSignLocations(list: List<com.yourname.ahu_plus.data.model.CustomSignLocation>) {
+        val json = gson.toJson(list)
+        cachedCustomSignLocations = json
+        appDataStore.dataStore.edit { it[CX_CUSTOM_SIGN_LOCATIONS_KEY] = json }
+    }
 
 
 
@@ -9118,6 +9273,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
+        val KEY_SHOW_OTHER_SEMESTERS = stringPreferencesKey("schedule_show_other_semesters")
+
         val KEY_SHOW_COMPLETED_TASKS = stringPreferencesKey("schedule_show_completed_tasks")
 
 
@@ -9300,6 +9457,12 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         val ADWMH_SESSION_KEY = stringPreferencesKey("adwmh_jsessionid")
         val EXAM_PREDICTIONS_JSON_KEY = stringPreferencesKey("exam_predictions_json")
+
+        // 开发者公告
+        val ANNOUNCEMENTS_JSON_KEY = stringPreferencesKey("announcements_json")
+        val DISMISSED_ANNOUNCEMENT_IDS_KEY = stringPreferencesKey("dismissed_announcement_ids")
+        val GUIDE_INTRO_SEEN_KEY = stringPreferencesKey("guide_intro_seen")
+
 
 
 
@@ -9488,6 +9651,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         val CX_SIGN_GESTURE_KEY = stringPreferencesKey("cx_sign_gesture")
+        val CX_CUSTOM_SIGN_LOCATIONS_KEY = stringPreferencesKey("cx_custom_sign_locations")
+
+        /** 已注册课程提醒 lessonKey 集合(换行分隔) */
+        val REMINDER_KEYS_KEY = stringPreferencesKey("reminder_keys")
+        /** 课程提醒总开关 */
+        val COURSE_REMINDER_ENABLED_KEY = stringPreferencesKey("course_reminder_enabled")
+        /** 课程提醒提前分钟数 */
+        val COURSE_REMINDER_LEAD_KEY = stringPreferencesKey("course_reminder_lead")
 
 
 
@@ -9878,7 +10049,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
 
-            KEY_RESET_ON_ENTER, KEY_SHOW_COMPLETED_TASKS, KEY_SHOW_COMPLETED_EXAMS,
+            KEY_RESET_ON_ENTER, KEY_SHOW_OTHER_SEMESTERS, KEY_SHOW_COMPLETED_TASKS, KEY_SHOW_COMPLETED_EXAMS,
 
 
 

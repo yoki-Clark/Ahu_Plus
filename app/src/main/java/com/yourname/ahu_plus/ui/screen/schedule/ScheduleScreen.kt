@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.jw.UserScheduleItem
+import com.yourname.ahu_plus.ui.screen.schedule.components.ReminderPermissionBanner
 import com.yourname.ahu_plus.ui.screen.schedule.components.WeekPager
 import com.yourname.ahu_plus.ui.theme.AhuShapes
 import kotlin.math.roundToInt
@@ -118,9 +119,15 @@ fun ScheduleScreen(
             onAddCourse = { viewModel.onToggleAddCourse() }
         )
 
-        // ── 学期选择器(2026-06-21 多学期支持)────────
+        // 课程提醒已开启但缺权限时,引导用户授权(通知 + 精确闹钟)
+        ReminderPermissionBanner(
+            enabled = viewModel.reminderPrefs?.getCourseReminderEnabled() ?: true,
+        )
+
+        // ── 学期选择器(2026-06-21 多学期支持;2026-06-25 设置项可隐藏)────────
         // 横向 chip 行:默认本学期选中,切换触发按需加载
-        if (uiState.availableSemesters.isNotEmpty()) {
+        // 仅在设置开启(默认开启)且学期列表非空时渲染
+        if (uiState.showOtherSemesters && uiState.availableSemesters.isNotEmpty()) {
             SemesterChips(
                 availableIds = uiState.availableSemesters.mapNotNull { it.id },
                 selectedId = uiState.selectedSemesterId,
@@ -200,30 +207,43 @@ fun ScheduleScreen(
                 else -> {
                     val maxPage = maxWeek.coerceAtLeast(1)
                     val currentPage = (uiState.selectedWeek - 1).coerceIn(0, maxPage - 1)
-                    com.yourname.ahu_plus.ui.screen.schedule.components.WeekPager(
-                        maxPage = maxPage,
-                        currentPage = currentPage,
-                        enabled = uiState.pagerEnabled,
-                        onPageChanged = { page -> viewModel.setSelectedWeek(page + 1) },
-                    ) { page ->
-                        val week = page + 1
-                        val items = remember(week, uiState.allActivities, uiState.showSat, uiState.showSun) {
-                            viewModel.buildDisplayItemsForWeek(week)
-                        }
-                        WeekGrid(
-                            displayItems = items,
+                    // 固定时间列与各周网格体共享垂直滚动状态:
+                    // 时间列放在 Pager 左侧、不随换页滑动 → 切换周次时保持不动(2026-06-25)。
+                    val sharedVerScroll = androidx.compose.foundation.rememberScrollState()
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        com.yourname.ahu_plus.ui.screen.schedule.FixedTimeColumn(
                             unitTimes = uiState.unitTimes,
-                            selectedWeek = week,
-                            currentWeek = uiState.currentWeek,
-                            onCourseClick = viewModel::onCourseClicked,
-                            modifier = Modifier.fillMaxSize(),
-                            colWidth = uiState.colWidthDp.dp,
                             rowHeight = uiState.rowHeightDp.dp,
                             fontScale = uiState.fontScale,
-                            showSat = uiState.showSat,
-                            showSun = uiState.showSun,
-                            timeTick = timeTick,
+                            verScroll = sharedVerScroll,
                         )
+                        com.yourname.ahu_plus.ui.screen.schedule.components.WeekPager(
+                            maxPage = maxPage,
+                            currentPage = currentPage,
+                            enabled = uiState.pagerEnabled,
+                            onPageChanged = { page -> viewModel.setSelectedWeek(page + 1) },
+                            modifier = Modifier.weight(1f),
+                        ) { page ->
+                            val week = page + 1
+                            val items = remember(week, uiState.allActivities, uiState.showSat, uiState.showSun) {
+                                viewModel.buildDisplayItemsForWeek(week)
+                            }
+                            WeekGrid(
+                                displayItems = items,
+                                unitTimes = uiState.unitTimes,
+                                selectedWeek = week,
+                                currentWeek = uiState.currentWeek,
+                                onCourseClick = viewModel::onCourseClicked,
+                                modifier = Modifier.fillMaxSize(),
+                                colWidth = uiState.colWidthDp.dp,
+                                rowHeight = uiState.rowHeightDp.dp,
+                                fontScale = uiState.fontScale,
+                                showSat = uiState.showSat,
+                                showSun = uiState.showSun,
+                                timeTick = timeTick,
+                                sharedVerScroll = sharedVerScroll,
+                            )
+                        }
                     }
                 }
             }
@@ -256,6 +276,7 @@ fun ScheduleScreen(
             showSun = uiState.showSun,
             pagerEnabled = uiState.pagerEnabled,
             resetOnEnter = uiState.resetOnEnter,
+            showOtherSemesters = uiState.showOtherSemesters,
             onColWidthChanged = viewModel::onColWidthChanged,
             onRowHeightChanged = viewModel::onRowHeightChanged,
             onFontScaleChanged = viewModel::onFontScaleChanged,
@@ -263,8 +284,10 @@ fun ScheduleScreen(
             onShowSunChanged = viewModel::setShowSun,
             onPagerEnabledChanged = viewModel::setPagerEnabled,
             onResetOnEnterChanged = viewModel::setResetOnEnter,
+            onShowOtherSemestersChanged = viewModel::setShowOtherSemesters,
             onReset = viewModel::onResetSettings,
             onDismiss = { viewModel.onToggleSettings() },
+            sessionManager = viewModel.reminderPrefs,
         )
     }
 

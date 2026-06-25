@@ -50,9 +50,16 @@ object CourseReminderScheduler {
         val sessionManager = SessionManager(AppDataStore(appContext))
         sessionManager.init()
 
+        // 课程提醒总开关关闭 → 清掉已注册闹钟并退出
+        if (!sessionManager.getCourseReminderEnabled()) {
+            Log.i(TAG, "scheduleAll: 课程提醒已关闭,清理并跳过")
+            cancelAll(appContext, sessionManager)
+            return
+        }
+
         val scheduleJson = sessionManager.getScheduleJson() ?: run {
             Log.i(TAG, "scheduleAll: 课表缓存为空,跳过")
-            cancelAll(appContext)
+            cancelAll(appContext, sessionManager)
             return
         }
 
@@ -60,26 +67,27 @@ object CourseReminderScheduler {
             GsonProvider.instance.fromJson(scheduleJson, ScheduleData::class.java)
         }.getOrNull() ?: run {
             Log.w(TAG, "scheduleAll: 课表 JSON 解析失败")
-            cancelAll(appContext)
+            cancelAll(appContext, sessionManager)
             return
         }
 
-        val lessons = collectFutureLessons(data)
+        val lessons = collectFutureLessons(data, sessionManager.getCourseReminderLeadMinutes())
         if (lessons.isEmpty()) {
             Log.i(TAG, "scheduleAll: 未来 24h 内没有课程")
-            cancelAll(appContext)
+            cancelAll(appContext, sessionManager)
             return
         }
 
         Log.i(TAG, "scheduleAll: 找到 ${lessons.size} 个未来课程,开始注册闹钟")
 
-        // 先取消所有历史课程提醒,避免堆积过期闹钟
-        cancelAll(appContext)
+        // 先取消上一轮注册的所有提醒(基于持久化 key,不受课表变更影响),避免堆积过期闹钟
+        cancelAll(appContext, sessionManager)
 
         val now = DebugClock.now()
         val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
             ?: return
 
+        val registeredKeys = mutableListOf<String>()
         for (lesson in lessons) {
             val triggerTime = lesson.triggerLocalDateTime ?: continue
             val triggerMillis = triggerTime.atZone(ZoneId.systemDefault())
@@ -109,45 +117,43 @@ object CourseReminderScheduler {
                 @Suppress("DEPRECATION")
                 alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerMillis, pendingIntent)
             }
+            registeredKeys.add(lesson.key)
             Log.i(TAG, "  → ${lesson.courseName} @ $triggerTime (key=${lesson.key})")
         }
+
+        // 持久化本轮注册的 key,供下次 cancelAll 精确清理(即使课表已变更也能命中旧闹钟)
+        sessionManager.saveReminderKeys(registeredKeys)
     }
 
     /**
-     * 取消所有 [LessonKeyPrefix] 开头的 PendingIntent。
-     * 解析课表缓存生成所有可能的 lessonKey,逐个 cancel。
+     * 取消上一轮注册的所有课程提醒。
+     *
+     * **不再依赖重新解析课表** —— 改为读取 [SessionManager.getReminderKeys] 持久化的
+     * lessonKey 集合逐个 cancel。这样即使课表已变更(换学期 / 删课),上一轮注册的
+     * 闹钟仍能被精确命中并取消,避免 AlarmManager 配额随时间泄漏。
+     *
+     * 注:AlarmManager 通过 (requestCode + Intent.filterEquals) 匹配 PendingIntent,
+     * 而 filterEquals 不比较 extra,因此用仅含 action 的 Intent 即可重建并取消。
      */
-    fun cancelAll(context: Context) {
+    suspend fun cancelAll(context: Context, sessionManager: SessionManager) {
         val appContext = context.applicationContext
         val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
             ?: return
 
-        val sessionManager = SessionManager(AppDataStore(appContext))
-        // cancelAll 可能在非协程上下文调用,用 runBlocking 读取 DataStore
-        kotlinx.coroutines.runBlocking {
-            sessionManager.init()
-        }
-        val json = sessionManager.getScheduleJson() ?: run {
-            Log.i(TAG, "cancelAll: 课表缓存为空,无需清理")
-            return
-        }
-        val data = runCatching {
-            GsonProvider.instance.fromJson(json, ScheduleData::class.java)
-        }.getOrNull() ?: run {
-            Log.w(TAG, "cancelAll: 课表 JSON 解析失败,无法清理")
+        val keys = sessionManager.getReminderKeys()
+        if (keys.isEmpty()) {
+            Log.i(TAG, "cancelAll: 无已注册提醒记录,跳过")
             return
         }
 
-        // 收集所有可能的 lessonKey(未来 24h + 过去的历史 key 都覆盖)
-        val lessons = collectFutureLessons(data)
         var cancelled = 0
-        for (lesson in lessons) {
+        for (key in keys) {
             val intent = Intent(appContext, CourseReminderReceiver::class.java).apply {
                 action = CourseReminderReceiver.ACTION_COURSE_REMINDER
             }
             val pendingIntent = PendingIntent.getBroadcast(
                 appContext,
-                lesson.key.hashCode(),
+                key.hashCode(),
                 intent,
                 PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
             )
@@ -157,7 +163,8 @@ object CourseReminderScheduler {
                 cancelled++
             }
         }
-        Log.i(TAG, "cancelAll: 清理了 $cancelled 个课程提醒闹钟")
+        sessionManager.saveReminderKeys(emptyList())
+        Log.i(TAG, "cancelAll: 清理了 $cancelled / ${keys.size} 个课程提醒闹钟")
     }
 
     /**
@@ -173,8 +180,12 @@ object CourseReminderScheduler {
 
     /**
      * 收集未来 24h 内要上的课程,转换为 [LessonHint] 列表(含触发时间)。
+     * [leadMinutes] 为提前提醒分钟数;findLessonByKey 仅比对 key,用默认值即可。
      */
-    private fun collectFutureLessons(data: ScheduleData): List<LessonHint> {
+    private fun collectFutureLessons(
+        data: ScheduleData,
+        leadMinutes: Int = CourseReminderReceiver.REMINDER_LEAD_MINUTES,
+    ): List<LessonHint> {
         val week = data.currentWeek.coerceAtLeast(1)
         val unitTimes = data.unitTimes
         val now = DebugClock.now()
@@ -191,7 +202,7 @@ object CourseReminderScheduler {
         return systemItems.mapNotNull { item ->
             val triggerDate = nextOccurrence(item, today, tomorrow) ?: return@mapNotNull null
             val triggerTime = triggerDate.atTime(item.startLocalTime(unitTimes) ?: return@mapNotNull null)
-                .minusMinutes(CourseReminderReceiver.REMINDER_LEAD_MINUTES.toLong())
+                .minusMinutes(leadMinutes.toLong())
             // 跳过已过期的触发时间
             if (triggerTime.isBefore(now)) return@mapNotNull null
             LessonHint(

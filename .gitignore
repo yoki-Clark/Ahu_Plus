@@ -57,6 +57,8 @@ __pycache__/
 *.apk
 *.aab
 version.json.v*
+# 排考预测:每日断点续扫的临时缓存(不要上传,exam_predictions.json 才是公开产物)
+tools/exam_prediction/cache_daily.jsonl
 /release-snapshots/
 /downloads/
 /beta_release/

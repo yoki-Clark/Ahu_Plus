@@ -54,14 +54,16 @@ class ScheduleViewModel(
     private val jwAuthRepository: JwAuthRepository,
     private val courseRepository: CourseRepository,
     private val noteRepository: CourseNoteRepository,
-    private val sessionManager: SessionManager? = null,
-    private val assessmentRepository: AssessmentRepository,
+    private val sessionManager: SessionManager? = null,    private val assessmentRepository: AssessmentRepository,
     private val recordRepository: RecordRepository,
     private val homeworkRepository: HomeworkRepository,
     private val userTaskRepository: UserTaskRepository,
     private val examRepository: ExamRepository,
     private val kqAttendanceRepository: KqAttendanceRepository,
 ) : AndroidViewModel(application) {
+
+    /** 暴露给课表设置页的课程提醒偏好读写入口(2026-06-24) */
+    val reminderPrefs: SessionManager? get() = sessionManager
 
     private val gson = com.yourname.ahu_plus.data.GsonProvider.instance
     private val _uiState = MutableStateFlow(ScheduleUiState())
@@ -160,6 +162,7 @@ class ScheduleViewModel(
                     showSun = sm.getShowSun(),
                     pagerEnabled = sm.getPagerEnabled(),
                     resetOnEnter = sm.getResetOnEnter(),
+                    showOtherSemesters = sm.getShowOtherSemesters(),
                     showCompletedTasks = sm.getShowCompletedTasks(),
                     showCompletedExams = sm.getShowCompletedExams(),
                 )
@@ -565,6 +568,7 @@ class ScheduleViewModel(
                 colWidthDp = 64f, rowHeightDp = 56f, fontScale = 1.0f,
                 showSat = true, showSun = true,
                 pagerEnabled = true, resetOnEnter = true,
+                showOtherSemesters = true,
                 showCompletedTasks = false,
                 showCompletedExams = false,
             )
@@ -577,6 +581,7 @@ class ScheduleViewModel(
             sessionManager?.setShowSun(true)
             sessionManager?.setPagerEnabled(true)
             sessionManager?.setResetOnEnter(true)
+            sessionManager?.setShowOtherSemesters(true)
             sessionManager?.setShowCompletedTasks(false)
             sessionManager?.setShowCompletedExams(false)
         }
@@ -605,6 +610,12 @@ class ScheduleViewModel(
     fun setResetOnEnter(value: Boolean) {
         _uiState.update { it.copy(resetOnEnter = value) }
         viewModelScope.launch { sessionManager?.setResetOnEnter(value) }
+    }
+
+    /** 2026-06-25: 是否显示多学期切换行。默认 true。 */
+    fun setShowOtherSemesters(value: Boolean) {
+        _uiState.update { it.copy(showOtherSemesters = value) }
+        viewModelScope.launch { sessionManager?.setShowOtherSemesters(value) }
     }
 
     fun setShowCompletedTasks(value: Boolean) {
@@ -761,8 +772,8 @@ class ScheduleViewModel(
         viewModelScope.launch { assessmentRepository.save(plan) }
     }
 
-    fun addAssessmentImage(uri: android.net.Uri): Unit {} // TODO: Step 4 接入
-    fun removeAssessmentImage(path: String): Unit {} // TODO: Step 4 接入
+    // 注:图片选择/复制/删除由 AssessmentSection 内部经 rememberLauncherForActivityResult
+    // + AssessmentRepository.copyPickedImage 直接完成,ViewModel 不再代理。
 
     // ── 记录 (作业) ───────────────────────────────────
 
@@ -1142,6 +1153,8 @@ data class ScheduleUiState(
     val showSun: Boolean = true,
     val pagerEnabled: Boolean = true,
     val resetOnEnter: Boolean = true,
+    /** 2026-06-25: 是否显示多学期切换行;默认 true。 */
+    val showOtherSemesters: Boolean = true,
     val showCompletedTasks: Boolean = false,
     val showCompletedExams: Boolean = false,
 

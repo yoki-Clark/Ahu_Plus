@@ -115,23 +115,44 @@ data class CxWorkResult(
 // ── 签到 ──────────────────────────────────────────────────────────
 
 /**
- * 签到类型(2026-06-20 集成 Phase 3,移植自 base.py:SignType)。
+ * 签到类型(2026-06-24 扩展为全部 6 种)。
  *
  * - [NORMAL]    普通签到,直接 `stuSignajax`
- * - [GESTURE]   手势签到,需提交手势码(学号/姓名首字母等)
- * - [LOCATION]  位置签到,需提交经纬度 + 地址
- * - [PRE_SIGN]  preSign 前置动作,某些签到需先调 preSign 拿 token 再签到
+ * - [PHOTO]     拍照签到,需上传图片到云盘拿 objectId
+ * - [GESTURE]   手势签到,提交九宫格路径串(作为 signCode)
+ * - [QRCODE]    二维码签到,扫码提取 enc 参数
+ * - [LOCATION]  位置签到,提交经纬度 + 地址
+ * - [SIGNCODE]  签到码签到,提交老师口播的数字码
+ * - [PRE_SIGN]  preSign 前置占位(activelist 初判用,真实类型以 preSign 响应为准)
  *
- * 通过超星响应中的 `type` 字段(`otherInfo` 或 `type` 字段)判断。
+ * ⚠️ 真实子类型应从 **preSign 响应**的 `otherId`/`ifphoto` 判定([fromPreSign]),
+ * activelist 的 `type` 字段是活动大类(2=签到),不可靠。
  */
 enum class CxSignType(val code: Int, val label: String) {
     NORMAL(0, "普通签到"),
     PRE_SIGN(1, "预签到"),
     GESTURE(3, "手势签到"),
-    LOCATION(4, "位置签到");
+    LOCATION(4, "位置签到"),
+    PHOTO(10, "拍照签到"),
+    QRCODE(11, "二维码签到"),
+    SIGNCODE(12, "签到码签到");
 
     companion object {
         fun fromCode(code: Int): CxSignType = entries.firstOrNull { it.code == code } ?: NORMAL
+
+        /**
+         * 从 preSign 响应的 otherId + ifphoto 判定真实签到子类型(cxOrz 公认映射):
+         * otherId=0 & ifphoto=0 → 普通;otherId=0 & ifphoto=1 → 拍照;
+         * otherId=1 → 手势;otherId=2 → 二维码;otherId=3 → 位置;otherId=4 → 签到码。
+         */
+        fun fromPreSign(otherId: Int, ifPhoto: Int): CxSignType = when (otherId) {
+            0 -> if (ifPhoto == 1) PHOTO else NORMAL
+            1 -> GESTURE
+            2 -> QRCODE
+            3 -> LOCATION
+            4 -> SIGNCODE
+            else -> NORMAL
+        }
     }
 }
 
@@ -152,6 +173,17 @@ data class CxActivity(
     @SerializedName("longitude") val longitude: Double = -1.0,
     /** 手势签到码 */
     @SerializedName("gestureCode") val gestureCode: String = "",
+)
+
+/**
+ * preSign 响应解析结果(2026-06-24)。
+ * [signType] 由 otherId/ifphoto 推导,是判定签到子类型的权威来源。
+ */
+data class CxPreSignInfo(
+    val signType: CxSignType,
+    val otherId: Int,
+    val ifPhoto: Int,
+    val raw: String,
 )
 
 // ── 学习结果 ──────────────────────────────────────────────────────

@@ -151,9 +151,10 @@ class ChaoxingStudyRepository(
             val activities = actsResult.getOrNull() ?: continue
             for (act in activities.filter { it.status == 1 }) {
                 if (shouldStop) break
-                addLog("自动签到: ${act.name} (${act.signType.label})")
-                cxRepo.preSign(course, act.id)
-                val r = when (act.signType) {
+                // 真实子类型以 preSign 响应为准(activelist 的 type 不可靠)
+                val signType = cxRepo.preSign(course, act.id).getOrNull()?.signType ?: act.signType
+                addLog("自动签到: ${act.name} (${signType.label})")
+                val r = when (signType) {
                     com.yourname.ahu_plus.data.model.CxSignType.LOCATION -> {
                         if (lat >= 0 && lon >= 0) cxRepo.signInLocation(course, act.id, lat, lon, address)
                         else { addLog("  ⚠ 未配置经纬度,跳过"); continue }
@@ -161,6 +162,14 @@ class ChaoxingStudyRepository(
                     com.yourname.ahu_plus.data.model.CxSignType.GESTURE -> {
                         if (gesture.isNotBlank()) cxRepo.signInGesture(course, act.id, gesture)
                         else { addLog("  ⚠ 未配置手势码,跳过"); continue }
+                    }
+                    // 拍照/二维码需即时交互,自动签到无法处理,跳过留给前台手动签
+                    com.yourname.ahu_plus.data.model.CxSignType.PHOTO,
+                    com.yourname.ahu_plus.data.model.CxSignType.QRCODE -> {
+                        addLog("  ⚠ ${signType.label}需手动操作,请到签到中心处理"); continue
+                    }
+                    com.yourname.ahu_plus.data.model.CxSignType.SIGNCODE -> {
+                        addLog("  ⚠ 签到码需手动输入,请到签到中心处理"); continue
                     }
                     else -> cxRepo.signNormal(course, act.id)
                 }
@@ -288,7 +297,7 @@ class ChaoxingStudyRepository(
         val sortedJobs = jobs.sortedBy { priorityOrder[it.type] ?: 99 }
         // 已通过的任务点数 = 本章总数 - 当前未通过数
         val prePassedCount = (chapter.jobCount - jobs.size).coerceAtLeast(0)
-        var processedCount = 0
+        var succeededCount = 0
 
         for (job in sortedJobs) {
             if (shouldStop) break
@@ -296,8 +305,9 @@ class ChaoxingStudyRepository(
                 addLog("    跳过: ${job.name.ifBlank { job.type }} (${job.type} 未启用)")
                 continue
             }
-            processJob(course, chapter, job, jobInfo, speed, autoSubmit)
-            processedCount++
+            val result = processJob(course, chapter, job, jobInfo, speed, autoSubmit)
+            // 仅真正完成的任务计入完成数（失败/仅保存未提交/受限不计）
+            if (result.isSuccess()) succeededCount++
         }
 
         // 自动下载章节资源（如已启用）
@@ -316,7 +326,7 @@ class ChaoxingStudyRepository(
 
         synchronized(_studyState) {
             _studyState.value = _studyState.value.copy(
-                completedCount = _studyState.value.completedCount + prePassedCount + processedCount
+                completedCount = _studyState.value.completedCount + prePassedCount + succeededCount
             )
         }
     }
@@ -332,7 +342,7 @@ class ChaoxingStudyRepository(
         jobInfo: CxJobInfo,
         speed: Float,
         autoSubmit: Boolean,
-    ) {
+    ): CxStudyResult {
         val taskTitle = "${chapter.title} / ${job.name.ifBlank { job.type }}"
         val progress = CxTaskProgress(
             courseTitle = course.title,
@@ -343,30 +353,32 @@ class ChaoxingStudyRepository(
         _studyState.value = _studyState.value.copy(currentTask = progress)
         addLog("  任务: $taskTitle [${job.type}]")
 
+        // 失败原因（供 UI message 展示）
+        var failMsg = ""
         val result = when (job.type) {
             "video" -> studyVideo(course, job, jobInfo, speed)
             "document" -> {
                 cxRepo.studyDocument(course, job, jobInfo).fold(
                     onSuccess = { CxStudyResult.SUCCESS },
-                    onFailure = { e -> addLog("    文档任务失败: ${e.message}"); CxStudyResult.ERROR },
+                    onFailure = { e -> failMsg = e.message ?: "文档任务失败"; addLog("    $failMsg"); CxStudyResult.ERROR },
                 )
             }
             "read" -> {
                 cxRepo.studyRead(course, job, jobInfo).fold(
                     onSuccess = { CxStudyResult.SUCCESS },
-                    onFailure = { e -> addLog("    阅读任务失败: ${e.message}"); CxStudyResult.ERROR },
+                    onFailure = { e -> failMsg = e.message ?: "阅读任务失败"; addLog("    $failMsg"); CxStudyResult.ERROR },
                 )
             }
             "audio" -> {
                 cxRepo.studyAudio(course, job, jobInfo).fold(
                     onSuccess = { CxStudyResult.SUCCESS },
-                    onFailure = { e -> addLog("    音频任务失败: ${e.message}"); CxStudyResult.ERROR },
+                    onFailure = { e -> failMsg = e.message ?: "音频任务失败"; addLog("    $failMsg"); CxStudyResult.ERROR },
                 )
             }
             "live" -> {
                 cxRepo.studyLive(course, job, jobInfo).fold(
                     onSuccess = { CxStudyResult.SUCCESS },
-                    onFailure = { e -> addLog("    直播任务失败: ${e.message}"); CxStudyResult.ERROR },
+                    onFailure = { e -> failMsg = e.message ?: "直播任务失败"; addLog("    $failMsg"); CxStudyResult.ERROR },
                 )
             }
             "workid" -> studyWork(course, job, jobInfo, autoSubmit)
@@ -376,15 +388,34 @@ class ChaoxingStudyRepository(
             }
         }
 
-        val status = if (result.isSuccess()) CxTaskStatus.SUCCESS else CxTaskStatus.FAILED
+        // 三态映射：成功 / 跳过(未提交·未启用) / 失败
+        val status = when {
+            result.isSuccess() -> CxTaskStatus.SUCCESS
+            result == CxStudyResult.SKIPPED -> CxTaskStatus.SKIPPED
+            else -> CxTaskStatus.FAILED
+        }
+        // 跳过类(如答题仅保存未提交)的提示消息
+        val uiMsg = when {
+            result == CxStudyResult.SKIPPED && job.type == "workid" -> "仅保存未提交"
+            result == CxStudyResult.FORBIDDEN -> "403 受限"
+            failMsg.isNotBlank() -> failMsg
+            else -> ""
+        }
         synchronized(_studyState) {
             _studyState.value = _studyState.value.copy(
                 currentTask = null,
-                completedTasks = _studyState.value.completedTasks + progress.copy(status = status, progress = 1f),
+                completedTasks = _studyState.value.completedTasks +
+                    progress.copy(status = status, progress = 1f, message = uiMsg),
             )
         }
 
-        addLog("  ${if (result.isSuccess()) "✓ 完成" else "✗ 失败"}: $taskTitle")
+        val mark = when (status) {
+            CxTaskStatus.SUCCESS -> "✓ 完成"
+            CxTaskStatus.SKIPPED -> "→ 未提交/跳过"
+            else -> "✗ 失败"
+        }
+        addLog("  $mark: $taskTitle")
+        return result
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -599,17 +630,20 @@ class ChaoxingStudyRepository(
                 return CxStudyResult.ERROR
             }
             addLog("    ✓ 提交成功: ${submitResult.getOrNull()}")
+            return CxStudyResult.SUCCESS
         } else {
+            // 覆盖率不足或关闭自动提交：仅保存草稿，未真正提交（任务未完成）
             val submitData = workData.copy(formFields = formFields, pyFlag = "1")
             val submitResult = cxRepo.submitWork(submitData)
-            submitResult.onSuccess { msg -> addLog("    ✓ 保存成功: $msg") }
             submitResult.onFailure { e ->
                 addLog("    保存失败: ${e.message}")
                 return CxStudyResult.ERROR
             }
+            val reason = if (!autoSubmit) "已关闭自动提交" else "题库覆盖率 ${(coverage * 100).toInt()}% < 80%"
+            addLog("    ⚠ 仅保存未提交（$reason），需手动确认")
+            // 返回 SKIPPED：UI 标记为"未提交"，不计入完成数
+            return CxStudyResult.SKIPPED
         }
-
-        return CxStudyResult.SUCCESS
     }
 
     /**
