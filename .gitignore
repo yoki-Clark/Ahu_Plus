@@ -45,9 +45,10 @@ SECURITY.md
 .claude/
 
 # ── 开发工具脚本（不上传）────────────────────────────────
-# tools/exam_prediction/ 例外 — 公开的排考预测工具
+# 例外 — 公开发布的工具：排考预测 + 集市 Token 获取工具
 tools/*
 !tools/exam_prediction/
+!tools/集市Token获取工具/
 
 # ── 备份与调试产物 ────────────────────────────────────────
 *.log
