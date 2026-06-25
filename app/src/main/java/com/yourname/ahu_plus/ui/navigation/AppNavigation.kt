@@ -71,6 +71,10 @@ fun AppNavigation(
     initCoordinator: InitCoordinator? = null,
     /** 首次登录初始化消息流 (LoginViewModel emit → MainScreen 订阅 → 底部 Snackbar) */
     initMessageFlow: kotlinx.coroutines.flow.MutableSharedFlow<String>? = null,
+    /** 通知/widget deep-link 目标(MainActivity.DEEP_LINK_*),登录态就绪后由 MainScreen 消费 */
+    deepLink: String? = null,
+    /** MainScreen 完成 deep-link 跳转后回调,清空 deepLink 避免重复触发 */
+    onDeepLinkConsumed: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val coroutineScope = rememberCoroutineScope()
@@ -227,6 +231,8 @@ fun AppNavigation(
                 adwmhCardRepository = adwmhCardRepository,
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
+                deepLink = deepLink,
+                onDeepLinkConsumed = onDeepLinkConsumed,
                 onReauth = {
                     coroutineScope.launch {
                         // 2026-06-23 修复：先尝试后台静默续期,只有真正失败才清数据+跳登录

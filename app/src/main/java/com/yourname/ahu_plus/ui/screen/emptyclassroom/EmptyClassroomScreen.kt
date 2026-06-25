@@ -38,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -55,6 +56,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -200,6 +202,7 @@ fun EmptyClassroomScreen(
                             result = result,
                             currentUnit = uiState.currentUnit,
                             isToday = uiState.isSelectedDateToday,
+                            continuousMode = uiState.continuousFree,
                             minuteTick = minuteTick
                         )
                     }
@@ -239,11 +242,13 @@ private fun SelectorArea(
     var showDatePicker by remember { mutableStateOf(false) }
     val today = DebugClock.todayDate()
     val tomorrow = today.plusDays(1)
+    val dayAfterTomorrow = today.plusDays(2)
     val dateButtonLabel = buildString {
         append(uiState.selectedDate.format(dateFormatter))
         when (uiState.selectedDate) {
             today -> append(" (今天)")
             tomorrow -> append(" (明天)")
+            dayAfterTomorrow -> append(" (后天)")
         }
     }
     Row(
@@ -262,6 +267,25 @@ private fun SelectorArea(
             Spacer(modifier = Modifier.width(8.dp))
             Text(dateButtonLabel)
         }
+        // 明天/后天快捷选择 (2026-06-25:右侧两个 chip,不显示具体日期号)
+        FilterChip(
+            selected = uiState.selectedDate == tomorrow,
+            onClick = { viewModel.selectDate(tomorrow) },
+            label = { Text("明天") },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+            )
+        )
+        FilterChip(
+            selected = uiState.selectedDate == dayAfterTomorrow,
+            onClick = { viewModel.selectDate(dayAfterTomorrow) },
+            label = { Text("后天") },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+            )
+        )
     }
 
     if (showDatePicker) {
@@ -293,7 +317,25 @@ private fun SelectorArea(
                 TextButton(onClick = { showDatePicker = false }) { Text("取消") }
             }
         ) {
-            DatePicker(state = state)
+            // 2026-06-25: Material3 默认中文显示 "星期一/二/..." 含 "星" 字。
+            // Material3 内部 WeekDays 用 DayOfWeek.getDisplayName(TextStyle.NARROW_STANDALONE, locale)
+            // 渲染星期缩写 — 对简体中文该 API 直接给出 "一/二/三/四/五/六/日"。
+            // 默认全屏 (FULL_STANDALONE) 给出 "星期一" 含 "星" 字,但 Material3 WeekDays
+            // 实际取 NARROW_STANDALONE (CalendarModel.android.kt:71),所以只要 locale 是
+            // 简体中文就应显示单字。检查确认在部分 ROM 上 FULL 落到 UI — 故兜底用
+            // Configuration override 强制 Locale.SIMPLIFIED_CHINESE。
+            val originalConfig = LocalConfiguration.current
+            val overrideConfig = remember(originalConfig) {
+                android.content.res.Configuration(originalConfig).apply {
+                    setLocale(java.util.Locale.SIMPLIFIED_CHINESE)
+                    setLocales(android.os.LocaleList(java.util.Locale.SIMPLIFIED_CHINESE))
+                }
+            }
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalConfiguration provides overrideConfig
+            ) {
+                DatePicker(state = state)
+            }
         }
     }
 
@@ -390,6 +432,34 @@ private fun SelectorArea(
             }
         }
     }
+
+    // 2026-06-25: "连续空闲"排序开关。
+    // 设计而非 bug:开启后按最长连续空闲段长度降序排,用户更在意"能连坐多少节"。
+    // 每次进入页面默认关闭,需手动开启。
+    Spacer(modifier = Modifier.height(4.dp))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "连续空闲",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "开启后按最长连续空闲段长度重排序(例如中午有课,后面的就不算)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(
+            checked = uiState.continuousFree,
+            onCheckedChange = { viewModel.setContinuousFree(it) }
+        )
+    }
 }
 
 // ── 单间教室卡片 ─────────────────────────────────────────────
@@ -399,8 +469,10 @@ private fun RoomResultCard(
     result: FreeRoomResult,
     currentUnit: Int?,
     isToday: Boolean = true,
+    continuousMode: Boolean = false,
     @Suppress("UNUSED_PARAMETER") minuteTick: Int = 0
 ) {
+    val continuousCount = continuousFreeCount(result)
     val freeColor = when {
         result.freeUnitsCount >= 4 -> FreeGreen
         result.freeUnitsCount >= 2 -> FreeOrange
@@ -435,6 +507,8 @@ private fun RoomResultCard(
                 FreeDurationChip(
                     unitCount = result.freeUnitsCount,
                     segmentCount = result.freeSegments.size,
+                    continuousMode = continuousMode,
+                    continuousCount = continuousCount,
                     color = freeColor
                 )
             }
@@ -505,9 +579,24 @@ private fun RoomResultCard(
 // ── 空闲时长标签 ─────────────────────────────────────────────
 
 @Composable
-private fun FreeDurationChip(unitCount: Int, segmentCount: Int, color: Color) {
-    val text = if (segmentCount > 1) "空闲 $unitCount 节 ($segmentCount 段)"
-                else "空闲 $unitCount 节"
+private fun FreeDurationChip(
+    unitCount: Int,
+    segmentCount: Int,
+    continuousMode: Boolean,
+    continuousCount: Int,
+    color: Color
+) {
+    // 连续空闲模式:主标签显示"连坐 N 节",副标签括号显示全天总空闲数(若不同)。
+    val text = when {
+        continuousMode && unitCount > continuousCount ->
+            "连坐 $continuousCount 节 (全天 $unitCount)"
+        continuousMode ->
+            "连坐 $continuousCount 节"
+        segmentCount > 1 ->
+            "空闲 $unitCount 节 ($segmentCount 段)"
+        else ->
+            "空闲 $unitCount 节"
+    }
     Card(
         colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.15f))
     ) {

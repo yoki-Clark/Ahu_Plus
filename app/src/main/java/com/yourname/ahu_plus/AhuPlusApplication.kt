@@ -25,6 +25,8 @@ import com.yourname.ahu_plus.data.repository.HomeworkRepository
 import com.yourname.ahu_plus.data.repository.ProgramCompletionRepository
 import com.yourname.ahu_plus.data.repository.TrainingPlanRepository
 import com.yourname.ahu_plus.data.repository.ExamDataRepository
+import com.yourname.ahu_plus.data.repository.AnnouncementRepository
+import com.yourname.ahu_plus.data.announcement.AnnouncementManager
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.MarketRepository
@@ -110,6 +112,10 @@ class AhuPlusApplication : Application() {
     lateinit var updateManager: UpdateManager
         private set
     lateinit var examDataRepository: ExamDataRepository
+        private set
+    lateinit var announcementRepository: AnnouncementRepository
+        private set
+    lateinit var announcementManager: AnnouncementManager
         private set
     override fun onCreate() {
         super.onCreate()
@@ -198,6 +204,11 @@ class AhuPlusApplication : Application() {
 
         // 自动更新管理器
         updateManager = UpdateManager(this, sessionManager)
+
+        // 开发者公告:从 Gitee yao-enqi/ahu-plus-update 拉取 announcements.json,
+        // 启动时零登录展示弹窗(与排考预测同源仓库)。
+        announcementRepository = AnnouncementRepository(sessionManager)
+        announcementManager = AnnouncementManager(this, sessionManager, announcementRepository)
 
         // ── Widget / 课程提醒统一调度(2026-06-22 借鉴 AHUTong) ──
         // 首次启动排程,后续每次 scheduleNext 自递归。

@@ -42,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import com.yourname.ahu_plus.AhuPlusApplication
+import com.yourname.ahu_plus.MainActivity
 import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.local.AppThemeMode
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
@@ -127,6 +128,10 @@ fun MainScreen(
     onLogout: () -> Unit,
     /** 首次登录初始化消息流 (LoginViewModel emit → MainScreen 订阅 → 底部 Snackbar 1 秒) */
     initMessageFlow: kotlinx.coroutines.flow.MutableSharedFlow<String>? = null,
+    /** 通知/widget deep-link 目标(MainActivity.DEEP_LINK_*) */
+    deepLink: String? = null,
+    /** deep-link 跳转完成后回调,清空上游 deepLink 状态 */
+    onDeepLinkConsumed: () -> Unit = {},
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(TAB_HOME) }
     var homePage by rememberSaveable { mutableIntStateOf(HOME_DASHBOARD) }
@@ -157,18 +162,30 @@ fun MainScreen(
 
     // 首页"最近使用"追踪 (mutableStateOf 保证 recordRecentApp 后 UI 立即刷新)
     var recentApps by remember { mutableStateOf(sessionManager.getRecentApps()) }
+    // 使用帮助首开弹窗：本会话内只弹一次，标记后即时生效（避免同会话二次进入重弹）
+    var guideIntroSeen by remember { mutableStateOf(sessionManager.getGuideIntroSeen()) }
     val scope = rememberCoroutineScope()
     val recordApp: (String) -> Unit = remember {
         { appKey: String -> scope.launch { sessionManager.recordRecentApp(appKey); recentApps = sessionManager.getRecentApps() } }
     }
 
-    // 2026-06-22: 通知点击 deep-link → 跳到学习通 Tab
     val context = LocalContext.current
-    LaunchedEffect(Unit) {
-        (context as? Activity)?.intent?.getStringExtra("open_tab")?.let { tab ->
-            when (tab) { "chaoxing" -> selectedTab = TAB_CHAOXING }
-            (context as? Activity)?.intent?.removeExtra("open_tab")
+
+    // 通知/widget deep-link → 跳转到目标页。deepLink 变化即触发(冷启动 + onNewIntent)。
+    LaunchedEffect(deepLink) {
+        when (deepLink) {
+            MainActivity.DEEP_LINK_SCHEDULE -> {
+                selectedTab = TAB_HOME
+                homePage = HOME_SCHEDULE
+            }
+            MainActivity.DEEP_LINK_GRADE -> {
+                selectedTab = TAB_HOME
+                homePage = HOME_GRADE
+            }
+            MainActivity.DEEP_LINK_CHAOXING -> selectedTab = TAB_CHAOXING
+            else -> return@LaunchedEffect
         }
+        onDeepLinkConsumed()
     }
 
     // 系统返回键: 子页面回退 → 跨 Tab 回退 → 双击退出
@@ -589,6 +606,11 @@ fun MainScreen(
                     onProfileSubPageConsumed = { profileSubPage = null },
                     openCardAnalytics = openCardAnalytics,
                     onCardAnalyticsConsumed = { openCardAnalytics = false },
+                    guideIntroSeen = guideIntroSeen,
+                    onGuideIntroSeen = {
+                        guideIntroSeen = true
+                        scope.launch { sessionManager.setGuideIntroSeen() }
+                    },
                     onLogout = onLogout
                 )
                 else -> DashboardScreen(

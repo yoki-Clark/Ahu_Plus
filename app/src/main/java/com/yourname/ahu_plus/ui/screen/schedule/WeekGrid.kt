@@ -1,5 +1,6 @@
 package com.yourname.ahu_plus.ui.screen.schedule
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,6 +42,9 @@ import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
 import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.theme.CourseColors
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.temporal.TemporalAdjusters
 
 // (CourseColors moved to ui/theme/CourseColors.kt in 2026-06-17 refactor)
 
@@ -48,6 +53,23 @@ private val TIME_COL_WIDTH = 40.dp
 private val HEADER_HEIGHT = 40.dp
 
 private val DAY_LABELS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+/**
+ * 计算第 [targetWeek] 周的周一日期。
+ *
+ * 锚点:服务器返回的 `currentWeek` 表示"今天是第 currentWeek 周"。
+ * 先把今天对齐到本周一(ISO 周一为起点),再按 (targetWeek - currentWeek) 周偏移。
+ *
+ * 例:今天周三、currentWeek=17,要算第 18 周周一 →
+ *     本周一(周三回退到周一)+ (18-17)*7 = 本周一 + 7 天。
+ *
+ * 2026-06-25:课表头部需叠加具体日期号。
+ */
+private fun computeWeekMonday(targetWeek: Int, currentWeek: Int, todayDate: LocalDate): LocalDate {
+    val todayMonday = todayDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val offsetWeeks = (targetWeek - currentWeek).toLong()
+    return todayMonday.plusDays(offsetWeeks * 7)
+}
 
 @Composable
 fun WeekGrid(
@@ -66,6 +88,12 @@ fun WeekGrid(
     showSun: Boolean = true,
     /** 时间 tick：传入外部递增的 Int，每分钟 +1，触发当前时间线重算（默认 0） */
     timeTick: Int = 0,
+    /**
+     * 共享的垂直滚动状态。由外部(ScheduleScreen)创建并同时传给固定时间列,
+     * 使时间列与网格体垂直滚动同步,且切换周次(Pager 换页)时滚动位置不丢失。
+     * 为 null 时内部自建(向后兼容/预览)。
+     */
+    sharedVerScroll: ScrollState? = null,
 ) {
     // 可见的星期列表 (用于头部 + 列计算)。1=周一 ... 7=周日。
     val visibleDays: List<Int> = remember(showSat, showSun) {
@@ -80,7 +108,8 @@ fun WeekGrid(
     }
     if (sortedUnits.isEmpty()) return
 
-    val todayDayOfWeek = DebugClock.todayDate().dayOfWeek.value
+    val today = DebugClock.todayDate()
+    val todayDayOfWeek = today.dayOfWeek.value
     val isCurrentWeek = selectedWeek == currentWeek
 
     val minUnit = sortedUnits.minOf { it.indexNo ?: 1 }
@@ -89,7 +118,7 @@ fun WeekGrid(
     val unitMap = sortedUnits.associateBy { it.indexNo }
 
     val horScroll = rememberScrollState()
-    val verScroll = rememberScrollState()
+    val verScroll = sharedVerScroll ?: rememberScrollState()
 
     val gridWidth = colWidth * visibleDays.size
     val bodyHeight = rowHeight * totalRows
@@ -160,145 +189,180 @@ fun WeekGrid(
         groups
     }
 
+    // 选中周的周一日期(用于头部日期号)。直接按 (selectedWeek - currentWeek) 偏移今天所在周一。
+    val selectedWeekMonday = remember(today, currentWeek, selectedWeek) {
+        computeWeekMonday(selectedWeek, currentWeek, today)
+    }
+
+    // 注意:左侧"时间列"已上移到 ScheduleScreen 作为固定列(切换周次时不随页面滑动 — 2026-06-25)。
+    // 本组件只渲染:① 顶部星期头(含日期号) ② 网格体(课程卡片 + 当前时间线)。
+    // 网格体与固定时间列共享 [verScroll],垂直滚动同步。
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
+        // ── 顶部星期头(随 Pager 换页,日期号随选中周变化)──
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(HEADER_HEIGHT)
+                .horizontalScroll(horScroll)
         ) {
-            Box(
-                modifier = Modifier
-                    .width(TIME_COL_WIDTH)
-                    .height(HEADER_HEIGHT)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                    .border(0.5.dp, lineColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "时间",
-                    fontSize = (12 * fontScale).sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Row(modifier = Modifier.width(gridWidth)) {
+                for (d in visibleDays) {
+                    val cellDate = selectedWeekMonday.plusDays((d - 1).toLong())
+                    DayHeaderCell(
+                        label = DAY_LABELS[d - 1],
+                        dateNumber = cellDate.dayOfMonth,
+                        isToday = isCurrentWeek && d == todayDayOfWeek,
+                        lineColor = lineColor,
+                        colWidth = colWidth,
+                        fontScale = fontScale,
+                    )
+                }
             }
+        }
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .horizontalScroll(horScroll)
-            ) {
-                Row(modifier = Modifier.width(gridWidth)) {
+        // ── 网格体 ──
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(verScroll)
+                .horizontalScroll(horScroll)
+        ) {
+            Box(modifier = Modifier.size(gridWidth, bodyHeight)) {
+                for (u in minUnit..maxUnit) {
+                    val row = u - minUnit
                     for (d in visibleDays) {
-                        DayHeaderCell(
-                            label = DAY_LABELS[d - 1],
-                            isToday = isCurrentWeek && d == todayDayOfWeek,
-                            lineColor = lineColor,
-                            colWidth = colWidth,
-                            fontScale = fontScale,
+                        val isToday = isCurrentWeek && d == todayDayOfWeek
+                        val colIdx = dayToColIndex[d] ?: continue
+                        Box(
+                            modifier = Modifier
+                                .offset(colWidth * colIdx, rowHeight * row)
+                                .size(colWidth, rowHeight)
+                                .background(
+                                    when {
+                                        isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.09f)
+                                        row % 2 == 0 -> MaterialTheme.colorScheme.surface
+                                        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.16f)
+                                    }
+                                )
+                                .border(0.5.dp, lineColor)
+                        )
+                    }
+                }
+
+                for (item in displayItems) {
+                    val col = dayToColIndex[item.weekday] ?: continue
+                    val rowStart = item.startUnit - minUnit
+                    val rowSpan = item.endUnit - item.startUnit + 1
+                    if (rowStart < 0 || rowSpan <= 0) continue
+
+                    val groupKey = "d${item.weekday}_u${item.startUnit}"
+                    val overlapCount = groupedItems[groupKey]?.size ?: 1
+                    val overlapIdx = if (overlapCount > 1) {
+                        groupedItems[groupKey]!!.indexOf(item).coerceAtLeast(0)
+                    } else {
+                        0
+                    }
+                    val overlapW = colWidth / overlapCount
+
+                    val x = colWidth * col + overlapW * overlapIdx + 3.dp
+                    val y = rowHeight * rowStart + 3.dp
+                    val w = overlapW - 6.dp
+                    val h = rowHeight * rowSpan - 6.dp
+
+                    CourseCard(
+                        item = item,
+                        compact = rowSpan <= 1,
+                        onClick = { onCourseClick(item) },
+                        modifier = Modifier
+                            .offset(x, y)
+                            .size(w.coerceAtLeast(0.dp), h.coerceAtLeast(0.dp)),
+                        fontScale = fontScale,
+                    )
+                }
+
+                // 当前时间线 — 在课程卡片之后渲染 + zIndex 提升层级，确保浮于课程之上
+                if (currentTimeLineY != null) {
+                    val todayCol = dayToColIndex[todayDayOfWeek]
+                    if (todayCol != null) {
+                        Box(
+                            modifier = Modifier
+                                .offset(colWidth * todayCol + 5.dp, currentTimeLineY - 4.dp)
+                                .size(8.dp, 8.dp)
+                                .zIndex(10f)
+                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(999.dp))
+                        )
+                        Box(
+                            modifier = Modifier
+                                .offset(colWidth * todayCol + 10.dp, currentTimeLineY - 1.dp)
+                                .size(colWidth - 14.dp, 2.dp)
+                                .zIndex(10f)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
                         )
                     }
                 }
             }
         }
+    }
+}
 
-        // 主体：time column + grid body 在同一 Row 中共享 verticalScroll，
-        // time column 不参与 horizontalScroll，确保垂直滚动同步。
-        Row(modifier = Modifier.fillMaxSize().verticalScroll(verScroll)) {
-            Column(
-                modifier = Modifier
-                    .width(TIME_COL_WIDTH)
-                    .height(bodyHeight)
-                    .background(MaterialTheme.colorScheme.surface)
-            ) {
-                for (u in minUnit..maxUnit) {
-                    TimeCell(
-                        unit = unitMap[u],
-                        fallbackUnit = u,
-                        lineColor = lineColor,
-                        rowHeight = rowHeight,
-                        fontScale = fontScale,
-                    )
-                }
-            }
+/**
+ * 固定时间列(2026-06-25 从 WeekGrid 拆出)。
+ *
+ * 由 ScheduleScreen 放在 WeekPager 左侧,**不参与** Pager 的横向换页 →
+ * 切换周次时时间列保持不动。与各周 WeekGrid 网格体共享 [verScroll] 垂直滚动同步。
+ *
+ * 顶部对齐一个与星期头同高的"时间"角标,下方时间格与网格行一一对齐。
+ */
+@Composable
+fun FixedTimeColumn(
+    unitTimes: List<CourseUnit>,
+    rowHeight: Dp,
+    fontScale: Float,
+    verScroll: ScrollState,
+    modifier: Modifier = Modifier,
+) {
+    val sortedUnits = remember(unitTimes) {
+        unitTimes.filter { it.indexNo != null }.sortedBy { it.indexNo }
+    }
+    if (sortedUnits.isEmpty()) return
+    val minUnit = sortedUnits.minOf { it.indexNo ?: 1 }
+    val maxUnit = sortedUnits.maxOf { it.indexNo ?: 13 }
+    val unitMap = sortedUnits.associateBy { it.indexNo }
+    val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
 
-            Box(
-                modifier = Modifier
-                    .horizontalScroll(horScroll)
-            ) {
-                Box(modifier = Modifier.size(gridWidth, bodyHeight)) {
-                    for (u in minUnit..maxUnit) {
-                        val row = u - minUnit
-                        for (d in visibleDays) {
-                            val isToday = isCurrentWeek && d == todayDayOfWeek
-                            val colIdx = dayToColIndex[d] ?: continue
-                            Box(
-                                modifier = Modifier
-                                    .offset(colWidth * colIdx, rowHeight * row)
-                                    .size(colWidth, rowHeight)
-                                    .background(
-                                        when {
-                                            isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.09f)
-                                            row % 2 == 0 -> MaterialTheme.colorScheme.surface
-                                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.16f)
-                                        }
-                                    )
-                                    .border(0.5.dp, lineColor)
-                            )
-                        }
-                    }
-
-                    for (item in displayItems) {
-                        val col = dayToColIndex[item.weekday] ?: continue
-                        val rowStart = item.startUnit - minUnit
-                        val rowSpan = item.endUnit - item.startUnit + 1
-                        if (rowStart < 0 || rowSpan <= 0) continue
-
-                        val groupKey = "d${item.weekday}_u${item.startUnit}"
-                        val overlapCount = groupedItems[groupKey]?.size ?: 1
-                        val overlapIdx = if (overlapCount > 1) {
-                            groupedItems[groupKey]!!.indexOf(item).coerceAtLeast(0)
-                        } else {
-                            0
-                        }
-                        val overlapW = colWidth / overlapCount
-
-                        val x = colWidth * col + overlapW * overlapIdx + 3.dp
-                        val y = rowHeight * rowStart + 3.dp
-                        val w = overlapW - 6.dp
-                        val h = rowHeight * rowSpan - 6.dp
-
-                        CourseCard(
-                            item = item,
-                            compact = rowSpan <= 1,
-                            onClick = { onCourseClick(item) },
-                            modifier = Modifier
-                                .offset(x, y)
-                                .size(w.coerceAtLeast(0.dp), h.coerceAtLeast(0.dp)),
-                            fontScale = fontScale,
-                        )
-                    }
-
-                    // 当前时间线 — 在课程卡片之后渲染 + zIndex 提升层级，确保浮于课程之上
-                    if (currentTimeLineY != null) {
-                        val todayCol = dayToColIndex[todayDayOfWeek]
-                        if (todayCol != null) {
-                            Box(
-                                modifier = Modifier
-                                    .offset(colWidth * todayCol + 5.dp, currentTimeLineY - 4.dp)
-                                    .size(8.dp, 8.dp)
-                                    .zIndex(10f)
-                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(999.dp))
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .offset(colWidth * todayCol + 10.dp, currentTimeLineY - 1.dp)
-                                    .size(colWidth - 14.dp, 2.dp)
-                                    .zIndex(10f)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
-                            )
-                        }
-                    }
-                }
+    Column(modifier = modifier.width(TIME_COL_WIDTH)) {
+        // 角标(与星期头同高)
+        Box(
+            modifier = Modifier
+                .width(TIME_COL_WIDTH)
+                .height(HEADER_HEIGHT)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                .border(0.5.dp, lineColor),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "时间",
+                fontSize = (12 * fontScale).sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        // 时间格(与网格体共享 verScroll → 同步垂直滚动)
+        Column(
+            modifier = Modifier
+                .width(TIME_COL_WIDTH)
+                .fillMaxHeight()
+                .verticalScroll(verScroll)
+                .background(MaterialTheme.colorScheme.surface)
+        ) {
+            for (u in minUnit..maxUnit) {
+                TimeCell(
+                    unit = unitMap[u],
+                    fallbackUnit = u,
+                    lineColor = lineColor,
+                    rowHeight = rowHeight,
+                    fontScale = fontScale,
+                )
             }
         }
     }
@@ -307,6 +371,7 @@ fun WeekGrid(
 @Composable
 private fun DayHeaderCell(
     label: String,
+    dateNumber: Int,
     isToday: Boolean,
     lineColor: Color,
     colWidth: Dp,
@@ -326,10 +391,19 @@ private fun DayHeaderCell(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = label,
-                fontSize = (13 * fontScale).sp,
+                fontSize = (12 * fontScale).sp,
                 fontWeight = if (isToday) FontWeight.Bold else FontWeight.SemiBold,
                 color = if (isToday) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurface,
+                lineHeight = (13 * fontScale).sp
+            )
+            Text(
+                text = dateNumber.toString(),
+                fontSize = (10 * fontScale).sp,
+                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                color = if (isToday) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = (11 * fontScale).sp
             )
             if (isToday) {
                 Text(

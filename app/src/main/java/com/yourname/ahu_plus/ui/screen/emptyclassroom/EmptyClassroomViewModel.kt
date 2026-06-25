@@ -113,9 +113,53 @@ class EmptyClassroomViewModel(
 
     fun selectFloor(floor: Int?) {
         _uiState.update { state ->
-            val filtered = if (floor == null) state.rooms
-            else state.rooms.filter { it.room.floor == floor }
+            val sortedAll = applyRoomSort(state.rooms, state.continuousFree)
+            val filtered = if (floor == null) sortedAll
+            else sortedAll.filter { it.room.floor == floor }
             state.copy(selectedFloor = floor, filteredRooms = filtered)
+        }
+    }
+
+    /**
+     * 2026-06-25: 切换"连续空闲"排序。
+     *
+     * 设计选择而非 bug:开启后,以"当前时间往后第一段连续空闲的节数"为主排序键。
+     * 即从当前节起连续空闲,遇到第一节有课就截断 —— 后面的空闲段不计入。
+     * 这是用户更关心的"现在进去最多能连坐几节",而非全天累计空闲数。
+     *
+     * 进入页面默认 false,需用户手动开启才会重排序。
+     */
+    fun setContinuousFree(value: Boolean) {
+        _uiState.update { state ->
+            state.copy(
+                continuousFree = value,
+                filteredRooms = applyRoomSort(state.rooms, value)
+                    .let { all ->
+                        val selectedFloor = state.selectedFloor
+                        if (selectedFloor == null) all
+                        else all.filter { it.room.floor == selectedFloor }
+                    }
+            )
+        }
+    }
+
+    /**
+     * 应用排序规则。
+     * - total(默认): 按全天总空闲节数降序。
+     * - continuous: 按"当前往后第一段连续空闲"降序(见 [continuousFreeCount]),次按总空闲数,再按名。
+     */
+    private fun applyRoomSort(rooms: List<FreeRoomResult>, continuous: Boolean): List<FreeRoomResult> {
+        return if (continuous) {
+            rooms.sortedWith(
+                compareByDescending<FreeRoomResult> { continuousFreeCount(it) }
+                    .thenByDescending { it.freeUnitsCount }
+                    .thenBy { it.room.nameZh }
+            )
+        } else {
+            rooms.sortedWith(
+                compareByDescending<FreeRoomResult> { it.freeUnitsCount }
+                    .thenBy { it.room.nameZh }
+            )
         }
     }
 
@@ -150,7 +194,7 @@ class EmptyClassroomViewModel(
                         selectedBuildingId = buildingId,
                         buildings = campus?.buildings ?: emptyList(),
                         rooms = rooms,
-                        filteredRooms = rooms,
+                        filteredRooms = applyRoomSort(rooms, _uiState.value.continuousFree),
                         availableFloors = floors,
                         selectedDate = cachedDate,
                         isSelectedDateToday = isToday,
@@ -212,9 +256,10 @@ class EmptyClassroomViewModel(
                             } catch (_: Exception) { Log.w(TAG, "Failed to cache empty classroom JSON") }
                         }
                         val floors = rooms.mapNotNull { it.room.floor }.distinct().sorted()
+                        val sortedAll = applyRoomSort(rooms, _uiState.value.continuousFree)
                         val selectedFloor = _uiState.value.selectedFloor
                         val filtered = if (selectedFloor != null)
-                            rooms.filter { it.room.floor == selectedFloor } else rooms
+                            sortedAll.filter { it.room.floor == selectedFloor } else sortedAll
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -309,8 +354,9 @@ class EmptyClassroomViewModel(
             } catch (_: Exception) { Log.w(TAG, "Failed to cache empty classroom JSON") }
         }
         val floors = rooms.mapNotNull { it.room.floor }.distinct().sorted()
+        val sortedAll = applyRoomSort(rooms, _uiState.value.continuousFree)
         val selectedFloor = _uiState.value.selectedFloor
-        val filtered = if (selectedFloor != null) rooms.filter { it.room.floor == selectedFloor } else rooms
+        val filtered = if (selectedFloor != null) sortedAll.filter { it.room.floor == selectedFloor } else sortedAll
         _uiState.update {
             it.copy(
                 isLoading = false,
@@ -341,11 +387,43 @@ data class EmptyClassroomUiState(
     val error: String? = null,
     val needsLogin: Boolean = false,
     val selectedDate: LocalDate = DebugClock.todayDate(),
-    val isSelectedDateToday: Boolean = true
+    val isSelectedDateToday: Boolean = true,
+    /**
+     * 2026-06-25: 是否按"连续空闲"重排。
+     * - 默认 false(每个 ViewModel 实例创建时都是 false)。
+     * - 开启后,filteredRooms 按"当前往后第一段连续空闲节数"([continuousFreeCount])降序排,
+     *   次按总空闲节数降序,再次按教室名升序。
+     *
+     * **设计而非 bug** — 用户可能更看重"现在进去能连坐多少节",而非"今日累计空闲节数"。
+     * 这是产品设计选择,不是 bug,后续维护请勿当成"排序异常"修复。
+     */
+    val continuousFree: Boolean = false
 ) {
     val availableCampuses: List<CampusInfo>
         get() = CampusBuildingData.campuses
 
     val hasBuildingSelected: Boolean
         get() = selectedCampusId != null && selectedBuildingId != null
+}
+
+/**
+ * "当前往后第一段连续空闲"的节数(2026-06-25)。
+ *
+ * [FreeRoomResult.freeUnitNumbers] 已是「从查询起始节(今天=currentUnit,未来=1)起的空闲节次集合」,
+ * 升序。此函数取其第一段连续区间的长度:
+ *   - freeUnitNumbers = [5,6,8,9,11] → 第一段 5..6 → 返回 2
+ *   - freeUnitNumbers = [5,6,7,8]    → 第一段 5..8 → 返回 4
+ *   - freeUnitNumbers 为空            → 返回 0
+ *
+ * 语义:从现在进去,遇到第一节有课就截断,只算能连坐的节数。
+ */
+fun continuousFreeCount(result: FreeRoomResult): Int {
+    val units = result.freeUnitNumbers
+    if (units.isEmpty()) return 0
+    val sorted = units.sorted()
+    var count = 1
+    for (i in 1 until sorted.size) {
+        if (sorted[i] == sorted[i - 1] + 1) count++ else break
+    }
+    return count
 }

@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.AssignmentTurnedIn
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -1028,6 +1029,15 @@ private fun CoursesTabContent(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val hiddenKeys = viewModel.settingsState.collectAsStateWithLifecycle().value.hiddenCourseKeys
+    val signFlow = viewModel.signFlowState.collectAsStateWithLifecycle().value
+
+    // 即时签到流程的一次性提示(无活动/完成)→ Snackbar
+    LaunchedEffect(signFlow.message) {
+        signFlow.message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearSignFlowMessage()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         when {
@@ -1080,6 +1090,12 @@ private fun CoursesTabContent(
                         completedJobs = completedJobs,
                     )
 
+                    // 即时签到入口:点击检索进行中的签到活动并按类型弹窗
+                    SignNowButton(
+                        searching = signFlow.isSearching,
+                        onClick = { viewModel.startSignFlow() },
+                    )
+
                     // 课程列表
                     LazyColumn(
                         modifier = Modifier
@@ -1129,6 +1145,40 @@ private fun CoursesTabContent(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
         )
+
+        // 即时签到分发对话框(有进行中任务时自动展示)
+        if (signFlow.hasActiveTask) {
+            com.yourname.ahu_plus.ui.screen.chaoxing.sign.SignFlowDialog(viewModel = viewModel)
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  立即签到按钮
+// ══════════════════════════════════════════════════════════════
+
+@Composable
+private fun SignNowButton(searching: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        enabled = !searching,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = AhuShapes.Card,
+    ) {
+        if (searching) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp), strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("正在检索签到…")
+        } else {
+            Icon(Icons.Outlined.AssignmentTurnedIn, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("立即签到")
+        }
     }
 }
 

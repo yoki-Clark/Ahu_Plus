@@ -42,6 +42,7 @@ fun ScheduleSettingsSheet(
     showSun: Boolean,
     pagerEnabled: Boolean,
     resetOnEnter: Boolean,
+    showOtherSemesters: Boolean,
     onColWidthChanged: (Float) -> Unit,
     onRowHeightChanged: (Float) -> Unit,
     onFontScaleChanged: (Float) -> Unit,
@@ -49,8 +50,11 @@ fun ScheduleSettingsSheet(
     onShowSunChanged: (Boolean) -> Unit,
     onPagerEnabledChanged: (Boolean) -> Unit,
     onResetOnEnterChanged: (Boolean) -> Unit,
+    onShowOtherSemestersChanged: (Boolean) -> Unit,
     onReset: () -> Unit,
     onDismiss: () -> Unit,
+    /** 课程提醒设置需要读写偏好;为 null 时隐藏该分区(如预览) */
+    sessionManager: com.yourname.ahu_plus.data.local.SessionManager? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -133,6 +137,19 @@ fun ScheduleSettingsSheet(
                     checked = resetOnEnter,
                     onCheckedChange = onResetOnEnterChanged,
                 )
+                SettingsSwitchRow(
+                    title = "显示其他学期课表行",
+                    subtitle = "关闭后顶部学期切换行隐藏,仅显示本学期",
+                    checked = showOtherSemesters,
+                    onCheckedChange = onShowOtherSemestersChanged,
+                )
+            }
+
+            // ── 课程提醒 (折叠) ────────────────────
+            if (sessionManager != null) {
+                CollapsibleSection(title = "课程提醒", defaultExpanded = false) {
+                    CourseReminderSettings(sessionManager = sessionManager)
+                }
             }
         }
     }

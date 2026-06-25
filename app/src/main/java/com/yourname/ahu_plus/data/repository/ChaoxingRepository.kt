@@ -15,6 +15,8 @@ import com.yourname.ahu_plus.data.model.CxJob
 import com.yourname.ahu_plus.data.model.CxJobInfo
 import com.yourname.ahu_plus.data.model.CxMessage
 import com.yourname.ahu_plus.data.model.CxMessageSource
+import com.yourname.ahu_plus.data.model.CxPreSignInfo
+import com.yourname.ahu_plus.data.model.CxSignType
 import com.yourname.ahu_plus.data.model.CxVideoInfo
 import com.yourname.ahu_plus.data.model.CxWorkData
 import com.yourname.ahu_plus.data.model.CxHomeworkItem
@@ -725,6 +727,59 @@ class ChaoxingRepository(
     //  文档 / 阅读 / 空页面任务
     // ══════════════════════════════════════════════════════════════
 
+    /**
+     * 校验 ananas/job 系列被动任务上报的服务器响应。
+     *
+     * 这些接口失败时通常仍返回 HTTP 200，错误信息藏在 body 里
+     * （jtoken 失效 / knowledgeid 不对 / 任务未解锁），因此不能只看状态码。
+     *
+     * 判定规则（保守，未拿到全部抓包样本前避免反向误判）：
+     *  - HTTP 非 2xx → 失败
+     *  - body 含明确失败信号（"status":false / 错误关键字）→ 失败
+     *  - body 为 {"status":true} 或其他未知但无失败信号的内容 → 成功
+     *
+     * @param label 任务类型，用于日志与错误消息
+     */
+    private fun checkJobResponse(label: String, code: Int, body: String): Result<Unit> {
+        val trimmed = body.trim()
+
+        if (code !in 200..299) {
+            Log.w(TAG, "[$label] HTTP $code, body=${trimmed.take(200)}")
+            return Result.failure(Exception("$label 上报失败: HTTP $code"))
+        }
+
+        // 尝试 JSON 解析 status 字段（ananas 接口最常见格式 {"status":true/false}）
+        val statusFromJson: Boolean? = runCatching {
+            val el = JsonParser.parseString(trimmed)
+            if (el.isJsonObject) {
+                val obj = el.asJsonObject
+                when {
+                    obj.has("status") -> obj.get("status").let { if (it.isJsonPrimitive) it.asBoolean else null }
+                    else -> null
+                }
+            } else null
+        }.getOrNull()
+
+        if (statusFromJson == false) {
+            val msg = runCatching { JsonParser.parseString(trimmed).asJsonObject.str("msg") }.getOrNull().orEmpty()
+            Log.w(TAG, "[$label] status=false, msg=$msg, body=${trimmed.take(200)}")
+            return Result.failure(Exception("$label 上报被拒: ${msg.ifBlank { "status=false" }}"))
+        }
+
+        // 非 JSON 或无 status 字段时，扫描明确的失败关键字（兜底，待抓包校准）
+        if (statusFromJson == null) {
+            val failSignals = listOf("\"status\":false", "登录", "失效", "error", "异常", "无权限", "未开放")
+            val hit = failSignals.firstOrNull { trimmed.contains(it, ignoreCase = true) }
+            if (hit != null) {
+                Log.w(TAG, "[$label] 命中失败信号 '$hit', body=${trimmed.take(200)}")
+                return Result.failure(Exception("$label 上报失败: $hit"))
+            }
+            Log.i(TAG, "[$label] 未知响应格式(暂判成功，待抓包校准): ${trimmed.take(200)}")
+        }
+
+        return Result.success(Unit)
+    }
+
     /** 文档任务 */
     suspend fun studyDocument(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
         withContext(Dispatchers.IO) {
@@ -737,8 +792,10 @@ class ChaoxingRepository(
 
                 val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
                 val resp = client.newCall(request).execute()
+                val code = resp.code
+                val body = resp.body?.string() ?: ""
                 resp.close()
-                Result.success(Unit)
+                checkJobResponse("document", code, body)
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -755,8 +812,10 @@ class ChaoxingRepository(
 
                 val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
                 val resp = client.newCall(request).execute()
+                val code = resp.code
+                val body = resp.body?.string() ?: ""
                 resp.close()
-                Result.success(Unit)
+                checkJobResponse("read", code, body)
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -773,8 +832,10 @@ class ChaoxingRepository(
 
                 val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
                 val resp = client.newCall(request).execute()
+                val code = resp.code
+                val body = resp.body?.string() ?: ""
                 resp.close()
-                Result.success(Unit)
+                checkJobResponse("audio", code, body)
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -791,8 +852,10 @@ class ChaoxingRepository(
 
                 val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
                 val resp = client.newCall(request).execute()
+                val code = resp.code
+                val body = resp.body?.string() ?: ""
                 resp.close()
-                Result.success(Unit)
+                checkJobResponse("live", code, body)
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -809,8 +872,10 @@ class ChaoxingRepository(
 
                 val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
                 val resp = client.newCall(request).execute()
+                val code = resp.code
+                val body = resp.body?.string() ?: ""
                 resp.close()
-                Result.success(Unit)
+                checkJobResponse("emptyPage", code, body)
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -958,11 +1023,13 @@ class ChaoxingRepository(
     }
 
     /**
-     * preSign 前置签名(2026-06-20 集成 Phase 3,移植自 base.py:pre_sign)。
+     * preSign 前置签名(2026-06-24 改为解析真实签到子类型)。
      *
-     * 某些签到(尤其位置签到)需要先调 preSign 拿 token,再调 stuSignajax。
+     * preSign 响应是 HTML,内联 JS / hidden 字段含 `otherId` + `ifphoto`,
+     * 据此判定 6 种签到子类型(activelist 的 type 不可靠)。
+     * 某些签到(尤其位置)也需先 preSign 再 stuSignajax。
      */
-    suspend fun preSign(course: CxCourse, activityId: Long): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun preSign(course: CxCourse, activityId: Long): Result<CxPreSignInfo> = withContext(Dispatchers.IO) {
         try {
             val url = "$BASE_MOBILE/newsign/preSign" +
                 "?general=1&sys=1&ls=1&appType=15&tid=&ut=s" +
@@ -973,7 +1040,15 @@ class ChaoxingRepository(
             val resp = client.newCall(request).execute()
             val text = resp.body?.string() ?: ""
             resp.close()
-            Result.success(text)
+
+            // otherId / ifphoto 可能形如 otherId=3 / "otherId":3 / ifphoto=1,做宽松匹配
+            val otherId = Regex("""otherId['"]?\s*[=:]\s*['"]?(\d+)""").find(text)
+                ?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val ifPhoto = Regex("""ifphoto['"]?\s*[=:]\s*['"]?(\d+)""", RegexOption.IGNORE_CASE).find(text)
+                ?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val signType = CxSignType.fromPreSign(otherId, ifPhoto)
+            Log.i(TAG, "preSign: activityId=$activityId otherId=$otherId ifphoto=$ifPhoto → $signType")
+            Result.success(CxPreSignInfo(signType = signType, otherId = otherId, ifPhoto = ifPhoto, raw = text))
         } catch (e: Exception) {
             Log.e(TAG, "preSign 异常", e)
             Result.failure(e)
@@ -1056,6 +1131,96 @@ class ChaoxingRepository(
             Result.success(text)
         } catch (e: Exception) {
             Log.e(TAG, "签到异常", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 签到码签到(2026-06-24)。老师口播一个数字码,用户输入后提交。
+     *
+     * TODO(抓包校准):signCode 参数名与是否需 name 字段未经真机确认,
+     * 当前按社区公认形态(signCode=<code>)实现,待用测试账号抓真实请求修正。
+     */
+    suspend fun signInSignCode(course: CxCourse, activityId: Long, code: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BASE_MOBILE/pptSign/stuSignajax" +
+                "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
+                "&courseId=${course.courseId}&classId=${course.clazzId}" +
+                "&clientip=&objectId=&name=&useragent=&latitude=-1&longitude=-1&appType=15" +
+                "&signCode=${java.net.URLEncoder.encode(code, "UTF-8")}"
+
+            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
+            val resp = client.newCall(request).execute()
+            val text = resp.body?.string() ?: ""
+            resp.close()
+            Result.success(text)
+        } catch (e: Exception) {
+            Log.e(TAG, "签到码签到异常", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 二维码签到(2026-06-24)。扫码得到的 URL 含 `enc` 参数,提交时携带。
+     * 二维码签到通常也是位置签到的变体,故一并带经纬度(可由调用方传入)。
+     *
+     * TODO(抓包校准):enc 是否需配合 preSign 的其他字段未确认,
+     * 当前按 enc + 经纬度形态实现。
+     */
+    suspend fun signInQrCode(
+        course: CxCourse,
+        activityId: Long,
+        enc: String,
+        latitude: Double = -1.0,
+        longitude: Double = -1.0,
+        address: String = "",
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BASE_MOBILE/pptSign/stuSignajax" +
+                "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
+                "&courseId=${course.courseId}&classId=${course.clazzId}" +
+                "&clientip=&objectId=&useragent=&appType=15" +
+                "&enc=${java.net.URLEncoder.encode(enc, "UTF-8")}" +
+                "&name=${java.net.URLEncoder.encode(address, "UTF-8")}" +
+                "&latitude=$latitude&longitude=$longitude"
+
+            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
+            val resp = client.newCall(request).execute()
+            val text = resp.body?.string() ?: ""
+            resp.close()
+            Result.success(text)
+        } catch (e: Exception) {
+            Log.e(TAG, "二维码签到异常", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 拍照签到(2026-06-24)。先上传图片到云盘拿 objectId(复用 [uploadHomeworkFile]),
+     * 再带 objectId 提交。
+     *
+     * TODO(抓包校准):拍照签到上传是否走与作业相同的云盘端点未经确认,
+     * 当前复用 uploadHomeworkFile 的 objectId,待真机验证。
+     */
+    suspend fun signInPhoto(
+        course: CxCourse,
+        activityId: Long,
+        objectId: String,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$BASE_MOBILE/pptSign/stuSignajax" +
+                "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
+                "&courseId=${course.courseId}&classId=${course.clazzId}" +
+                "&clientip=&objectId=${java.net.URLEncoder.encode(objectId, "UTF-8")}" +
+                "&name=&useragent=&latitude=-1&longitude=-1&appType=15"
+
+            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
+            val resp = client.newCall(request).execute()
+            val text = resp.body?.string() ?: ""
+            resp.close()
+            Result.success(text)
+        } catch (e: Exception) {
+            Log.e(TAG, "拍照签到异常", e)
             Result.failure(e)
         }
     }

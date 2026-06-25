@@ -59,6 +59,10 @@ class ChaoxingViewModel(
     private val _signState = MutableStateFlow(CxSignState())
     val signState: StateFlow<CxSignState> = _signState.asStateFlow()
 
+    // ── 即时签到流程 (2026-06-24):点"签到"→检索进行中活动→按类型弹对话框 ──
+    private val _signFlowState = MutableStateFlow(CxSignFlowState())
+    val signFlowState: StateFlow<CxSignFlowState> = _signFlowState.asStateFlow()
+
     // ── 题库测试结果 (2026-06-20) ──────────────────────────
     private val _tikuTestResult = MutableStateFlow<String?>(null)
     val tikuTestResult: StateFlow<String?> = _tikuTestResult.asStateFlow()
@@ -725,8 +729,20 @@ class ChaoxingViewModel(
         }
     }
 
-    fun updateSignLocation(lat: Double, lon: Double, address: String) {
+    /**
+     * 仅从 SessionManager 载入签到配置(经纬度/地址/手势)到 signState,不拉网络。
+     * 供设置页展示当前配置使用;签到中心则用 [loadSignActivities] 顺带刷新。
+     */
+    fun loadSignConfig() {
         _signState.value = _signState.value.copy(
+            configuredLat = sessionManager.getCxSignLat(),
+            configuredLon = sessionManager.getCxSignLon(),
+            configuredAddress = sessionManager.getCxSignAddress(),
+            configuredGesture = sessionManager.getCxSignGesture(),
+        )
+    }
+
+    fun updateSignLocation(lat: Double, lon: Double, address: String) {        _signState.value = _signState.value.copy(
             configuredLat = lat, configuredLon = lon, configuredAddress = address,
         )
         viewModelScope.launch {
@@ -739,6 +755,143 @@ class ChaoxingViewModel(
     fun updateSignGesture(code: String) {
         _signState.value = _signState.value.copy(configuredGesture = code)
         viewModelScope.launch { sessionManager.saveCxSignGesture(code) }
+    }
+
+    // ════════════════════════════════════════════════════════
+    //  即时签到流程 (2026-06-24)
+    //  用户点"签到" → 检索进行中活动 → preSign 判类型 → 按类型分发
+    // ════════════════════════════════════════════════════════
+
+    /**
+     * 启动即时签到:检索所有课程的进行中签到活动,逐个 preSign 判定真实类型,
+     * 汇总成待处理队列。无活动则提示。
+     */
+    fun startSignFlow() {
+        viewModelScope.launch {
+            _signFlowState.value = CxSignFlowState(isSearching = true)
+            val courses = _coursesState.value.courses
+            if (courses.isEmpty()) {
+                _signFlowState.value = CxSignFlowState(message = "请先在课程页加载课程后再签到")
+                return@launch
+            }
+            val pending = mutableListOf<CxSignTask>()
+            for (course in courses) {
+                val acts = cxRepo.getActivityList(course).getOrNull().orEmpty()
+                for (act in acts.filter { it.status == 1 }) {
+                    // 真实类型以 preSign 为准
+                    val info = cxRepo.preSign(course, act.id).getOrNull()
+                    val type = info?.signType ?: act.signType
+                    pending.add(CxSignTask(course = course, activity = act, signType = type))
+                }
+            }
+            if (pending.isEmpty()) {
+                _signFlowState.value = CxSignFlowState(message = "当前没有进行中的签到")
+                return@launch
+            }
+            _signFlowState.value = CxSignFlowState(tasks = pending, currentIndex = 0)
+        }
+    }
+
+    /** 关闭签到流程(取消或全部完成) */
+    fun dismissSignFlow() {
+        _signFlowState.value = CxSignFlowState()
+    }
+
+    /** 清除一次性提示消息 */
+    fun clearSignFlowMessage() {
+        _signFlowState.value = _signFlowState.value.copy(message = null)
+    }
+
+    /** 跳过当前签到任务,前进到下一个 */
+    fun skipCurrentSignTask() {
+        val s = _signFlowState.value
+        val next = s.currentIndex + 1
+        if (next >= s.tasks.size) {
+            _signFlowState.value = CxSignFlowState(message = "已处理完所有签到")
+        } else {
+            _signFlowState.value = s.copy(currentIndex = next, submitting = false, error = null)
+        }
+    }
+
+    /**
+     * 提交当前签到任务。[params] 携带各类型所需输入(经纬度/手势/签到码/enc/objectId)。
+     * 成功后自动前进到下一个待签任务。
+     */
+    fun submitCurrentSign(params: SignParams) {
+        val s = _signFlowState.value
+        val task = s.current ?: return
+        viewModelScope.launch {
+            _signFlowState.value = s.copy(submitting = true, error = null)
+            val r = when (params) {
+                is SignParams.Normal -> cxRepo.signNormal(task.course, task.activity.id)
+                is SignParams.Location -> cxRepo.signInLocation(
+                    task.course, task.activity.id, params.lat, params.lon, params.address,
+                )
+                is SignParams.Gesture -> cxRepo.signInGesture(task.course, task.activity.id, params.code)
+                is SignParams.SignCode -> cxRepo.signInSignCode(task.course, task.activity.id, params.code)
+                is SignParams.QrCode -> cxRepo.signInQrCode(
+                    task.course, task.activity.id, params.enc, params.lat, params.lon, params.address,
+                )
+                is SignParams.Photo -> cxRepo.signInPhoto(task.course, task.activity.id, params.objectId)
+            }
+            r.onSuccess { msg ->
+                val ok = "成功" in msg || "success" in msg.lowercase()
+                if (ok) {
+                    // 前进到下一个或结束
+                    val next = s.currentIndex + 1
+                    if (next >= s.tasks.size) {
+                        _signFlowState.value = CxSignFlowState(message = "签到完成 ✓")
+                    } else {
+                        _signFlowState.value = s.copy(currentIndex = next, submitting = false, error = null)
+                    }
+                } else {
+                    _signFlowState.value = s.copy(submitting = false, error = "签到结果: ${msg.take(80)}")
+                }
+            }
+            r.onFailure { e ->
+                _signFlowState.value = s.copy(submitting = false, error = "签到失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 拍照签到:先上传图片拿 objectId,再提交 */
+    fun submitPhotoSign(imageBytes: ByteArray, fileName: String, mimeType: String) {
+        val s = _signFlowState.value
+        val task = s.current ?: return
+        viewModelScope.launch {
+            _signFlowState.value = s.copy(submitting = true, error = null)
+            val objId = cxRepo.uploadHomeworkFile(imageBytes, fileName, mimeType).getOrNull()
+            if (objId == null) {
+                _signFlowState.value = s.copy(submitting = false, error = "图片上传失败,请重试")
+                return@launch
+            }
+            submitCurrentSign(SignParams.Photo(objId))
+        }
+    }
+
+    // ── 自定义签到位置 (2026-06-24) ──────────────────────────
+    private val _customLocations = MutableStateFlow<List<com.yourname.ahu_plus.data.model.CustomSignLocation>>(emptyList())
+    val customLocations: StateFlow<List<com.yourname.ahu_plus.data.model.CustomSignLocation>> = _customLocations.asStateFlow()
+
+    /** 从持久化加载自定义位置(进入位置选择器时调用) */
+    fun loadCustomLocations() {
+        _customLocations.value = sessionManager.getCustomSignLocations()
+    }
+
+    /** 添加一个自定义位置(name 去重,同名覆盖) */
+    fun addCustomLocation(name: String, lat: Double, lon: Double) {
+        val trimmed = name.trim().ifBlank { "自定义位置" }
+        val list = _customLocations.value.filter { it.name != trimmed } +
+            com.yourname.ahu_plus.data.model.CustomSignLocation(trimmed, lat, lon)
+        _customLocations.value = list
+        viewModelScope.launch { sessionManager.saveCustomSignLocations(list) }
+    }
+
+    /** 删除一个自定义位置 */
+    fun removeCustomLocation(loc: com.yourname.ahu_plus.data.model.CustomSignLocation) {
+        val list = _customLocations.value.filter { it != loc }
+        _customLocations.value = list
+        viewModelScope.launch { sessionManager.saveCustomSignLocations(list) }
     }
 
     fun loadChapterJobs(course: CxCourse, chapter: CxChapter) {
@@ -1125,6 +1278,44 @@ data class CxSignState(
     val configuredAddress: String = "",
     val configuredGesture: String = "",
 )
+
+/** 即时签到流程中的单个待处理任务 */
+data class CxSignTask(
+    val course: CxCourse,
+    val activity: CxActivity,
+    val signType: CxSignType,
+)
+
+/**
+ * 即时签到流程状态(2026-06-24)。
+ *
+ * - [isSearching] 正在检索进行中活动
+ * - [tasks] 待处理任务队列;[currentIndex] 当前处理到第几个
+ * - [message] 一次性提示(无活动/全部完成),非 null 时 UI 弹 Snackbar 后清除
+ */
+data class CxSignFlowState(
+    val isSearching: Boolean = false,
+    val tasks: List<CxSignTask> = emptyList(),
+    val currentIndex: Int = 0,
+    val submitting: Boolean = false,
+    val error: String? = null,
+    val message: String? = null,
+) {
+    /** 当前待处理任务(队列已空则 null) */
+    val current: CxSignTask? get() = tasks.getOrNull(currentIndex)
+    /** 是否有对话框需要展示 */
+    val hasActiveTask: Boolean get() = current != null
+}
+
+/** 各签到类型提交所需参数 */
+sealed interface SignParams {
+    data object Normal : SignParams
+    data class Location(val lat: Double, val lon: Double, val address: String) : SignParams
+    data class Gesture(val code: String) : SignParams
+    data class SignCode(val code: String) : SignParams
+    data class QrCode(val enc: String, val lat: Double = -1.0, val lon: Double = -1.0, val address: String = "") : SignParams
+    data class Photo(val objectId: String) : SignParams
+}
 
 /** 消息中心 UI 状态(2026-06-21) */
 data class CxMessagesState(

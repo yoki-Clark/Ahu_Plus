@@ -33,12 +33,12 @@ fun WeekPager(
     content: @Composable (page: Int) -> Unit,
 ) {
     if (maxPage <= 0) {
-        content(currentPage)
+        androidx.compose.foundation.layout.Box(modifier = modifier) { content(currentPage) }
         return
     }
 
     if (!enabled) {
-        content(currentPage)
+        androidx.compose.foundation.layout.Box(modifier = modifier) { content(currentPage) }
         return
     }
 

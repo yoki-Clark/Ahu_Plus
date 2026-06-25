@@ -80,6 +80,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 SCRIPT_DIR = Path(__file__).resolve().parent
 TOKEN_FILE = SCRIPT_DIR / ".jwt_token"
 RAW_CACHE = SCRIPT_DIR / "cache_full_scan.json"
+DAILY_CACHE = SCRIPT_DIR / "cache_daily.jsonl"  # 每日扫描结果(断点续扫): 一行一天 {date, exams:[...]}
 OUTPUT_JSON = SCRIPT_DIR / "exam_predictions.json"          # 待上传到 Gitee 的标准化产物
 OUTPUT_CSV = SCRIPT_DIR / "output_7.6-7.15.csv"
 OUTPUT_MD = SCRIPT_DIR / "output_7.6-7.15.md"
@@ -101,8 +102,11 @@ DEFAULT_END_DATE = "2026-07-15"
 # 当前学期标识（写入 JSON 头部供客户端交叉验证）
 SEMESTER_LABEL = "2025-2026-2"
 
-PAGE_SIZE = 200
-MAX_PAGES = 60   # 安全上限 (1521 间教室 / 200 ≈ 8 页)
+PAGE_SIZE = 200   # 单校区分页大小; 按校区拉取时每请求基数小、响应快、不易超时
+MAX_PAGES = 15    # 单校区安全上限 (磬苑最大 973 间 ≈ 5 页)
+
+# 校区列表(id, 名称): 实测 /room/place/campus 返回。按校区分批拉取避免全量深翻页超时。
+CAMPUSES = [(1, "磬苑校区"), (2, "龙河校区"), (22, "金寨路校区"), (6, "纯线上")]
 
 # ── 工具函数 ─────────────────────────────────────────────
 
@@ -115,8 +119,15 @@ def load_token() -> str:
     return TOKEN_FILE.read_text().strip()
 
 
-def fetch_page(token: str, date: str, page: int) -> dict | None:
-    """请求指定日期+页码的所有教室。"""
+def fetch_page(token: str, date: str, page: int, campus_assoc: int | None = None,
+               building_ids: list | None = None, max_retries: int = 4) -> dict | None:
+    """请求指定日期+页码+校区/楼栋的所有教室。
+
+    遇到网络超时/连接错误会重试(指数退避),区分"真失败"与"瞬时抖动"。
+    jwapp 后端翻页是 O(全表扫描×页码),白天负载高时 page3+ 查询超过网关
+    60s 限制会被掐断返回空。按楼栋(building_ids)拉取使每请求只命中单栋楼
+    (几十~百余间,1 页即够),彻底规避深翻页超时。
+    """
     headers = {
         "User-Agent": UA,
         "Content-Type": "application/json",
@@ -126,30 +137,47 @@ def fetch_page(token: str, date: str, page: int) -> dict | None:
     body = {
         "currentPage": page,
         "pageSize": PAGE_SIZE,
-        "campusAssoc": None,
-        "buildingIds": [],
+        "campusAssoc": campus_assoc,
+        "buildingIds": building_ids or [],
         "roomTypeIds": [],
         "floors": [],
         "minSeat": "",
         "maxSeat": "",
         "date": date,
     }
-    try:
-        resp = requests.post(BASE_URL, headers=headers, json=body,
-                             timeout=30, verify=False)
-    except requests.RequestException as e:
-        print(f"  ⚠️  HTTP error page {page}: {e}", file=sys.stderr)
-        return None
+    for attempt in range(1, max_retries + 1):
+        try:
+            # 单栋楼 page1 正常 5-6s; 超过 22s 基本是被网关掐住,早点重试比干等强
+            resp = requests.post(BASE_URL, headers=headers, json=body,
+                                 timeout=22, verify=False)
+        except requests.RequestException as e:
+            wait = min(2 ** attempt, 8)  # 2s, 4s, 8s, 8s (封顶,避免清淡日干等过久)
+            print(f"  ⚠️  HTTP error page {page} (尝试 {attempt}/{max_retries}): {e}",
+                  file=sys.stderr)
+            if attempt < max_retries:
+                time.sleep(wait)
+                continue
+            return None
 
-    if resp.status_code != 200:
-        print(f"  ⚠️  HTTP {resp.status_code} page {page}", file=sys.stderr)
-        return None
+        if resp.status_code != 200:
+            print(f"  ⚠️  HTTP {resp.status_code} page {page} (尝试 {attempt}/{max_retries})",
+                  file=sys.stderr)
+            if attempt < max_retries:
+                time.sleep(min(2 ** attempt, 8))
+                continue
+            return None
 
-    try:
-        return resp.json()
-    except json.JSONDecodeError:
-        print(f"  ⚠️  Non-JSON response page {page}", file=sys.stderr)
-        return None
+        try:
+            return resp.json()
+        except json.JSONDecodeError:
+            print(f"  ⚠️  Non-JSON response page {page} (尝试 {attempt}/{max_retries})",
+                  file=sys.stderr)
+            if attempt < max_retries:
+                time.sleep(min(2 ** attempt, 8))
+                continue
+            return None
+
+    return None
 
 
 # ── 解析逻辑 ─────────────────────────────────────────────
@@ -208,37 +236,77 @@ def parse_exam_rooms(rooms: list) -> list:
     return exams
 
 
-def scan_date(token: str, date: str) -> list:
-    """扫描某一天的全部教室,提取去重后的 Exam 记录。"""
+def fetch_buildings(token: str) -> list:
+    """获取所有校区的全部教学楼 (id, nameZh, campus_name)。
+
+    按楼栋扫描的前置步骤。失败则抛异常(楼栋列表是扫描基础,不能静默降级)。
+    """
+    headers = {
+        "User-Agent": UA,
+        "Authorization": token,
+        "Accept": "application/json",
+    }
+    building_url = BASE_URL.rsplit("/room/place/rooms", 1)[0] + "/room/place/building"
+    all_blds = []
+    for campus_id, campus_name in CAMPUSES:
+        for attempt in range(1, 4):
+            try:
+                resp = requests.get(f"{building_url}?campusAssoc={campus_id}",
+                                    headers=headers, timeout=30, verify=False)
+                blds = resp.json().get("data", []) or []
+                for b in blds:
+                    all_blds.append((b["id"], b.get("nameZh", ""), campus_name))
+                break
+            except Exception as e:
+                print(f"  ⚠️  楼栋列表 {campus_name} 尝试 {attempt}/3: {e}",
+                      file=sys.stderr)
+                if attempt < 3:
+                    time.sleep(2 ** attempt)
+    if not all_blds:
+        sys.exit("❌ 无法获取楼栋列表,扫描中止")
+    return all_blds
+
+
+def scan_date(token: str, date: str, buildings: list) -> list:
+    """扫描某一天的全部教室,提取去重后的 Exam 记录。
+
+    按楼栋逐栋拉取: 每栋楼教室少(几十~百余间),恒为 1 页,规避 jwapp 后端
+    深翻页超过网关 60s 限制被掐断返回空的问题。
+    """
     all_exams = []
     seen_keys = set()
 
-    for page in range(1, MAX_PAGES + 1):
-        data = fetch_page(token, date, page)
-        if data is None:
-            break
-        result = data.get("result")
-        if result != 0:
-            print(f"  ⚠️  API result={result} msg={data.get('message')}",
-                  file=sys.stderr)
-            break
+    for b_id, b_name, campus_name in buildings:
+        for page in range(1, MAX_PAGES + 1):
+            data = fetch_page(token, date, page, building_ids=[b_id])
+            if data is None:
+                print(f"  ⚠️  {date} {campus_name}/{b_name} page {page} "
+                      f"重试耗尽,该楼数据可能不完整!", file=sys.stderr)
+                break
+            result = data.get("result")
+            if result != 0:
+                print(f"  ⚠️  {b_name} API result={result} "
+                      f"msg={data.get('message')}", file=sys.stderr)
+                break
 
-        page_data = data.get("data", {})
-        rooms = page_data.get("data") or []
-        if not rooms:
-            break
+            page_data = data.get("data", {})
+            rooms = page_data.get("data") or []
+            if not rooms:
+                break
 
-        exams = parse_exam_rooms(rooms)
-        for e in exams:
-            key = (e["full_code"], e["date"], e["start"], e["room_code"])
-            if key not in seen_keys:
-                seen_keys.add(key)
-                all_exams.append(e)
+            exams = parse_exam_rooms(rooms)
+            for e in exams:
+                key = (e["full_code"], e["date"], e["start"], e["room_code"])
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    all_exams.append(e)
 
-        page_info = page_data.get("_page_", {})
-        total_pages = page_info.get("totalPages", 1)
-        if page >= total_pages:
-            break
+            page_info = page_data.get("_page_", {})
+            total_pages = page_info.get("totalPages", 1)
+            if page >= total_pages:
+                break
+
+            time.sleep(0.2)
 
     return all_exams
 
@@ -405,19 +473,48 @@ def main():
 
     print(f"日期范围: {start_str} ~ {end_str} ({len(dates)} 天)")
     print(f"目标校区: 全部 (磬苑 + 龙河 + 金寨路 + 纯线上)")
-    print(f"分页大小: {PAGE_SIZE} 间/页")
+    print(f"扫描方式: 按楼栋逐栋拉取 (规避深翻页超时)")
     print()
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
+    # 先获取楼栋列表(按楼栋扫描的前置)
+    buildings = fetch_buildings(token)
+    print(f"楼栋总数: {len(buildings)} 栋")
+    print()
+
     all_exams: list = []
     summary_by_date: list = []
 
+    # 断点续扫: 加载已缓存的每日结果(上次中断前已完成的天)
+    cached_days: dict = {}
+    if DAILY_CACHE.exists():
+        for line in DAILY_CACHE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                cached_days[rec["date"]] = rec["exams"]
+            except (json.JSONDecodeError, KeyError):
+                continue
+        if cached_days:
+            print(f"[续扫] 已缓存 {len(cached_days)} 天: "
+                  f"{', '.join(sorted(cached_days))}\n")
+
     for date in dates:
+        if date in cached_days:
+            exams = cached_days[date]
+            cnt_campuses = sorted({e["campus"] for e in exams})
+            print(f"{date}: {len(exams):4d} 场考试 (缓存命中,跳过)  校区={cnt_campuses}")
+            summary_by_date.append((date, len(exams), cnt_campuses, 0.0))
+            all_exams.extend(exams)
+            continue
+
         t0 = time.time()
-        exams = scan_date(token, date)
+        exams = scan_date(token, date, buildings)
         elapsed = time.time() - t0
         cnt_exam_rooms = len({e["room_code"] for e in exams})
         cnt_campuses = sorted({e["campus"] for e in exams})
@@ -425,6 +522,11 @@ def main():
               f"校区={cnt_campuses}  耗时={elapsed:.1f}s")
         summary_by_date.append((date, len(exams), cnt_campuses, elapsed))
         all_exams.extend(exams)
+
+        # 每天扫完立即落盘(断点续扫): 即使后续中断也不丢已完成的天
+        with open(DAILY_CACHE, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"date": date, "exams": exams},
+                               ensure_ascii=False) + "\n")
 
     # 排序 + 写原始缓存
     all_exams.sort(key=lambda e: (e["date"], e["start"], e["campus"], e["room_name"], e["full_code"]))
