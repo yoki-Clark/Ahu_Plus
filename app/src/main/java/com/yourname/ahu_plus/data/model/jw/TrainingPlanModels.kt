@@ -30,6 +30,8 @@ data class PlanModuleNode(
     val displayName: String get() = type?.nameZh ?: "未命名"
     val requiredCredits: Double? get() = requireInfo?.requiredCredits
     val courseCount: Int get() = planCourses?.size ?: 0
+    /** 展平/展开追踪用的稳定标识：优先用后端 id，无 id 时回退 hashCode */
+    val idOrHash: Int get() = id ?: hashCode()
 }
 
 data class PlanCourse(
