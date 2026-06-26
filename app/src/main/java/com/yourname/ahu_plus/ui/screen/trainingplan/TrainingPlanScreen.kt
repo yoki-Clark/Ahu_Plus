@@ -3,7 +3,6 @@ package com.yourname.ahu_plus.ui.screen.trainingplan
 import com.yourname.ahu_plus.ui.components.CenteredLoader
 import com.yourname.ahu_plus.ui.components.CenteredError
 import com.yourname.ahu_plus.ui.components.CenteredMessage
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -16,14 +15,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -42,7 +39,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -132,6 +128,11 @@ fun TrainingPlanScreen(
             }
             else -> {
                 val allCourses = uiState.topModules.sumOf { countAllCourses(it) }
+                val rows = buildPlanRows(
+                    modules = uiState.topModules,
+                    expandedIds = uiState.expandedIds,
+                    unmatchedCourses = uiState.unmatchedCompletionCourses
+                )
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
@@ -145,24 +146,48 @@ fun TrainingPlanScreen(
                             totalRequired = uiState.totalRequiredCredits,
                             summary = if (uiState.hasOfficialCompletion) uiState.officialSummary else null,
                             moduleCount = uiState.totalModuleCount,
-                            totalCourses = allCourses,
-                            creditByModule = uiState.creditBySubModule,
-                            moduleCompletion = if (uiState.hasOfficialCompletion) uiState.moduleCompletion else emptyMap()
+                            totalCourses = allCourses
                         )
                     }
 
-                    // 一级模块
-                    items(uiState.topModules, key = { it.id ?: it.hashCode() }) { module ->
-                        ModuleCard(
-                            module = module,
-                            depth = 0,
-                            expandedId = uiState.expandedId,
-                            passedCodes = uiState.passedCourseCodes,
-                            inProgressCodes = uiState.inProgressCourseCodes,
-                            failedCodes = uiState.failedCourseCodes,
-                            unmatchedCourses = uiState.unmatchedCompletionCourses,
-                            onToggleNode = { viewModel.toggleExpand(it) }
-                        )
+                    // 一级模块 + 子模块 + 课程已全部展平到 rows，无嵌套滚动
+                    items(rows, key = { it.key }) { row ->
+                        when (row) {
+                            is PlanRow.Module -> ModuleHeader(
+                                module = row.module,
+                                depth = row.depth,
+                                expandable = row.expandable,
+                                isExpanded = row.module.idOrHash in uiState.expandedIds,
+                                isFlexAbsorber = row.isFlexAbsorber,
+                                passedCodes = uiState.passedCourseCodes,
+                                inProgressCodes = uiState.inProgressCourseCodes,
+                                failedCodes = uiState.failedCourseCodes,
+                                unmatchedCourses = uiState.unmatchedCompletionCourses,
+                                onToggle = viewModel::toggleExpand,
+                                modifier = Modifier
+                                    .animateItem()
+                                    .padding(start = (row.depth * 12).dp)
+                            )
+                            is PlanRow.Course -> CourseCard(
+                                course = row.course,
+                                index = row.index,
+                                passedCodes = uiState.passedCourseCodes,
+                                inProgressCodes = uiState.inProgressCourseCodes,
+                                failedCodes = uiState.failedCourseCodes,
+                                modifier = Modifier
+                                    .animateItem()
+                                    .padding(start = (row.depth * 12 + 8).dp)
+                            )
+                            is PlanRow.SectionLabel -> Text(
+                                text = row.text,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .animateItem()
+                                    .padding(start = (row.depth * 12 + 8).dp, top = 4.dp)
+                            )
+                        }
                     }
 
                     item(key = "spacer") { Spacer(modifier = Modifier.height(24.dp)) }
@@ -179,9 +204,7 @@ private fun OverviewCard(
     totalRequired: Double?,
     summary: CompletionSummary?,
     moduleCount: Int,
-    totalCourses: Int,
-    creditByModule: Map<String, Double>,
-    moduleCompletion: Map<String, Double>
+    totalCourses: Int
 ) {
     val hasCompletion = summary != null
     val progress = if (hasCompletion) summary!!.completionProgress else -1f
@@ -241,90 +264,41 @@ private fun OverviewCard(
                     StatusBadge("未修 ${summary.unrepairedCount}", NotTakenGray)
                 }
             }
-
-            if (creditByModule.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(14.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f))
-                Spacer(modifier = Modifier.height(10.dp))
-                creditByModule.entries.forEach { (name, required) ->
-                    val completed = moduleCompletion[name] ?: 0.0
-                    val modProgress = if (required > 0) (completed / required).toFloat().coerceIn(0f, 1f) else -1f
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = name,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        if (modProgress >= 0f) {
-                            LinearProgressIndicator(
-                                progress = { modProgress },
-                                modifier = Modifier.width(60.dp).height(8.dp),
-                                color = if (modProgress >= 1f) PassedGreen else MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "${completed.toInt()}/${required.toInt()}",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (modProgress >= 1f) PassedGreen else MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.width(44.dp)
-                            )
-                        } else {
-                            Text(
-                                text = "${required.toInt()}学分",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.width(44.dp)
-                            )
-                        }
-                    }
-                }
-            }
         }
     }
 }
 
-// ── 模块卡片（递归） ──────────────────────────────────────────────────
+// ── 模块表头（展平后，不再递归渲染内容） ──────────────────────────────
+// 旧实现把子模块/课程嵌套在 heightIn(400).verticalScroll 里，与外层 LazyColumn
+// 同轴滚动冲突且裁剪长列表；且单一 expandedId 让展开子模块会折叠父模块。
+// 现在整棵树由 buildPlanRows 展平进 LazyColumn，本组件只画一个表头。
 
 @Composable
-private fun ModuleCard(
+private fun ModuleHeader(
     module: PlanModuleNode,
     depth: Int,
-    expandedId: Int?,
+    expandable: Boolean,
+    isExpanded: Boolean,
+    isFlexAbsorber: Boolean,
     passedCodes: Set<String>,
     inProgressCodes: Set<String>,
     failedCodes: Set<String>,
-    unmatchedCourses: List<com.yourname.ahu_plus.data.model.jw.CompletionCourse>,
-    onToggleNode: (Int) -> Unit
+    unmatchedCourses: List<CompletionCourse>,
+    onToggle: (Int) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val moduleId = module.id ?: module.hashCode()
-    val isExpanded = moduleId == expandedId
-    val hasContent = !module.planCourses.isNullOrEmpty() || !module.children.isNullOrEmpty()
+    val moduleId = module.idOrHash
     val reqCredits = module.requiredCredits
     val reqCourseNum = module.requireInfo?.requiredCourseNum?.takeIf { it > 0 }
     val creditsUpper = module.limitInfo?.creditsUpperLimit
-    val courseCount = module.courseCount
     val totalCourseCount = countAllCourses(module)
     val sumCredits = module.sumChildrenRequiredCreditsOrZero?.toDoubleOrNull()
 
     // 计算本模块的完成进度
     val compStats = computeModuleCompletion(module, passedCodes, inProgressCodes, failedCodes)
-    // 通识选修等柔性模块：加上未匹配课程的学分
-    val displayName = module.displayName
-    val extraPassed = if (displayName.contains("通识选修") || displayName.contains("选修")) {
+    // 仅「自由选修吸收桶」一个模块吸收未匹配课程的学分（避免被多个带"选修"模块重复累加）
+    val extraPassed = if (isFlexAbsorber) {
         unmatchedCourses.filter { it.isPassed }.sumOf { it.credits ?: 0.0 }
-    } else 0.0
-    val extraTaking = if (displayName.contains("通识选修") || displayName.contains("选修")) {
-        unmatchedCourses.filter { it.isTaking }.sumOf { it.credits ?: 0.0 }
     } else 0.0
     val totalPassed = compStats.passedCredits + extraPassed
     val effectiveRequired = reqCredits ?: sumCredits ?: 0.0
@@ -332,16 +306,17 @@ private fun ModuleCard(
 
     Card(
         shape = AhuShapes.Card,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (depth == 0) MaterialTheme.colorScheme.surface
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (depth == 0) 1.dp else 0.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .then(if (hasContent) Modifier.clickable { moduleId.let(onToggleNode) } else Modifier)
+            .then(if (expandable) Modifier.clickable { onToggle(moduleId) } else Modifier)
     ) {
         Column(
-            modifier = Modifier
-                .animateContentSize()
-                .padding(start = (14 + depth * 16).dp, end = 14.dp, top = 12.dp, bottom = 12.dp)
+            modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)
         ) {
             // Header row
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -407,7 +382,7 @@ private fun ModuleCard(
                         }
                     }
                 }
-                if (hasContent) {
+                if (expandable) {
                     Icon(
                         Icons.Filled.KeyboardArrowDown, "展开/收起",
                         modifier = Modifier.size(24.dp).rotate(if (isExpanded) 180f else 0f),
@@ -415,83 +390,109 @@ private fun ModuleCard(
                     )
                 }
             }
+        }
+    }
+}
 
-            // Expanded content — 限制最大高度, 内部滚动, 表头不动
-            if (isExpanded) {
-                Spacer(modifier = Modifier.height(8.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-                Spacer(modifier = Modifier.height(4.dp))
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 400.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Courses list
-                    module.planCourses?.forEachIndexed { index, course ->
-                        CourseCard(
-                            course = course,
-                            index = index,
-                            passedCodes = passedCodes,
-                            inProgressCodes = inProgressCodes,
-                            failedCodes = failedCodes
-                        )
-                    }
+// ── 树展平：把递归模块树拍平成 LazyColumn 的行，避免嵌套同轴滚动 ──────────
 
-                    // Sub-modules
-                    module.children?.forEach { child ->
-                        ModuleCard(
-                            module = child,
-                            depth = depth + 1,
-                            expandedId = expandedId,
-                            passedCodes = passedCodes,
-                            inProgressCodes = inProgressCodes,
-                            failedCodes = failedCodes,
-                            unmatchedCourses = unmatchedCourses,
-                            onToggleNode = onToggleNode
-                        )
-                    }
+sealed interface PlanRow {
+    val key: String
+    val depth: Int
 
-                    // 显示未匹配课程（通识选修等无固定课程列表的模块）
-                    val showUnmatched = unmatchedCourses.isNotEmpty() &&
-                        (displayName.contains("通识选修") || displayName.contains("选修"))
-                    if (showUnmatched) {
-                        Text(
-                            text = "已选课程",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        unmatchedCourses.forEachIndexed { index, cc ->
-                            val status = when {
-                                cc.isPassed -> CourseCompletion.PASSED
-                                cc.isTaking -> CourseCompletion.IN_PROGRESS
-                                cc.isFailed -> CourseCompletion.FAILED
-                                else -> CourseCompletion.NOT_TAKEN
-                            }
-                            val fakePlanCourse = PlanCourse(
-                                course = com.yourname.ahu_plus.data.model.jw.PlanCourseInfo(
-                                    nameZh = cc.nameZh, code = cc.code, credits = cc.credits
-                                ),
-                                courseProperty = if (cc.compulsory == true)
-                                    com.yourname.ahu_plus.data.model.jw.PlanEnumValue(nameZh = "必修")
-                                else com.yourname.ahu_plus.data.model.jw.PlanEnumValue(nameZh = "选修"),
-                                examMode = null
-                            )
-                            CourseCard(
-                                course = fakePlanCourse,
-                                index = index,
-                                passedCodes = if (status == CourseCompletion.PASSED) setOf(cc.code ?: "") else emptySet(),
-                                inProgressCodes = if (status == CourseCompletion.IN_PROGRESS) setOf(cc.code ?: "") else emptySet(),
-                                failedCodes = if (status == CourseCompletion.FAILED) setOf(cc.code ?: "") else emptySet()
-                            )
-                        }
-                    }
-                }
+    data class Module(
+        val module: PlanModuleNode,
+        override val depth: Int,
+        val expandable: Boolean,
+        val isFlexAbsorber: Boolean
+    ) : PlanRow {
+        override val key get() = "mod_${module.idOrHash}"
+    }
+
+    data class Course(
+        val course: PlanCourse,
+        val index: Int,
+        override val depth: Int,
+        val parentKey: String
+    ) : PlanRow {
+        override val key get() = "crs_${parentKey}_$index"
+    }
+
+    data class SectionLabel(
+        val text: String,
+        override val depth: Int,
+        val parentKey: String
+    ) : PlanRow {
+        override val key get() = "sec_${parentKey}"
+    }
+}
+
+/**
+ * 在整棵树里挑「唯一」一个吸收桶，用来归置未匹配课程（学生自选、但不在方案固定课表里的课）。
+ * 优先级：名含「通识选修」的模块 > 名含「选修」且本身无固定课表的自由桶。
+ * 找不到则返回 null（未匹配课程不挂到任何模块，但总览仍统计）。
+ * ponytail: 名字启发式；后端 moduleCompletionId 若能精确对到 plan 模块再换精确归属。
+ */
+private fun findFlexAbsorberId(modules: List<PlanModuleNode>): Int? {
+    var general: Int? = null    // 含「通识选修」
+    var freeBucket: Int? = null // 含「选修」且无固定课表
+
+    fun walk(m: PlanModuleNode) {
+        val name = m.displayName
+        if (general == null && name.contains("通识选修")) general = m.idOrHash
+        if (freeBucket == null && name.contains("选修") &&
+            m.planCourses.isNullOrEmpty() && m.children.isNullOrEmpty()
+        ) freeBucket = m.idOrHash
+        m.children?.forEach { walk(it) }
+    }
+    modules.forEach { walk(it) }
+    return general ?: freeBucket
+}
+
+/**
+ * 把模块树展平成行列表。只展开的模块才会吐出其子行；父子可同时展开。
+ */
+private fun buildPlanRows(
+    modules: List<PlanModuleNode>,
+    expandedIds: Set<Int>,
+    unmatchedCourses: List<CompletionCourse>
+): List<PlanRow> {
+    val rows = mutableListOf<PlanRow>()
+    val flexAbsorberId = if (unmatchedCourses.isEmpty()) null else findFlexAbsorberId(modules)
+
+    fun walk(module: PlanModuleNode, depth: Int) {
+        val isAbsorber = module.idOrHash == flexAbsorberId
+        val showUnmatched = isAbsorber && unmatchedCourses.isNotEmpty()
+        val expandable = !module.planCourses.isNullOrEmpty() ||
+            !module.children.isNullOrEmpty() || showUnmatched
+
+        val parentKey = "mod_${module.idOrHash}"
+        rows += PlanRow.Module(module, depth, expandable, isAbsorber)
+
+        if (module.idOrHash !in expandedIds) return
+
+        // 本模块直属课程
+        module.planCourses?.forEachIndexed { index, course ->
+            rows += PlanRow.Course(course, index, depth + 1, parentKey)
+        }
+        // 子模块递归
+        module.children?.forEach { child -> walk(child, depth + 1) }
+        // 未匹配课程（仅唯一吸收桶模块显示，避免多个带"选修"模块重复）
+        if (showUnmatched) {
+            rows += PlanRow.SectionLabel("已选课程", depth + 1, parentKey)
+            unmatchedCourses.forEachIndexed { index, cc ->
+                val fake = PlanCourse(
+                    course = PlanCourseInfo(nameZh = cc.nameZh, code = cc.code, credits = cc.credits),
+                    courseProperty = PlanEnumValue(nameZh = if (cc.compulsory == true) "必修" else "选修"),
+                    examMode = null
+                )
+                rows += PlanRow.Course(fake, index, depth + 1, "${parentKey}_u")
             }
         }
     }
+
+    modules.forEach { walk(it, 0) }
+    return rows
 }
 
 // ── 课程卡片 ──────────────────────────────────────────────────────────
@@ -502,7 +503,8 @@ private fun CourseCard(
     index: Int,
     passedCodes: Set<String>,
     inProgressCodes: Set<String>,
-    failedCodes: Set<String>
+    failedCodes: Set<String>,
+    modifier: Modifier = Modifier
 ) {
     val periodInfo = course.periodInfo
     val name = course.displayName
@@ -542,7 +544,7 @@ private fun CourseCard(
                 CourseCompletion.NOT_TAKEN -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             }
         ),
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             // Row 1: status icon + index + course name + credits

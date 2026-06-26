@@ -72,3 +72,10 @@ tools/exam_prediction/cache_daily.jsonl
 # ── 截图与导出 ────────────────────────────────────────────
 *.png
 tools/_cap*.png
+
+# ── 根目录临时探针/调试产物(grep _tmp / _probe / _plan.* / _tp_) ──
+/_probe_*.py
+/_probe_*.txt
+/_plan.json
+/_tmp_prefs.pb
+/_tp_log.txt

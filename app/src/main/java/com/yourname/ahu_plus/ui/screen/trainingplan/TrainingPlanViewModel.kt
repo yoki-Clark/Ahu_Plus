@@ -8,6 +8,7 @@ import com.yourname.ahu_plus.data.model.jw.CompletionCourse
 import com.yourname.ahu_plus.data.model.jw.CompletionSummary
 import com.yourname.ahu_plus.data.model.jw.GradeResponse
 import com.yourname.ahu_plus.data.model.jw.PlanModuleNode
+import com.yourname.ahu_plus.data.model.jw.ResultTypeEntry
 import com.yourname.ahu_plus.data.model.jw.TrainingPlanResponse
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.ProgramCompletionRepository
@@ -32,8 +33,8 @@ class TrainingPlanViewModel(
     val uiState: StateFlow<TrainingPlanUiState> = _uiState.asStateFlow()
 
     private val gson = GsonProvider.instance
-    // 手风琴模式：同一时间只展开一个模块 (null = 全部折叠)
-    private var expandedId: Int? = null
+    // 多级展开：父子模块可同时展开（旧版单一 expandedId 会让展开子模块折叠父模块）
+    private var expandedIds: Set<Int> = emptySet()
 
     init {
         viewModelScope.launch {
@@ -51,9 +52,9 @@ class TrainingPlanViewModel(
     }
 
     fun toggleExpand(moduleId: Int) {
-        // 手风琴：点击已展开的 → 折叠；点击新的 → 展开新的(自动关旧的)
-        expandedId = if (moduleId == expandedId) null else moduleId
-        _uiState.update { it.copy(expandedId = expandedId) }
+        // 点击已展开的 → 折叠；点击新的 → 追加展开（父子互不影响）
+        expandedIds = if (moduleId in expandedIds) expandedIds - moduleId else expandedIds + moduleId
+        _uiState.update { it.copy(expandedIds = expandedIds) }
     }
 
     private suspend fun loadFromCache(): Boolean {
@@ -192,6 +193,8 @@ class TrainingPlanViewModel(
             // 同样收集未匹配的修读中/挂科/未修课程
             val allUnmatchedCodes = (passedCodes + takingCodes + failedCodes) - allPlanCodes
             val unmatchedCourses = courses.filter { it.code in allUnmatchedCodes }
+            // ponytail: 与 applyGrades 兜底的 grades 通识选修历史选课合并去重,避免覆盖丢失
+            val mergedUnmatched = uniqueUnmatched(unmatchedCourses, state.unmatchedCompletionCourses)
 
             // 计算每模块完成学分，未匹配的归入「通识选修」
             val moduleCompletion = computeModuleCompletion(
@@ -216,7 +219,7 @@ class TrainingPlanViewModel(
                 inProgressCourseCodes = takingCodes,
                 failedCourseCodes = failedCodes,
                 moduleCompletion = adjustedCompletion,
-                unmatchedCompletionCourses = unmatchedCourses,
+                unmatchedCompletionCourses = mergedUnmatched,
                 hasOfficialCompletion = true,
                 isLoading = false
             )
@@ -254,7 +257,7 @@ class TrainingPlanViewModel(
         return sum
     }
 
-    /** 兜底：从成绩数据粗略判断已修 */
+    /** 兜底：从成绩数据粗略判断已修 + 补全 completion preview 拿不到的通识选修历史选课 */
     private fun applyGrades(resp: GradeResponse) {
         val allGrades = resp.allGrades()
         val gradeByCode = allGrades
@@ -270,8 +273,25 @@ class TrainingPlanViewModel(
             .filter { (_, g) -> g.gaGrade != null && g.gaGrade != "--" && g.published == true }
             .keys
 
+        // ponytail: completion preview HTML 只含当学期选课,通识选修历史课(TX 前缀)从 grades 兜底
+        val gradeUnmatched = gradeByCode.values
+            .filter { it.courseTaxon == "通识选修" && (it.passed == true || (it.gaGrade != null && it.gaGrade != "--" && it.published == true)) }
+            .map { g -> CompletionCourse(
+                code = g.courseCode,
+                nameZh = g.courseName,
+                credits = g.credits,
+                compulsory = g.compulsory,
+                finalResultType = ResultTypeEntry(name = if (g.passed == true) "PASSED" else "UNREPAIRED")
+            ) }
+
         if (!_uiState.value.hasOfficialCompletion) {
             _uiState.update { it.copy(passedCourseCodes = it.passedCourseCodes + passedCodes) }
+        }
+        // 无论 hasOfficialCompletion 如何都合并,补全 completion preview 漏掉的历史选课
+        _uiState.update { state ->
+            state.copy(
+                unmatchedCompletionCourses = uniqueUnmatched(state.unmatchedCompletionCourses, gradeUnmatched)
+            )
         }
     }
 
@@ -316,13 +336,17 @@ class TrainingPlanViewModel(
 
 enum class CourseCompletion { NOT_TAKEN, IN_PROGRESS, PASSED, FAILED }
 
+/** 合并两批 unmatched 课程,按 courseCode 去重(同 code 时保留 a 中的版本,applyCompletionData 优先) */
+internal fun uniqueUnmatched(a: List<CompletionCourse>, b: List<CompletionCourse>): List<CompletionCourse> =
+    (a + b).distinctBy { it.code }
+
 data class TrainingPlanUiState(
     val isLoading: Boolean = true,
     val planId: Int? = null,
     val topModules: List<PlanModuleNode> = emptyList(),
     val totalRequiredCredits: Double? = null,
     val creditBySubModule: Map<String, Double> = emptyMap(),
-    val expandedId: Int? = null,
+    val expandedIds: Set<Int> = emptySet(),
     val error: String? = null,
     val needsLogin: Boolean = false,
     // ── 完成状态 ──
