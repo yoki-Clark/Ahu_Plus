@@ -637,6 +637,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     @Volatile private var cachedAdwmhSessionId: String? = null
     /**
+     * 最近一次成功获取的智慧安大支付码缓存(payload + 服务器时间文本 + 获取时间戳)。
+     * 用于冷启动时先展示旧码(标注新鲜度),避免服务器抖动时白屏。
+     * 属支付令牌,clearAll() 退登时一并清除。
+     */
+    @Volatile private var cachedAdwmhQrPayload: String? = null
+    @Volatile private var cachedAdwmhQrServerText: String = ""
+    @Volatile private var cachedAdwmhQrFetchedAt: Long = 0L
+    /**
      * 排考预测 Gitee JSON 缓存:
      * 由 [com.yourname.ahu_plus.data.repository.ExamDataRepository]
      * 从 Gitee `yao-enqi/ahu-plus-update` 仓库的
@@ -1712,6 +1720,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         cachedAdwmhSessionId = prefs[ADWMH_SESSION_KEY]
+        cachedAdwmhQrPayload = prefs[ADWMH_QR_PAYLOAD_KEY]
+        cachedAdwmhQrServerText = prefs[ADWMH_QR_SERVER_TEXT_KEY] ?: ""
+        cachedAdwmhQrFetchedAt = prefs[ADWMH_QR_FETCHED_AT_KEY] ?: 0L
 
         cachedExamPredictionsJson = prefs[EXAM_PREDICTIONS_JSON_KEY]
 
@@ -6388,6 +6399,22 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     fun getAdwmhSessionId(): String? = cachedAdwmhSessionId
 
+    /** 读取缓存的支付码(payload, 服务器时间文本, 获取时间戳ms)。payload 为空表示无缓存。 */
+    fun getAdwmhQrCache(): Triple<String?, String, Long> =
+        Triple(cachedAdwmhQrPayload, cachedAdwmhQrServerText, cachedAdwmhQrFetchedAt)
+
+    /** 写入最近一次成功获取的支付码缓存。 */
+    suspend fun saveAdwmhQrCache(payload: String, serverText: String, fetchedAt: Long) {
+        cachedAdwmhQrPayload = payload
+        cachedAdwmhQrServerText = serverText
+        cachedAdwmhQrFetchedAt = fetchedAt
+        appDataStore.dataStore.edit {
+            it[ADWMH_QR_PAYLOAD_KEY] = payload
+            it[ADWMH_QR_SERVER_TEXT_KEY] = serverText
+            it[ADWMH_QR_FETCHED_AT_KEY] = fetchedAt
+        }
+    }
+
 
 
 
@@ -7481,6 +7508,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         cachedAdwmhSessionId = null
+        cachedAdwmhQrPayload = null
+        cachedAdwmhQrServerText = ""
+        cachedAdwmhQrFetchedAt = 0L
         cachedExamPredictionsJson = null
 
 
@@ -9456,6 +9486,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
         val ADWMH_SESSION_KEY = stringPreferencesKey("adwmh_jsessionid")
+        val ADWMH_QR_PAYLOAD_KEY = stringPreferencesKey("adwmh_qr_payload")
+        val ADWMH_QR_SERVER_TEXT_KEY = stringPreferencesKey("adwmh_qr_server_text")
+        val ADWMH_QR_FETCHED_AT_KEY = longPreferencesKey("adwmh_qr_fetched_at")
         val EXAM_PREDICTIONS_JSON_KEY = stringPreferencesKey("exam_predictions_json")
 
         // 开发者公告
@@ -9947,6 +9980,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
 
             ADWMH_SESSION_KEY, EXAM_PREDICTIONS_JSON_KEY,
+            ADWMH_QR_PAYLOAD_KEY, ADWMH_QR_SERVER_TEXT_KEY, ADWMH_QR_FETCHED_AT_KEY,
 
 
 

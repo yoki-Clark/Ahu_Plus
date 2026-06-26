@@ -73,6 +73,8 @@ fun QrCodeFullScreenDialog(
     countdownSeconds: Int,
     totalCountdownSeconds: Int,
     qrError: String?,
+    isStale: Boolean = false,
+    ageSeconds: Int = 0,
     brightnessBoost: Boolean = true,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit
@@ -193,12 +195,37 @@ fun QrCodeFullScreenDialog(
                             }
                         }
 
-                        // 服务器时间
-                        Text(
-                            text = qrCode.serverTimeText.ifBlank { "已刷新" },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.5f)
-                        )
+                        // 服务器时间 / 失效提醒
+                        if (isStale) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(AhuShapes.Pill)
+                                    .background(Color(0xFFFFA000).copy(alpha = 0.22f))
+                                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Refresh,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFE082),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "${formatQrAge(ageSeconds)}的码，可能已失效，请点击刷新",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFFFFE082),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = qrCode.statusMsg.ifBlank { "已刷新" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.5f)
+                            )
+                        }
 
                         // 刷新中指示
                         if (isLoading) {
