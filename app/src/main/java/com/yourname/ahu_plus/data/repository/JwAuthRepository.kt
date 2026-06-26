@@ -98,22 +98,46 @@ class JwAuthRepository(
         return cookies.joinToString("; ") { "${it.name}=${it.value}" }
     }
 
+    // ponytail: 全局锁防并发重入，多 ViewModel 同时触发 authenticate() 时只跑一次完整 SSO
+    private val authMutex = java.util.concurrent.locks.ReentrantLock()
+    @Volatile private var lastAuthResult: Result<Unit>? = null
+
     /**
      * 尝试认证教务处。
      * 优先尝试简易 SSO(复用 CASTGC),失败则回退到完整 CAS 登录。
+     *
+     * 内置并发去重：多个协程同时调用时，只有第一个执行完整流程，其余等待并复用结果。
+     * 调用方必须在 IO 线程（ReentrantLock.lock() 是阻塞调用）。
      */
     suspend fun authenticate(): Result<Unit> {
-        return try {
-            // 先尝试从持久化存储恢复
-            val savedSession = sessionManager.getJwSessionId()
-            val savedPstSid = sessionManager.getJwPstSid()
-            if (!savedSession.isNullOrBlank() && !savedPstSid.isNullOrBlank()) {
-                Log.i(TAG, "使用已保存的 JW session")
-                saveToCookieStore(JW_HOST, "SESSION", savedSession)
-                saveToCookieStore(JW_HOST, "__pstsid__", savedPstSid)
-                return Result.success(Unit)
-            }
+        // 短路：已有持久化 session 直接恢复（__pstsid__ 从未保存，仅检查 SESSION）
+        val savedSession = sessionManager.getJwSessionId()
+        if (!savedSession.isNullOrBlank()) {
+            saveToCookieStore(JW_HOST, "SESSION", savedSession)
+            return Result.success(Unit)
+        }
 
+        // ponytail: tryLock 非阻塞，抢到就执行；没抢到就阻塞等待已运行中的结果
+        if (!authMutex.tryLock()) {
+            Log.d(TAG, "authenticate: 已有协程在认证，等待结果...")
+            authMutex.lock()   // 阻塞直到前一个完成
+            val result = lastAuthResult ?: Result.failure(JwAuthException("认证被取消"))
+            authMutex.unlock()
+            return result
+        }
+        try {
+            lastAuthResult = null // 复位
+            val result = performAuth()
+            lastAuthResult = result
+            return result
+        } finally {
+            authMutex.unlock()
+        }
+    }
+
+    /** 实际认证逻辑（调用方已持有 [authMutex]） */
+    private suspend fun performAuth(): Result<Unit> {
+        return try {
             Log.d(TAG, "开始 JW SSO 认证...")
             // 策略 1: 简易 SSO(复用 CASTGC)
             try {
@@ -125,7 +149,6 @@ class JwAuthRepository(
                 performFullLogin()
                 Log.d(TAG, "完整 CAS 登录成功")
             }
-
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "JW 认证失败: ${e.message}", e)
