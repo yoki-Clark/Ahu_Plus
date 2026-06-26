@@ -12,6 +12,8 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -169,9 +171,8 @@ class CasAuthRepository(
         }
     }
 
-    // ponytail: 全局锁防并发 re-login，多 repo 同时调用 ensureValidSession() 时只跑一次 autoLogin
-    private val sessionMutex = java.util.concurrent.locks.ReentrantLock()
-    @Volatile private var lastSessionResult: Result<Unit>? = null
+    // 串行化并发 re-login:持锁后再次检查 sessionId,holder 已登录成功的免重复跑
+    private val sessionMutex = Mutex()
 
     /**
      * 验证当前 JSESSIONID 是否有效:若失效则尝试重新登录。
@@ -180,38 +181,28 @@ class CasAuthRepository(
      * 若返回 200 且 body 是 JSON → session 有效。
      * 若返回 302 到 CAS 或 body 含登录页标记 → session 失效。
      *
-     * 内置并发去重：多个协程同时调用时只执行一次完整 login()。
+     * 并发安全:多协程同时调用时只执行一次 login(),其余等待后复用 holder 的 session。
      */
     suspend fun ensureValidSession(): Result<Unit> {
         val sessionId = sessionManager.getSessionId()
         if (sessionId.isNullOrBlank()) {
-            return mutexAutoLogin()
+            return mutexLogin()
         }
         // 用现有 JSESSIONID 探测
         return probeSession(sessionId).recoverCatching {
             Log.w(TAG, "JSESSIONID 已失效，尝试重新登录")
             clearCookies()
             sessionManager.clearSession()
-            mutexAutoLogin()
+            mutexLogin()
         }
     }
 
-    /** 互斥 autoLogin：保证同一时刻只有一个协程执行完整 CAS 登录流程 */
-    private suspend fun mutexAutoLogin(): Result<Unit> {
-        if (!sessionMutex.tryLock()) {
-            Log.d(TAG, "autoLogin: 已有协程在登录，等待结果...")
-            sessionMutex.lock()
-            val result = lastSessionResult ?: Result.failure(Exception("登录被取消"))
-            sessionMutex.unlock()
-            return result
-        }
-        try {
-            lastSessionResult = null
-            val result = autoLogin()
-            lastSessionResult = result
-            return result
-        } finally {
-            sessionMutex.unlock()
+    /** 互斥登录:持锁后复检 sessionId,holder 已写入则跳过 autoLogin */
+    private suspend fun mutexLogin(): Result<Unit> = sessionMutex.withLock {
+        if (!sessionManager.getSessionId().isNullOrBlank()) {
+            Result.success(Unit)
+        } else {
+            autoLogin()
         }
     }
 
