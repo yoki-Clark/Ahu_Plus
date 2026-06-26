@@ -93,6 +93,7 @@ class HomeViewModel(
         }
         applyStudentInfoPrefill(studentInfoRepository?.readCachedStudentInfo(), loadAfterApply = false)
         loadBalanceAndBills()
+        restoreCachedQr()
         startQrAutoRefresh()
     }
 
@@ -970,6 +971,35 @@ class HomeViewModel(
     /** 连续 QR 加载失败次数，用于退避 */
     private var qrConsecutiveFailures = 0
 
+    /**
+     * 冷启动时用持久化的旧码先填充 UI(并标注新鲜度),避免服务器抖动时白屏。
+     * 太旧的码(> [QR_CACHE_MAX_RESTORE_MS])不展示,直接走正常加载流程。
+     */
+    private fun restoreCachedQr() {
+        if (adwmhCardRepository == null) return
+        val (payload, serverText, fetchedAt) = sessionManager.getAdwmhQrCache()
+        if (payload.isNullOrBlank() || fetchedAt <= 0L) return
+        val ageMs = System.currentTimeMillis() - fetchedAt
+        if (ageMs > QR_CACHE_MAX_RESTORE_MS) return
+        _uiState.update { state ->
+            if (state.qrCode != null) return@update state
+            state.copy(
+                qrCode = AdwmhQrCode(
+                    payload = payload,
+                    statusMsg = serverText,
+                    fetchedAt = fetchedAt
+                ),
+                qrStale = ageMs > QR_STALE_THRESHOLD_MS,
+                qrAgeSeconds = (ageMs / 1000).toInt()
+            )
+        }
+    }
+
+    /** 持久化最近一次成功的支付码,供下次冷启动兜底展示。 */
+    private suspend fun persistQr(qr: AdwmhQrCode) {
+        sessionManager.saveAdwmhQrCache(qr.payload, qr.statusMsg, qr.fetchedAt)
+    }
+
     fun loadCampusQrCode() {
         val qrRepository = adwmhCardRepository ?: return
         viewModelScope.launch {
@@ -979,13 +1009,17 @@ class HomeViewModel(
                 val qrResult = qrRepository.getQrCode()
                 if (qrResult.isSuccess) {
                     qrConsecutiveFailures = 0
+                    val qr = qrResult.getOrThrow()
+                    persistQr(qr)
                     val balanceResult = qrRepository.getBalance()
                     _uiState.update { state ->
                         state.copy(
-                            qrCode = qrResult.getOrThrow(),
+                            qrCode = qr,
                             qrBalance = balanceResult.getOrNull() ?: state.qrBalance,
                             qrLoading = false,
-                            qrError = null
+                            qrError = null,
+                            qrStale = false,
+                            qrAgeSeconds = 0
                         )
                     }
                     return@withContext
@@ -1019,7 +1053,9 @@ class HomeViewModel(
                                             qrCode = qr,
                                             qrBalance = balanceResult.getOrNull() ?: state.qrBalance,
                                             qrLoading = false,
-                                            qrError = null
+                                            qrError = null,
+                                            qrStale = false,
+                                            qrAgeSeconds = 0
                                         )
                                     },
                                     onFailure = { e2 ->
@@ -1031,6 +1067,7 @@ class HomeViewModel(
                                     }
                                 )
                             }
+                            retryQr.getOrNull()?.let { persistQr(it) }
                             return@withContext
                         }
                     }
@@ -1175,7 +1212,20 @@ class HomeViewModel(
                 }
                 val totalSeconds = baseInterval * backoffMultiplier
                 for (remaining in totalSeconds downTo 0) {
-                    _uiState.update { it.copy(qrCountdownSeconds = remaining) }
+                    _uiState.update { state ->
+                        // 按当前展示码的获取时间实时计算新鲜度
+                        val fetchedAt = state.qrCode?.fetchedAt ?: 0L
+                        if (fetchedAt <= 0L) {
+                            state.copy(qrCountdownSeconds = remaining)
+                        } else {
+                            val ageMs = System.currentTimeMillis() - fetchedAt
+                            state.copy(
+                                qrCountdownSeconds = remaining,
+                                qrAgeSeconds = (ageMs / 1000).toInt(),
+                                qrStale = ageMs > QR_STALE_THRESHOLD_MS
+                            )
+                        }
+                    }
                     delay(1000)
                 }
             }
@@ -1184,6 +1234,10 @@ class HomeViewModel(
 
     private companion object {
         const val QR_REFRESH_INTERVAL_MS = 45_000L
+        /** 展示码超过此时长视为可能已失效,UI 弹出醒目提示。 */
+        const val QR_STALE_THRESHOLD_MS = 60_000L
+        /** 冷启动时,缓存码超过此时长则不再展示(太旧已无意义)。 */
+        const val QR_CACHE_MAX_RESTORE_MS = 10 * 60_000L
     }
 }
 
@@ -1227,6 +1281,10 @@ data class HomeUiState(
     val qrLoading: Boolean = false,
     val qrError: String? = null,
     val qrCountdownSeconds: Int = 0,
+    /** 当前展示码是否可能已失效(获取时间超过阈值)。 */
+    val qrStale: Boolean = false,
+    /** 当前展示码的获取距今秒数,用于"X 秒前"文案。 */
+    val qrAgeSeconds: Int = 0,
     // 智慧安大登录态
     val adwmhCaptchaBytes: ByteArray? = null,
     val adwmhCaptchaLoading: Boolean = false,

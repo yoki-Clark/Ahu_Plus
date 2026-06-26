@@ -255,7 +255,7 @@ class AdwmhCardRepository(
             Log.d(TAG, "getQrCode: OK (payload len=${payload.length})")
             AdwmhQrCode(
                 payload = payload,
-                serverTimeText = json.get("msg")?.asString.orEmpty(),
+                statusMsg = json.get("msg")?.asString.orEmpty(),
                 fetchedAt = System.currentTimeMillis()
             )
         }
@@ -365,7 +365,11 @@ class AdwmhCardRepository(
 
 data class AdwmhQrCode(
     val payload: String,
-    val serverTimeText: String,
+    /**
+     * 接口 `msg` 字段。经对照 AHUTong 实现确认:这是服务端状态文案(成功时类似
+     * "操作成功"),**并非服务器时间**。仅作辅助展示,勿当时间戳解析。
+     */
+    val statusMsg: String,
     val fetchedAt: Long
 )
 

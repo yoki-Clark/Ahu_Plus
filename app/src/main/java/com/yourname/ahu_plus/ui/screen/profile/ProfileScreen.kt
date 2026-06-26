@@ -461,6 +461,8 @@ fun ProfileScreen(
             countdownSeconds = cardUiState.qrCountdownSeconds,
             totalCountdownSeconds = 45,
             qrError = cardUiState.qrError,
+            isStale = cardUiState.qrStale,
+            ageSeconds = cardUiState.qrAgeSeconds,
             brightnessBoost = cardViewModel.getQrBrightnessBoost(),
             onDismiss = { showFullQrCode = false },
             onRefresh = { cardViewModel.loadCampusQrCode() }
@@ -1719,7 +1721,7 @@ private fun ProfileQrCard(
                     }
 
                     Text(
-                        text = qrCode.serverTimeText.ifBlank { "已刷新" },
+                        text = qrCode.statusMsg.ifBlank { "已刷新" },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )

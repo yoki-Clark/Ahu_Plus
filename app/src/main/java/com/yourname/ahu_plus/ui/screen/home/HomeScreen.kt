@@ -56,6 +56,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -128,6 +129,8 @@ fun HomeScreen(
                     error = uiState.qrError,
                     countdownSeconds = uiState.qrCountdownSeconds,
                     totalCountdownSeconds = 45,
+                    isStale = uiState.qrStale,
+                    ageSeconds = uiState.qrAgeSeconds,
                     onAutoLogin = viewModel::autoLoginAdwmh,
                     onRefresh = viewModel::loadCampusQrCode,
                     onQrClick = { showFullQrCode = true }
@@ -204,6 +207,8 @@ fun HomeScreen(
                 countdownSeconds = uiState.qrCountdownSeconds,
                 totalCountdownSeconds = 45,
                 qrError = uiState.qrError,
+                isStale = uiState.qrStale,
+                ageSeconds = uiState.qrAgeSeconds,
                 brightnessBoost = viewModel.getQrBrightnessBoost(),
                 onDismiss = { showFullQrCode = false },
                 onRefresh = viewModel::loadCampusQrCode
@@ -220,6 +225,8 @@ fun CampusQrCodeCard(
     error: String?,
     countdownSeconds: Int,
     totalCountdownSeconds: Int,
+    isStale: Boolean = false,
+    ageSeconds: Int = 0,
     onAutoLogin: () -> Unit,
     onRefresh: () -> Unit,
     onQrClick: () -> Unit
@@ -334,22 +341,47 @@ fun CampusQrCodeCard(
                             )
                         }
 
-                        // 服务器时间 + 刷新中指示
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = qrCode.serverTimeText.ifBlank { "已刷新" },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.55f)
-                            )
-                            if (isLoading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White.copy(alpha = 0.6f)
+                        // 服务器时间 / 失效提醒 + 刷新中指示
+                        if (isStale) {
+                            // 码可能已失效 → 醒目琥珀色警告
+                            Row(
+                                modifier = Modifier
+                                    .clip(AhuShapes.Pill)
+                                    .background(Color(0xFFFFA000).copy(alpha = 0.22f))
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Refresh,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFE082),
+                                    modifier = Modifier.size(15.dp)
                                 )
+                                Text(
+                                    text = "${formatQrAge(ageSeconds)}的码，可能已失效，请刷新",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFFFFE082)
+                                )
+                            }
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = qrCode.statusMsg.ifBlank { "已刷新" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.55f)
+                                )
+                                if (isLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White.copy(alpha = 0.6f)
+                                    )
+                                }
                             }
                         }
                     }
@@ -427,6 +459,13 @@ fun CampusQrCodeCard(
             }
         }
     }
+}
+
+/** 将"距今秒数"格式化为人类可读文案:"刚刚 / X 秒前 / X 分钟前"。 */
+internal fun formatQrAge(ageSeconds: Int): String = when {
+    ageSeconds < 5 -> "刚刚"
+    ageSeconds < 60 -> "$ageSeconds 秒前"
+    else -> "${ageSeconds / 60} 分钟前"
 }
 
 @Composable
