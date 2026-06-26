@@ -94,11 +94,11 @@ fun LoginScreen(
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data("file:///android_asset/ahu_logo.svg")
+                    .data("file:///android_asset/ahu_plus_icon.png")
                     .crossfade(true)
                     .build(),
                 imageLoader = logoLoader,
-                contentDescription = "安徽大学校徽",
+                contentDescription = "安大+",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.size(70.dp)
             )
