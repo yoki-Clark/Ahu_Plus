@@ -8,15 +8,15 @@
 
 | 文件 | 行数 | 备注 |
 |------|-----:|------|
-| `data/local/SessionManager.kt` | 10333 | 139 个 key，扁平无分区，`init()` 占 1055 行。**几乎所有 Repository 都注入它** → 头号上下文黑洞，也是多模块的硬阻塞点 |
-| `ui/screen/profile/ProfileScreen.kt` | 2846 | 我的页聚合，含多个二级入口 |
+| `data/local/SessionManager.kt` | 3190 | 139 个 key，扁平无分区。**几乎所有 Repository 都注入它** → 头号上下文黑洞，也是多模块的硬阻塞点 |
 | `data/repository/ChaoxingRepository.kt` | 2275 | 超星核心 API |
-| `ui/screen/chaoxing/ChaoxingTabScreen.kt` | 1469 | 超星 4 个二级 tab 容器 |
 | `ui/screen/market/MarketViewModel.kt` | 1410 | |
 | `ui/screen/home/HomeViewModel.kt` | 1332 | 跨域聚合（余额+支付码+课程+任务） |
 | `ui/screen/chaoxing/ChaoxingViewModel.kt` | 1330 | |
-| `ui/screen/market/MarketComponents.kt` | 1216 | |
+| `ui/screen/profile/ProfileScreen.kt` | 1285 | 我的页聚合，含多个二级入口（拆分后） |
 | `ui/screen/schedule/ScheduleViewModel.kt` | 1189 | |
+| `ui/screen/market/MarketComponents.kt` | 790 | 集市共享组件（拆分后） |
+| `ui/screen/chaoxing/ChaoxingTabScreen.kt` | 326 | 超星 4 个二级 tab 容器（拆分后） |
 | 其它 >700：`HomeScreen 1054`/`ChaoxingSettingsScreen 1022`/`DashboardScreen 872`/`TrainingPlanScreen 841`/`CardAnalyticsScreen 771`/`YcardRepository 764`/`XzxxScreen 744`/`ScheduleScreen 730`/`MarketSettingsScreen 730`/`ChaoxingStudyRepository 715`/`EmptyClassroomScreen 710`/`GradeScreen 708`/`MarketExportUtils 703`/`MarketRepository 701` | | |
 
 ## :core — 共享核心（所有领域依赖；多模块时下沉到 :core）
