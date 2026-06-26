@@ -181,11 +181,11 @@ val guideCategories: List<GuideCategory> = listOf(
                 sections = listOf(
                     usage {
                         p("填上学号，密码用你登智慧安大（网上办事大厅）的那个，点登录就行。密码框右边有个小眼睛，可以点开看看有没有输错。")
-                        p("登录一次，校园卡、教务、个人信息这些系统就都自动通了，平时不用反复登。下次打开 App 会自动帮你接着用上次的登录状态，中途会看到校徽轻轻呼吸的等待动画；万一自动登录失败，点屏幕任意位置就能重试，也能在那一页切换账号。")
+                        p("登录一次，校园卡、教务、个人信息这些系统就都自动通了，平时不用反复登。下次打开 App 会自动帮你接着用上次的登录状态，中途会看到安大+ 图标轻轻呼吸的等待动画；万一自动登录失败，点屏幕任意位置就能重试，也能在那一页切换账号。")
                     },
                     impl {
                         p("登录页 LoginScreen 把学号/密码交给 LoginViewModel → CasAuthRepository 走安大 CAS 统一身份认证（GET 登录页取 lt → DES 加密 username+password+lt → POST /cas/device → POST /cas/login 拿 CASTGC，再用 ST 逐个换取教务 SESSION、一卡通 JSESSIONID、学生一张表等下游会话）。")
-                        p("二次启动走 AutoLoginScreen + AutoLoginViewModel，状态机 Loading / Success / Failed / NoCredentials：有凭据自动重登跳主页，无凭据跳登录页，失败整页可点重试。各系统会话凭据持久化在 DataStore，SessionAuthenticator（OkHttp Authenticator + HTML 嗅探 Interceptor 双层）在请求掉登录态时被动续期。校徽走 Coil + SvgDecoder 渲染 assets/ahu_logo.svg。")
+                        p("二次启动走 AutoLoginScreen + AutoLoginViewModel，状态机 Loading / Success / Failed / NoCredentials：有凭据自动重登跳主页，无凭据跳登录页，失败整页可点重试。各系统会话凭据持久化在 DataStore，SessionAuthenticator（OkHttp Authenticator + HTML 嗅探 Interceptor 双层）在请求掉登录态时被动续期。安大+ 图标走 Coil 渲染 assets/ahu_plus_icon.png。")
                     },
                     problems {
                         p("重认证一度会误调 clearAll()，把集市 Token 等用户手动配置一起清掉。已收敛为：仅「无本地缓存且认证失败」才走轻量重认证，绝不清空用户配置。")

@@ -122,11 +122,11 @@ fun AutoLoginScreen(
             // 校徽(简单呼吸动画,不旋转)
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data("file:///android_asset/ahu_logo.svg")
+                    .data("file:///android_asset/ahu_plus_icon.png")
                     .crossfade(true)
                     .build(),
                 imageLoader = imageLoader,
-                contentDescription = "安徽大学校徽",
+                contentDescription = "安大+",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .size(160.dp)

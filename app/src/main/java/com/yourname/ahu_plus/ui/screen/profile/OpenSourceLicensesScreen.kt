@@ -320,7 +320,7 @@ private val OPEN_SOURCE_LICENSES = listOf(
         groupId = "io.coil-kt",
         artifactId = "coil-compose",
         version = "2.7.0",
-        description = "Kotlin 协程驱动的 Android 图片加载库 (校徽 SVG 渲染)。",
+        description = "Kotlin 协程驱动的 Android 图片加载库 (安大+ 图标渲染)。",
         license = "Apache-2.0",
         category = "图片加载",
     ),
