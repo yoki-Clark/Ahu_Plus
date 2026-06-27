@@ -34,6 +34,24 @@ class EmptyClassroomViewModel(
 
     private val gson = GsonProvider.instance
 
+    /**
+     * 2026-06-27: buildingId → 该楼全量楼层集合缓存。
+     * 楼层信息跟日期无关,但跟 buildingId 强相关,ViewModel 内存缓存够用。
+     * 来源:`/student/ws/room/get-rooms` 返回该楼全部房间(不管今日是否空闲)。
+     * 失败时不写入,fallback 到 free-list 推导的楼层(老行为)。
+     */
+    private val buildingRoomsFloors = mutableMapOf<String, List<Int>>()
+
+    /**
+     * 楼层 chip 数据源。优先级:缓存的全楼楼层 > 当前空闲房间所在楼层(fallback)。
+     * ponytail: 单次排序去重,both 分支都做了,无须再 dedup。
+     */
+    private fun computeAllFloors(buildingId: String?, rooms: List<FreeRoomResult>): List<Int> {
+        val cached = buildingId?.let { buildingRoomsFloors[it] }
+        if (cached != null) return cached
+        return rooms.mapNotNull { it.room.floor }.distinct().sorted()
+    }
+
     init {
         viewModelScope.launch {
             val restored = restoreFromCache()
@@ -81,10 +99,34 @@ class EmptyClassroomViewModel(
                 selectedFloor = null,
                 rooms = emptyList(),
                 filteredRooms = emptyList(),
-                availableFloors = emptyList()
+                availableFloors = computeAllFloors(buildingId, emptyList())
             )
         }
         viewModelScope.launch { loadData(isRefresh = false) }
+        // 2026-06-27: fire-and-forget 拉全楼房间,补全楼层 chip。
+        // 不阻塞 loadData;失败时静默回退,fallback 已隐含在 computeAllFloors 优先级里。
+        viewModelScope.launch { loadBuildingFloors(buildingId) }
+    }
+
+    /**
+     * 2026-06-27: 拉 buildingId 全部房间并缓存楼层,完成后重发 availableFloors。
+     * ponytail: 单次 GET + 一次 state update,失败时不写入缓存、不重试。
+     */
+    private suspend fun loadBuildingFloors(buildingId: String) {
+        val result = emptyClassroomRepository.getBuildingRooms(buildingId)
+        result.fold(
+            onSuccess = { rooms ->
+                val floors = rooms.mapNotNull { it.floor }.distinct().sorted()
+                if (floors.isNotEmpty()) {
+                    buildingRoomsFloors[buildingId] = floors
+                    // 仅当用户仍停留在同一 buildingId 时刷新 chip(防止切走后覆盖)
+                    if (_uiState.value.selectedBuildingId == buildingId) {
+                        _uiState.update { it.copy(availableFloors = floors) }
+                    }
+                }
+            },
+            onFailure = { /* warn 已由 Repository 打,这里静默 */ }
+        )
     }
 
     /**
@@ -185,7 +227,7 @@ class EmptyClassroomViewModel(
             withContext(Dispatchers.IO) {
                 val rooms = gson.fromJson(json, Array<FreeRoomResult>::class.java).toList()
                 val campus = CampusBuildingData.campuses.find { it.id == campusId }
-                val floors = rooms.mapNotNull { it.room.floor }.distinct().sorted()
+                val floors = computeAllFloors(buildingId, rooms)
                 val isToday = cachedDate == DebugClock.todayDate()
                 _uiState.update {
                     it.copy(
@@ -255,7 +297,7 @@ class EmptyClassroomViewModel(
                                 sm.saveEmptyClassroomJson(gson.toJson(rooms), cacheKey)
                             } catch (_: Exception) { Log.w(TAG, "Failed to cache empty classroom JSON") }
                         }
-                        val floors = rooms.mapNotNull { it.room.floor }.distinct().sorted()
+                        val floors = computeAllFloors(buildingId, rooms)
                         val sortedAll = applyRoomSort(rooms, _uiState.value.continuousFree)
                         val selectedFloor = _uiState.value.selectedFloor
                         val filtered = if (selectedFloor != null)
@@ -353,7 +395,7 @@ class EmptyClassroomViewModel(
                 sm.saveEmptyClassroomJson(gson.toJson(rooms), cacheKey)
             } catch (_: Exception) { Log.w(TAG, "Failed to cache empty classroom JSON") }
         }
-        val floors = rooms.mapNotNull { it.room.floor }.distinct().sorted()
+        val floors = computeAllFloors(buildingId, rooms)
         val sortedAll = applyRoomSort(rooms, _uiState.value.continuousFree)
         val selectedFloor = _uiState.value.selectedFloor
         val filtered = if (selectedFloor != null) sortedAll.filter { it.room.floor == selectedFloor } else sortedAll
