@@ -240,6 +240,13 @@ class SessionManager(private val appDataStore: AppDataStore) {
      */
     @Volatile private var cachedAnnouncementsJson: String? = null
 
+    /**
+     * 当前缓存的 announcements.json 的"客户端首次写入时间" (毫秒)。
+     * 用于公告默认有效期(空 expireAt → fetch 时刻 + 1 天)。
+     * 0 表示从未写入过(此时默认 expireAt 退化为"立即过期"避免老缓存复活)。
+     */
+    @Volatile private var cachedAnnouncementsFetchedAt: Long = 0L
+
     /** 用户已"不再提示"的公告 id 集合(逗号分隔持久化)。退登保留,避免重复弹。 */
     @Volatile private var cachedDismissedAnnouncementIds: Set<String> = emptySet()
 
@@ -607,6 +614,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedExamPredictionsJson = prefs[EXAM_PREDICTIONS_JSON_KEY]
 
         cachedAnnouncementsJson = prefs[ANNOUNCEMENTS_JSON_KEY]
+        cachedAnnouncementsFetchedAt = prefs[ANNOUNCEMENTS_FETCHED_AT_KEY] ?: 0L
         cachedDismissedAnnouncementIds =
             prefs[DISMISSED_ANNOUNCEMENT_IDS_KEY]
                 ?.split(",")
@@ -1949,9 +1957,20 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     fun getAnnouncementsJson(): String? = cachedAnnouncementsJson
 
+    /** 公告 JSON 首次写入客户端的时间(毫秒);0=从未写入。用于默认 1 天有效期。 */
+    fun getAnnouncementsFetchedAt(): Long = cachedAnnouncementsFetchedAt
+
     suspend fun saveAnnouncementsJson(json: String) {
+        // 内容变了 = 维护者推了新公告 → 重置 1 天有效期基准。
+        // 同一份 JSON 重写(网络抖动)不会刷新时间,避免无限续命。
+        if (cachedAnnouncementsJson != json) {
+            cachedAnnouncementsFetchedAt = System.currentTimeMillis()
+        }
         cachedAnnouncementsJson = json
-        appDataStore.dataStore.edit { it[ANNOUNCEMENTS_JSON_KEY] = json }
+        appDataStore.dataStore.edit { prefs ->
+            prefs[ANNOUNCEMENTS_JSON_KEY] = json
+            prefs[ANNOUNCEMENTS_FETCHED_AT_KEY] = cachedAnnouncementsFetchedAt
+        }
     }
 
     /** 已"不再提示"的公告 id 集合。 */
@@ -2902,6 +2921,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         // 开发者公告
         val ANNOUNCEMENTS_JSON_KEY = stringPreferencesKey("announcements_json")
+        val ANNOUNCEMENTS_FETCHED_AT_KEY = longPreferencesKey("announcements_fetched_at")
         val DISMISSED_ANNOUNCEMENT_IDS_KEY = stringPreferencesKey("dismissed_announcement_ids")
         val GUIDE_INTRO_SEEN_KEY = stringPreferencesKey("guide_intro_seen")
 

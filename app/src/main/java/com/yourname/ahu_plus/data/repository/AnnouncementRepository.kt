@@ -197,8 +197,9 @@ class AnnouncementRepository(
         val feed = getCachedFeed() ?: return emptyList()
         val versionCode = BuildConfig.VERSION_CODE
         val dismissed = sessionManager.getDismissedAnnouncementIds()
+        val fetchedAt = sessionManager.getAnnouncementsFetchedAt()
         return feed.announcements
-            .filter { it.isActive(nowMillis, versionCode, dismissed) }
+            .filter { it.isActive(nowMillis, versionCode, dismissed, fetchedAt) }
             .sortedWith(compareByDescending<Announcement> { it.priority }.thenBy { it.id })
     }
 }
