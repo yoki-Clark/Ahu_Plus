@@ -110,6 +110,11 @@
             android:name=".service.ChaoxingStudyService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- 2026-06-27 新增:WeLearn 随行课堂后台刷课 ForegroundService -->
+        <service
+            android:name=".service.WeLearnStudyService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 
 </manifest>

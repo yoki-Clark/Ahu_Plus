@@ -88,6 +88,11 @@ class OverlayWindow(private val context: Context) {
         circleView?.setProgress(progress)
     }
 
+    /** 通用进度重载(供 WeLearnStudyService 等非超星场景复用悬浮窗) */
+    fun update(progress: Float) {
+        circleView?.setProgress(progress.coerceIn(0f, 1f))
+    }
+
     fun dismiss() {
         circleView?.let { runCatching { windowManager.removeView(it) } }
         circleView = null
