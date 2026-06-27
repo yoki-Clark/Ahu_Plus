@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -163,6 +164,7 @@ fun ProfileScreen(
     var showCardAnalytics by rememberSaveable { mutableStateOf(false) }
     var showXzxx by rememberSaveable { mutableStateOf(false) }
     var showGuide by rememberSaveable { mutableStateOf(false) }
+    var showFaq by rememberSaveable { mutableStateOf(false) }
     var showAnnouncements by rememberSaveable { mutableStateOf(false) }
     var showOpenSourceLicenses by rememberSaveable { mutableStateOf(false) }
     var showFullQrCode by rememberSaveable { mutableStateOf(false) }
@@ -332,6 +334,9 @@ fun ProfileScreen(
             onIntroSeen = onGuideIntroSeen,
             onBack = { showGuide = false }
         )
+    } else if (showFaq) {
+        BackHandler(enabled = true) { showFaq = false }
+        FaqScreen(onBack = { showFaq = false })
     } else if (showAnnouncements) {
         BackHandler(enabled = true) { showAnnouncements = false }
         AnnouncementHistoryScreen(onBack = { showAnnouncements = false })
@@ -408,6 +413,7 @@ fun ProfileScreen(
             onOpenSettings = { showSettings = true },
             onOpenXzxx = { showXzxx = true },
             onOpenGuide = { showGuide = true },
+            onOpenFaq = { showFaq = true },
             onOpenAnnouncements = { showAnnouncements = true },
             onOpenOpenSourceLicenses = { showOpenSourceLicenses = true },
             onLogout = onLogout
@@ -484,6 +490,7 @@ private fun ProfileHomeScreen(
     onOpenSettings: () -> Unit,
     onOpenXzxx: () -> Unit,
     onOpenGuide: () -> Unit,
+    onOpenFaq: () -> Unit,
     onOpenAnnouncements: () -> Unit,
     onOpenOpenSourceLicenses: () -> Unit,
     onLogout: () -> Unit
@@ -748,6 +755,14 @@ private fun ProfileHomeScreen(
                         iconColor = Color(0xFF2F80ED),
                         icon = { Icon(Icons.AutoMirrored.Filled.Help, contentDescription = null) },
                         onClick = onOpenGuide
+                    )
+                    HorizontalDivider()
+                    SettingsRow(
+                        title = "常见问题",
+                        description = "数据安全、平台接入、性能等 ${faqCategories.sumOf { it.items.size }} 题分类整理",
+                        iconColor = Color(0xFF00B894),
+                        icon = { Icon(Icons.Filled.QuestionAnswer, contentDescription = null) },
+                        onClick = onOpenFaq
                     )
                     HorizontalDivider()
                     SettingsRow(
