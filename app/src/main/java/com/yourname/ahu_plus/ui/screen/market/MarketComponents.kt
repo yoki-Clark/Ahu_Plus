@@ -592,6 +592,7 @@ internal fun HotTopicCard(
 internal fun MarketTopicDetailCard(
     topic: MarketTopic,
     school: String? = null,
+    highlightQuery: String? = null,
     onImageClick: (String, Int) -> Unit = { _, _ -> }
 ) {
     Card(
@@ -605,9 +606,13 @@ internal fun MarketTopicDetailCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             TopicMetaHeader(topic = topic, school = school)
-            TopicTitle(topic = topic)
+            TopicTitle(topic = topic, highlightQuery = highlightQuery)
             Text(
-                text = topic.content.ifBlank { "无正文" },
+                text = buildSearchAnnotated(
+                    topic.content.ifBlank { "无正文" },
+                    highlightQuery,
+                    MarketColors.SearchHighlight
+                ),
                 style = MaterialTheme.typography.bodyLarge
             )
             TopicImageGrid(imgs = topic.imgs, detail = true, onImageClick = onImageClick)
