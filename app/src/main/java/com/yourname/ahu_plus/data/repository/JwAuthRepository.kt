@@ -108,13 +108,22 @@ class JwAuthRepository(
      * 优先尝试简易 SSO(复用 CASTGC),失败则回退到完整 CAS 登录。
      *
      * 并发安全:多协程同时调用时只有第一个执行完整流程,其余等待后复用 holder 的 session。
+     *
+     * SESSION 有效期(2026-06-27):SessionManager 里的 SESSION 可能已被服务器吊销
+     * (用户登出 / CAS session 过期),所以命中持久化短路时**先探测一次**服务器是否还认。
+     * 探测失败 → 清空内存 cookie + 持久化 session,走完整 SSO 重拿。
      */
     suspend fun authenticate(): Result<Unit> {
-        // 短路:已有持久化 session 直接恢复(__pstsid__ 从未保存,仅检查 SESSION)
         val savedSession = sessionManager.getJwSessionId()
-        if (!savedSession.isNullOrBlank()) {
+        if (!savedSession.isNullOrBlank() && probeSavedSession()) {
             saveToCookieStore(JW_HOST, "SESSION", savedSession)
             return Result.success(Unit)
+        }
+        // 持久化 session 无效或被服务器吊销:清掉,让下面的完整 SSO 拿新值
+        if (!savedSession.isNullOrBlank()) {
+            Log.w(TAG, "持久化 JW SESSION 已失效,清空并重连")
+            clearCookies()
+            sessionManager.clearJwSession()
         }
         return authMutex.withLock {
             // 持锁后再检一次:holder 可能刚把 session 写入持久化
@@ -123,6 +132,30 @@ class JwAuthRepository(
                 return@withLock Result.success(Unit)
             }
             performAuth()
+        }
+    }
+
+    /**
+     * 探测持久化的 SESSION 是否仍被服务器认可。
+     *
+     * 用轻量 GET 教务首页:302 到 CAS / body 含登录页标记 = 已失效。
+     * 返回 true 表示 SESSION 仍有效,false 表示需重新登录。
+     */
+    private suspend fun probeSavedSession(): Boolean {
+        return try {
+            val request = Request.Builder()
+                .url("$JW_BASE/student/for-std/course-table")
+                .header("User-Agent", UA)
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                response.isSuccessful &&
+                    !body.contains("cas/login") &&
+                    !body.contains("name=\"lt\"")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "probeSavedSession 异常(视为失效): ${e.message}")
+            false
         }
     }
 
