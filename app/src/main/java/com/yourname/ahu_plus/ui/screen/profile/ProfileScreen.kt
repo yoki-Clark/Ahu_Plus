@@ -43,7 +43,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Card
@@ -115,7 +114,6 @@ import com.yourname.ahu_plus.ui.screen.home.ElectricityTarget
 import com.yourname.ahu_plus.ui.screen.home.InternetBalanceCard
 import com.yourname.ahu_plus.ui.screen.home.QrCodeFullScreenDialog
 import com.yourname.ahu_plus.ui.screen.market.MarketIdentityEditor
-import com.yourname.ahu_plus.ui.screen.market.MarketSettingsScreen
 import com.yourname.ahu_plus.ui.screen.market.MarketViewModel
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleUiState
 import com.yourname.ahu_plus.ui.theme.AhuGreen
@@ -155,7 +153,6 @@ fun ProfileScreen(
     onLogout: () -> Unit
 ) {
     var showBills by rememberSaveable { mutableStateOf(false) }
-    var showMarketSettings by rememberSaveable { mutableStateOf(false) }
     var showMyInfoHub by rememberSaveable { mutableStateOf(false) }
     var showStudentBasicInfo by rememberSaveable { mutableStateOf(false) }
     var showHousingInfo by rememberSaveable { mutableStateOf(false) }
@@ -269,40 +266,6 @@ fun ProfileScreen(
             onLightingBillRangeSelected = cardViewModel::setLightingBillRange,
             cardViewModel = cardViewModel,
             initialUtility = utilityTarget
-        )
-    } else if (showMarketSettings) {
-        BackHandler(enabled = true) { showMarketSettings = false }
-        MarketSettingsScreen(
-            uiState = marketUiState,
-            onBack = { showMarketSettings = false },
-            onIdentityChanged = marketViewModel::onIdentityInputChanged,
-            onAddIdentity = marketViewModel::saveIdentity,
-            onClearIdentities = marketViewModel::clearIdentity,
-            onRemoveIdentity = marketViewModel::removeIdentity,
-            onToggleIdentitySelection = marketViewModel::toggleIdentitySelection,
-            onBlockPinnedChanged = marketViewModel::setBlockPinned,
-            onKeywordInputChanged = marketViewModel::onKeywordInputChanged,
-            onAddKeyword = marketViewModel::addBlockKeyword,
-            onRemoveKeyword = marketViewModel::removeBlockKeyword,
-            onToggleFilterNode = marketViewModel::toggleFilterNode,
-            onListLayoutModeChange = marketViewModel::setListLayoutMode,
-            onScrollToTopChanged = marketViewModel::setScrollToTop,
-            // AI 评论助手
-            aiCommentEnabled = marketUiState.aiCommentEnabled,
-            aiCommentModel = marketUiState.aiCommentModel,
-            aiOverallPrompt = marketUiState.aiOverallPrompt,
-            aiTemplates = marketUiState.aiTemplates,
-            aiSelectedTemplateId = marketUiState.aiSelectedTemplateId,
-            aiApiKeyConfigured = marketUiState.aiApiKeyConfigured,
-            onAiCommentEnabledChanged = marketViewModel::setAiCommentEnabled,
-            onAiCommentModelChanged = marketViewModel::setAiCommentModel,
-            onAiOverallPromptChanged = marketViewModel::setAiOverallPrompt,
-            onAiTemplateSelected = marketViewModel::selectAiTemplate,
-            onSaveAiTemplate = marketViewModel::saveAiTemplate,
-            onDeleteAiTemplate = marketViewModel::deleteAiTemplate,
-            onResetAiPrompts = marketViewModel::resetAiPrompts,
-            onSaveAiApiKey = marketViewModel::saveAiApiKey,
-            onClearAiApiKey = marketViewModel::clearAiApiKey
         )
     } else if (showStudentBasicInfo) {
         BackHandler(enabled = true) { showStudentBasicInfo = false; showMyInfoHub = true }
@@ -441,7 +404,6 @@ fun ProfileScreen(
             onOpenLighting = { openUtility("lighting") },
             onOpenInternet = { openUtility("internet") },
             onOpenMyInfoHub = { showMyInfoHub = true },
-            onOpenMarketSettings = { showMarketSettings = true },
             themeMode = themeMode,
             onOpenSettings = { showSettings = true },
             onOpenXzxx = { showXzxx = true },
@@ -518,7 +480,6 @@ private fun ProfileHomeScreen(
     onOpenLighting: () -> Unit,
     onOpenInternet: () -> Unit,
     onOpenMyInfoHub: () -> Unit,
-    onOpenMarketSettings: () -> Unit,
     themeMode: AppThemeMode,
     onOpenSettings: () -> Unit,
     onOpenXzxx: () -> Unit,
@@ -780,20 +741,6 @@ private fun ProfileHomeScreen(
 
             item {
                 ProfileSection {
-                    if (marketChildEnabled) {
-                        HorizontalDivider()
-                        SettingsRow(
-                            title = "集市设置",
-                            description = if (hasMarketIdentity) {
-                                "已配置 $identityCount 个校区，点击管理"
-                            } else {
-                                "添加校园集市身份，支持多校区"
-                            },
-                            iconColor = Color(0xFFB7791F),
-                            icon = { Icon(Icons.Filled.Storefront, contentDescription = null) },
-                            onClick = onOpenMarketSettings
-                        )
-                    }
                     HorizontalDivider()
                     SettingsRow(
                         title = "使用帮助",

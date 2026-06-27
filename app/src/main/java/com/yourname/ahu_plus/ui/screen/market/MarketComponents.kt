@@ -69,8 +69,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -241,11 +245,11 @@ internal fun TopicMetaHeader(topic: MarketTopic, school: String? = null) {
 }
 
 @Composable
-internal fun TopicTitle(topic: MarketTopic) {
+internal fun TopicTitle(topic: MarketTopic, highlightQuery: String? = null) {
     val title = topic.title.takeIf { it.isNotBlank() && it != "none" }
     if (title != null) {
         Text(
-            text = title,
+            text = buildSearchAnnotated(title, highlightQuery, MarketColors.SearchHighlight),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             maxLines = 2,
@@ -345,7 +349,8 @@ internal fun MarketTopicCard(
     topic: MarketTopic,
     onClick: () -> Unit,
     school: String? = null,
-    showTopComments: Boolean = true
+    showTopComments: Boolean = true,
+    highlightQuery: String? = null
 ) {
     Card(
         shape = AhuShapes.Card,
@@ -360,9 +365,13 @@ internal fun MarketTopicCard(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             TopicMetaHeader(topic = topic, school = school)
-            TopicTitle(topic = topic)
+            TopicTitle(topic = topic, highlightQuery = highlightQuery)
             Text(
-                text = topic.content.ifBlank { "无正文" },
+                text = buildSearchAnnotated(
+                    topic.content.ifBlank { "无正文" },
+                    highlightQuery,
+                    MarketColors.SearchHighlight
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 5,
                 overflow = TextOverflow.Ellipsis
@@ -706,6 +715,37 @@ private fun relativeMarketTime(raw: String): String {
         diff < TimeUnit.DAYS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toHours(diff)} 小时前"
         diff < TimeUnit.DAYS.toMillis(7) -> "${TimeUnit.MILLISECONDS.toDays(diff)} 天前"
         else -> SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(parsed)
+    }
+}
+
+/**
+ * 搜索结果高亮:服务端返回的 `<em class="highlight">…</em>` 先剥离,再用客户端 query 做
+ * 大小写不敏感匹配,命中段加粗+红色 ([MarketColors.SearchHighlight])。query 空白时只剥标签。
+ */
+internal fun buildSearchAnnotated(
+    raw: String,
+    query: String?,
+    highlightColor: Color
+): AnnotatedString {
+    val stripped = raw.replace(Regex("""</?em[^>]*>""", RegexOption.IGNORE_CASE), "")
+    val needle = query?.trim().orEmpty()
+    if (needle.isEmpty()) return AnnotatedString(stripped)
+    val lower = stripped.lowercase()
+    val n = needle.lowercase()
+    return buildAnnotatedString {
+        var cursor = 0
+        while (cursor <= stripped.length) {
+            val idx = lower.indexOf(n, cursor)
+            if (idx < 0) {
+                append(stripped.substring(cursor))
+                break
+            }
+            append(stripped.substring(cursor, idx))
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = highlightColor)) {
+                append(stripped.substring(idx, idx + n.length))
+            }
+            cursor = idx + n.length
+        }
     }
 }
 

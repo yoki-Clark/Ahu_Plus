@@ -114,6 +114,15 @@ internal fun MarketListScreen(
         if (shouldLoadMore && !uiState.isSearching) onLoadMore()
     }
 
+    // 搜索防抖:query 稳定 500ms 后自动提交。键值变化会取消上一次 delay,避免每次按键都打接口
+    LaunchedEffect(uiState.searchQuery, uiState.isSearching) {
+        if (!uiState.isSearching) return@LaunchedEffect
+        val q = uiState.searchQuery.trim()
+        if (q.isBlank()) return@LaunchedEffect
+        kotlinx.coroutines.delay(500)
+        if (q == uiState.searchQuery.trim()) onSearchSubmit()
+    }
+
     // FAB 仅在列表页（一级页）显示：未在搜索/详情/设置/发帖/热榜/消息任一状态时
     val showFab = uiState.hasSavedIdentity && !uiState.isSearching
 
@@ -403,7 +412,8 @@ private fun SearchResultList(
             MarketTopicCard(
                 topic = topic,
                 onClick = { onOpenTopic(topic) },
-                school = uiState.topicSchoolMap[topic.id]
+                school = uiState.topicSchoolMap[topic.id],
+                highlightQuery = uiState.searchQuery
             )
         }
 
