@@ -67,25 +67,44 @@ class UpdateManager(
         private const val TAG = "UpdateManager"
 
         /**
-         * version.json 源列表,按顺序回退:
+         * 稳定渠道 version.json 源列表,按顺序回退:
          *   1. 主源: gitee.com/yao-enqi/Ahu_Plus (主仓库,Release 挂 APK)
          *   2. 旧维护源: gitee.com/yao-enqi/ahu-plus-update (历史几版仍维护)
          *   3. GitHub 备用: raw.githubusercontent.com/yao-enqi/Ahu_Plus
          */
-        val VERSION_JSON_URLS = listOf(
+        private val STABLE_VERSION_JSON_URLS = listOf(
             "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/version.json",
             "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/version.json",
             "https://raw.githubusercontent.com/yao-enqi/Ahu_Plus/main/version.json"
         )
 
+        /**
+         * 内测渠道 version-beta.json 源列表。
+         * 与稳定渠道物理隔离:文件名不同、APK 文件不同、sha256 不同,稳定用户永远不会拉到。
+         */
+        private val BETA_VERSION_JSON_URLS = listOf(
+            "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/version-beta.json",
+            "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/version-beta.json",
+            "https://raw.githubusercontent.com/yao-enqi/Ahu_Plus/main/version-beta.json"
+        )
+
+        /** 兼容旧调用(转发到稳定渠道)。 */
+        @Deprecated("Use STABLE_VERSION_JSON_URLS", ReplaceWith("STABLE_VERSION_JSON_URLS"))
+        val VERSION_JSON_URLS: List<String> get() = STABLE_VERSION_JSON_URLS
+
         /** 兼容旧调用 */
-        @Deprecated("Use VERSION_JSON_URLS", ReplaceWith("VERSION_JSON_URLS.first()"))
+        @Deprecated("Use STABLE_VERSION_JSON_URLS", ReplaceWith("STABLE_VERSION_JSON_URLS.first()"))
         const val VERSION_JSON_URL =
             "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/version.json"
 
         /** 下载目录: app 私有外部存储 (无需 WRITE_EXTERNAL_STORAGE) */
         private const val APK_DIR = "updates"
     }
+
+    /** 根据用户开关返回对应的源 URL 列表(实例方法,可访问 sessionManager)。 */
+    private fun currentVersionJsonUrls(): List<String> =
+        if (sessionManager.isBetaEnabled()) BETA_VERSION_JSON_URLS
+        else STABLE_VERSION_JSON_URLS
 
     private val _uiState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
     val uiState: StateFlow<UpdateUiState> = _uiState.asStateFlow()
@@ -139,7 +158,8 @@ class UpdateManager(
 
     /** 拉 version.json,刷新 [lastFetchedUpdateInfo],返回 LATEST / UPDATE_AVAILABLE / null(出错) */
     private suspend fun checkRemote(): CheckResult? = withContext(Dispatchers.IO) {
-        for ((index, url) in VERSION_JSON_URLS.withIndex()) {
+        val urls = currentVersionJsonUrls()
+        for ((index, url) in urls.withIndex()) {
             val info = runCatching { fetchVersionJson(url) }
                 .onFailure { Log.w(TAG, "checkRemote source[$index] $url failed: ${it.message}") }
                 .getOrNull() ?: continue

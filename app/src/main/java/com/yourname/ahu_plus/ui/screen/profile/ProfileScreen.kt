@@ -36,12 +36,14 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.WaterDrop
@@ -97,6 +99,7 @@ import com.yourname.ahu_plus.data.model.StudentInfo
 import com.yourname.ahu_plus.data.model.StudentInfoCodeLookup
 import com.yourname.ahu_plus.data.model.StudentInfoField
 import com.yourname.ahu_plus.data.repository.AdwmhQrCode
+import com.yourname.ahu_plus.AhuPlusApplication
 import com.yourname.ahu_plus.ui.components.AhuInfoRow
 import com.yourname.ahu_plus.ui.components.AhuSectionHeader
 import com.yourname.ahu_plus.ui.theme.AhuShapes
@@ -172,6 +175,12 @@ fun ProfileScreen(
     val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
 
     var utilityTarget by remember { mutableStateOf<String?>(null) }
+
+    // 内测计划:ProfileScreen 顶层持有,持久化到 SessionManager
+    val appContext = LocalContext.current
+    val sessionManager = (appContext.applicationContext as AhuPlusApplication).sessionManager
+    var betaEnabled by remember { mutableStateOf(sessionManager.isBetaEnabled()) }
+    val scope = rememberCoroutineScope()
 
     fun openUtility(target: String) {
         utilityTarget = target
@@ -416,6 +425,12 @@ fun ProfileScreen(
             onOpenFaq = { showFaq = true },
             onOpenAnnouncements = { showAnnouncements = true },
             onOpenOpenSourceLicenses = { showOpenSourceLicenses = true },
+            betaEnabled = betaEnabled,
+            onBetaEnabledChange = { newValue ->
+                // 开关一拨就持久化:卡片/感谢页只是过渡状态,持久态由开关决定
+                scope.launch { sessionManager.setBetaEnabled(newValue) }
+                betaEnabled = newValue
+            },
             onLogout = onLogout
         )
     }
@@ -493,6 +508,8 @@ private fun ProfileHomeScreen(
     onOpenFaq: () -> Unit,
     onOpenAnnouncements: () -> Unit,
     onOpenOpenSourceLicenses: () -> Unit,
+    betaEnabled: Boolean,
+    onBetaEnabledChange: (Boolean) -> Unit,
     onLogout: () -> Unit
 ) {
     val displayName = studentName?.takeIf { it.isNotBlank() } ?: "未命名同学"
@@ -506,6 +523,8 @@ private fun ProfileHomeScreen(
     var showDeveloperContact by rememberSaveable { mutableStateOf(false) }
     var showShareSheet by rememberSaveable { mutableStateOf(false) }
     var showQrCard by rememberSaveable { mutableStateOf(false) }
+    // 内测计划确认弹窗:开关拨到 ON 时置 true,弹窗内自带 1/2 步状态机。
+    var showBetaPlanDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     // 2026 Bug14: 保存/恢复滚动位置。
@@ -532,6 +551,20 @@ private fun ProfileHomeScreen(
                 showThirdPartyDialog = false
             },
             onDismiss = { showThirdPartyDialog = false }
+        )
+    }
+
+    if (showBetaPlanDialog) {
+        BetaPlanEnableDialog(
+            // 不参加 / step 1 外部点击: 还原开关到 OFF,关闭弹窗
+            onDecline = {
+                onBetaEnabledChange(false)
+                showBetaPlanDialog = false
+            },
+            // 完成 / step 2 外部点击: 保持开关 ON,只关闭弹窗
+            onClose = {
+                showBetaPlanDialog = false
+            }
         )
     }
 
@@ -795,6 +828,24 @@ private fun ProfileHomeScreen(
                         iconColor = Color(0xFF2F80ED),
                         icon = { Icon(Icons.Filled.Share, contentDescription = null) },
                         onClick = { showShareSheet = true }
+                    )
+                }
+            }
+
+            item {
+                ProfileSection {
+                    HorizontalDivider()
+                    SettingsSwitchRow(
+                        title = "内测计划",
+                        description = if (betaEnabled) "已加入,正在接收内测版本" else "加入内测计划,体验未发布功能",
+                        checked = betaEnabled,
+                        onCheckedChange = { wantOn ->
+                            onBetaEnabledChange(wantOn)
+                            // 拨到 ON → 弹出确认弹窗(类似第三方服务);拨到 OFF → 直接关闭
+                            if (wantOn) {
+                                showBetaPlanDialog = true
+                            }
+                        }
                     )
                 }
             }
