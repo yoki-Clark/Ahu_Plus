@@ -19,13 +19,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,6 +37,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,7 +52,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.ui.theme.AhuShapes
 
@@ -164,45 +174,82 @@ private fun RootPage(
     onOpenEntry: (String) -> Unit,
     onOpenRoadmap: () -> Unit,
 ) {
+    var query by remember { mutableStateOf("") }
+    val trimmed = query.trim()
+    val isSearching = trimmed.isNotEmpty()
+    val hits = remember(trimmed) { searchGuideEntries(trimmed) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Spacer(Modifier.height(4.dp))
 
-        // 「未来更新计划」聚合入口（置顶）
-        RoadmapEntryCard(onClick = onOpenRoadmap)
+        GuideSearchField(
+            query = query,
+            onQueryChange = { query = it },
+        )
 
-        guideCategories.forEach { category ->
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (isSearching) {
+            if (hits.isEmpty()) {
                 Text(
-                    text = category.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
+                    text = "未找到与「$trimmed」相关的条目",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 24.dp, horizontal = 4.dp)
                 )
-                Card(
-                    shape = AhuShapes.Card,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column {
-                        category.entries.forEachIndexed { index, entry ->
-                            EntryRow(
-                                title = entry.title,
-                                summary = entry.summary,
-                                onClick = { onOpenEntry(entry.id) }
-                            )
-                            if (index != category.entries.lastIndex) {
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(start = 16.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            } else {
+                Text(
+                    text = "${hits.size} 条结果",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+                Spacer(Modifier.height(2.dp))
+                hits.forEach { hit ->
+                    SearchHitRow(
+                        hit = hit,
+                        query = trimmed,
+                        onClick = { onOpenEntry(hit.entry.id) }
+                    )
+                }
+            }
+        } else {
+            Spacer(Modifier.height(4.dp))
+            // 「未来更新计划」聚合入口（置顶）
+            RoadmapEntryCard(onClick = onOpenRoadmap)
+
+            guideCategories.forEach { category ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = category.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
+                    )
+                    Card(
+                        shape = AhuShapes.Card,
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column {
+                            category.entries.forEachIndexed { index, entry ->
+                                EntryRow(
+                                    title = entry.title,
+                                    summary = entry.summary,
+                                    onClick = { onOpenEntry(entry.id) }
                                 )
+                                if (index != category.entries.lastIndex) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 16.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                    )
+                                }
                             }
                         }
                     }
@@ -212,6 +259,121 @@ private fun RootPage(
         Spacer(Modifier.height(80.dp))
     }
 }
+
+@Composable
+private fun GuideSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = Modifier.fillMaxWidth(),
+        placeholder = { Text("搜索功能、问题、关键词") },
+        leadingIcon = {
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+        },
+        trailingIcon = if (query.isNotEmpty()) {
+            {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(Icons.Filled.Close, contentDescription = "清除")
+                }
+            }
+        } else null,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        shape = AhuShapes.Card,
+    )
+}
+
+@Composable
+private fun SearchHitRow(
+    hit: GuideSearchHit,
+    query: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = hit.category.title,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = highlightMatches(hit.entry.title, query),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            val snippet = snippetAround(hit.snippet, hit.matchStart, hit.matchLength, query)
+            if (snippet.text.isNotEmpty()) {
+                Text(
+                    text = snippet,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+/** 给原文加粗+红色高亮所有命中关键字（不区分大小写）。query 为空直接返回纯文本。 */
+private fun highlightMatches(text: String, query: String): AnnotatedString {
+    if (query.isEmpty()) return AnnotatedString(text)
+    val needle = query.lowercase()
+    val lower = text.lowercase()
+    return buildAnnotatedString {
+        var cursor = 0
+        while (cursor < text.length) {
+            val idx = lower.indexOf(needle, cursor)
+            if (idx < 0) {
+                append(text.substring(cursor))
+                break
+            }
+            append(text.substring(cursor, idx))
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = HighlightRed)) {
+                append(text.substring(idx, idx + needle.length))
+            }
+            cursor = idx + needle.length
+        }
+    }
+}
+
+/**
+ * 在 [matchStart] 处裁出左右各 [ctx] 字符的上下文，前后视截断补「…」，
+ * 然后对裁后片段做关键字高亮。
+ */
+private fun snippetAround(
+    text: String,
+    matchStart: Int,
+    matchLength: Int,
+    query: String,
+    ctx: Int = 24,
+): AnnotatedString {
+    val start = maxOf(0, matchStart - ctx)
+    val end = minOf(text.length, matchStart + matchLength + ctx)
+    val prefix = if (start > 0) "…" else ""
+    val suffix = if (end < text.length) "…" else ""
+    val visible = prefix + text.substring(start, end) + suffix
+    return highlightMatches(visible, query)
+}
+
+// 与集市搜索一致的命中红色，避免另起 design token；ponytail: 复用现成颜色，等设计 token 扩展再迁移
+private val HighlightRed = Color(0xFFD32F2F)
 
 @Composable
 private fun RoadmapEntryCard(onClick: () -> Unit) {
