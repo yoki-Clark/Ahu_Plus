@@ -2,7 +2,6 @@ package com.yourname.ahu_plus.data.repository
 
 import android.util.Base64
 import android.util.Log
-import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
@@ -40,14 +39,12 @@ class WeLearnAuthRepository(
         const val LOGIN_BAD_CRED = 1
     }
 
-    private val gson = Gson()
-
-    // ── Cookie 跨域共享 ──────────────────────────────────────
     private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
 
     val cookieJar = object : CookieJar {
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-            val domain = normalizeDomain(url.host)
+            // welearn.sflep.com 与 sso.sflep.com 共享 Cookie,统一归到 "sflep.com"
+            val domain = if (url.host.endsWith(".sflep.com") || url.host == "sflep.com") "sflep.com" else url.host
             val list = cookieStore.getOrPut(domain) { mutableListOf() }
             for (c in cookies) {
                 list.removeAll { it.name == c.name }
@@ -57,15 +54,8 @@ class WeLearnAuthRepository(
         }
 
         override fun loadForRequest(url: HttpUrl): List<Cookie> {
-            return cookieStore[normalizeDomain(url.host)]?.toList() ?: emptyList()
-        }
-
-        /**
-         * sso.sflep.com 与 welearn.sflep.com 共享 Cookie,
-         * 统一归到 "sflep.com",沿用超星的 normalizeDomain 套路。
-         */
-        private fun normalizeDomain(host: String): String {
-            return if (host == COOKIE_HOST || host.endsWith(".$COOKIE_HOST")) COOKIE_HOST else host
+            val domain = if (url.host.endsWith(".sflep.com") || url.host == "sflep.com") "sflep.com" else url.host
+            return cookieStore[domain]?.toList() ?: emptyList()
         }
     }
 
@@ -112,19 +102,8 @@ class WeLearnAuthRepository(
 
     // ── 登录态判定 ──────────────────────────────────────────
     /**
-     * 是否已登录:CookieJar 里有任一非 WAF cookie 即视为已登录。
-     *
-     * 原实现检查 cookie 名含 "idsvr" / "openid"——**这是错的**:
-     * - `idsvr` 是 SSO 路径(/idsvr/transfer.html),不是 cookie 名
-     * - IdentityServer 真实 cookie 是 `idsrv` / `.AspNet.Cookies` 等,
-     *   名字跟路径差了字母顺序,原 check 永远 false
-     * - 实际 prelogin 返回的 cookie 是 `acw_tc` (WAF) + `ASP.NET_SessionId`
-     *
-     * 修法:用 `acw_tc` 排除 WAF,其余都算"已登录"。登录后真正能不能用,
-     * 靠 [WeLearnRepository.getCourses] 探活(失败时 ViewModel 会回退到登录卡)。
-     *
-     * ponytail: cookie 名白名单是脆弱的,改用黑名单(WAF)。如果以后 SFLEP 切
-     * 到纯 JWT 鉴权不再下发 cookie,这里要换成查 SessionManager 里的 token。
+     * 是否有非 WAF cookie。SFLEP 真实业务 cookie 名随时会变,这里只看 WAF (acw_tc)。
+     * 真正能不能用,靠 [WeLearnRepository.getCourses] 探活。
      */
     fun isLoggedIn(): Boolean {
         val cookies = cookieStore[COOKIE_HOST] ?: return false
@@ -133,29 +112,19 @@ class WeLearnAuthRepository(
 
     // ── 密码加密 (翻译 Auto_WeLearn/core/crypto.py) ─────────
     /**
-     * 加密算法:
-     *   T0 = 当前毫秒
-     *   V  = (T0 >> 16) & 0xFF,再依次 xor 密码每个字节
-     *   T1 = T0 截掉末两位 + (V % 100)
-     *   明文 = "{T1}*" + 密码的 hex
-     *   返回 [base64(明文), T1 字符串]
+     * 算法:取当前毫秒 T0,把 (T0>>16)&0xFF 与密码每个字节异或得 V,
+     * T1 = (T0/100)*100 + V%100,明文 = "{T1}*" + 密码 hex,base64 编码。
      *
-     * **重要**:T1 必须和 POST body 里的 ts 字段用同一时刻,否则 SFLEP 返回 code=-1 "请求参数无效"。
-     * 调用方应使用本函数返回的 ts,而不是再次取 System.currentTimeMillis()。
+     * T1 必须和 POST body 的 `ts` 字段用同一时刻(同函数返回),否则 SFLEP 返回 code=-1。
      */
-    internal fun encryptPassword(password: String, nowMs: Long = System.currentTimeMillis()): List<String> {
-        val t0 = nowMs
+    internal fun encryptPassword(password: String, nowMs: Long = System.currentTimeMillis()): Pair<String, String> {
         val pwdBytes = password.toByteArray(Charsets.UTF_8)
-        var v = ((t0 shr 16) and 0xFF)
-        for (b in pwdBytes) {
-            v = v xor (b.toLong() and 0xFFL)
-        }
-        val remainder = v % 100
-        val t1 = (t0 / 100) * 100 + remainder
+        var v = ((nowMs shr 16) and 0xFF)
+        for (b in pwdBytes) v = v xor (b.toLong() and 0xFFL)
+        val t1 = (nowMs / 100) * 100 + v % 100
         val hexPwd = pwdBytes.joinToString("") { "%02x".format(it) }
-        val plain = "$t1*$hexPwd"
-        val encoded = Base64.encodeToString(plain.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-        return listOf(encoded, t1.toString())
+        val encoded = Base64.encodeToString("$t1*$hexPwd".toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        return encoded to t1.toString()
     }
 
     // ── 登录流程 ────────────────────────────────────────────
@@ -206,9 +175,7 @@ class WeLearnAuthRepository(
                     append("&x-client-SKU=ID_NET472&x-client-ver=6.32.1.0")
                 }
 
-                val cipher = encryptPassword(password)
-                val enpwd = cipher[0]
-                val ts = cipher[1]
+                val (enpwd, ts) = encryptPassword(password)
 
                 val loginBody = okhttp3.FormBody.Builder()
                     .add("rturl", rturl)

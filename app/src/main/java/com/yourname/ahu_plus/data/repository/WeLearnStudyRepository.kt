@@ -1,6 +1,7 @@
 package com.yourname.ahu_plus.data.repository
 
 import android.util.Log
+import com.google.gson.JsonParser
 import com.yourname.ahu_plus.data.model.WeLearnStudyUiState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
+import okhttp3.Headers
 import okhttp3.Request
 import kotlin.coroutines.coroutineContext
 import kotlin.random.Random
@@ -18,7 +20,7 @@ import kotlin.random.Random
  * WeLearn 刷课引擎。
  *
  * 流程:遍历 CourseTree 的每个单元 → 拉章节列表 → 跳过已完成/未开放 →
- * 对剩余章节 POST 三次 SCORM 包(startsco / setscoinfo / savescoinfo160928)。
+ * 对剩余章节 POST 两次 SCORM 包(setscoinfo / savescoinfo160928)。
  * 进度通过 [studyState] StateFlow 暴露给 UI。
  *
  * 不做"刷时长"心跳(keepsco_with_getticket_with_updatecmitime),
@@ -34,8 +36,7 @@ class WeLearnStudyRepository(
         private const val TAG = "WeLearnStudy"
         private const val UA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36"
 
-        /** SCORM cmi 模板:completion_status=completed, mode=normal, success_status=unknown。
-         *  accuracy 由调用方注入(单值或随机区间)。 */
+        /** SCORM cmi 模板:completion_status=completed, mode=normal, success_status=unknown。 */
         private fun cmiData(accuracy: Int) = """
             {"cmi":{"completion_status":"completed","interactions":[],"launch_data":"",
             "progress_measure":"1","score":{"scaled":"$accuracy","raw":"100"},
@@ -64,12 +65,12 @@ class WeLearnStudyRepository(
      * 刷完一门课的全部未完成章节。
      *
      * @param tree 来自 [WeLearnRepository.getCourseTree]
-     * @param accuracySpec "100" = 固定 100, "70,100" = 区间随机(下限,上限)
+     * @param accuracyRange 固定或区间随机,parseAccuracy 解析
      * @param delayMs 每次提交后休眠毫秒,避免对 SFLEP 压力过大(默认 300ms)
      */
     suspend fun studyCourse(
         tree: WeLearnRepository.CourseTree,
-        accuracySpec: String = "100",
+        accuracyRange: IntRange = 100..100,
         delayMs: Long = 300,
     ) = withContext(Dispatchers.IO) {
         if (_studyState.value.isRunning) {
@@ -78,7 +79,7 @@ class WeLearnStudyRepository(
         }
         studyJob = coroutineContext[Job]
         shouldStop = false
-        _studyState.value = WeLearnStudyUiState(isRunning = true, accuracy = parseAccuracy(accuracySpec).let { (a, _) -> a })
+        _studyState.value = WeLearnStudyUiState(isRunning = true, accuracy = accuracyRange.first)
 
         try {
             // 第一遍:统计总章节数,UI 显示进度条
@@ -96,7 +97,7 @@ class WeLearnStudyRepository(
                 allScos += scos.map { idx to it }
             }
 
-            val pending = allScos.count { (_, sco) -> !sco.isComplete && sco.isVisible }
+            val pending = allScos.count { (_, sco) -> !sco.isSkippable }
             _studyState.value = _studyState.value.copy(totalCount = allScos.size, pendingCount = pending)
             addLog("总章节 ${allScos.size}, 待刷 $pending")
 
@@ -112,19 +113,14 @@ class WeLearnStudyRepository(
                     currentScoLocation = sco.location,
                 )
 
-                if (!sco.isVisible) {
+                if (sco.isSkippable) {
                     _studyState.value = _studyState.value.copy(skippedCount = _studyState.value.skippedCount + 1)
-                    addLog("[跳过 未开放] ${sco.location}")
-                    continue
-                }
-                if (sco.isComplete) {
-                    _studyState.value = _studyState.value.copy(skippedCount = _studyState.value.skippedCount + 1)
-                    addLog("[跳过 已完成] ${sco.location}")
+                    addLog("[跳过] ${sco.location}")
                     continue
                 }
 
-                val (minA, maxA) = parseAccuracy(accuracySpec)
-                val accuracy = if (minA == maxA) minA else Random.nextInt(minA, maxA + 1)
+                val accuracy = if (accuracyRange.first == accuracyRange.last) accuracyRange.first
+                else Random.nextInt(accuracyRange.first, accuracyRange.last + 1)
                 val (way1, way2) = submitSco(tree.cid, tree.uid, tree.classid, sco.id, accuracy)
                 val newState = _studyState.value.let {
                     when {
@@ -165,20 +161,8 @@ class WeLearnStudyRepository(
     internal fun submitSco(cid: String, uid: String, classid: String, scoid: String, accuracy: Int): Pair<Boolean, Boolean> {
         val ajaxUrl = "${WeLearnAuthRepository.BASE_URL}/Ajax/SCO.aspx"
         val referer = "${WeLearnAuthRepository.BASE_URL}/Student/StudyCourse.aspx?cid=$cid&classid=$classid&sco=$scoid"
-        val headers = mapOf("Referer" to referer, "User-Agent" to UA)
 
-        // 1. startsco160928 (无响应判断,只触发后端状态)
-        runCatching {
-            val startBody = FormBody.Builder()
-                .add("action", "startsco160928")
-                .add("cid", cid).add("scoid", scoid).add("uid", uid)
-                .build()
-            authRepo.client.newCall(
-                Request.Builder().url(ajaxUrl).headers(headers.toHeaders()).post(startBody).build()
-            ).execute().use { /* 丢弃响应 */ }
-        }.onFailure { Log.w(TAG, "startsco 失败: ${it.message}") }
-
-        // 2. way 1: setscoinfo (塞完整 SCORM cmi)
+        // way 1: setscoinfo (塞完整 SCORM cmi)
         val way1 = runCatching {
             val setBody = FormBody.Builder()
                 .add("action", "setscoinfo")
@@ -187,13 +171,15 @@ class WeLearnStudyRepository(
                 .add("isend", "False")
                 .build()
             authRepo.client.newCall(
-                Request.Builder().url(ajaxUrl).headers(headers.toHeaders()).post(setBody).build()
+                Request.Builder().url(ajaxUrl)
+                    .header("Referer", referer).header("User-Agent", UA)
+                    .post(setBody).build()
             ).execute().use { resp ->
-                resp.isSuccessful && '"' + "ret\":0" + '"' in (resp.body?.string().orEmpty())
+                resp.isSuccessful && isRetZero(resp.body?.string().orEmpty())
             }
         }.getOrDefault(false)
 
-        // 3. way 2: savescoinfo160928 (progress=100, status=completed)
+        // way 2: savescoinfo160928 (progress=100, status=completed)
         val way2 = runCatching {
             val saveBody = FormBody.Builder()
                 .add("action", "savescoinfo160928")
@@ -205,24 +191,20 @@ class WeLearnStudyRepository(
                 .add("trycount", "0")
                 .build()
             authRepo.client.newCall(
-                Request.Builder().url(ajaxUrl).headers(headers.toHeaders()).post(saveBody).build()
+                Request.Builder().url(ajaxUrl)
+                    .header("Referer", referer).header("User-Agent", UA)
+                    .post(saveBody).build()
             ).execute().use { resp ->
-                resp.isSuccessful && '"' + "ret\":0" + '"' in (resp.body?.string().orEmpty())
+                resp.isSuccessful && isRetZero(resp.body?.string().orEmpty())
             }
         }.getOrDefault(false)
 
         return way1 to way2
     }
 
-    /** 解析 "100" → (100,100), "70,100" → (70,100)。非法默认 (100,100) */
-    private fun parseAccuracy(spec: String): Pair<Int, Int> {
-        val parts = spec.split(",").mapNotNull { it.trim().toIntOrNull() }
-        return when (parts.size) {
-            2 -> parts[0].coerceIn(0, 100) to parts[1].coerceIn(0, 100)
-            1 -> parts[0].coerceIn(0, 100) to parts[0].coerceIn(0, 100)
-            else -> 100 to 100
-        }
-    }
+    private fun isRetZero(body: String): Boolean = runCatching {
+        JsonParser.parseString(body).asJsonObject.get("ret")?.asInt == 0
+    }.getOrDefault(false)
 
     private fun addLog(msg: String) {
         Log.d(TAG, msg)
@@ -230,11 +212,4 @@ class WeLearnStudyRepository(
             logs = (_studyState.value.logs + msg).takeLast(100)
         )
     }
-}
-
-/** OkHttp headers map → Headers 扩展(简化 Repository 内联代码) */
-private fun Map<String, String>.toHeaders(): okhttp3.Headers {
-    val b = okhttp3.Headers.Builder()
-    for ((k, v) in this) b.add(k, v)
-    return b.build()
 }

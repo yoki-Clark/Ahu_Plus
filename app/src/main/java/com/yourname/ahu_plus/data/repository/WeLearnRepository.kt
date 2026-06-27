@@ -4,7 +4,9 @@ import android.util.Log
 import com.google.gson.JsonParser
 import com.yourname.ahu_plus.data.model.WeLearnCourse
 import com.yourname.ahu_plus.data.model.WeLearnSco
+import com.yourname.ahu_plus.data.model.WeLearnScoStatus
 import com.yourname.ahu_plus.data.model.WeLearnUnit
+import com.yourname.ahu_plus.data.model.WeLearnUnitScos
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -112,11 +114,18 @@ class WeLearnRepository(
                     val arr = JsonParser.parseString(resp.body?.string().orEmpty())
                         .asJsonObject.getAsJsonArray("info") ?: return@use emptyList<WeLearnSco>()
                     arr.map { it.asJsonObject }.map { o ->
+                        val isVisible = o.get("isvisible")?.asString == "true"
+                        val isComplete = o.get("iscomplete")?.asString == "已完成"
+                        val status = when {
+                            !isVisible -> WeLearnScoStatus.LOCKED
+                            isComplete -> WeLearnScoStatus.COMPLETED
+                            else -> WeLearnScoStatus.TODO
+                        }
                         WeLearnSco(
                             id = o.get("id")?.asString.orEmpty(),
+                            name = o.get("name")?.asString.orEmpty(),
                             location = o.get("location")?.asString.orEmpty(),
-                            isComplete = "未" !in (o.get("iscomplete")?.asString.orEmpty()),
-                            isVisible = o.get("isvisible")?.asString == "true",
+                            status = status,
                         )
                     }
                 }
@@ -130,4 +139,24 @@ class WeLearnRepository(
         val classid: String,
         val units: List<WeLearnUnit>,
     )
+
+    // ── 课程详情(单元+章节) ──────────────────────────────
+    /**
+     * 拉课程下全部单元的章节,用于课程详情页(WeLearnCourseDetailScreen)显示
+     * 单元→章节的树形结构。N+1 调用(courseunits + N×scoLeaves),调用方按需触发。
+     *
+     * 某个单元的 scoLeaves 失败时该单元章节用空列表兜底,不中断整棵树。
+     */
+    suspend fun getCourseTreeWithScos(cid: String): Result<List<WeLearnUnitScos>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val tree = getCourseTree(cid).getOrThrow()
+            tree.units.mapIndexed { idx, unit ->
+                val scos = getScoLeaves(cid, tree.uid, tree.classid, idx).getOrElse {
+                    Log.w(TAG, "getCourseTreeWithScos: 单元 $idx scoLeaves 失败, 用空列表兜底: ${it.message}")
+                    emptyList()
+                }
+                WeLearnUnitScos(unit, scos)
+            }
+        }.onFailure { Log.w(TAG, "getCourseTreeWithScos($cid) 失败", it) }
+    }
 }

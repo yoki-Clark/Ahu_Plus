@@ -67,7 +67,7 @@ fun WeLearnStudyScreen(
             // 正确率输入
             OutlinedTextField(
                 value = accuracy,
-                onValueChange = { v -> accuracy = v.filter { it.isDigit() || it == ',' }.take(7) },
+                onValueChange = { accuracy = it },
                 label = { Text("正确率 (100 或 70,100)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -98,8 +98,9 @@ fun WeLearnStudyScreen(
             if (state.totalCount > 0 || state.isRunning) {
                 Card(shape = RoundedCornerShape(12.dp)) {
                     Column(Modifier.padding(16.dp)) {
+                        val done = state.completedCount + state.partialCount
                         Text(
-                            if (state.totalCount > 0) "进度 ${state.completedCount + state.partialCount}/${state.totalCount}"
+                            if (state.totalCount > 0) "进度 $done/${state.totalCount}"
                             else "准备中…",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
@@ -109,15 +110,14 @@ fun WeLearnStudyScreen(
                             progress = { state.progress },
                             modifier = Modifier.fillMaxWidth().height(8.dp),
                         )
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatChip("✓ 完成", state.completedCount, MaterialTheme.colorScheme.primary)
-                            StatChip("△ 部分", state.partialCount, MaterialTheme.colorScheme.tertiary)
-                            StatChip("✗ 失败", state.failedCount, MaterialTheme.colorScheme.error)
-                            StatChip("跳过", state.skippedCount, MaterialTheme.colorScheme.outline)
-                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "✓${state.completedCount} △${state.partialCount} ✗${state.failedCount} 跳过${state.skippedCount}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         if (state.currentScoLocation.isNotBlank()) {
-                            Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(8.dp))
                             Text(
                                 "当前: ${state.currentUnitName} → ${state.currentScoLocation}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -148,19 +148,6 @@ fun WeLearnStudyScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun StatChip(label: String, count: Int, color: androidx.compose.ui.graphics.Color) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = color.copy(alpha = 0.15f),
-    ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("$count", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = color)
         }
     }
 }

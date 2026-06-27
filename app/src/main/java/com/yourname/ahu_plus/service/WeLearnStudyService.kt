@@ -121,7 +121,7 @@ class WeLearnStudyService : Service() {
                 }
 
                 // 3. 启动刷课
-                app.weLearnStudyRepository.studyCourse(tree = tree, accuracySpec = accuracy)
+                app.weLearnStudyRepository.studyCourse(tree = tree, accuracyRange = parseAccuracy(accuracy))
                 Log.i(tag, "刷课完成, 停服")
                 stopStudyingAndSelf()
             } catch (e: Exception) {
@@ -227,6 +227,16 @@ class WeLearnStudyService : Service() {
         fun stop(context: Context) {
             val intent = Intent(context, WeLearnStudyService::class.java).apply { action = ACTION_STOP }
             context.startService(intent)
+        }
+
+        /** "100" → 100..100, "70,100" → 70..100, 非法默认 100..100 */
+        internal fun parseAccuracy(spec: String): IntRange {
+            val parts = spec.split(",").mapNotNull { it.trim().toIntOrNull() }
+            return when (parts.size) {
+                2 -> parts[0].coerceIn(0, 100)..parts[1].coerceIn(0, 100)
+                1 -> parts[0].coerceIn(0, 100)..parts[0].coerceIn(0, 100)
+                else -> 100..100
+            }
         }
     }
 }
