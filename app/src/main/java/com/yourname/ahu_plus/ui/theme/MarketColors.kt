@@ -31,4 +31,7 @@ object MarketColors {
 
     // ── 通知点赞色 ──
     val LikeRed = Color(0xFFE53935)
+
+    // ── 搜索结果关键词高亮（替换服务端 <em class="highlight"> 标记） ──
+    val SearchHighlight = Color(0xFFD32F2F)
 }
