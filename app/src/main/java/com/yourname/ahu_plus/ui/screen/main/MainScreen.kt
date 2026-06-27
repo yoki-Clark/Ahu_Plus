@@ -64,6 +64,7 @@ import com.yourname.ahu_plus.data.repository.StudentInfoRepository
 import com.yourname.ahu_plus.data.repository.YcardRepository
 import com.yourname.ahu_plus.ui.screen.apps.AppHubScreen
 import com.yourname.ahu_plus.ui.screen.chaoxing.ChaoxingTabScreen
+import com.yourname.ahu_plus.ui.screen.welearn.WeLearnCourseDetailScreen
 import com.yourname.ahu_plus.ui.screen.welearn.WeLearnMainScreen
 import com.yourname.ahu_plus.ui.screen.welearn.WeLearnStudyScreen
 import com.yourname.ahu_plus.ui.screen.welearn.WeLearnViewModel
@@ -108,6 +109,13 @@ private const val HOME_BILLS = 5
 private const val HOME_TRAINING_PLAN = 6
 private const val HOME_EMPTY_CLASSROOM = 7
 private const val HOME_EXAM_PREDICTION = 8
+
+/** WeLearn 内部三段式导航 (2026-06-28 新增 CourseDetailScreen) */
+private sealed class WeLearnNav {
+    object Main : WeLearnNav()
+    data class Detail(val course: com.yourname.ahu_plus.data.model.WeLearnCourse) : WeLearnNav()
+    data class Study(val course: com.yourname.ahu_plus.data.model.WeLearnCourse) : WeLearnNav()
+}
 
 @Composable
 fun MainScreen(
@@ -609,18 +617,24 @@ fun MainScreen(
                     onSwitchToAppsTab = { selectedTab = TAB_APPS },
                 )
                 selectedTab == TAB_WELEARN -> {
-                    var selectedCourse by remember { mutableStateOf<com.yourname.ahu_plus.data.model.WeLearnCourse?>(null) }
-                    val course = selectedCourse
-                    if (course == null) {
-                        WeLearnMainScreen(
+                    // WeLearn 内部三段式:课程列表 → 课程详情(单元+章节) → 刷课控制
+                    // 2026-06-28: 插入 CourseDetailScreen 显示章节,后续可拓展为针对性刷
+                    var welearnScreen by remember { mutableStateOf<WeLearnNav>(WeLearnNav.Main) }
+                    when (val ws = welearnScreen) {
+                        WeLearnNav.Main -> WeLearnMainScreen(
                             viewModel = weLearnViewModel,
-                            onCourseClick = { selectedCourse = it },
+                            onCourseClick = { welearnScreen = WeLearnNav.Detail(it) },
                         )
-                    } else {
-                        WeLearnStudyScreen(
-                            course = course,
+                        is WeLearnNav.Detail -> WeLearnCourseDetailScreen(
+                            course = ws.course,
                             viewModel = weLearnViewModel,
-                            onBack = { selectedCourse = null },
+                            onBack = { welearnScreen = WeLearnNav.Main },
+                            onStartStudy = { welearnScreen = WeLearnNav.Study(ws.course) },
+                        )
+                        is WeLearnNav.Study -> WeLearnStudyScreen(
+                            course = ws.course,
+                            viewModel = weLearnViewModel,
+                            onBack = { welearnScreen = WeLearnNav.Detail(ws.course) },
                         )
                     }
                 }

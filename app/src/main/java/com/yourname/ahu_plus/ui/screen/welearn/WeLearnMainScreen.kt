@@ -39,7 +39,7 @@ fun WeLearnMainScreen(
     val loggingIn by viewModel.loggingIn.collectAsState()
     val lastLoginError by viewModel.lastLoginError.collectAsState()
     val snackbar = remember { SnackbarHostState() }
-    var showLoginSheet by rememberSaveable { mutableStateOf(!isLoggedIn.value) }
+    var showLoginSheet by rememberSaveable { mutableStateOf(!viewModel.isLoggedIn) }
 
     // 登录成功后自动切到列表
     LaunchedEffect(loggingIn, isLoggedIn.value) {

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.yourname.ahu_plus.AhuPlusApplication
 import com.yourname.ahu_plus.data.model.WeLearnCourse
 import com.yourname.ahu_plus.data.model.WeLearnStudyUiState
+import com.yourname.ahu_plus.data.model.WeLearnUnitScos
 import com.yourname.ahu_plus.data.repository.WeLearnRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -41,6 +42,20 @@ class WeLearnViewModel(
     private val _coursesState = MutableStateFlow(CoursesUiState())
     val coursesState: StateFlow<CoursesUiState> = _coursesState.asStateFlow()
 
+    // 课程详情(单元+章节树)
+    data class TreeUiState(
+        val loading: Boolean = false,
+        // 当前树所属的课程;相同 cid 不重复拉(避免"去刷课→返回"时整树重置 + 折叠态丢失)
+        val cid: String? = null,
+        val units: List<WeLearnUnitScos> = emptyList(),
+        // 折叠态存 VM(UnitBlock 重组 / 屏重挂都不丢)
+        val collapsedUnits: Set<Int> = emptySet(),
+        val error: String? = null,
+    )
+
+    private val _treeState = MutableStateFlow(TreeUiState())
+    val treeState: StateFlow<TreeUiState> = _treeState.asStateFlow()
+
     // 透传 StudyRepository.studyState 给 UI
     val studyState: StateFlow<WeLearnStudyUiState> = studyRepo.studyState
         .stateIn(viewModelScope, SharingStarted.Eagerly, WeLearnStudyUiState())
@@ -54,7 +69,6 @@ class WeLearnViewModel(
     val isLoggedIn: Boolean get() = authRepo.isLoggedIn()
 
     init {
-        authRepo.loadPersistedCookies()
         if (isLoggedIn) refreshCourses()
     }
 
@@ -89,6 +103,37 @@ class WeLearnViewModel(
         }
     }
 
+    /**
+     * 加载课程下全部单元+章节,供课程详情页(WeLearnCourseDetailScreen)显示。
+     * 单元×scoLeaves 失败由 Repository 兜底为空,这里只关心整体成功/失败。
+     */
+    fun loadCourseTree(cid: String) {
+        // ponytail: 同一 cid 已加载过则跳过;Detail 屏重挂(去刷课→返回)时不再重置树
+        if (_treeState.value.cid == cid && _treeState.value.units.isNotEmpty()) return
+        viewModelScope.launch {
+            // 切换课程:清折叠态(单元 idx 只在课程内唯一,跨课复用会误折叠)
+            _treeState.value = _treeState.value.copy(
+                loading = true, cid = cid, error = null, collapsedUnits = emptySet(),
+            )
+            val res = queryRepo.getCourseTreeWithScos(cid)
+            _treeState.value = res.fold(
+                onSuccess = {
+                    _treeState.value.copy(loading = false, cid = cid, units = it, error = null)
+                },
+                onFailure = {
+                    _treeState.value.copy(loading = false, cid = cid, error = it.message ?: "加载失败")
+                },
+            )
+        }
+    }
+
+    fun toggleUnitExpanded(unitIdx: Int) {
+        val cur = _treeState.value.collapsedUnits
+        _treeState.value = _treeState.value.copy(
+            collapsedUnits = if (unitIdx in cur) cur - unitIdx else cur + unitIdx,
+        )
+    }
+
     /** 开始刷课(供 StudyScreen 调用,内部启动 Service) */
     fun startStudying(context: Context, cid: String, accuracy: String = "100") {
         com.yourname.ahu_plus.service.WeLearnStudyService.start(context, cid, accuracy)
@@ -101,7 +146,8 @@ class WeLearnViewModel(
     fun clearLogin() {
         viewModelScope.launch {
             authRepo.clearCookies()
-            sessionManagerClear()
+            app.sessionManager.clearWeLearnCredentials()
+            app.sessionManager.saveWeLearnCookies("")
             _coursesState.value = CoursesUiState(needsLogin = true)
         }
     }
@@ -109,10 +155,5 @@ class WeLearnViewModel(
     /** 登录成功后,UI 切换到课程列表时调一下,清掉错误态 */
     fun consumeLoginResult() {
         _lastLoginError.value = null
-    }
-
-    private suspend fun sessionManagerClear() {
-        app.sessionManager.clearWeLearnCredentials()
-        app.sessionManager.saveWeLearnCookies("")
     }
 }
