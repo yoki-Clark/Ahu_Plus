@@ -148,7 +148,7 @@ fun BathroomBalanceCard(
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
-                        Row {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "手机 ${data.telPhone}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -320,7 +320,7 @@ fun ElectricityBalanceCard(
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
-                        Row {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "${state.data.roomName} · ${state.data.floorName}",
                                 style = MaterialTheme.typography.bodySmall,

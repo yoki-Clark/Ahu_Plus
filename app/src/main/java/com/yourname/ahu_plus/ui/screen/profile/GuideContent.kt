@@ -161,6 +161,71 @@ fun findGuideEntry(id: String): Pair<GuideCategory, GuideEntry>? {
 }
 
 // ──────────────────────────────────────────────────────────────────────
+//  搜索
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * 一条搜索命中：[entry] 命中关键字，[snippet] 是首个匹配的原文片段（标题 > 摘要 > 正文顺序），
+ * [matchStart]/[matchLength] 标记 [snippet] 内匹配位置，供 UI 截断+高亮。
+ */
+data class GuideSearchHit(
+    val category: GuideCategory,
+    val entry: GuideEntry,
+    val snippet: String,
+    val matchStart: Int,
+    val matchLength: Int,
+)
+
+/**
+ * 在所有条目中按 query 搜索；命中优先级 title > summary > 第一个匹配的 body 段落；
+ * 不区分大小写；保持文档声明顺序。
+ */
+fun searchGuideEntries(query: String): List<GuideSearchHit> {
+    val q = query.trim()
+    if (q.isEmpty()) return emptyList()
+    val needle = q.lowercase()
+    return buildList {
+        guideCategories.forEach { category ->
+            category.entries.forEach { entry ->
+                findFirstHit(entry, needle)?.let { (text, idx) ->
+                    add(
+                        GuideSearchHit(
+                            category = category,
+                            entry = entry,
+                            snippet = text,
+                            matchStart = idx,
+                            matchLength = needle.length,
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 返回首个命中片段及其在原文中的下标；找不到返回 null。 */
+private fun findFirstHit(entry: GuideEntry, needle: String): Pair<String, Int>? {
+    entry.title.lowercase().indexOf(needle).takeIf { it >= 0 }?.let {
+        return entry.title to it
+    }
+    entry.summary?.lowercase()?.indexOf(needle)?.takeIf { it >= 0 }?.let {
+        return entry.summary to it
+    }
+    entry.sections.forEach { section ->
+        section.body.forEach { block ->
+            val text = when (block) {
+                is GuideBlock.Para -> block.text
+                is GuideBlock.Bullet -> block.text
+            }
+            text.lowercase().indexOf(needle).takeIf { it >= 0 }?.let {
+                return text to it
+            }
+        }
+    }
+    return null
+}
+
+// ──────────────────────────────────────────────────────────────────────
 //  内容种子 —— ⚠️ 后续由维护者补写完整文档
 //
 //  说明：目前 `使用方式` 多数迁移自旧版「使用指南」，`实现方式` 仅就已知信息
