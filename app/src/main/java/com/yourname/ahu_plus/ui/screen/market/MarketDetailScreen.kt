@@ -261,6 +261,7 @@ internal fun MarketDetailScreen(
                         MarketTopicDetailCard(
                             topic = topic,
                             school = uiState.topicSchoolMap[topic.id],
+                            highlightQuery = uiState.searchQuery,
                             onImageClick = { url, index ->
                                 previewImage = ImagePreviewState(
                                     urls = topic.imgs.filter { it.isNotBlank() },
