@@ -7,11 +7,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Storefront
@@ -62,6 +64,9 @@ import com.yourname.ahu_plus.data.repository.StudentInfoRepository
 import com.yourname.ahu_plus.data.repository.YcardRepository
 import com.yourname.ahu_plus.ui.screen.apps.AppHubScreen
 import com.yourname.ahu_plus.ui.screen.chaoxing.ChaoxingTabScreen
+import com.yourname.ahu_plus.ui.screen.welearn.WeLearnMainScreen
+import com.yourname.ahu_plus.ui.screen.welearn.WeLearnStudyScreen
+import com.yourname.ahu_plus.ui.screen.welearn.WeLearnViewModel
 import com.yourname.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.yourname.ahu_plus.ui.screen.dashboard.DashboardScreen
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListScreen
@@ -90,8 +95,9 @@ import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
 private const val TAB_HOME = 0
 private const val TAB_MARKET = 1
 private const val TAB_CHAOXING = 2
-private const val TAB_APPS = 3
-private const val TAB_PROFILE = 4
+private const val TAB_WELEARN = 3
+private const val TAB_APPS = 4
+private const val TAB_PROFILE = 5
 
 private const val HOME_DASHBOARD = 0
 private const val HOME_SCHEDULE = 1
@@ -183,6 +189,7 @@ fun MainScreen(
                 homePage = HOME_GRADE
             }
             MainActivity.DEEP_LINK_CHAOXING -> selectedTab = TAB_CHAOXING
+            MainActivity.DEEP_LINK_WELEARN -> selectedTab = TAB_WELEARN
             else -> return@LaunchedEffect
         }
         onDeepLinkConsumed()
@@ -263,6 +270,7 @@ fun MainScreen(
     val emptyClassroomViewModel: com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel =
         viewModel(factory = factory)
     val chaoxingViewModel: ChaoxingViewModel = viewModel(factory = factory)
+    val weLearnViewModel: WeLearnViewModel = viewModel(factory = factory)
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
     val showBottomNavigation = selectedTab != TAB_MARKET || (
         marketUiState.selectedTopic == null &&
@@ -366,6 +374,32 @@ fun MainScreen(
                         )
                     )
                 }
+                // WeLearn 随行课堂 (2026-06-27 新增, 默认可见)
+                NavigationBarItem(
+                    selected = selectedTab == TAB_WELEARN,
+                    onClick = { selectedTab = TAB_WELEARN },
+                    icon = {
+                        Icon(
+                            imageVector = if (selectedTab == TAB_WELEARN) Icons.Filled.LibraryBooks
+                            else Icons.Outlined.LibraryBooks,
+                            contentDescription = "WeLearn"
+                        )
+                    },
+                    label = {
+                        Text(
+                            "WeLearn",
+                            fontWeight = if (selectedTab == TAB_WELEARN) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    alwaysShowLabel = true,
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                )
                 NavigationBarItem(
                     selected = selectedTab == TAB_APPS,
                     onClick = { selectedTab = TAB_APPS },
@@ -574,6 +608,22 @@ fun MainScreen(
                     viewModel = chaoxingViewModel,
                     onSwitchToAppsTab = { selectedTab = TAB_APPS },
                 )
+                selectedTab == TAB_WELEARN -> {
+                    var selectedCourse by remember { mutableStateOf<com.yourname.ahu_plus.data.model.WeLearnCourse?>(null) }
+                    val course = selectedCourse
+                    if (course == null) {
+                        WeLearnMainScreen(
+                            viewModel = weLearnViewModel,
+                            onCourseClick = { selectedCourse = it },
+                        )
+                    } else {
+                        WeLearnStudyScreen(
+                            course = course,
+                            viewModel = weLearnViewModel,
+                            onBack = { selectedCourse = null },
+                        )
+                    }
+                }
                 selectedTab == TAB_APPS -> AppHubScreen(
                     scheduleViewModel = scheduleViewModel,
                     gradeViewModel = gradeViewModel,

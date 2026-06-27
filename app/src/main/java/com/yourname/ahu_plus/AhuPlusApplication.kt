@@ -12,6 +12,9 @@ import com.yourname.ahu_plus.data.repository.ChaoxingNotificationRepository
 import com.yourname.ahu_plus.data.repository.ChaoxingRepository
 import com.yourname.ahu_plus.data.repository.ChaoxingStudyRepository
 import com.yourname.ahu_plus.data.repository.ChaoxingTikuRepository
+import com.yourname.ahu_plus.data.repository.WeLearnAuthRepository
+import com.yourname.ahu_plus.data.repository.WeLearnRepository
+import com.yourname.ahu_plus.data.repository.WeLearnStudyRepository
 import com.yourname.ahu_plus.data.repository.KqAttendanceRepository
 import com.yourname.ahu_plus.data.update.UpdateManager
 import com.yourname.ahu_plus.data.repository.CardRepository
@@ -106,6 +109,11 @@ class AhuPlusApplication : Application() {
     lateinit var chaoxingTikuRepository: ChaoxingTikuRepository
         private set
     lateinit var chaoxingStudyRepository: ChaoxingStudyRepository
+
+    // WeLearn 随行课堂 (welearn.sflep.com)
+    lateinit var weLearnAuthRepository: WeLearnAuthRepository
+    lateinit var weLearnRepository: WeLearnRepository
+    lateinit var weLearnStudyRepository: WeLearnStudyRepository
         private set
     lateinit var chaoxingNotificationRepository: ChaoxingNotificationRepository
         private set
@@ -181,6 +189,11 @@ class AhuPlusApplication : Application() {
             notificationRepo = chaoxingNotificationRepository,
             context = this,
         )
+        // WeLearn 随行课堂 (welearn.sflep.com, 2026-06-27)
+        weLearnAuthRepository = WeLearnAuthRepository(sessionManager)
+        weLearnRepository = WeLearnRepository(weLearnAuthRepository)
+        weLearnStudyRepository = WeLearnStudyRepository(weLearnAuthRepository, weLearnRepository)
+        weLearnAuthRepository.loadPersistedCookies()
         // 首次登录初始化协调器 (2026-06-22 新增) — 串行预热 7 项核心数据
         initCoordinator = com.yourname.ahu_plus.data.repository.InitCoordinator(
             sessionManager = sessionManager,

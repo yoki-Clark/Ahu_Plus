@@ -32,6 +32,7 @@ import com.yourname.ahu_plus.ui.screen.profile.FinanceViewModel
 import com.yourname.ahu_plus.ui.screen.profile.StudentInfoViewModel
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel
 import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
+import com.yourname.ahu_plus.ui.screen.welearn.WeLearnViewModel
 
 /**
  * MainScreen 11 个 ViewModel 的工厂。
@@ -106,6 +107,7 @@ class MainScreenViewModelFactory(
                 app.chaoxingRepository, app.chaoxingStudyRepository, app.chaoxingTikuRepository,
                 sessionManager,
             ) as T
+            WeLearnViewModel::class.java -> WeLearnViewModel(app) as T
             else -> error("Unknown ViewModel class: ${modelClass.name}")
         }
     }

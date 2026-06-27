@@ -279,6 +279,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedCxPhone: String? = null
     @Volatile private var cachedCxPassword: String? = null
 
+    // WeLearn 随行课堂 (welearn.sflep.com)
+    @Volatile private var cachedWeLearnCookies: String? = null
+    @Volatile private var cachedWeLearnUsername: String? = null
+    @Volatile private var cachedWeLearnPassword: String? = null
+
     @Volatile private var cachedCxCoursesJson: String? = null
 
     @Volatile private var cachedCxCoursesProgressJson: String? = null
@@ -652,6 +657,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedCxPhone = prefs[CX_PHONE_KEY]
         cachedCxPassword = prefs[CX_PASSWORD_KEY]
+
+        cachedWeLearnCookies = prefs[WELEARN_COOKIES_KEY]
+        cachedWeLearnUsername = prefs[WELEARN_USERNAME_KEY]
+        cachedWeLearnPassword = prefs[WELEARN_PASSWORD_KEY]
 
         cachedCxCoursesJson = prefs[CX_COURSES_JSON_KEY]
         cachedCxCoursesProgressJson = prefs[CX_COURSES_PROGRESS_JSON_KEY]
@@ -2156,6 +2165,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedCxLoginWarningShown = "false"
         cachedCxPhone = null
         cachedCxPassword = null
+        cachedWeLearnCookies = null
+        cachedWeLearnUsername = null
+        cachedWeLearnPassword = null
 
         cachedCxCoursesJson = null
 
@@ -2432,6 +2444,36 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { prefs ->
             prefs.remove(CX_PHONE_KEY)
             prefs.remove(CX_PASSWORD_KEY)
+        }
+    }
+
+    // ── WeLearn 随行课堂 ─────────────────────────────────────────
+    fun getWeLearnCookies(): String? = cachedWeLearnCookies
+    fun getWeLearnUsername(): String? = cachedWeLearnUsername
+    fun getWeLearnPassword(): String? = cachedWeLearnPassword
+
+    fun hasWeLearnCredentials(): Boolean = !cachedWeLearnUsername.isNullOrBlank() && !cachedWeLearnPassword.isNullOrBlank()
+
+    suspend fun saveWeLearnCookies(value: String) {
+        cachedWeLearnCookies = value
+        appDataStore.dataStore.edit { it[WELEARN_COOKIES_KEY] = value }
+    }
+
+    suspend fun saveWeLearnCredentials(username: String, password: String) {
+        cachedWeLearnUsername = username
+        cachedWeLearnPassword = password
+        appDataStore.dataStore.edit { prefs ->
+            prefs[WELEARN_USERNAME_KEY] = username
+            prefs[WELEARN_PASSWORD_KEY] = password
+        }
+    }
+
+    suspend fun clearWeLearnCredentials() {
+        cachedWeLearnUsername = null
+        cachedWeLearnPassword = null
+        appDataStore.dataStore.edit { prefs ->
+            prefs.remove(WELEARN_USERNAME_KEY)
+            prefs.remove(WELEARN_PASSWORD_KEY)
         }
     }
 
@@ -2975,6 +3017,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         val CX_COOKIES_KEY = stringPreferencesKey("cx_cookies")
 
+        // WeLearn 随行课堂 (welearn.sflep.com)
+        val WELEARN_COOKIES_KEY = stringPreferencesKey("welearn_cookies")
+        val WELEARN_USERNAME_KEY = stringPreferencesKey("welearn_username")
+        val WELEARN_PASSWORD_KEY = stringPreferencesKey("welearn_password")
+
         val CX_COURSES_JSON_KEY = stringPreferencesKey("cx_courses_json")
 
         val CX_PHONE_KEY = stringPreferencesKey("cx_phone")
@@ -3122,6 +3169,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
             EMPTY_CLASSROOM_JSON_KEY, EMPTY_CLASSROOM_KEY_KEY, EMPTY_CLASSROOM_UPDATED_AT_KEY,
 
             CX_PHONE_KEY, CX_PASSWORD_KEY,
+
+            WELEARN_USERNAME_KEY, WELEARN_PASSWORD_KEY,
 
         )
 

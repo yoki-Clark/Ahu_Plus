@@ -35,6 +35,9 @@ class MainActivity : ComponentActivity() {
 
         /** 深链到学习通 Tab */
         const val DEEP_LINK_CHAOXING = "chaoxing"
+
+        /** 深链到 WeLearn Tab */
+        const val DEEP_LINK_WELEARN = "welearn"
     }
 
     /**
