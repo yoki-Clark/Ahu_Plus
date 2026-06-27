@@ -24,8 +24,14 @@ data class AnnouncementFeed(
 /**
  * 单条开发者公告。
  *
- * 时间字段为字符串(维护者好手写),格式 `yyyy-MM-dd` 或 `yyyy-MM-dd HH:mm`,
- * 留空表示无该侧时间限制。客户端用 [isActive] 做生效窗口 + 版本 + 已忽略判定。
+ * 时间字段为字符串(维护者好手写),格式 `yyyy-MM-dd` 或 `yyyy-MM-dd HH:mm`。
+ * 留空语义:
+ *   - `startAt` 空 = 立即生效
+ *   - `expireAt` 空 = **默认有效期 1 天**(2026-06-27 改:防止旧公告反复弹)
+ *     基准 = `startAt`(若非空)否则 `fetchedAt`(JSON 首次写入客户端的时刻);
+ *     长公告请显式写 `expireAt`。
+ *
+ * 客户端用 [isActive] 做生效窗口 + 版本 + 已忽略判定。
  */
 data class Announcement(
     /** 唯一 ID,用于"不再提示"去重。务必每条公告分配不同 id。 */
@@ -48,7 +54,7 @@ data class Announcement(
     @SerializedName("startAt")
     val startAt: String = "",
 
-    /** 过期时间(含),晚于此时间不再显示。空=永不过期。格式 yyyy-MM-dd[ HH:mm]。 */
+    /** 过期时间(含),晚于此时间不再显示。空=默认有效期 1 天(2026-06-27 改)。格式 yyyy-MM-dd[ HH:mm]。 */
     @SerializedName("expireAt")
     val expireAt: String = "",
 
@@ -84,11 +90,15 @@ data class Announcement(
      * @param nowMillis     当前时间戳(便于测试注入)
      * @param versionCode   当前客户端 versionCode
      * @param dismissedIds  用户已"不再提示"的公告 id 集合
+     * @param fetchedAt     公告 JSON 首次写入客户端的时间(毫秒);
+     *                      默认 1 天有效期的基准。0 = 未知(老缓存/未写入),此时视为"已过期"
+     *                      防止历史失效公告复活。
      */
     fun isActive(
         nowMillis: Long,
         versionCode: Int,
-        dismissedIds: Set<String>
+        dismissedIds: Set<String>,
+        fetchedAt: Long = 0L
     ): Boolean {
         if (id.isBlank()) return false
         if (dismissible && id in dismissedIds) return false
@@ -97,16 +107,23 @@ data class Announcement(
 
         val start = parseTimeOrNull(startAt)
         if (start != null && nowMillis < start) return false
+        // expireAt 空 = 默认有效期 1 天(基准 startAt 或 fetchedAt);
+        // fetchedAt=0 视为"已过期"(老用户升级后老 JSON 没时间戳,不复活)。
         val expire = parseTimeOrNull(expireAt)
-        if (expire != null && nowMillis > expire) return false
+            ?: if (fetchedAt > 0L) (start ?: fetchedAt) + ONE_DAY_MILLIS
+            else 0L
+        if (expire == 0L || nowMillis > expire) return false
 
         return true
     }
 
     companion object {
+        /** 默认有效期 1 天(2026-06-27 起统一行为,见 [Announcement] 类注释)。 */
+        private const val ONE_DAY_MILLIS = 24L * 60L * 60L * 1000L
+
         /**
          * 解析 `yyyy-MM-dd` 或 `yyyy-MM-dd HH:mm` 为本地时区毫秒;
-         * 空串 / 非法格式返回 null(视为无限制)。
+         * 空串 / 非法格式返回 null(视为无该侧限制)。
          */
         fun parseTimeOrNull(raw: String): Long? {
             val s = raw.trim()
