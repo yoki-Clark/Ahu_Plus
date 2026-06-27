@@ -178,6 +178,10 @@ fun EmptyClassroomScreen(
                                     "今天所有课程已结束"
                                 !uiState.isSelectedDateToday ->
                                     "所选日期暂无空闲教室"
+                                // 2026-06-27: 用户已选具体楼层,明确告知是该楼层无空闲,
+                                // 避免误以为整栋楼都没有空教室。
+                                uiState.selectedFloor != null ->
+                                    "该楼层今天暂无空闲教室"
                                 else -> "当前教学楼暂无空闲教室"
                             },
                             modifier = Modifier.fillMaxWidth().height(200.dp)

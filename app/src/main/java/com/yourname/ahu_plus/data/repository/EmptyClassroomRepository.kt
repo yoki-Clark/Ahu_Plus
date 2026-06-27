@@ -185,10 +185,51 @@ class EmptyClassroomRepository(
         }
     }
 
+    /**
+     * 拉取指定教学楼的全部房间列表(2026-06-27:用于楼层 chip 全量展示)。
+     *
+     * 与 free-list 的区别:这里返的是该楼所有 enabled 房间(含 1-13 节全部占用 / 实验 / 行政用),
+     * 不带时间过滤。楼层 chip 应当展示全部楼层,而不是只看空闲房间所在楼层。
+     *
+     * 失败返回 `Result.failure`,调用方应静默回退到 free-list 推导(老行为)。
+     */
+    suspend fun getBuildingRooms(buildingId: String): Result<List<FreeRoom>> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$GET_ROOMS_URL?buildingId=$buildingId&hasDataPermission=false&hasUsableDepartPermission=false")
+                .get()
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Referer", "$JW_BASE/student/for-std/room-borrow")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.code == 302) {
+                    throw SessionExpiredException()
+                }
+                if (!response.isSuccessful) {
+                    throw Exception("get-rooms 失败: HTTP ${response.code}")
+                }
+                val body = response.body?.string() ?: ""
+                if (body.isBlank()) {
+                    throw Exception("get-rooms 返回空响应")
+                }
+                // 顶层是 JSON 数组(不是包装对象)
+                val rooms = gson.fromJson(body, Array<FreeRoom>::class.java).toList()
+                Log.i(TAG, "get-rooms: ${rooms.size} rooms (building=$buildingId)")
+                Result.success(rooms)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "getBuildingRooms 失败 (building=$buildingId): ${e.message}")
+            Result.failure(e)
+        }
+    }
+
     companion object {
         private const val TAG = "EmptyClassroomRepo"
         private const val JW_BASE = "https://jw.ahu.edu.cn"
         private const val FREE_LIST_URL = "$JW_BASE/student/ws/room-borrow/free-list"
+        // 2026-06-27: 用于拉取该楼全部房间(含实验/非实验),让楼层 chip 显示全量。
+        private const val GET_ROOMS_URL = "$JW_BASE/student/ws/room/get-rooms"
         private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0"
     }
