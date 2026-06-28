@@ -122,6 +122,12 @@ class UpdateManager(
      * 启动自动检查: 命中"忽略此版本"则不打扰,但强制更新仍会弹窗。
      */
     suspend fun checkForUpdateWithIgnore(): CheckResult {
+        // ponytail: 装到/超过 ignored 标记的版本后自动作废,否则会被卡在 LATEST 永远不弹
+        // (例如在 v2.2.0 stable 点忽略 v2.2.0.1,装上 v2.2.0.1 先行版后启动不再提示)。
+        if (sessionManager.getIgnoredVersionCode() in 1..BuildConfig.VERSION_CODE) {
+            sessionManager.saveIgnoredVersionCode(0)
+        }
+
         val raw = checkRemote() ?: return CheckResult.ERROR
         val info = lastFetchedUpdateInfo ?: return CheckResult.ERROR
 
