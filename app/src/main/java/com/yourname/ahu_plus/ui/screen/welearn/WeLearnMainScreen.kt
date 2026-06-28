@@ -73,9 +73,11 @@ fun WeLearnMainScreen(
             when {
                 !isLoggedIn.value || showLoginSheet -> {
                     LoginCard(
+                        savedUsername = viewModel.savedUsername.orEmpty(),
                         submitting = loggingIn,
                         errorMsg = lastLoginError,
                         onLogin = { u, p -> viewModel.login(u, p) },
+                        onAutoRelogin = { viewModel.silentRelogin() },
                     )
                 }
                 else -> CourseList(
@@ -101,12 +103,19 @@ fun WeLearnMainScreen(
 
 @Composable
 private fun LoginCard(
+    savedUsername: String,
     submitting: Boolean,
     errorMsg: String?,
     onLogin: (String, String) -> Unit,
+    onAutoRelogin: () -> Unit,
 ) {
-    var username by rememberSaveable { mutableStateOf("") }
+    // 预填已保存的账号;首次进入无 savedUsername 时为空。
+    // 注意:rememberSaveable 在 configuration change 时保留,但首次创建时取 savedUsername 快照,
+    // 不会因为 silentRelogin 失败后改 savedUsername 而刷新 — 这是有意的: 用户已看到"自动登录失败",
+    // 此时用户名固定即可,避免重置用户的输入。
+    var username by rememberSaveable(savedUsername) { mutableStateOf(savedUsername) }
     var password by rememberSaveable { mutableStateOf("") }
+    val hasSaved = savedUsername.isNotBlank()
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -168,7 +177,20 @@ private fun LoginCard(
             if (submitting) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
             } else {
-                Text("登录", fontWeight = FontWeight.Bold)
+                Text(if (hasSaved) "重新登录" else "登录", fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // 有保存的账密 → 提供"用已保存账密登录"快捷入口
+        // 用于:首次进入已自动尝试过一次但失败后,用户想重试而不是手输密码
+        if (hasSaved) {
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = onAutoRelogin,
+                enabled = !submitting,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("用已保存账密自动登录", color = MaterialTheme.colorScheme.primary)
             }
         }
 

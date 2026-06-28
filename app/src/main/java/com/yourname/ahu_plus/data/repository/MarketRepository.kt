@@ -392,6 +392,13 @@ class MarketRepository(
         sessionManager.setChaoxingChildEnabled(enabled)
     }
 
+    // WeLearn 子开关:parent ON && welearnChild ON 才显示「WeLearn」Tab
+    fun getWelearnChildEnabled(): Boolean = sessionManager.getWelearnChildEnabled()
+
+    suspend fun setWelearnChildEnabled(enabled: Boolean) {
+        sessionManager.setWelearnChildEnabled(enabled)
+    }
+
     // ── 集市列表布局模式 ────────────────────────────────
     // "list" 单列 / "stagger" 小红书双列瀑布
     fun getListLayoutMode(): String = sessionManager.getListLayoutMode()

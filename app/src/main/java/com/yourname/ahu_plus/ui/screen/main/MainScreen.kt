@@ -265,6 +265,7 @@ fun MainScreen(
     val thirdPartyEnabled = marketUiState.thirdPartyServicesEnabled
     val marketVisible = thirdPartyEnabled && marketUiState.marketChildEnabled
     val chaoxingVisible = thirdPartyEnabled && marketUiState.chaoxingChildEnabled
+    val welearnVisible = thirdPartyEnabled && marketUiState.welearnChildEnabled
     val jwcNoticeViewModel: com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel =
         viewModel(factory = factory)
     val jwcNoticeListViewModel: com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel =
@@ -382,32 +383,34 @@ fun MainScreen(
                         )
                     )
                 }
-                // WeLearn 随行课堂 (2026-06-27 新增, 默认可见)
-                NavigationBarItem(
-                    selected = selectedTab == TAB_WELEARN,
-                    onClick = { selectedTab = TAB_WELEARN },
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == TAB_WELEARN) Icons.Filled.LibraryBooks
-                            else Icons.Outlined.LibraryBooks,
-                            contentDescription = "WeLearn"
+                // WeLearn 随行课堂 (2026-06-27 新增, 2026-06-28 移入第三方服务)
+                if (welearnVisible) {
+                    NavigationBarItem(
+                        selected = selectedTab == TAB_WELEARN,
+                        onClick = { selectedTab = TAB_WELEARN },
+                        icon = {
+                            Icon(
+                                imageVector = if (selectedTab == TAB_WELEARN) Icons.Filled.LibraryBooks
+                                else Icons.Outlined.LibraryBooks,
+                                contentDescription = "WeLearn"
+                            )
+                        },
+                        label = {
+                            Text(
+                                "WeLearn",
+                                fontWeight = if (selectedTab == TAB_WELEARN) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        alwaysShowLabel = true,
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    },
-                    label = {
-                        Text(
-                            "WeLearn",
-                            fontWeight = if (selectedTab == TAB_WELEARN) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    alwaysShowLabel = true,
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                )
+                }
                 NavigationBarItem(
                     selected = selectedTab == TAB_APPS,
                     onClick = { selectedTab = TAB_APPS },
@@ -464,7 +467,8 @@ fun MainScreen(
         Box(modifier = Modifier.padding(innerPadding)) {
             when {
                 (!marketVisible && selectedTab == TAB_MARKET) ||
-                    (!chaoxingVisible && selectedTab == TAB_CHAOXING) -> {
+                    (!chaoxingVisible && selectedTab == TAB_CHAOXING) ||
+                    (!welearnVisible && selectedTab == TAB_WELEARN) -> {
                     // 第三方服务对应 Tab 被禁用 (parent 关或对应子开关关) — 降级到首页
                     DashboardScreen(
                         viewModel = scheduleViewModel,
