@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
@@ -34,6 +35,8 @@ fun WeLearnStudyScreen(
     val ctx = LocalContext.current
     val state by viewModel.studyState.collectAsState()
     var accuracy by rememberSaveable { mutableStateOf("100") }
+    // 2026-06-28:增量/全量切换 — 增量=跳过已完成(默认),全量=已完成的也重提交
+    var fullMode by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -51,7 +54,7 @@ fun WeLearnStudyScreen(
             Modifier.padding(pad).fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // 课程元信息
+            // 课程元信息 — 原版(显示服务端 course.per)
             Card(shape = RoundedCornerShape(12.dp)) {
                 Column(Modifier.padding(16.dp)) {
                     Text("当前完成度", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -75,11 +78,54 @@ fun WeLearnStudyScreen(
                 enabled = !state.isRunning,
             )
 
+            // 2026-06-28:增量/全量切换(FilterChip 两选一)
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                ),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "刷题模式",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = !fullMode,
+                            onClick = { if (!state.isRunning) fullMode = false },
+                            label = { Text("增量") },
+                            leadingIcon = if (!fullMode) {
+                                { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null,
+                            enabled = !state.isRunning,
+                        )
+                        FilterChip(
+                            selected = fullMode,
+                            onClick = { if (!state.isRunning) fullMode = true },
+                            label = { Text("全量") },
+                            leadingIcon = if (fullMode) {
+                                { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null,
+                            enabled = !state.isRunning,
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (fullMode) "全量:已完成的 sco 也重新提交(覆盖分数)" else "增量:跳过已完成,只刷未完成(默认)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             // 大按钮
             Button(
                 onClick = {
                     if (state.isRunning) viewModel.stopStudying(ctx)
-                    else viewModel.startStudying(ctx, course.cid, accuracy.ifBlank { "100" })
+                    else viewModel.startStudying(ctx, course.cid, accuracy.ifBlank { "100" }, fullMode)
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(12.dp),
@@ -116,6 +162,14 @@ fun WeLearnStudyScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (state.answersFetched > 0) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "已从 CDN 拉 ${state.answersFetched} 个 sco 的真答案",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                         if (state.currentScoLocation.isNotBlank()) {
                             Spacer(Modifier.height(8.dp))
                             Text(

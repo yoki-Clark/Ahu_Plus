@@ -624,6 +624,7 @@ fun MainScreen(
                     // WeLearn 内部三段式:课程列表 → 课程详情(单元+章节) → 刷课控制
                     // 2026-06-28: 插入 CourseDetailScreen 显示章节,后续可拓展为针对性刷
                     var welearnScreen by remember { mutableStateOf<WeLearnNav>(WeLearnNav.Main) }
+                    val ctx = LocalContext.current
                     when (val ws = welearnScreen) {
                         WeLearnNav.Main -> WeLearnMainScreen(
                             viewModel = weLearnViewModel,
@@ -633,7 +634,14 @@ fun MainScreen(
                             course = ws.course,
                             viewModel = weLearnViewModel,
                             onBack = { welearnScreen = WeLearnNav.Main },
-                            onStartStudy = { welearnScreen = WeLearnNav.Study(ws.course) },
+                            // 2026-06-28:一键开刷 — 启动 Service + 跳到 StudyScreen 看进度
+                            // unitFilter=null 刷全部,IntArray 刷选中单元
+                            onStartStudy = { unitFilter ->
+                                weLearnViewModel.startStudying(
+                                    ctx, ws.course.cid, "100", false, unitFilter,
+                                )
+                                welearnScreen = WeLearnNav.Study(ws.course)
+                            },
                         )
                         is WeLearnNav.Study -> WeLearnStudyScreen(
                             course = ws.course,

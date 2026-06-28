@@ -9,6 +9,7 @@ import com.yourname.ahu_plus.data.model.WeLearnUnit
 import com.yourname.ahu_plus.data.model.WeLearnUnitScos
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.Request
 import java.io.IOException
 
@@ -35,7 +36,8 @@ class WeLearnRepository(
     suspend fun getCourses(): Result<List<WeLearnCourse>> = withContext(Dispatchers.IO) {
         runCatching {
             val req = Request.Builder()
-                .url("${WeLearnAuthRepository.BASE_URL}/ajax/authCourse.aspx?action=gmc")
+                // 2026-06-28 加 _t cache-buster,避免服务端缓存返回旧 course.per
+                .url("${WeLearnAuthRepository.BASE_URL}/ajax/authCourse.aspx?action=gmc&_t=${System.currentTimeMillis()}")
                 .header("User-Agent", UA)
                 .header("Referer", "${WeLearnAuthRepository.BASE_URL}/2019/student/index.aspx")
                 .build()
@@ -101,10 +103,12 @@ class WeLearnRepository(
     suspend fun getScoLeaves(cid: String, uid: String, classid: String, unitIdx: Int): Result<List<WeLearnSco>> =
         withContext(Dispatchers.IO) {
             runCatching {
+                // 2026-06-28 加 _t cache-buster,避免服务端缓存返回旧 iscomplete
                 val req = Request.Builder()
                     .url(
                         "${WeLearnAuthRepository.BASE_URL}/ajax/StudyStat.aspx" +
-                            "?action=scoLeaves&cid=$cid&uid=$uid&unitidx=$unitIdx&classid=$classid"
+                            "?action=scoLeaves&cid=$cid&uid=$uid&unitidx=$unitIdx&classid=$classid" +
+                            "&_t=${System.currentTimeMillis()}"
                     )
                     .header("User-Agent", UA)
                     .header("Referer", "${WeLearnAuthRepository.BASE_URL}/2019/student/course_info.aspx?cid=$cid")
@@ -139,6 +143,34 @@ class WeLearnRepository(
         val classid: String,
         val units: List<WeLearnUnit>,
     )
+
+    /**
+     * 拉 scoAddr(2026-06-28 用于刷题,拿 CDN 答案 URL)。
+     * 返回 Result<String> 内容是 addr 字段(形如 `//centercourseware.sflep.com/.../index.html#/1/1-1-3|...`)。
+     */
+    suspend fun getScoAddr(cid: String, scoid: String): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = FormBody.Builder()
+                .add("action", "scoAddr")
+                .add("cid", cid)
+                .add("scoid", scoid)
+                .add("nocache", System.currentTimeMillis().toString())
+                .build()
+            val req = Request.Builder()
+                .url("${WeLearnAuthRepository.BASE_URL}/Ajax/SCO.aspx")
+                .header("User-Agent", UA)
+                .header("Referer", "${WeLearnAuthRepository.BASE_URL}/student/studycourse.aspx?cid=$cid&classid=0&sco=")
+                .post(body)
+                .build()
+            authRepo.client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) throw IOException("scoAddr HTTP ${resp.code}")
+                val text = resp.body?.string().orEmpty()
+                val obj = JsonParser.parseString(text).asJsonObject
+                if (obj.get("ret")?.asInt != 0) throw IOException("scoAddr ret=${obj.get("ret")} msg=${obj.get("msg")}")
+                obj.get("addr")?.asString ?: throw IOException("scoAddr no addr field")
+            }
+        }.onFailure { Log.w(TAG, "getScoAddr($scoid) 失败", it) }
+    }
 
     // ── 课程详情(单元+章节) ──────────────────────────────
     /**

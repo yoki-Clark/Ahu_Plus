@@ -15,6 +15,7 @@ data class WeLearnStudyUiState(
     val partialCount: Int = 0,         // 只有 way1 或 way2 成功
     val failedCount: Int = 0,          // 两路都失败
     val skippedCount: Int = 0,         // 已完成/未开放 跳过
+    val answersFetched: Int = 0,       // 2026-06-28:从 CDN 拉到的真答案数量
     val accuracy: Int = 100,
     val logs: List<String> = emptyList(),
     val error: String? = null,

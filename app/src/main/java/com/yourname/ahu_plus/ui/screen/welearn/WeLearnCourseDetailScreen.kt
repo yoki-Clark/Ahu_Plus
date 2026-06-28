@@ -9,16 +9,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.*
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,9 +52,13 @@ fun WeLearnCourseDetailScreen(
     course: WeLearnCourse,
     viewModel: WeLearnViewModel,
     onBack: () -> Unit,
-    onStartStudy: () -> Unit,
+    // 2026-06-28:选择性刷 — unitFilter=null 刷全部,IntArray 刷选中单元
+    onStartStudy: (IntArray?) -> Unit,
 ) {
     val treeState by viewModel.treeState.collectAsState()
+    // 2026-06-28:单元多选状态
+    var showUnitSelector by remember { mutableStateOf(false) }
+    val selectedUnits = remember { mutableStateListOf<Int>() }
 
     LaunchedEffect(course.cid) { viewModel.loadCourseTree(course.cid) }
 
@@ -63,11 +72,42 @@ fun WeLearnCourseDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onStartStudy) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = "开始刷课")
+                    IconButton(onClick = { onStartStudy(null) }) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = "开始刷课(全部)")
                     }
                 },
             )
+        },
+        bottomBar = {
+            // 2026-06-28:详情屏底部加显眼"开始刷课"按钮,用户反馈找不到入口
+            Surface(
+                tonalElevation = 3.dp,
+                shadowElevation = 8.dp,
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { showUnitSelector = true },  // 2026-06-28 接通
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (selectedUnits.isEmpty()) "选择性刷" else "选择性刷(${selectedUnits.size})")
+                    }
+                    Button(
+                        onClick = { onStartStudy(null) },  // null = 全部单元
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("刷全部章节", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         },
     ) { pad ->
         Column(
