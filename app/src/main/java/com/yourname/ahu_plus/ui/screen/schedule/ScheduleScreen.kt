@@ -1,5 +1,15 @@
 package com.yourname.ahu_plus.ui.screen.schedule
 
+import android.Manifest
+import android.content.ContentValues
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,20 +63,32 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
+import androidx.core.view.drawToBitmap
 import com.yourname.ahu_plus.data.model.jw.UserScheduleItem
 import com.yourname.ahu_plus.ui.screen.schedule.components.ReminderPermissionBanner
 import com.yourname.ahu_plus.ui.screen.schedule.components.WeekPager
 import com.yourname.ahu_plus.ui.theme.AhuShapes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
 import kotlin.math.roundToInt
 import java.util.UUID
 
@@ -97,6 +120,58 @@ fun ScheduleScreen(
         }
     }
 
+    // ── 导出当前周课表到相册 ─────────────────────
+    val exportContext = LocalContext.current
+    val exportScope = rememberCoroutineScope()
+    val rootView = LocalView.current          // window-attached, 直接 drawToBitmap
+    var exporting by remember { mutableStateOf(false) }
+    var pendingExport by remember { mutableStateOf(false) }
+
+    fun doExport() {
+        if (exporting) return
+        exporting = true
+        val week = uiState.selectedWeek
+        exportScope.launch {
+            val ok = withContext(Dispatchers.Main) {
+                runCatching {
+                    val bitmap = rootView.drawToBitmap()
+                    try { saveBitmapToGallery(exportContext, week, bitmap) }
+                    finally { bitmap.recycle() }
+                }.isSuccess
+            }
+            exporting = false
+            Toast.makeText(
+                exportContext,
+                if (ok) "已保存到相册" else "保存失败,请重试",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    val storagePermLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (pendingExport) {
+            pendingExport = false
+            if (granted) doExport()
+            else Toast.makeText(exportContext, "需要存储权限以保存图片", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onExportClick: () -> Unit = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            doExport()
+        } else if (ContextCompat.checkSelfPermission(
+                exportContext, Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            doExport()
+        } else {
+            pendingExport = true
+            storagePermLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
         // 缓存极值,避免每帧 4 次 O(n) 遍历
         val minWeek = remember(uiState.weekIndices) { uiState.weekIndices.minOrNull() ?: 1 }
@@ -116,7 +191,8 @@ fun ScheduleScreen(
             onNext = { viewModel.onNextWeek() },
             onSettings = { viewModel.onToggleSettings() },
             onWeekSelected = { viewModel.onWeekSelected(it) },
-            onAddCourse = { viewModel.onToggleAddCourse() }
+            onAddCourse = { viewModel.onToggleAddCourse() },
+            onExport = onExportClick,
         )
 
         // 课程提醒已开启但缺权限时,引导用户授权(通知 + 精确闹钟)
@@ -316,6 +392,7 @@ private fun WeekHeader(
     onSettings: () -> Unit = {},
     onWeekSelected: (Int) -> Unit = {},
     onAddCourse: () -> Unit = {},
+    onExport: () -> Unit = {},
 ) {
     var showWeekPicker by remember { mutableStateOf(false) }
 
@@ -454,6 +531,17 @@ private fun WeekHeader(
                 Icons.Filled.Add,
                 contentDescription = "添加课程",
                 modifier = Modifier.size(20.dp)
+            )
+        }
+        // 保存当前周课表到相册 (2026-06-28 新增)
+        IconButton(
+            onClick = onExport,
+            modifier = Modifier.size(36.dp),
+        ) {
+            Icon(
+                Icons.Filled.Image,
+                contentDescription = "导出图片",
+                modifier = Modifier.size(20.dp),
             )
         }
         // 课表设置
@@ -727,4 +815,36 @@ private fun SemesterChips(
             )
         }
     }
+}
+
+// ═══════════════════════ 保存 PNG 到系统相册 (2026-06-28 修复版)═══════════════════════
+// API 29+ MediaStore scoped storage (免权限);≤28 Environment + WRITE_EXTERNAL_STORAGE。
+// 不抛异常,失败返回 false。
+
+private fun saveBitmapToGallery(context: Context, week: Int, bitmap: Bitmap): Boolean {
+    val name = "schedule_w${week}_${SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())}.png"
+    return runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/AhuPlus")
+            }
+            val uri = context.contentResolver.insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
+            )!!
+            context.contentResolver.openOutputStream(uri)!!.use {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val dir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                "AhuPlus",
+            ).apply { mkdirs() }
+            FileOutputStream(File(dir, name)).use {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
+    }.isSuccess
 }
