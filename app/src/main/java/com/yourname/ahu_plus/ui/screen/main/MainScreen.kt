@@ -639,12 +639,16 @@ fun MainScreen(
                             course = ws.course,
                             viewModel = weLearnViewModel,
                             onBack = { welearnScreen = WeLearnNav.Main },
-                            // 2026-06-28:一键开刷 — 启动 Service + 跳到 StudyScreen 看进度
+                            // 2026-06-28:顶栏 PlayArrow + 选择性刷 — 启动 Service + 跳到 StudyScreen
                             // unitFilter=null 刷全部,IntArray 刷选中单元
                             onStartStudy = { unitFilter ->
                                 weLearnViewModel.startStudying(
                                     ctx, ws.course.cid, "100", false, unitFilter,
                                 )
+                                welearnScreen = WeLearnNav.Study(ws.course)
+                            },
+                            // 2026-06-28:刷全部章节 — 仅跳转,Service 由用户在 Study 屏手动启动
+                            onOpenStudy = {
                                 welearnScreen = WeLearnNav.Study(ws.course)
                             },
                         )

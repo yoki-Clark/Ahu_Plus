@@ -52,8 +52,10 @@ fun WeLearnCourseDetailScreen(
     course: WeLearnCourse,
     viewModel: WeLearnViewModel,
     onBack: () -> Unit,
-    // 2026-06-28:选择性刷 — unitFilter=null 刷全部,IntArray 刷选中单元
+    // 2026-06-28:选择性刷 + 顶栏 PlayArrow — unitFilter=null 刷全部,IntArray 刷选中单元(立即启动 Service)
     onStartStudy: (IntArray?) -> Unit,
+    // 2026-06-28:刷全部章节 — 仅跳转 Study 屏,不启动 Service(由用户在 Study 屏手动点开始)
+    onOpenStudy: () -> Unit,
 ) {
     val treeState by viewModel.treeState.collectAsState()
     // 2026-06-28:单元多选状态
@@ -100,7 +102,7 @@ fun WeLearnCourseDetailScreen(
                         Text(if (selectedUnits.isEmpty()) "选择性刷" else "选择性刷(${selectedUnits.size})")
                     }
                     Button(
-                        onClick = { onStartStudy(null) },  // null = 全部单元
+                        onClick = { onOpenStudy() },  // 仅跳转 Study 屏,启动由用户在 Study 屏手动触发
                         modifier = Modifier.weight(1f).height(52.dp),
                         shape = RoundedCornerShape(12.dp),
                     ) {
