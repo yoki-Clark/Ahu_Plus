@@ -20,7 +20,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -31,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.yourname.ahu_plus.data.model.WeLearnCourse
 import com.yourname.ahu_plus.data.model.WeLearnSco
 import com.yourname.ahu_plus.data.model.WeLearnScoStatus
@@ -58,9 +58,8 @@ fun WeLearnCourseDetailScreen(
     onOpenStudy: () -> Unit,
 ) {
     val treeState by viewModel.treeState.collectAsState()
-    // 2026-06-28:单元多选状态
+    // 2026-06-28:单选 Dialog 开关(tap-to-confirm,无需持有选中状态)
     var showUnitSelector by remember { mutableStateOf(false) }
-    val selectedUnits = remember { mutableStateListOf<Int>() }
 
     LaunchedEffect(course.cid) { viewModel.loadCourseTree(course.cid) }
     // session 过期重登失败 → 自动回主页(Main 屏会弹 LoginSheet)
@@ -99,7 +98,7 @@ fun WeLearnCourseDetailScreen(
                     ) {
                         Icon(Icons.Filled.PlayArrow, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
-                        Text(if (selectedUnits.isEmpty()) "选择性刷" else "选择性刷(${selectedUnits.size})")
+                        Text("选择性刷")
                     }
                     Button(
                         onClick = { onOpenStudy() },  // 仅跳转 Study 屏,启动由用户在 Study 屏手动触发
@@ -168,6 +167,77 @@ fun WeLearnCourseDetailScreen(
                             )
                         }
                         item { Spacer(Modifier.height(24.dp)) }
+                    }
+                }
+            }
+        }
+
+        // 2026-06-28:选择性刷 — 单选 Dialog,tap 行即触发 + 自动关闭
+        if (showUnitSelector) {
+            Dialog(onDismissRequest = { showUnitSelector = false }) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                ) {
+                    Column(Modifier.padding(vertical = 8.dp)) {
+                        Text(
+                            "选择单元",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        )
+                        if (treeState.units.isEmpty()) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(24.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Text("章节加载中…", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        } else {
+                            treeState.units.forEach { us ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            showUnitSelector = false
+                                            onStartStudy(intArrayOf(us.unit.unitIdx))
+                                        }
+                                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            us.unit.unitName.ifBlank { "Unit ${us.unit.unitIdx + 1}" },
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.titleSmall,
+                                        )
+                                        if (us.unit.name.isNotBlank()) {
+                                            Text(
+                                                us.unit.name,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                    val done = us.scos.count { it.status == WeLearnScoStatus.COMPLETED }
+                                    Text(
+                                        "$done/${us.scos.size}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+                        TextButton(
+                            onClick = { showUnitSelector = false },
+                            modifier = Modifier.align(Alignment.End).padding(horizontal = 12.dp),
+                        ) {
+                            Text("取消")
+                        }
                     }
                 }
             }

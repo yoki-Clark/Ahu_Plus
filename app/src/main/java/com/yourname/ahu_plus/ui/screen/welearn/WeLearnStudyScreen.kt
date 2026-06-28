@@ -18,6 +18,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.model.WeLearnCourse
+import com.yourname.ahu_plus.data.model.WeLearnScoStatus
+import com.yourname.ahu_plus.data.model.WeLearnUnitScos
 
 /**
  * WeLearn 单课程刷课屏 (2026-06-27)。
@@ -30,10 +32,17 @@ import com.yourname.ahu_plus.data.model.WeLearnCourse
 fun WeLearnStudyScreen(
     course: WeLearnCourse,
     viewModel: WeLearnViewModel,
+    // 2026-06-28:选择性刷 — null=课程级,IntArray=选中单元 idx(单选取 first())
+    unitFilter: IntArray? = null,
     onBack: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val state by viewModel.studyState.collectAsState()
+    val treeState by viewModel.treeState.collectAsState()
+    val unitInfo: WeLearnUnitScos? = remember(unitFilter, treeState.units) {
+        val idx = unitFilter?.firstOrNull() ?: return@remember null
+        treeState.units.firstOrNull { it.unit.unitIdx == idx }
+    }
     var accuracy by rememberSaveable { mutableStateOf("100") }
     // 2026-06-28:增量/全量切换 — 增量=跳过已完成(默认),全量=已完成的也重提交
     var fullMode by rememberSaveable { mutableStateOf(false) }
@@ -54,15 +63,56 @@ fun WeLearnStudyScreen(
             Modifier.padding(pad).fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // 课程元信息 — 原版(显示服务端 course.per)
-            Card(shape = RoundedCornerShape(12.dp)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("当前完成度", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${course.per}%", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.width(12.dp))
-                        LinearProgressIndicator(progress = { course.per / 100f }, modifier = Modifier.weight(1f).height(8.dp))
+            // 2026-06-28:选择性刷 — 顶卡按 unitInfo 分支(单元级 vs 课程级)
+            if (unitInfo != null) {
+                Card(shape = RoundedCornerShape(12.dp)) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(
+                            unitInfo.unit.unitName.ifBlank { "Unit ${unitInfo.unit.unitIdx + 1}" },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        if (unitInfo.unit.name.isNotBlank()) {
+                            Text(
+                                unitInfo.unit.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        val done = unitInfo.scos.count { it.status == WeLearnScoStatus.COMPLETED }
+                        val total = unitInfo.scos.size
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "$done/$total",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            LinearProgressIndicator(
+                                progress = { if (total > 0) done / total.toFloat() else 0f },
+                                modifier = Modifier.weight(1f).height(8.dp),
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "本次只刷 ${unitInfo.unit.unitName.ifBlank { "Unit ${unitInfo.unit.unitIdx + 1}" }}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                // 课程元信息 — 原版(显示服务端 course.per)
+                Card(shape = RoundedCornerShape(12.dp)) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("当前完成度", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${course.per}%", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(12.dp))
+                            LinearProgressIndicator(progress = { course.per / 100f }, modifier = Modifier.weight(1f).height(8.dp))
+                        }
                     }
                 }
             }
