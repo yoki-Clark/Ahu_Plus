@@ -73,10 +73,21 @@ class WeatherRepository(
         const val DEFAULT_LONGITUDE = 117.39
         const val CITY_LABEL = "合肥蜀山区"
 
+        /**
+         * 固定用 GFS Seamless 模型。
+         *
+         * 默认的 best_match ensemble 会把 ECMWF IFS025 (对国内 0 mm 降水日仍报 code 99
+         * 雷暴冰雹) 的"最严重码"选出来, 导致合肥天天雷暴/雷暴冰雹, 严重失真。
+         * GFS Seamless 在国内 5 日预报更克制, 与中国天气/彩云等平台一致得多。
+         * cma_grapes_global 虽然是中国气象局原生, 但只支持 3-4 天。
+         */
+        const val FORECAST_MODEL = "gfs_seamless"
+
         /** forecast 端点 — 当前 + 小时预报 + 5 天预报 */
         val FORECAST_URL: String = buildString {
             append("https://api.open-meteo.com/v1/forecast")
             append("?latitude=$DEFAULT_LATITUDE&longitude=$DEFAULT_LONGITUDE")
+            append("&models=$FORECAST_MODEL")
             append("&current=temperature_2m,apparent_temperature,relative_humidity_2m,")
             append("weather_code,wind_speed_10m,wind_direction_10m")
             append("&hourly=temperature_2m,weather_code,precipitation_probability")
