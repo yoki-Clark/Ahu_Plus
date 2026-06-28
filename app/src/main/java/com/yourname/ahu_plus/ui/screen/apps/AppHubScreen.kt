@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Room
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -65,6 +66,8 @@ import com.yourname.ahu_plus.ui.screen.chaoxing.ChaoxingScreen
 import com.yourname.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomScreen
 import com.yourname.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
+import com.yourname.ahu_plus.ui.screen.weather.WeatherScreen
+import com.yourname.ahu_plus.ui.screen.weather.WeatherViewModel
 import com.yourname.ahu_plus.ui.screen.exam.ExamScreen
 import com.yourname.ahu_plus.ui.screen.exam.ExamViewModel
 import com.yourname.ahu_plus.ui.screen.exam.ExamPredictionScreen
@@ -119,6 +122,7 @@ private const val PAGE_FINANCE = "finance"
 private const val PAGE_TRAINING_PLAN = "trainingPlan"
 private const val PAGE_ATTENDANCE = "attendance"
 private const val PAGE_EMPTY_CLASSROOM = "emptyClassroom"
+private const val PAGE_WEATHER = "weather"
 
 @Composable
 fun AppHubScreen(
@@ -132,6 +136,7 @@ fun AppHubScreen(
     studentInfoViewModel: StudentInfoViewModel,
     financeViewModel: FinanceViewModel,
     attendanceViewModel: AttendanceViewModel,
+    weatherViewModel: WeatherViewModel,
     onNeedsLogin: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as AhuPlusApplication
@@ -192,6 +197,10 @@ fun AppHubScreen(
             viewModel = emptyClassroomViewModel,
             onBack = { currentPage = null },
             onNeedsLogin = onNeedsLogin
+        )
+        PAGE_WEATHER -> WeatherScreen(
+            viewModel = weatherViewModel,
+            onBack = { currentPage = null }
         )
         PAGE_NOTICES -> JwcNoticeListScreen(
             viewModel = jwcNoticeListViewModel,
@@ -423,6 +432,11 @@ private fun AppHubPage(
             item {
                 AppHubItem("网费", Icons.Filled.Wifi, AhuIndigo) {
                     onNavigate(PAGE_INTERNET)
+                }
+            }
+            item {
+                AppHubItem("天气", Icons.Filled.WbSunny, AhuBlue, gradient = AhuGradient.Blue.brush) {
+                    onNavigate(PAGE_WEATHER)
                 }
             }
 

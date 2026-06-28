@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -40,6 +41,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.model.jw.CourseDisplayItem
+import com.yourname.ahu_plus.data.model.weather.WeatherFeed
+import com.yourname.ahu_plus.data.weather.WeatherManager
+import com.yourname.ahu_plus.ui.components.WeatherPanel
 import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.data.model.jw.CourseUnit
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
@@ -68,6 +72,9 @@ fun TodayCourseCard(
     onAddHomework: () -> Unit,
     todayHasHomework: Boolean = false,
     todayAttendance: Map<String, Int> = emptyMap(),
+    weather: WeatherFeed? = null,
+    weatherManager: WeatherManager? = null,
+    onOpenWeather: () -> Unit = {},
 ) {
     // 每 30s tick 一次驱动倒计时/进度条重算；用 tick 当 remember 的 key,
     // 比 @Suppress("UNUSED_EXPRESSION") 更可靠 — 不依赖编译器保留无意义读取。
@@ -96,126 +103,142 @@ fun TodayCourseCard(
             containerColor = MaterialTheme.colorScheme.primaryContainer
         ),
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            // 顶部状态行
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(6.dp),
+            Column(
+                modifier = Modifier
+                    .weight(0.7f)
+                    .padding(start = 16.dp, top = 16.dp, end = 8.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // 顶部状态行
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(6.dp),
+                    ) {
+                        Text(
+                            text = when {
+                                currentCourse != null -> "上课中"
+                                nextCourse != null -> "下节课"
+                                todayItems.isNotEmpty() -> "今日已结束"
+                                else -> "今日课程"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+
+                when {
+                    currentCourse != null -> {
+                        val total = courseTotalMinutes(currentCourse, uiState.unitTimes)
+                        val start = courseStartMinutes(currentCourse, uiState.unitTimes) ?: 0
+                        val end = start + total
+                        val nowMin = now.hour * 60 + now.minute
+                        val elapsed = (nowMin - start).coerceAtLeast(0)
+                        val remaining = (end - nowMin).coerceAtLeast(0)
+                        val progress = if (total > 0) (elapsed.toFloat() / total).coerceIn(0f, 1f) else 0f
+
+                        CourseSummary(currentCourse, uiState.unitTimes)
+                        // 考勤状态 badge (从教务考勤系统匹配)
+                        val attStatus = todayAttendance[currentCourse.courseName]
+                        if (attStatus != null) {
+                            AttendanceBadge(status = attStatus)
+                        }
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                        )
+                        Text(
+                            text = "已上 ${elapsed} 分钟 · 还剩 ${remaining} 分钟",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.86f),
+                        )
+                    }
+                    nextCourse != null -> {
+                        val startMin = courseStartMinutes(nextCourse, uiState.unitTimes) ?: 0
+                        val nowMin = now.hour * 60 + now.minute
+                        val diff = (startMin - nowMin).coerceAtLeast(0)
+                        val (label, color) = when {
+                            diff <= 0 -> "马上开始" to MaterialTheme.colorScheme.error
+                            diff < 60 -> "${diff} 分钟后开始" to MaterialTheme.colorScheme.error
+                            diff < 180 -> "${diff / 60} 小时 ${diff % 60} 分后" to MaterialTheme.colorScheme.tertiary
+                            else -> "${diff / 60} 小时后" to MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                        }
+                        Text(label, style = MaterialTheme.typography.bodySmall, color = color)
+                        CourseSummary(nextCourse, uiState.unitTimes)
+                    }
+                    todayItems.isNotEmpty() -> {
+                        Text(
+                            text = "今天课程已结束,明天继续加油 💪",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                        )
+                    }
+                    else -> {
+                        Text(
+                            text = "今天没课,好好休息 ✨",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                        )
+                    }
+                }
+
+                // 底部 chip 行 (仅上课中显示,对应正在上的这节课)
+                if (currentCourse != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AssistChip(
+                            onClick = onAddHomework,
+                            label = { Text("作业") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.AssignmentTurnedIn, contentDescription = null,
+                                    modifier = Modifier.size(AssistChipDefaults.IconSize),
+                                    tint = if (todayHasHomework) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                        )
+                    }
+                } // end if (currentCourse != null)
+
+                // 底部链接
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onOpenSchedule() }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = when {
-                            currentCourse != null -> "上课中"
-                            nextCourse != null -> "下节课"
-                            todayItems.isNotEmpty() -> "今日已结束"
-                            else -> "今日课程"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        text = "查看完整课表",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Medium,
                     )
                 }
             }
 
-            when {
-                currentCourse != null -> {
-                    val total = courseTotalMinutes(currentCourse, uiState.unitTimes)
-                    val start = courseStartMinutes(currentCourse, uiState.unitTimes) ?: 0
-                    val end = start + total
-                    val nowMin = now.hour * 60 + now.minute
-                    val elapsed = (nowMin - start).coerceAtLeast(0)
-                    val remaining = (end - nowMin).coerceAtLeast(0)
-                    val progress = if (total > 0) (elapsed.toFloat() / total).coerceIn(0f, 1f) else 0f
-
-                    CourseSummary(currentCourse, uiState.unitTimes)
-                    // 考勤状态 badge (从教务考勤系统匹配)
-                    val attStatus = todayAttendance[currentCourse.courseName]
-                    if (attStatus != null) {
-                        AttendanceBadge(status = attStatus)
-                    }
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
-                    )
-                    Text(
-                        text = "已上 ${elapsed} 分钟 · 还剩 ${remaining} 分钟",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.86f),
-                    )
-                }
-                nextCourse != null -> {
-                    val startMin = courseStartMinutes(nextCourse, uiState.unitTimes) ?: 0
-                    val nowMin = now.hour * 60 + now.minute
-                    val diff = (startMin - nowMin).coerceAtLeast(0)
-                    val (label, color) = when {
-                        diff <= 0 -> "马上开始" to MaterialTheme.colorScheme.error
-                        diff < 60 -> "${diff} 分钟后开始" to MaterialTheme.colorScheme.error
-                        diff < 180 -> "${diff / 60} 小时 ${diff % 60} 分后" to MaterialTheme.colorScheme.tertiary
-                        else -> "${diff / 60} 小时后" to MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
-                    }
-                    Text(label, style = MaterialTheme.typography.bodySmall, color = color)
-                    CourseSummary(nextCourse, uiState.unitTimes)
-                }
-                todayItems.isNotEmpty() -> {
-                    Text(
-                        text = "今天课程已结束,明天继续加油 💪",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
-                    )
-                }
-                else -> {
-                    Text(
-                        text = "今天没课,好好休息 ✨",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                    )
-                }
-            }
-
-            // 底部 chip 行 (仅上课中显示,对应正在上的这节课)
-            if (currentCourse != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    AssistChip(
-                        onClick = onAddHomework,
-                        label = { Text("作业") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Filled.AssignmentTurnedIn, contentDescription = null,
-                                modifier = Modifier.size(AssistChipDefaults.IconSize),
-                                tint = if (todayHasHomework) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                    )
-                }
-            } // end if (currentCourse != null)
-
-            // 底部链接
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { onOpenSchedule() }
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "查看完整课表",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
+            // 右侧 30% 天气模块
+            WeatherPanel(
+                modifier = Modifier.weight(0.3f).padding(end = 16.dp, top = 16.dp, bottom = 16.dp),
+                weather = weather,
+                classToWarn = currentCourse ?: nextCourse,
+                unitTimes = uiState.unitTimes,
+                manager = weatherManager,
+                onClick = onOpenWeather,
+            )
         }
     }
 }

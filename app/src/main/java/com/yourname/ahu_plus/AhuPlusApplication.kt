@@ -30,7 +30,9 @@ import com.yourname.ahu_plus.data.repository.ProgramCompletionRepository
 import com.yourname.ahu_plus.data.repository.TrainingPlanRepository
 import com.yourname.ahu_plus.data.repository.ExamDataRepository
 import com.yourname.ahu_plus.data.repository.AnnouncementRepository
+import com.yourname.ahu_plus.data.repository.WeatherRepository
 import com.yourname.ahu_plus.data.announcement.AnnouncementManager
+import com.yourname.ahu_plus.data.weather.WeatherManager
 import com.yourname.ahu_plus.data.repository.JwcNoticeRepository
 import com.yourname.ahu_plus.data.repository.JwAuthRepository
 import com.yourname.ahu_plus.data.repository.MarketRepository
@@ -43,6 +45,7 @@ import com.yourname.ahu_plus.util.CxFontDecoder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.conscrypt.Conscrypt
 import java.security.Security
@@ -126,6 +129,10 @@ class AhuPlusApplication : Application() {
     lateinit var announcementRepository: AnnouncementRepository
         private set
     lateinit var announcementManager: AnnouncementManager
+        private set
+    lateinit var weatherRepository: WeatherRepository
+        private set
+    lateinit var weatherManager: WeatherManager
         private set
     override fun onCreate() {
         super.onCreate()
@@ -226,11 +233,29 @@ class AhuPlusApplication : Application() {
         announcementRepository = AnnouncementRepository(sessionManager)
         announcementManager = AnnouncementManager(this, sessionManager, announcementRepository)
 
+        // 天气:Open-Meteo 公开 API(免 key),固定合肥蜀山区,
+        // 零登录,首页小卡 + 独立天气屏共用。
+        weatherRepository = WeatherRepository(sessionManager)
+        weatherManager = WeatherManager(sessionManager, weatherRepository)
+
         // ── Widget / 课程提醒统一调度(2026-06-22 借鉴 AHUTong) ──
         // 首次启动排程,后续每次 scheduleNext 自递归。
         // 放在 onCreate 末尾确保所有 Repository 都已构造完毕。
         WidgetUpdateScheduler.scheduleNext(this)
         WidgetUpdateScheduler.scheduleTicker(this)  // 2026-06-22: 1 分钟 RTC 倒计时刷新
+
+        // ── 天气每小时自动刷新(零登录,前台常驻 Coroutine) ─────
+        // 用户要求:每次打开软件时刷新(由 MainActivity 进入首页触发)+ 每小时自动一次。
+        // 后台被 Doze 杀就停,符合"用户能看到才需要刷新"语义。
+        // 首次延迟 5s 避开冷启动竞争(网络/CookieJar 都未就绪)。
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            delay(5_000L)
+            runCatching { weatherManager.refresh() }
+            while (true) {
+                delay(60L * 60L * 1000L)
+                runCatching { weatherManager.refresh() }
+            }
+        }
     }
 
     /**

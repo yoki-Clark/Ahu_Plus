@@ -32,6 +32,7 @@ import com.yourname.ahu_plus.ui.screen.profile.FinanceViewModel
 import com.yourname.ahu_plus.ui.screen.profile.StudentInfoViewModel
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel
 import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
+import com.yourname.ahu_plus.ui.screen.weather.WeatherViewModel
 import com.yourname.ahu_plus.ui.screen.welearn.WeLearnViewModel
 
 /**
@@ -108,6 +109,7 @@ class MainScreenViewModelFactory(
                 sessionManager,
             ) as T
             WeLearnViewModel::class.java -> WeLearnViewModel(app) as T
+            WeatherViewModel::class.java -> WeatherViewModel(app.weatherManager) as T
             else -> error("Unknown ViewModel class: ${modelClass.name}")
         }
     }

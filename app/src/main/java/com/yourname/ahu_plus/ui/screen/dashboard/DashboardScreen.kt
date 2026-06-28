@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.debug.DebugClock
@@ -120,6 +121,7 @@ fun DashboardScreen(
     onOpenTrainingPlan: () -> Unit = {},
     onOpenEmptyClassroom: () -> Unit = {},
     onOpenAppHub: () -> Unit = {},
+    onOpenWeather: () -> Unit = {},
     recentApps: List<String> = emptyList(),
     onRecordApp: (String) -> Unit = {},
     onAddUserTask: () -> Unit = {},
@@ -132,6 +134,10 @@ fun DashboardScreen(
     val noticeUiState by noticeViewModel.uiState.collectAsStateWithLifecycle()
     val recentTasks by viewModel.recentTasks.collectAsStateWithLifecycle()
     val todayAttendance by viewModel.todayCourseAttendance.collectAsStateWithLifecycle()
+
+    // 订阅 WeatherManager.feed (公开数据, 首页每次进入由 MainScreen 触发 refresh)
+    val app = LocalContext.current.applicationContext as com.yourname.ahu_plus.AhuPlusApplication
+    val weatherFeed by app.weatherManager.feed.collectAsStateWithLifecycle()
 
     // 2026-06-17 Bug4: 弹"添加待办"对话框
     var showAddTaskDialog by androidx.compose.runtime.remember {
@@ -194,6 +200,12 @@ fun DashboardScreen(
                         onRefresh = viewModel::onRefresh,
                         onAddHomework = { showTodayHomeworkDialog = true },
                         todayAttendance = todayAttendance,
+                        weather = weatherFeed,
+                        weatherManager = app.weatherManager,
+                        onOpenWeather = {
+                            onRecordApp(AppRegistry.KEY_WEATHER)
+                            onOpenWeather()
+                        },
                     )
                 }
 
