@@ -26,6 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -80,7 +83,9 @@ fun LoginScreen(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .padding(32.dp),
+            .imePadding()
+            .padding(32.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -177,8 +182,8 @@ fun LoginScreen(
 
         // 登录按钮 — 单一蓝渐变 Box（避免 Material3 Button 内部 ripple/elevation 产生嵌套色块）
         val canLogin = !uiState.isLoading &&
-            uiState.username.isNotBlank() &&
-            uiState.password.isNotBlank()
+                uiState.username.isNotBlank() &&
+                uiState.password.isNotBlank()
         Box(
             modifier = Modifier
                 .fillMaxWidth()
