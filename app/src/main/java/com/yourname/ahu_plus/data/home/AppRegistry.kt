@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Room
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -57,6 +58,7 @@ object AppRegistry {
     const val KEY_AC = "ac"
     const val KEY_LIGHTING = "lighting"
     const val KEY_INTERNET = "internet"
+    const val KEY_WEATHER = "weather"
 
     /** 默认显示顺序(用于 AppDock 未配置最近使用时的回退顺序) */
     private val DEFAULT_RECENT_KEYS = listOf(KEY_SCHEDULE, KEY_GRADE, KEY_EXAM)
@@ -157,6 +159,13 @@ object AppRegistry {
             icon = Icons.Filled.Wifi,
             tint = AhuIndigo,
             group = LIFE,
+        ),
+        AppSpec(
+            key = KEY_WEATHER,
+            title = "天气",
+            icon = Icons.Filled.WbSunny,
+            tint = AhuBlue,
+            group = QUERY,
         ),
     )
 

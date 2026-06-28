@@ -92,6 +92,8 @@ import com.yourname.ahu_plus.ui.screen.schedule.ScheduleScreen
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel
 import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanScreen
 import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
+import com.yourname.ahu_plus.ui.screen.weather.WeatherScreen
+import com.yourname.ahu_plus.ui.screen.weather.WeatherViewModel
 
 private const val TAB_HOME = 0
 private const val TAB_MARKET = 1
@@ -109,6 +111,7 @@ private const val HOME_BILLS = 5
 private const val HOME_TRAINING_PLAN = 6
 private const val HOME_EMPTY_CLASSROOM = 7
 private const val HOME_EXAM_PREDICTION = 8
+private const val HOME_WEATHER = 9
 
 /** WeLearn 内部三段式导航 (2026-06-28 新增 CourseDetailScreen) */
 private sealed class WeLearnNav {
@@ -280,6 +283,14 @@ fun MainScreen(
         viewModel(factory = factory)
     val chaoxingViewModel: ChaoxingViewModel = viewModel(factory = factory)
     val weLearnViewModel: WeLearnViewModel = viewModel(factory = factory)
+    val weatherViewModel: WeatherViewModel = viewModel(factory = factory)
+
+    // 每次进入首页时触发一次天气刷新(用户要求)。常驻 1h Coroutine 兜底。
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == TAB_HOME) {
+            weatherViewModel.refresh()
+        }
+    }
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
     val showBottomNavigation = selectedTab != TAB_MARKET || (
         marketUiState.selectedTopic == null &&
@@ -570,6 +581,10 @@ fun MainScreen(
                             onBack = { homePage = HOME_DASHBOARD },
                             onNeedsLogin = onReauth
                         )
+                        HOME_WEATHER -> WeatherScreen(
+                            viewModel = weatherViewModel,
+                            onBack = { homePage = HOME_DASHBOARD }
+                        )
                         else -> DashboardScreen(
                             viewModel = scheduleViewModel,
                             noticeViewModel = jwcNoticeViewModel,
@@ -580,6 +595,7 @@ fun MainScreen(
                             onOpenExam = { homePage = HOME_EXAM },
                             onOpenTrainingPlan = { homePage = HOME_TRAINING_PLAN },
                             onOpenEmptyClassroom = { homePage = HOME_EMPTY_CLASSROOM },
+                            onOpenWeather = { homePage = HOME_WEATHER },
                             onOpenBathroom = {
                                 previousTab = selectedTab
                                 selectedTab = TAB_PROFILE
@@ -671,6 +687,7 @@ fun MainScreen(
                     studentInfoViewModel = studentInfoViewModel,
                     financeViewModel = financeViewModel,
                     attendanceViewModel = attendanceViewModel,
+                    weatherViewModel = weatherViewModel,
                     onNeedsLogin = onReauth
                 )
                 selectedTab == TAB_PROFILE -> ProfileScreen(

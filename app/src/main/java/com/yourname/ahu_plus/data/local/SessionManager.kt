@@ -248,6 +248,16 @@ class SessionManager(private val appDataStore: AppDataStore) {
      */
     @Volatile private var cachedAnnouncementsFetchedAt: Long = 0L
 
+    /**
+     * 天气 JSON 缓存(forecast + air-quality 合并):
+     * 由 WeatherRepository 从 Open-Meteo 公开 API 拉取后写入。零登录。
+     * 公开数据,退登保留。
+     */
+    @Volatile private var cachedWeatherJson: String? = null
+
+    /** 天气 JSON 首次写入客户端的时间(毫秒);0=从未写入。 */
+    @Volatile private var cachedWeatherFetchedAt: Long = 0L
+
     /** 用户已"不再提示"的公告 id 集合(逗号分隔持久化)。退登保留,避免重复弹。 */
     @Volatile private var cachedDismissedAnnouncementIds: Set<String> = emptySet()
 
@@ -629,6 +639,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedAnnouncementsJson = prefs[ANNOUNCEMENTS_JSON_KEY]
         cachedAnnouncementsFetchedAt = prefs[ANNOUNCEMENTS_FETCHED_AT_KEY] ?: 0L
+        cachedWeatherJson = prefs[WEATHER_JSON_KEY]
+        cachedWeatherFetchedAt = prefs[WEATHER_FETCHED_AT_KEY] ?: 0L
         cachedDismissedAnnouncementIds =
             prefs[DISMISSED_ANNOUNCEMENT_IDS_KEY]
                 ?.split(",")
@@ -2035,6 +2047,22 @@ class SessionManager(private val appDataStore: AppDataStore) {
         }
     }
 
+    // ── 天气 Open-Meteo JSON 缓存(零登录公开数据,退登保留) ────────
+
+    fun getWeatherJson(): String? = cachedWeatherJson
+
+    fun getWeatherFetchedAt(): Long = cachedWeatherFetchedAt
+
+    suspend fun saveWeatherJson(json: String) {
+        // 每次拉取都刷新时间戳(温度每小时可能完全不同,不像公告那样需避免重复刷新)
+        cachedWeatherJson = json
+        cachedWeatherFetchedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit { prefs ->
+            prefs[WEATHER_JSON_KEY] = json
+            prefs[WEATHER_FETCHED_AT_KEY] = cachedWeatherFetchedAt
+        }
+    }
+
     /** 使用帮助首次打开弹窗是否已看过。 */
     fun getGuideIntroSeen(): Boolean = cachedGuideIntroSeen
 
@@ -3009,6 +3037,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val ANNOUNCEMENTS_JSON_KEY = stringPreferencesKey("announcements_json")
         val ANNOUNCEMENTS_FETCHED_AT_KEY = longPreferencesKey("announcements_fetched_at")
         val DISMISSED_ANNOUNCEMENT_IDS_KEY = stringPreferencesKey("dismissed_announcement_ids")
+
+        // 天气(Open-Meteo,零登录,公开数据,退登保留)
+        val WEATHER_JSON_KEY = stringPreferencesKey("weather_json")
+        val WEATHER_FETCHED_AT_KEY = longPreferencesKey("weather_fetched_at")
         val GUIDE_INTRO_SEEN_KEY = stringPreferencesKey("guide_intro_seen")
 
         val BETA_ENABLED_KEY = booleanPreferencesKey("beta_enabled")
