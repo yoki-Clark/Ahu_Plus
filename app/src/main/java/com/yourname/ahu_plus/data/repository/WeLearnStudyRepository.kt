@@ -167,6 +167,53 @@ class WeLearnStudyRepository(
         studyJob?.cancel()
     }
 
+    // ── 刷时长心跳(2026-06-28) ──────────────────────────────
+    /**
+     * 对单个 sco 跑 N 秒心跳(60s 节奏 keepsco,savescoinfo 触发 learntime 持久化)。
+     *
+     * 协议(2026-06-28 本地实测验证):
+     *   1. POST startsco160928 → 开 SCORM 会话
+     *   2. 每秒 sleep,每 60s 一次 keepsco_with_getticket_with_updatecmitime(session_time/total_time 必填)
+     *   3. POST savescoinfo160928 → 关 SCORM 会话,服务端把累积的 session_time 写入 scoLeaves.learntime
+     *
+     * 失败处理:任何一步失败仅记日志(主流程继续);整个函数不抛异常。
+     * 取消:协程 scope 共享 studyJob,shouldStop 期间直接 break。
+     */
+    suspend fun runHeartbeatForSco(
+        cid: String, uid: String, classid: String, scoid: String,
+        durationSec: Int,
+        onTick: (Int) -> Unit,
+    ) {
+        if (durationSec <= 0) return
+        if (shouldStop) return
+        addLog("[心跳] $scoid 起步 ${durationSec}s")
+        _studyState.value = _studyState.value.copy(currentScoHeartbeatSec = durationSec)
+
+        if (!queryRepo.heartbeatStart(cid, uid, scoid, classid)) {
+            addLog("[心跳] $scoid startsco 失败,跳过")
+            _studyState.value = _studyState.value.copy(elapsedSec = 0, currentScoHeartbeatSec = 0)
+            return
+        }
+
+        for (elapsed in 1..durationSec) {
+            if (shouldStop) {
+                addLog("[心跳] $scoid 用户停止 @ ${elapsed - 1}s")
+                break
+            }
+            delay(1000)
+            // 心跳节奏 60s 一次;最后一秒(就算没整除 60)也补一发,保证 savescoinfo 之前服务端有最新数据
+            if (elapsed % 60 == 0 || elapsed == durationSec) {
+                val ok = queryRepo.heartbeatKeep(cid, uid, scoid, elapsed, elapsed)
+                if (!ok) addLog("[心跳] $scoid t=${elapsed}s 失败,继续 sleep")
+            }
+            onTick(elapsed)
+        }
+
+        queryRepo.heartbeatSave(cid, uid, scoid)
+        _studyState.value = _studyState.value.copy(elapsedSec = 0, currentScoHeartbeatSec = 0)
+        addLog("[心跳] $scoid 完成")
+    }
+
     /**
      * 刷完一门课的全部未完成章节(2026-06-28 v2:按需拉答案,无答案直接跳过)。
      *
@@ -175,6 +222,7 @@ class WeLearnStudyRepository(
      *   2. CDN 拉 et-blank/et-choice 答案
      *   3. 拿不到答案 → skip(不浪费提交,也不做假完成)
      *   4. 拿得到答案 → 构造 cmi.interactions 提交(带 retry)
+     *   5. 2026-06-28:如果 [heartbeatEnabled],提交完再跑 [heartbeatSecondsPerSco] 心跳(60s 节奏 keepsco)
      *
      * 优势:
      *   - 不会对无答案的 sco(录音题/无数据)做无效提交
@@ -187,6 +235,8 @@ class WeLearnStudyRepository(
         delayMs: Long = 300,
         fullMode: Boolean = false,  // 2026-06-28:全量模式=true 时已完成的 sco 也重新提交
         unitIndices: IntArray? = null,  // 2026-06-28:选择性刷 — null=全部,IntArray=只刷选中单元
+        heartbeatEnabled: Boolean = false,  // 2026-06-28:是否每节刷时长
+        heartbeatSecondsPerSco: Int = 180,   // 2026-06-28:每节刷时长(秒),UI 配分钟数 × 60
     ) = withContext(Dispatchers.IO) {
         if (_studyState.value.isRunning) {
             Log.w(TAG, "已有任务在跑, 忽略新启动")
@@ -293,6 +343,13 @@ class WeLearnStudyRepository(
                 if (!way1 || !way2) {
                     // 失败诊断:打印服务器响应前 200 字符,方便排查 cmi 格式问题
                     addLog("    诊断: ${lastBody.take(200)}")
+                }
+
+                // 2026-06-28:刷时长心跳(在刷完成度成功后跑,失败不影响主流程)
+                if (heartbeatEnabled && heartbeatSecondsPerSco > 0) {
+                    runHeartbeatForSco(tree.cid, tree.uid, tree.classid, sco.id, heartbeatSecondsPerSco) { elapsed ->
+                        _studyState.value = _studyState.value.copy(elapsedSec = elapsed)
+                    }
                 }
 
                 // 限速控制:每个 sco 间隔最少 1.5s,每 10 个长暂停 8s

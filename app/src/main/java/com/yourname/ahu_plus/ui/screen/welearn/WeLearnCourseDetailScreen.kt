@@ -31,10 +31,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.yourname.ahu_plus.AhuPlusApplication
 import com.yourname.ahu_plus.data.model.WeLearnCourse
 import com.yourname.ahu_plus.data.model.WeLearnSco
 import com.yourname.ahu_plus.data.model.WeLearnScoStatus
 import com.yourname.ahu_plus.data.model.WeLearnUnitScos
+import com.yourname.ahu_plus.data.model.formatScoLearntime
+import com.yourname.ahu_plus.data.model.formatStudiedDuration
 
 /**
  * WeLearn 课程详情屏 (2026-06-28)。
@@ -58,10 +61,19 @@ fun WeLearnCourseDetailScreen(
     onOpenStudy: () -> Unit,
 ) {
     val treeState by viewModel.treeState.collectAsState()
+    val ctx = androidx.compose.ui.platform.LocalContext.current  // 2026-06-28:用于 LaunchedEffect 拿 applicationContext
     // 2026-06-28:单选 Dialog 开关(tap-to-confirm,无需持有选中状态)
     var showUnitSelector by remember { mutableStateOf(false) }
+    // 2026-06-28:课程级已学时长(从 scogeneral 拉,空时显示 "—")
+    var studiedSeconds by remember { mutableStateOf(course.studiedSeconds) }
 
     LaunchedEffect(course.cid) { viewModel.loadCourseTree(course.cid) }
+    // 2026-06-28:进入 Detail 屏时拉 scogeneral 更新 studiedSeconds
+    LaunchedEffect(course.cid) {
+        val app = ctx.applicationContext as AhuPlusApplication
+        val stuid = course.uid ?: app.sessionManager.getWeLearnUsername() ?: return@LaunchedEffect
+        viewModel.loadCourseGeneralStats(course, stuid)?.let { studiedSeconds = it }
+    }
     // session 过期重登失败 → 自动回主页(Main 屏会弹 LoginSheet)
     LaunchedEffect(treeState.needsLogin) { if (treeState.needsLogin) onBack() }
 
@@ -117,7 +129,7 @@ fun WeLearnCourseDetailScreen(
             modifier = Modifier.padding(pad).fillMaxSize(),
         ) {
             // 课程元信息卡
-            CompletionCard(course)
+            CompletionCard(course, studiedSeconds)
 
             when {
                 treeState.loading && treeState.units.isEmpty() -> {
@@ -246,7 +258,7 @@ fun WeLearnCourseDetailScreen(
 }
 
 @Composable
-private fun CompletionCard(course: WeLearnCourse) {
+private fun CompletionCard(course: WeLearnCourse, studiedSeconds: Int) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         shape = RoundedCornerShape(12.dp),
@@ -269,6 +281,13 @@ private fun CompletionCard(course: WeLearnCourse) {
                     modifier = Modifier.weight(1f).height(8.dp),
                 )
             }
+            // 2026-06-28:已学习总时长(从 StudyStat scogeneral 拉)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "已学习 ${formatStudiedDuration(studiedSeconds)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -393,6 +412,16 @@ private fun ScoRow(sco: WeLearnSco) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 32.dp),
+            )
+        }
+        // 2026-06-28:每节已学时长(从 scoLeaves.learntime 解析,空时不显示)
+        formatScoLearntime(sco.learntimeSeconds)?.let { learntimeText ->
+            Spacer(Modifier.height(1.dp))
+            Text(
+                learntimeText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.padding(start = 32.dp),
             )
         }

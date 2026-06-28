@@ -95,7 +95,10 @@ class WeLearnStudyService : Service() {
                 val accuracy = intent.getStringExtra(EXTRA_ACCURACY) ?: "100"
                 val fullMode = intent.getBooleanExtra(EXTRA_FULL_MODE, false)  // 2026-06-28
                 val unitIndices = intent.getIntArrayExtra(EXTRA_UNIT_INDICES)  // 2026-06-28
-                startStudying(cid, accuracy, fullMode, unitIndices)
+                // 2026-06-28:刷时长参数(默认开,每节 3 分钟)
+                val heartbeatEnabled = intent.getBooleanExtra(EXTRA_HEARTBEAT_ENABLED, true)
+                val heartbeatSecondsPerSco = intent.getIntExtra(EXTRA_HEARTBEAT_SECONDS_PER_SCO, 180)
+                startStudying(cid, accuracy, fullMode, unitIndices, heartbeatEnabled, heartbeatSecondsPerSco)
             }
             ACTION_STOP -> stopStudyingAndSelf()
         }
@@ -107,6 +110,8 @@ class WeLearnStudyService : Service() {
         accuracy: String,
         fullMode: Boolean = false,
         unitIndices: IntArray? = null,  // 2026-06-28
+        heartbeatEnabled: Boolean = true,  // 2026-06-28:刷时长开关(默认开)
+        heartbeatSecondsPerSco: Int = 180,  // 2026-06-28:每节时长(秒),分钟数 × 60
     ) {
         val app = applicationContext as AhuPlusApplication
         scope.launch(Dispatchers.IO) {
@@ -127,14 +132,16 @@ class WeLearnStudyService : Service() {
                     stopStudyingAndSelf(); return@launch
                 }
 
-                // 3. 启动刷课(fullMode=true 时已完成的 sco 也重提交;unitIndices!=null 时只刷选中单元)
+                // 3. 启动刷课(fullMode=true 时已完成的 sco 也重提交;unitIndices!=null 时只刷选中单元;heartbeatEnabled=true 时每节跑 N 秒心跳)
                 app.weLearnStudyRepository.studyCourse(
                     tree = tree,
                     accuracyRange = parseAccuracy(accuracy),
                     fullMode = fullMode,
                     unitIndices = unitIndices,
+                    heartbeatEnabled = heartbeatEnabled,
+                    heartbeatSecondsPerSco = heartbeatSecondsPerSco,
                 )
-                Log.i(tag, "刷课完成(fullMode=$fullMode units=${unitIndices?.toList()}), 停服")
+                Log.i(tag, "刷课完成(fullMode=$fullMode units=${unitIndices?.toList()} heartbeat=$heartbeatEnabled/${heartbeatSecondsPerSco}s), 停服")
                 stopStudyingAndSelf()
             } catch (e: Exception) {
                 Log.e(tag, "刷课异常", e)
@@ -175,7 +182,11 @@ class WeLearnStudyService : Service() {
         val text = when {
             state.isRunning && state.totalCount > 0 -> {
                 val done = state.completedCount + state.partialCount
-                "进度 ${state.completedCount}✓ ${state.partialCount}△ ${state.failedCount}✗ ($done/${state.totalCount}) — ${state.currentScoLocation.take(20)}"
+                val base = "进度 ${state.completedCount}✓ ${state.partialCount}△ ${state.failedCount}✗ ($done/${state.totalCount}) — ${state.currentScoLocation.take(20)}"
+                // 2026-06-28:刷时长进行中时追加 "· 已刷 X/Y 分"
+                if (state.currentScoHeartbeatSec > 0) {
+                    "$base · 已刷 ${state.elapsedSec / 60}/${state.currentScoHeartbeatSec / 60} 分"
+                } else base
             }
             state.isRunning -> "准备中…"
             else -> "已停止"
@@ -222,6 +233,9 @@ class WeLearnStudyService : Service() {
         const val EXTRA_ACCURACY = "accuracy"  // "100" 或 "70,100"
         const val EXTRA_FULL_MODE = "full_mode"  // 2026-06-28:全量模式 — 已完成 sco 也重提交
         const val EXTRA_UNIT_INDICES = "unit_indices"  // 2026-06-28:选择性刷 — 选中单元 idx 数组
+        // 2026-06-28:刷时长参数
+        const val EXTRA_HEARTBEAT_ENABLED = "heartbeat_enabled"  // 默认 true
+        const val EXTRA_HEARTBEAT_SECONDS_PER_SCO = "heartbeat_seconds_per_sco"  // 每节时长(秒),默认 180
 
         /** UI 入口:启动 Service 刷指定 cid */
         fun start(
@@ -230,6 +244,8 @@ class WeLearnStudyService : Service() {
             accuracy: String = "100",
             fullMode: Boolean = false,
             unitIndices: IntArray? = null,
+            heartbeatEnabled: Boolean = true,  // 2026-06-28
+            heartbeatSecondsPerSco: Int = 180,  // 2026-06-28
         ) {
             val intent = Intent(context, WeLearnStudyService::class.java).apply {
                 action = ACTION_START
@@ -237,6 +253,8 @@ class WeLearnStudyService : Service() {
                 putExtra(EXTRA_ACCURACY, accuracy)
                 putExtra(EXTRA_FULL_MODE, fullMode)
                 if (unitIndices != null) putExtra(EXTRA_UNIT_INDICES, unitIndices)
+                putExtra(EXTRA_HEARTBEAT_ENABLED, heartbeatEnabled)
+                putExtra(EXTRA_HEARTBEAT_SECONDS_PER_SCO, heartbeatSecondsPerSco)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

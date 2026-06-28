@@ -294,6 +294,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedWeLearnCookies: String? = null
     @Volatile private var cachedWeLearnUsername: String? = null
     @Volatile private var cachedWeLearnPassword: String? = null
+    // 2026-06-28:刷时长配置(默认开,3 分钟/节;退登保留)
+    @Volatile private var cachedWeLearnHeartbeatEnabled: String = "true"
+    @Volatile private var cachedWeLearnHeartbeatMinutesPerSco: String = "3"
 
     @Volatile private var cachedCxCoursesJson: String? = null
 
@@ -679,6 +682,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedWeLearnCookies = prefs[WELEARN_COOKIES_KEY]
         cachedWeLearnUsername = prefs[WELEARN_USERNAME_KEY]
         cachedWeLearnPassword = prefs[WELEARN_PASSWORD_KEY]
+        cachedWeLearnHeartbeatEnabled = prefs[WELEARN_HEARTBEAT_ENABLED_KEY] ?: "true"
+        cachedWeLearnHeartbeatMinutesPerSco = prefs[WELEARN_HEARTBEAT_MINUTES_PER_SCO_KEY] ?: "3"
 
         cachedCxCoursesJson = prefs[CX_COURSES_JSON_KEY]
         cachedCxCoursesProgressJson = prefs[CX_COURSES_PROGRESS_JSON_KEY]
@@ -2530,6 +2535,22 @@ class SessionManager(private val appDataStore: AppDataStore) {
         }
     }
 
+    // 2026-06-28:刷时长配置 getter/setter
+    fun getWeLearnHeartbeatEnabled(): Boolean = cachedWeLearnHeartbeatEnabled == "true"
+
+    suspend fun saveWeLearnHeartbeatEnabled(v: Boolean) {
+        cachedWeLearnHeartbeatEnabled = v.toString()
+        appDataStore.dataStore.edit { it[WELEARN_HEARTBEAT_ENABLED_KEY] = v.toString() }
+    }
+
+    fun getWeLearnHeartbeatMinutesPerSco(): Int = cachedWeLearnHeartbeatMinutesPerSco.toIntOrNull()?.coerceIn(1, 60) ?: 3
+
+    suspend fun saveWeLearnHeartbeatMinutesPerSco(minutes: Int) {
+        val v = minutes.coerceIn(1, 60).toString()
+        cachedWeLearnHeartbeatMinutesPerSco = v
+        appDataStore.dataStore.edit { it[WELEARN_HEARTBEAT_MINUTES_PER_SCO_KEY] = v }
+    }
+
     fun getCxCoursesJson(): String? = cachedCxCoursesJson
 
     suspend fun saveCxCoursesJson(value: String) {
@@ -3079,6 +3100,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val WELEARN_COOKIES_KEY = stringPreferencesKey("welearn_cookies")
         val WELEARN_USERNAME_KEY = stringPreferencesKey("welearn_username")
         val WELEARN_PASSWORD_KEY = stringPreferencesKey("welearn_password")
+        // 2026-06-28:刷时长配置(退登保留,跟 WELEARN_* 同策略)
+        val WELEARN_HEARTBEAT_ENABLED_KEY = stringPreferencesKey("welearn_heartbeat_enabled")  // "true" / "false",默认 true
+        val WELEARN_HEARTBEAT_MINUTES_PER_SCO_KEY = stringPreferencesKey("welearn_heartbeat_minutes_per_sco")  // 分钟数,默认 "3"
 
         val CX_COURSES_JSON_KEY = stringPreferencesKey("cx_courses_json")
 
