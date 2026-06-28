@@ -114,7 +114,7 @@ private const val HOME_EXAM_PREDICTION = 8
 private sealed class WeLearnNav {
     object Main : WeLearnNav()
     data class Detail(val course: com.yourname.ahu_plus.data.model.WeLearnCourse) : WeLearnNav()
-    data class Study(val course: com.yourname.ahu_plus.data.model.WeLearnCourse) : WeLearnNav()
+    data class Study(val course: com.yourname.ahu_plus.data.model.WeLearnCourse, val unitFilter: IntArray? = null) : WeLearnNav()
 }
 
 @Composable
@@ -645,16 +645,17 @@ fun MainScreen(
                                 weLearnViewModel.startStudying(
                                     ctx, ws.course.cid, "100", false, unitFilter,
                                 )
-                                welearnScreen = WeLearnNav.Study(ws.course)
+                                welearnScreen = WeLearnNav.Study(ws.course, unitFilter)
                             },
                             // 2026-06-28:刷全部章节 — 仅跳转,Service 由用户在 Study 屏手动启动
                             onOpenStudy = {
-                                welearnScreen = WeLearnNav.Study(ws.course)
+                                welearnScreen = WeLearnNav.Study(ws.course, null)
                             },
                         )
                         is WeLearnNav.Study -> WeLearnStudyScreen(
                             course = ws.course,
                             viewModel = weLearnViewModel,
+                            unitFilter = ws.unitFilter,
                             onBack = { welearnScreen = WeLearnNav.Detail(ws.course) },
                         )
                     }
