@@ -203,7 +203,7 @@ class WeLearnViewModel(
         heartbeatEnabled: Boolean = true,
         heartbeatMinutesPerSco: Int = 3,
     ) {
-        // ponytail:分钟转秒(60s 节奏 keepsco,durationSec 决定每节总跑多久)
+        // ponytail:分钟转秒(30s 节奏 keepsco,durationSec 决定每节总跑多久;2026-06-29 从 60s 改 30s 抗 carrier NAT)
         val secondsPerSco = heartbeatMinutesPerSco.coerceIn(1, 60) * 60
         com.yourname.ahu_plus.service.WeLearnStudyService.start(
             context, cid, accuracy, fullMode, unitIndices,
