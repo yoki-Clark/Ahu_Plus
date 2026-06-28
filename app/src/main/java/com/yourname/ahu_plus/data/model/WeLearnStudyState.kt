@@ -22,6 +22,7 @@ data class WeLearnStudyUiState(
     // 2026-06-28:刷时长字段(每节心跳)
     val elapsedSec: Int = 0,                    // 当前 sco 已刷秒数
     val currentScoHeartbeatSec: Int = 0,        // 当前 sco 计划总秒数(0=未启用心跳)
+    val heartbeatKeepFails: Int = 0,            // 2026-06-29:本节 keep 累计失败次数(便于手机端排查 carrier NAT 等瞬时断)
 ) {
     /** 进度条比例 0..1,基于 completed + partial/2 (UI 可调权重) */
     val progress: Float

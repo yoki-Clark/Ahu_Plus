@@ -225,7 +225,7 @@ fun WeLearnStudyScreen(
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        if (heartbeatEnabled) "每节刷 $heartbeatMinutes 分钟(每 60s 一次心跳)"
+                        if (heartbeatEnabled) "每节刷 $heartbeatMinutes 分钟(每 30s 一次心跳,失败自动重试)"
                         else "不刷时长(只刷完成度)",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -305,6 +305,15 @@ fun WeLearnStudyScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.tertiary,
                             )
+                            // 2026-06-29:keep 失败计数(carrier NAT/中间设备 RST 排查用)
+                            if (state.heartbeatKeepFails > 0) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "⚠ keep 失败 ${state.heartbeatKeepFails} 次(已自动 retry)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
                             Spacer(Modifier.height(4.dp))
                             LinearProgressIndicator(
                                 progress = { state.elapsedSec / state.currentScoHeartbeatSec.toFloat() },

@@ -185,7 +185,8 @@ class WeLearnStudyService : Service() {
                 val base = "进度 ${state.completedCount}✓ ${state.partialCount}△ ${state.failedCount}✗ ($done/${state.totalCount}) — ${state.currentScoLocation.take(20)}"
                 // 2026-06-28:刷时长进行中时追加 "· 已刷 X/Y 分"
                 if (state.currentScoHeartbeatSec > 0) {
-                    "$base · 已刷 ${state.elapsedSec / 60}/${state.currentScoHeartbeatSec / 60} 分"
+                    val failTag = if (state.heartbeatKeepFails > 0) " · ⚠${state.heartbeatKeepFails}" else ""
+                    "$base · 已刷 ${state.elapsedSec / 60}/${state.currentScoHeartbeatSec / 60} 分$failTag"
                 } else base
             }
             state.isRunning -> "准备中…"
