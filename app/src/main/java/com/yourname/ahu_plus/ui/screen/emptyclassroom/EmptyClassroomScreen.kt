@@ -653,12 +653,42 @@ private fun FreeTimeBar(
     Canvas(modifier = modifier) {
         val barWidth = size.width
         val barHeight = size.height
-        val unitWidth = barWidth / totalUnits
         val cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+
+        // 百分比布局(总宽 100%):
+        //   左右各 5% 边距 + 13 节 × 6% + 小空隙 2% ×2 + 大空隙 4% ×2 = 100%
+        //   每节 6% 槽位内再留 0.2% × 2 内边距 → 实际填充 5.6%
+        //   小空隙:2|3(上午内)、7|8(下午内);大空隙:5|6(上午↔下午)、10|11(下午↔晚上)
+        val leftMargin = barWidth * 0.05f
+        val rightMargin = barWidth * 0.05f
+        val unitW = barWidth * 0.06f        // 每节槽位 6%
+        val cellPad = barWidth * 0.002f     // 每节内左右各 0.2% 内边距
+        val unitFillW = unitW - cellPad * 2 // 实际填充 5.6%
+        val smallGap = barWidth * 0.02f
+        val bigGap = barWidth * 0.04f
+        val gapAfterUnit: Map<Int, Float> = mapOf(
+            2 to smallGap,
+            5 to bigGap,
+            7 to smallGap,
+            10 to bigGap
+        )
+
+        // 预计算每节起点 X(左边距 + 之前节次宽 + 之前 gap)
+        val unitStartX = FloatArray(totalUnits + 1) { 0f }
+        run {
+            var x = leftMargin
+            for (u in 1..totalUnits) {
+                unitStartX[u] = x
+                x += unitW + (gapAfterUnit[u] ?: 0f)
+            }
+            // 校验:最后一节右端 + 右边距 ≈ barWidth
+            require(kotlin.math.abs(
+                unitStartX[totalUnits] + unitW + rightMargin - barWidth
+            ) < 0.5f) { "百分比布局总和 ≠ 100%" }
+        }
 
         // 1. 绘制 13 节次方块
         for (unit in 1..totalUnits) {
-            val x = (unit - 1) * unitWidth
             // 多段空闲: 任一区间包含 unit 即视为空闲
             val isFree = freeSegments.any { unit in it }
             val isPast = isToday && currentUnit != null && unit < currentUnit
@@ -672,16 +702,16 @@ private fun FreeTimeBar(
 
             drawRoundRect(
                 color = color,
-                topLeft = Offset(x + 1.dp.toPx(), 0f),
-                size = Size(unitWidth - 2.dp.toPx(), barHeight),
+                topLeft = Offset(unitStartX[unit] + cellPad, 0f),
+                size = Size(unitFillW, barHeight),
                 cornerRadius = cornerRadius
             )
         }
 
         // 2. 当前时间竖线 + 三角箭头 (仅今天 + 有当前节次)
         if (nowLineFraction != null && currentUnit != null) {
-            val currentUnitIdx = currentUnit - 1
-            val lineX = currentUnitIdx * unitWidth + unitWidth * nowLineFraction
+            // 当前时间线走整个 6% 槽位宽度,不受 0.2% 内边距影响
+            val lineX = unitStartX[currentUnit] + unitW * nowLineFraction
 
             // 2a. 加粗蓝色竖线 (3dp)
             drawLine(
