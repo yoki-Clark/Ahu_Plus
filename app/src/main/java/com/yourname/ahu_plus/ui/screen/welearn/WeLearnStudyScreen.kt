@@ -3,6 +3,7 @@ package com.yourname.ahu_plus.ui.screen.welearn
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -16,10 +17,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.yourname.ahu_plus.AhuPlusApplication
 import com.yourname.ahu_plus.data.model.WeLearnCourse
 import com.yourname.ahu_plus.data.model.WeLearnScoStatus
 import com.yourname.ahu_plus.data.model.WeLearnUnitScos
+import kotlinx.coroutines.launch
 
 /**
  * WeLearn 单课程刷课屏 (2026-06-27)。
@@ -38,6 +42,7 @@ fun WeLearnStudyScreen(
 ) {
     val ctx = LocalContext.current
     val state by viewModel.studyState.collectAsState()
+    val uiScope = rememberCoroutineScope()  // 2026-06-28:用于异步写 SessionManager
     val treeState by viewModel.treeState.collectAsState()
     val unitInfo: WeLearnUnitScos? = remember(unitFilter, treeState.units) {
         val idx = unitFilter?.firstOrNull() ?: return@remember null
@@ -46,6 +51,11 @@ fun WeLearnStudyScreen(
     var accuracy by rememberSaveable { mutableStateOf("100") }
     // 2026-06-28:增量/全量切换 — 增量=跳过已完成(默认),全量=已完成的也重提交
     var fullMode by rememberSaveable { mutableStateOf(false) }
+    // 2026-06-28:刷时长(默认开,3 分钟/节;从 SessionManager 恢复)
+    val sessionManager = (ctx.applicationContext as AhuPlusApplication).sessionManager
+    var heartbeatEnabled by rememberSaveable { mutableStateOf(sessionManager.getWeLearnHeartbeatEnabled()) }
+    var heartbeatMinutesText by rememberSaveable { mutableStateOf(sessionManager.getWeLearnHeartbeatMinutesPerSco().toString()) }
+    val heartbeatMinutes = heartbeatMinutesText.toIntOrNull()?.coerceIn(1, 60) ?: 3
 
     Scaffold(
         topBar = {
@@ -171,11 +181,74 @@ fun WeLearnStudyScreen(
                 }
             }
 
+            // 2026-06-28:刷时长开关 + 每节分钟输入(默认开,3 分钟,最小 1,最大 60)
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                ),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "刷时长",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FilterChip(
+                            selected = heartbeatEnabled,
+                            onClick = { if (!state.isRunning) heartbeatEnabled = !heartbeatEnabled },
+                            label = { Text(if (heartbeatEnabled) "已开启" else "已关闭") },
+                            leadingIcon = if (heartbeatEnabled) {
+                                { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null,
+                            enabled = !state.isRunning,
+                        )
+                        if (heartbeatEnabled) {
+                            Spacer(Modifier.width(12.dp))
+                            OutlinedTextField(
+                                value = heartbeatMinutesText,
+                                onValueChange = { input ->
+                                    if (input.length <= 2 && input.all { it.isDigit() }) {
+                                        heartbeatMinutesText = input.ifEmpty { "3" }
+                                    }
+                                },
+                                label = { Text("每节分钟") },
+                                singleLine = true,
+                                modifier = Modifier.width(120.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                enabled = !state.isRunning,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (heartbeatEnabled) "每节刷 $heartbeatMinutes 分钟(每 60s 一次心跳)"
+                        else "不刷时长(只刷完成度)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             // 大按钮
             Button(
                 onClick = {
-                    if (state.isRunning) viewModel.stopStudying(ctx)
-                    else viewModel.startStudying(ctx, course.cid, accuracy.ifBlank { "100" }, fullMode)
+                    if (state.isRunning) {
+                        viewModel.stopStudying(ctx)
+                    } else {
+                        // 2026-06-28:写回 SessionManager(下次默认带上)+ 启 service
+                        uiScope.launch {
+                            sessionManager.saveWeLearnHeartbeatEnabled(heartbeatEnabled)
+                            sessionManager.saveWeLearnHeartbeatMinutesPerSco(heartbeatMinutes)
+                        }
+                        viewModel.startStudying(
+                            ctx, course.cid, accuracy.ifBlank { "100" }, fullMode,
+                            heartbeatEnabled = heartbeatEnabled, heartbeatMinutesPerSco = heartbeatMinutes,
+                        )
+                    }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(12.dp),
@@ -218,6 +291,24 @@ fun WeLearnStudyScreen(
                                 "已从 CDN 拉 ${state.answersFetched} 个 sco 的真答案",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        // 2026-06-28:刷时长进度(心跳进行中时显示)
+                        if (state.currentScoHeartbeatSec > 0) {
+                            Spacer(Modifier.height(4.dp))
+                            val eMin = state.elapsedSec / 60
+                            val eSec = state.elapsedSec % 60
+                            val tMin = state.currentScoHeartbeatSec / 60
+                            val tSec = state.currentScoHeartbeatSec % 60
+                            Text(
+                                "心跳中: ${eMin}分${eSec}秒 / ${tMin}分${tSec}秒",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { state.elapsedSec / state.currentScoHeartbeatSec.toFloat() },
+                                modifier = Modifier.fillMaxWidth().height(6.dp),
                             )
                         }
                         if (state.currentScoLocation.isNotBlank()) {

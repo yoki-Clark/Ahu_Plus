@@ -199,12 +199,30 @@ class WeLearnViewModel(
         accuracy: String = "100",
         fullMode: Boolean = false,
         unitIndices: IntArray? = null,  // 2026-06-28:null=全部单元,IntArray=选中的单元 idx
+        // 2026-06-28:刷时长参数(默认开,每节 3 分钟)
+        heartbeatEnabled: Boolean = true,
+        heartbeatMinutesPerSco: Int = 3,
     ) {
-        com.yourname.ahu_plus.service.WeLearnStudyService.start(context, cid, accuracy, fullMode, unitIndices)
+        // ponytail:分钟转秒(60s 节奏 keepsco,durationSec 决定每节总跑多久)
+        val secondsPerSco = heartbeatMinutesPerSco.coerceIn(1, 60) * 60
+        com.yourname.ahu_plus.service.WeLearnStudyService.start(
+            context, cid, accuracy, fullMode, unitIndices,
+            heartbeatEnabled = heartbeatEnabled, heartbeatSecondsPerSco = secondsPerSco,
+        )
     }
 
     fun stopStudying(context: Context) {
         com.yourname.ahu_plus.service.WeLearnStudyService.stop(context)
+    }
+
+    // 2026-06-28:课程级已学时长(进入 Detail 屏时调用)
+    /**
+     * 拉 scogeneral 更新 [course] 的 studiedSeconds,返回新值;失败返回 null。
+     * ViewModel 端不缓存,Detail 屏每次进都拉。
+     */
+    suspend fun loadCourseGeneralStats(course: WeLearnCourse, stuid: String): Int? {
+        val res = retryWithRelogin { queryRepo.getScoGeneral(course.cid, stuid) }
+        return res.getOrNull()?.studiedSeconds
     }
 
     fun clearLogin() {

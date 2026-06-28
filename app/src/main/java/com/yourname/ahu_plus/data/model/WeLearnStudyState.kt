@@ -19,6 +19,9 @@ data class WeLearnStudyUiState(
     val accuracy: Int = 100,
     val logs: List<String> = emptyList(),
     val error: String? = null,
+    // 2026-06-28:刷时长字段(每节心跳)
+    val elapsedSec: Int = 0,                    // 当前 sco 已刷秒数
+    val currentScoHeartbeatSec: Int = 0,        // 当前 sco 计划总秒数(0=未启用心跳)
 ) {
     /** 进度条比例 0..1,基于 completed + partial/2 (UI 可调权重) */
     val progress: Float

@@ -8,6 +8,7 @@ import com.yourname.ahu_plus.data.model.WeLearnSco
 import com.yourname.ahu_plus.data.model.WeLearnScoStatus
 import com.yourname.ahu_plus.data.model.WeLearnUnit
 import com.yourname.ahu_plus.data.model.WeLearnUnitScos
+import com.yourname.ahu_plus.data.model.parseHmsToSeconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -144,6 +145,9 @@ class WeLearnRepository(
                             name = o.get("name")?.asString.orEmpty(),
                             location = o.get("location")?.asString.orEmpty(),
                             status = status,
+                            // 2026-06-28:加 learntime 字段(已学时长,"HH:MM:SS")+ completetime(最后完成时间)
+                            learntimeSeconds = parseHmsToSeconds(o.get("learntime")?.asString),
+                            completetime = o.get("completetime")?.asString?.takeIf { it.isNotBlank() },
                         )
                     }
                 }
@@ -184,6 +188,154 @@ class WeLearnRepository(
                 obj.get("addr")?.asString ?: throw IOException("scoAddr no addr field")
             }
         }.onFailure { Log.w(TAG, "getScoAddr($scoid) 失败", it) }
+    }
+
+    // ── 课程级统计(Hour/Minute 等) ──────────────────────────────
+    /**
+     * 拉课程级统计(Total/Finish/Hour/Minute/ExAvgRate),供课程详情页显示"已学习 X 时 Y 分"。
+     * 端点实测:`GET /ajax/StudyStat.aspx?action=scogeneral&cid=X&stuid=Y`(uid 也接受)
+     * 响应:`{"ret":0,"Totalcount":274,"Finishcount":202,"ExAvgRate":"94","Hour":2,"Minute":59}`
+     * 注意:Hour/Minute 似乎只统计 iscomplete='已完成' 的 sco(本地验证 2026-06-28)
+     */
+    suspend fun getScoGeneral(cid: String, stuid: String): Result<ScoGeneralStats> = withContext(Dispatchers.IO) {
+        runCatching {
+            val req = Request.Builder()
+                .url(
+                    "${WeLearnAuthRepository.BASE_URL}/ajax/StudyStat.aspx" +
+                        "?action=scogeneral&cid=$cid&stuid=$stuid" +
+                        "&_t=${System.currentTimeMillis()}"
+                )
+                .header("User-Agent", UA)
+                .header("Referer", "${WeLearnAuthRepository.BASE_URL}/2019/student/course_info.aspx?cid=$cid")
+                .build()
+            authRepo.client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) throw IOException("scogeneral HTTP ${resp.code}")
+                val o = parseJsonOrSessionExpired(resp.body?.string().orEmpty(), "scogeneral")
+                val hour = o.get("Hour")?.asInt ?: 0
+                val min = o.get("Minute")?.asInt ?: 0
+                ScoGeneralStats(
+                    totalCount = o.get("Totalcount")?.asInt ?: 0,
+                    finishCount = o.get("Finishcount")?.asInt ?: 0,
+                    avgRate = o.get("ExAvgRate")?.asInt ?: 0,
+                    studiedSeconds = hour * 3600 + min * 60,
+                )
+            }
+        }.onFailure { Log.w(TAG, "getScoGeneral($cid) 失败", it) }
+    }
+
+    /** 课程级统计(总章节/已完成/正确率/已学时长秒),给 CompletionCard 用 */
+    data class ScoGeneralStats(
+        val totalCount: Int,
+        val finishCount: Int,
+        val avgRate: Int,
+        val studiedSeconds: Int,
+    )
+
+    // ── 心跳(刷时长)3 步 ───────────────────────────────────
+    /**
+     * 打开 SCORM 会话(刷时长流程的 step 1)。
+     * 端点:`POST /Ajax/SCO.aspx?action=startsco160928` body: uid/cid/scoid/classid/tid=-1
+     * Referer:`/student/StudyCourse.aspx`(小写 s,无 query)
+     * 响应(ret=0):{"ret":0,"timelitsec":1800,"useSeconds":N,"enableview":"false","configs":{...}}
+     *
+     * 注:此步 2026-06-28 改造中已确认是 setscoinfo 前置必需,见 WeLearnStudyRepository。
+     * 心跳模式 timeout 短(10s),失败仅记日志,不抛异常(刷课主流程应继续)。
+     */
+    suspend fun heartbeatStart(cid: String, uid: String, scoid: String, classid: String): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val body = FormBody.Builder()
+                    .add("action", "startsco160928")
+                    .add("uid", uid).add("cid", cid).add("scoid", scoid)
+                    .add("classid", classid).add("tid", "-1")
+                    .build()
+                val req = Request.Builder()
+                    .url("${WeLearnAuthRepository.BASE_URL}/Ajax/SCO.aspx")
+                    .header("User-Agent", UA)
+                    .header("Referer", "${WeLearnAuthRepository.BASE_URL}/student/StudyCourse.aspx")
+                    .post(body).build()
+                authRepo.client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    val ok = resp.isSuccessful && runCatching {
+                        org.json.JSONObject(text).optInt("ret", -1)
+                    }.getOrDefault(-1) == 0
+                    if (!ok) Log.w(TAG, "heartbeatStart $scoid ret!=0: ${text.take(120)}")
+                    ok
+                }
+            }.getOrElse {
+                Log.w(TAG, "heartbeatStart $scoid 异常: ${it.message}")
+                false
+            }
+        }
+
+    /**
+     * 发送一次心跳(刷时长流程的 step 2,每 60s 一次)。
+     * 端点:`POST /Ajax/SCO.aspx?action=keepsco_with_getticket_with_updatecmitime`
+     * 必填字段:session_time, total_time(本地验证 2026-06-28:缺这俩 ret=2001"参数错误")
+     * 响应(ret=0):{"ret":0,"seconds":N,"endcaltime":false,"ticket":""}
+     */
+    suspend fun heartbeatKeep(
+        cid: String, uid: String, scoid: String,
+        sessionTime: Int, totalTime: Int,
+    ): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = FormBody.Builder()
+                .add("action", "keepsco_with_getticket_with_updatecmitime")
+                .add("uid", uid).add("cid", cid).add("scoid", scoid)
+                .add("session_time", sessionTime.toString())
+                .add("total_time", totalTime.toString())
+                .add("timelimitsec", "0").add("endcaltime", "false")
+                .build()
+            val req = Request.Builder()
+                .url("${WeLearnAuthRepository.BASE_URL}/Ajax/SCO.aspx")
+                .header("User-Agent", UA)
+                .header("Referer", "${WeLearnAuthRepository.BASE_URL}/student/StudyCourse.aspx")
+                .post(body).build()
+            authRepo.client.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                val ret = runCatching { org.json.JSONObject(text).optInt("ret", -1) }.getOrDefault(-1)
+                val ok = resp.isSuccessful && (ret == 0 || ret == 1)  // 0/1 都视为成功(jhl337 + welearn-helper 都接受)
+                if (!ok) Log.w(TAG, "heartbeatKeep $scoid t=$sessionTime ret=$ret: ${text.take(120)}")
+                ok
+            }
+        }.getOrElse {
+            Log.w(TAG, "heartbeatKeep $scoid 异常: ${it.message}")
+            false
+        }
+    }
+
+    /**
+     * 关闭 SCORM 会话(刷时长流程的 step 3,持久化 learntime)。
+     * 端点:`POST /Ajax/SCO.aspx?action=savescoinfo160928`
+     * ponytail:心跳场景下 crate=0(避免影响完成度统计),与 jhl337 一致。
+     */
+    suspend fun heartbeatSave(cid: String, uid: String, scoid: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = FormBody.Builder()
+                .add("action", "savescoinfo160928")
+                .add("cid", cid).add("scoid", scoid).add("uid", uid)
+                .add("progress", "100")
+                .add("crate", "0")           // ponytail:心跳模式 crate=0,避免误算完成度
+                .add("status", "unknown")
+                .add("cstatus", "completed")
+                .add("trycount", "0")
+                .build()
+            val req = Request.Builder()
+                .url("${WeLearnAuthRepository.BASE_URL}/Ajax/SCO.aspx")
+                .header("User-Agent", UA)
+                .header("Referer", "${WeLearnAuthRepository.BASE_URL}/student/StudyCourse.aspx")
+                .post(body).build()
+            authRepo.client.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                val ret = runCatching { org.json.JSONObject(text).optInt("ret", -1) }.getOrDefault(-1)
+                val ok = resp.isSuccessful && ret == 0
+                if (!ok) Log.w(TAG, "heartbeatSave $scoid ret=$ret: ${text.take(120)}")
+                ok
+            }
+        }.getOrElse {
+            Log.w(TAG, "heartbeatSave $scoid 异常: ${it.message}")
+            false
+        }
     }
 
     // ── 课程详情(单元+章节) ──────────────────────────────
