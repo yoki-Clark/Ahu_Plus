@@ -397,9 +397,11 @@ fun ProfileScreen(
             thirdPartyEnabled = marketUiState.thirdPartyServicesEnabled,
             marketChildEnabled = marketUiState.marketChildEnabled,
             chaoxingChildEnabled = marketUiState.chaoxingChildEnabled,
+            welearnChildEnabled = marketUiState.welearnChildEnabled,
             onThirdPartyEnabledChanged = marketViewModel::setMarketEnabled,
             onMarketChildEnabledChanged = marketViewModel::setMarketChildEnabled,
             onChaoxingChildEnabledChanged = marketViewModel::setChaoxingChildEnabled,
+            onWelearnChildEnabledChanged = marketViewModel::setWelearnChildEnabled,
             bathroomData = cardUiState.bathroomData,
             bathroomLoading = cardUiState.bathroomLoading,
             bathroomError = cardUiState.bathroomError,
@@ -473,13 +475,15 @@ private fun ProfileHomeScreen(
     onQrClick: () -> Unit,
     identityCount: Int,
     hasMarketIdentity: Boolean,
-    // 第三方服务 (parent 总开关 + 集市/学习通 子开关),v1.3.6 引入
+    // 第三方服务 (parent 总开关 + 集市/学习通/WeLearn 子开关),v1.3.6 引入
     thirdPartyEnabled: Boolean,
     marketChildEnabled: Boolean,
     chaoxingChildEnabled: Boolean,
+    welearnChildEnabled: Boolean,
     onThirdPartyEnabledChanged: (Boolean) -> Unit,
     onMarketChildEnabledChanged: (Boolean) -> Unit,
     onChaoxingChildEnabledChanged: (Boolean) -> Unit,
+    onWelearnChildEnabledChanged: (Boolean) -> Unit,
     // 浴室余额
     bathroomData: com.yourname.ahu_plus.data.model.BathroomBalanceData?,
     bathroomLoading: Boolean,
@@ -731,7 +735,7 @@ private fun ProfileHomeScreen(
                     SettingsSwitchRow(
                         title = "启用第三方服务",
                         description = if (thirdPartyEnabled) {
-                            "已开启：可单独控制「集市」「学习通」Tab 显示"
+                            "已开启：可单独控制「集市」「学习通」「WeLearn」Tab 显示"
                         } else {
                             "默认关闭，启用需阅读并确认风险声明"
                         },
@@ -767,6 +771,17 @@ private fun ProfileHomeScreen(
                             },
                             checked = chaoxingChildEnabled,
                             onCheckedChange = onChaoxingChildEnabledChanged
+                        )
+                        HorizontalDivider()
+                        SettingsSwitchRow(
+                            title = "WeLearn 随行课堂",
+                            description = if (welearnChildEnabled) {
+                                "底部导航显示「WeLearn」Tab"
+                            } else {
+                                "已隐藏「WeLearn」Tab,本地登录态保留"
+                            },
+                            checked = welearnChildEnabled,
+                            onCheckedChange = onWelearnChildEnabledChanged
                         )
                     }
                 }

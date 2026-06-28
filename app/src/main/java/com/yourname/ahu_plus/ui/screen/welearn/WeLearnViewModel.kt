@@ -68,8 +68,37 @@ class WeLearnViewModel(
 
     val isLoggedIn: Boolean get() = authRepo.isLoggedIn()
 
+    /** 是否存有账密可供自动登录(对齐 Chaoxing 的 hasCxCredentials 语义) */
+    val hasSavedCredentials: Boolean get() = app.sessionManager.hasWeLearnCredentials()
+
+    /** 保存的账号(手机号),供登录卡预填 */
+    val savedUsername: String? get() = app.sessionManager.getWeLearnUsername()
+
     init {
-        if (isLoggedIn) refreshCourses()
+        when {
+            isLoggedIn -> refreshCourses()
+            // 没登录但有账密 → 静默自动登录(对齐 Chaoxing.checkLogin 自动续期)
+            hasSavedCredentials -> silentRelogin()
+        }
+    }
+
+    /**
+     * 用 SessionManager 里存的账密自动登录。
+     * 与 [WeLearnAuthRepository.autoLoginIfPossible] 同语义,但走 VM 协程,
+     * 失败会写回 lastLoginError 供 UI 提示。
+     */
+    fun silentRelogin() {
+        viewModelScope.launch {
+            _loggingIn.value = true
+            _lastLoginError.value = null
+            val ok = authRepo.autoLoginIfPossible()
+            _loggingIn.value = false
+            if (ok) {
+                refreshCourses()
+            } else {
+                _lastLoginError.value = "自动登录失败，请重新输入密码"
+            }
+        }
     }
 
     fun refreshCourses() {

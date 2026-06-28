@@ -48,6 +48,7 @@ class MarketViewModel(
         val thirdPartyServicesEnabled = repository.getMarketEnabled()  // 同源(parent)
         val marketChildEnabled = repository.getMarketChildEnabled()
         val chaoxingChildEnabled = repository.getChaoxingChildEnabled()
+        val welearnChildEnabled = repository.getWelearnChildEnabled()
         val listLayoutMode = repository.getListLayoutMode()
         val scrollToTop = repository.getScrollToTop()
         val aiEnabled = aiCommentRepository.isEnabled()
@@ -69,6 +70,7 @@ class MarketViewModel(
                 thirdPartyServicesEnabled = thirdPartyServicesEnabled,
                 marketChildEnabled = marketChildEnabled,
                 chaoxingChildEnabled = chaoxingChildEnabled,
+                welearnChildEnabled = welearnChildEnabled,
                 listLayoutMode = listLayoutMode,
                 scrollToTopEnabled = scrollToTop,
                 aiCommentEnabled = aiEnabled,
@@ -457,6 +459,13 @@ class MarketViewModel(
         viewModelScope.launch {
             repository.setChaoxingChildEnabled(enabled)
             _uiState.update { it.copy(chaoxingChildEnabled = enabled) }
+        }
+    }
+
+    fun setWelearnChildEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setWelearnChildEnabled(enabled)
+            _uiState.update { it.copy(welearnChildEnabled = enabled) }
         }
     }
 
@@ -1344,6 +1353,7 @@ data class MarketUiState(
     val thirdPartyServicesEnabled: Boolean = false,
     val marketChildEnabled: Boolean = false,
     val chaoxingChildEnabled: Boolean = false,
+    val welearnChildEnabled: Boolean = false,
     // ── 搜索 ─────────────────────────────────────
     val isSearching: Boolean = false,
     val searchQuery: String = "",

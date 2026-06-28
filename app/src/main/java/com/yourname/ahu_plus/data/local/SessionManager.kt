@@ -98,6 +98,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedThirdPartyServicesEnabled: Boolean = false
     @Volatile private var cachedMarketChildEnabled: Boolean = true
     @Volatile private var cachedChaoxingChildEnabled: Boolean = true
+    @Volatile private var cachedWelearnChildEnabled: Boolean = true
 
     // \u96C6\u5E02\u5217\u8868\u5E03\u5C40\u6A21\u5F0F ("list" \u5355\u5217 / "stagger" \u5C0F\u7EA2\u4E66\u53CC\u5217\u7011\u5E03)
 
@@ -498,6 +499,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
         // 子开关: 默认 false (parent 开启后用户需手动开启每个子开关,默认全部关闭)
         cachedMarketChildEnabled = (prefs[MARKET_CHILD_ENABLED_KEY] ?: "false") == "true"
         cachedChaoxingChildEnabled = (prefs[CHAOXING_CHILD_ENABLED_KEY] ?: "false") == "true"
+        // WeLearn 子开关:老用户(已存账密)自动迁移为 ON,避免升级后 WeLearn Tab 突然消失
+        if (prefs[WELEARN_CHILD_ENABLED_KEY] == null && !prefs[WELEARN_USERNAME_KEY].isNullOrBlank()) {
+            appDataStore.dataStore.edit { it[WELEARN_CHILD_ENABLED_KEY] = "true" }
+        }
+        cachedWelearnChildEnabled = (prefs[WELEARN_CHILD_ENABLED_KEY] ?: "false") == "true"
 
         // \u5217\u8868\u5E03\u5C40\u6A21\u5F0F: \u7F3A\u7701 "list" (\u5355\u5217)
 
@@ -1006,6 +1012,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     fun getChaoxingChildEnabled(): Boolean = cachedChaoxingChildEnabled
 
+    fun getWelearnChildEnabled(): Boolean = cachedWelearnChildEnabled
+
     suspend fun setMarketEnabled(enabled: Boolean) = setThirdPartyServicesEnabled(enabled)
 
     suspend fun setThirdPartyServicesEnabled(enabled: Boolean) {
@@ -1018,6 +1026,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         if (enabled) {
             cachedMarketChildEnabled = false
             cachedChaoxingChildEnabled = false
+            cachedWelearnChildEnabled = false
         }
 
         appDataStore.dataStore.edit {
@@ -1026,6 +1035,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
             if (enabled) {
                 it[MARKET_CHILD_ENABLED_KEY] = "false"
                 it[CHAOXING_CHILD_ENABLED_KEY] = "false"
+                it[WELEARN_CHILD_ENABLED_KEY] = "false"
             }
 
         }
@@ -1050,6 +1060,18 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit {
 
             it[CHAOXING_CHILD_ENABLED_KEY] = if (enabled) "true" else "false"
+
+        }
+
+    }
+
+    suspend fun setWelearnChildEnabled(enabled: Boolean) {
+
+        cachedWelearnChildEnabled = enabled
+
+        appDataStore.dataStore.edit {
+
+            it[WELEARN_CHILD_ENABLED_KEY] = if (enabled) "true" else "false"
 
         }
 
@@ -2148,6 +2170,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedFilterNodeIds = emptyList()
 
         cachedMarketEnabled = false
+        cachedMarketChildEnabled = false
+        cachedChaoxingChildEnabled = false
+        cachedWelearnChildEnabled = false
 
         cachedMarketListLayoutMode = "list"
 
@@ -2876,6 +2901,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         // 第三方服务子开关:parent 开启后控制单个服务的可见性
         val MARKET_CHILD_ENABLED_KEY = stringPreferencesKey("market_child_enabled")
         val CHAOXING_CHILD_ENABLED_KEY = stringPreferencesKey("chaoxing_child_enabled")
+        val WELEARN_CHILD_ENABLED_KEY = stringPreferencesKey("welearn_child_enabled")
 
         val MARKET_LIST_LAYOUT_KEY = stringPreferencesKey("market_list_layout_mode")
 
@@ -3184,7 +3210,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
             MARKET_BLOCK_PINNED_KEY, MARKET_BLOCK_KEYWORDS_KEY, MARKET_FILTER_NODES_KEY,
 
-            MARKET_ENABLED_KEY, THIRD_PARTY_SERVICES_ENABLED_KEY, MARKET_CHILD_ENABLED_KEY, CHAOXING_CHILD_ENABLED_KEY, MARKET_LIST_LAYOUT_KEY, MARKET_SCROLL_TO_TOP_KEY,
+            MARKET_ENABLED_KEY, THIRD_PARTY_SERVICES_ENABLED_KEY, MARKET_CHILD_ENABLED_KEY, CHAOXING_CHILD_ENABLED_KEY, WELEARN_CHILD_ENABLED_KEY, MARKET_LIST_LAYOUT_KEY, MARKET_SCROLL_TO_TOP_KEY,
 
             AI_COMMENT_ENABLED_KEY, AI_COMMENT_MODEL_KEY, AI_COMMENT_STYLE_KEY,
 
