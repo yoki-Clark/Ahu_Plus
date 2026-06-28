@@ -260,12 +260,16 @@ private fun CourseList(
 }
 
 @Composable
-private fun CourseRow(course: WeLearnCourse, onClick: () -> Unit) {
+private fun CourseRow(
+    course: WeLearnCourse,
+    onClick: () -> Unit,
+) {
+    val isDone = course.per >= 100
     Card(
         onClick = onClick,
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (course.per >= 100) MaterialTheme.colorScheme.surfaceVariant
+            containerColor = if (isDone) MaterialTheme.colorScheme.surfaceVariant
             else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
         ),
     ) {

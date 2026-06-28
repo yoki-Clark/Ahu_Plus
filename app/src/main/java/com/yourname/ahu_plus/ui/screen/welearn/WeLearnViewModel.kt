@@ -164,8 +164,14 @@ class WeLearnViewModel(
     }
 
     /** 开始刷课(供 StudyScreen 调用,内部启动 Service) */
-    fun startStudying(context: Context, cid: String, accuracy: String = "100") {
-        com.yourname.ahu_plus.service.WeLearnStudyService.start(context, cid, accuracy)
+    fun startStudying(
+        context: Context,
+        cid: String,
+        accuracy: String = "100",
+        fullMode: Boolean = false,
+        unitIndices: IntArray? = null,  // 2026-06-28:null=全部单元,IntArray=选中的单元 idx
+    ) {
+        com.yourname.ahu_plus.service.WeLearnStudyService.start(context, cid, accuracy, fullMode, unitIndices)
     }
 
     fun stopStudying(context: Context) {

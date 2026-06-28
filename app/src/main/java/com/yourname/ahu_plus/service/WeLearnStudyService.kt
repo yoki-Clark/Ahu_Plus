@@ -93,14 +93,21 @@ class WeLearnStudyService : Service() {
                     stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); return START_NOT_STICKY
                 }
                 val accuracy = intent.getStringExtra(EXTRA_ACCURACY) ?: "100"
-                startStudying(cid, accuracy)
+                val fullMode = intent.getBooleanExtra(EXTRA_FULL_MODE, false)  // 2026-06-28
+                val unitIndices = intent.getIntArrayExtra(EXTRA_UNIT_INDICES)  // 2026-06-28
+                startStudying(cid, accuracy, fullMode, unitIndices)
             }
             ACTION_STOP -> stopStudyingAndSelf()
         }
         return START_STICKY
     }
 
-    private fun startStudying(cid: String, accuracy: String) {
+    private fun startStudying(
+        cid: String,
+        accuracy: String,
+        fullMode: Boolean = false,
+        unitIndices: IntArray? = null,  // 2026-06-28
+    ) {
         val app = applicationContext as AhuPlusApplication
         scope.launch(Dispatchers.IO) {
             try {
@@ -120,9 +127,14 @@ class WeLearnStudyService : Service() {
                     stopStudyingAndSelf(); return@launch
                 }
 
-                // 3. 启动刷课
-                app.weLearnStudyRepository.studyCourse(tree = tree, accuracyRange = parseAccuracy(accuracy))
-                Log.i(tag, "刷课完成, 停服")
+                // 3. 启动刷课(fullMode=true 时已完成的 sco 也重提交;unitIndices!=null 时只刷选中单元)
+                app.weLearnStudyRepository.studyCourse(
+                    tree = tree,
+                    accuracyRange = parseAccuracy(accuracy),
+                    fullMode = fullMode,
+                    unitIndices = unitIndices,
+                )
+                Log.i(tag, "刷课完成(fullMode=$fullMode units=${unitIndices?.toList()}), 停服")
                 stopStudyingAndSelf()
             } catch (e: Exception) {
                 Log.e(tag, "刷课异常", e)
@@ -208,13 +220,23 @@ class WeLearnStudyService : Service() {
 
         const val EXTRA_CID = "cid"
         const val EXTRA_ACCURACY = "accuracy"  // "100" 或 "70,100"
+        const val EXTRA_FULL_MODE = "full_mode"  // 2026-06-28:全量模式 — 已完成 sco 也重提交
+        const val EXTRA_UNIT_INDICES = "unit_indices"  // 2026-06-28:选择性刷 — 选中单元 idx 数组
 
         /** UI 入口:启动 Service 刷指定 cid */
-        fun start(context: Context, cid: String, accuracy: String = "100") {
+        fun start(
+            context: Context,
+            cid: String,
+            accuracy: String = "100",
+            fullMode: Boolean = false,
+            unitIndices: IntArray? = null,
+        ) {
             val intent = Intent(context, WeLearnStudyService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_CID, cid)
                 putExtra(EXTRA_ACCURACY, accuracy)
+                putExtra(EXTRA_FULL_MODE, fullMode)
+                if (unitIndices != null) putExtra(EXTRA_UNIT_INDICES, unitIndices)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
