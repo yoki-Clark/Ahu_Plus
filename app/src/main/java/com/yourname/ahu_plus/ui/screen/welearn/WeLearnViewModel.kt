@@ -8,6 +8,7 @@ import com.yourname.ahu_plus.data.model.WeLearnCourse
 import com.yourname.ahu_plus.data.model.WeLearnStudyUiState
 import com.yourname.ahu_plus.data.model.WeLearnUnitScos
 import com.yourname.ahu_plus.data.repository.WeLearnRepository
+import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +52,7 @@ class WeLearnViewModel(
         // 折叠态存 VM(UnitBlock 重组 / 屏重挂都不丢)
         val collapsedUnits: Set<Int> = emptySet(),
         val error: String? = null,
+        val needsLogin: Boolean = false,
     )
 
     private val _treeState = MutableStateFlow(TreeUiState())
@@ -104,16 +106,37 @@ class WeLearnViewModel(
     fun refreshCourses() {
         viewModelScope.launch {
             _coursesState.value = _coursesState.value.copy(loading = true, error = null)
-            val res = queryRepo.getCourses()
+            val res = retryWithRelogin { queryRepo.getCourses() }
             _coursesState.value = res.fold(
                 onSuccess = { CoursesUiState(loading = false, courses = it) },
                 onFailure = {
-                    // 401/未登录 → 引导登录
+                    // session 过期 → 静默重登已失败,引导登录
                     val msg = it.message.orEmpty()
-                    CoursesUiState(loading = false, error = msg, needsLogin = msg.contains("HTTP 4") || msg.contains("登录"))
+                    CoursesUiState(
+                        loading = false,
+                        error = msg.takeIf { !it.startsWith(WeLearnRepository.SESSION_EXPIRED_PREFIX) },
+                        needsLogin = msg.startsWith(WeLearnRepository.SESSION_EXPIRED_PREFIX),
+                    )
                 },
             )
         }
+    }
+
+    /**
+     * 失败时若异常 message 以 [WeLearnRepository.SESSION_EXPIRED_PREFIX] 开头且有账密,
+     * 静默调 [WeLearnAuthRepository.autoLoginIfPossible] 重登一次再重试。
+     * 重登也失败或原始异常非 session 过期 → 透传原 Result。
+     * ponytail: 不加 Mutex,小概率并发双重 POST 接受(login idempotent,cookie jar 后写覆盖)。
+     */
+    private suspend fun <T> retryWithRelogin(block: suspend () -> Result<T>): Result<T> {
+        val first = block()
+        if (first.isSuccess) return first
+        val msg = first.exceptionOrNull()?.message.orEmpty()
+        if (!msg.startsWith(WeLearnRepository.SESSION_EXPIRED_PREFIX) || !hasSavedCredentials) return first
+        if (!authRepo.autoLoginIfPossible()) {
+            return Result.failure(IOException("${WeLearnRepository.SESSION_EXPIRED_PREFIX} relogin-fail"))
+        }
+        return block()  // 重试一次,仍失败透传
     }
 
     /**
@@ -142,15 +165,21 @@ class WeLearnViewModel(
         viewModelScope.launch {
             // 切换课程:清折叠态(单元 idx 只在课程内唯一,跨课复用会误折叠)
             _treeState.value = _treeState.value.copy(
-                loading = true, cid = cid, error = null, collapsedUnits = emptySet(),
+                loading = true, cid = cid, error = null, needsLogin = false, collapsedUnits = emptySet(),
             )
-            val res = queryRepo.getCourseTreeWithScos(cid)
+            val res = retryWithRelogin { queryRepo.getCourseTreeWithScos(cid) }
+            val msg = res.exceptionOrNull()?.message.orEmpty()
             _treeState.value = res.fold(
                 onSuccess = {
-                    _treeState.value.copy(loading = false, cid = cid, units = it, error = null)
+                    _treeState.value.copy(loading = false, cid = cid, units = it, error = null, needsLogin = false)
                 },
                 onFailure = {
-                    _treeState.value.copy(loading = false, cid = cid, error = it.message ?: "加载失败")
+                    _treeState.value.copy(
+                        loading = false,
+                        cid = cid,
+                        error = msg.takeIf { !it.startsWith(WeLearnRepository.SESSION_EXPIRED_PREFIX) } ?: "登录已过期",
+                        needsLogin = msg.startsWith(WeLearnRepository.SESSION_EXPIRED_PREFIX),
+                    )
                 },
             )
         }

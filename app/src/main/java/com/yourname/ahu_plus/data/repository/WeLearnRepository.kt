@@ -1,6 +1,7 @@
 package com.yourname.ahu_plus.data.repository
 
 import android.util.Log
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.yourname.ahu_plus.data.model.WeLearnCourse
 import com.yourname.ahu_plus.data.model.WeLearnSco
@@ -29,6 +30,19 @@ class WeLearnRepository(
     companion object {
         private const val TAG = "WeLearn"
         private const val UA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36"
+        /** 登录过期 sentinel 前缀,ViewModel 据此触发 needsLogin 与自动重登 */
+        internal const val SESSION_EXPIRED_PREFIX = "session expired:"
+
+        /**
+         * SFLEP 未登录返回 HTML 登录页,而非 JSON。嗅探:body 以 `<` 开头或 gson 解析失败 → 抛带
+         * [SESSION_EXPIRED_PREFIX] 前缀的 IOException,VM 端据此触发 needsLogin + 自动重登。
+         * ponytail: 真 schema 异常也走 session-expired,误判可接受(失败透传即可,不影响其他场景)。
+         */
+        internal fun parseJsonOrSessionExpired(body: String, fromApi: String): JsonObject {
+            if (body.trimStart().startsWith("<")) throw IOException("$SESSION_EXPIRED_PREFIX $fromApi")
+            return runCatching { JsonParser.parseString(body).asJsonObject }
+                .getOrElse { throw IOException("$SESSION_EXPIRED_PREFIX $fromApi (parse)") }
+        }
     }
 
     // ── 课程列表 ────────────────────────────────────────────
@@ -44,7 +58,7 @@ class WeLearnRepository(
             authRepo.client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) throw IOException("authCourse HTTP ${resp.code}")
                 val body = resp.body?.string().orEmpty()
-                val root = JsonParser.parseString(body).asJsonObject
+                val root = parseJsonOrSessionExpired(body, "authCourse gmc")
                 val arr = root.getAsJsonArray("clist") ?: return@runCatching emptyList()
                 arr.map { it.asJsonObject }.map { o ->
                     WeLearnCourse(
@@ -83,8 +97,8 @@ class WeLearnRepository(
                 .build()
             val units = authRepo.client.newCall(unitsReq).execute().use { resp ->
                 if (!resp.isSuccessful) throw IOException("courseunits HTTP ${resp.code}")
-                val arr = JsonParser.parseString(resp.body?.string().orEmpty())
-                    .asJsonObject.getAsJsonArray("info") ?: return@use emptyList<WeLearnUnit>()
+                val arr = parseJsonOrSessionExpired(resp.body?.string().orEmpty(), "courseunits")
+                    .getAsJsonArray("info") ?: return@use emptyList<WeLearnUnit>()
                 arr.mapIndexed { idx, it ->
                     val o = it.asJsonObject
                     WeLearnUnit(
@@ -115,8 +129,8 @@ class WeLearnRepository(
                     .build()
                 authRepo.client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) throw IOException("scoLeaves HTTP ${resp.code}")
-                    val arr = JsonParser.parseString(resp.body?.string().orEmpty())
-                        .asJsonObject.getAsJsonArray("info") ?: return@use emptyList<WeLearnSco>()
+                    val arr = parseJsonOrSessionExpired(resp.body?.string().orEmpty(), "scoLeaves")
+                        .getAsJsonArray("info") ?: return@use emptyList<WeLearnSco>()
                     arr.map { it.asJsonObject }.map { o ->
                         val isVisible = o.get("isvisible")?.asString == "true"
                         val isComplete = o.get("iscomplete")?.asString == "已完成"
@@ -165,7 +179,7 @@ class WeLearnRepository(
             authRepo.client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) throw IOException("scoAddr HTTP ${resp.code}")
                 val text = resp.body?.string().orEmpty()
-                val obj = JsonParser.parseString(text).asJsonObject
+                val obj = parseJsonOrSessionExpired(text, "scoAddr")
                 if (obj.get("ret")?.asInt != 0) throw IOException("scoAddr ret=${obj.get("ret")} msg=${obj.get("msg")}")
                 obj.get("addr")?.asString ?: throw IOException("scoAddr no addr field")
             }

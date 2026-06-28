@@ -61,6 +61,8 @@ fun WeLearnCourseDetailScreen(
     val selectedUnits = remember { mutableStateListOf<Int>() }
 
     LaunchedEffect(course.cid) { viewModel.loadCourseTree(course.cid) }
+    // session 过期重登失败 → 自动回主页(Main 屏会弹 LoginSheet)
+    LaunchedEffect(treeState.needsLogin) { if (treeState.needsLogin) onBack() }
 
     Scaffold(
         topBar = {

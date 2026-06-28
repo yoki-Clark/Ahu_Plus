@@ -625,6 +625,11 @@ fun MainScreen(
                     // 2026-06-28: 插入 CourseDetailScreen 显示章节,后续可拓展为针对性刷
                     var welearnScreen by remember { mutableStateOf<WeLearnNav>(WeLearnNav.Main) }
                     val ctx = LocalContext.current
+                    // session 过期 → 强制回主页,LoginSheet 由 WeLearnMainScreen 自己弹
+                    val welearnCoursesNeedsLogin by weLearnViewModel.coursesState.collectAsStateWithLifecycle()
+                    LaunchedEffect(welearnCoursesNeedsLogin.needsLogin) {
+                        if (welearnCoursesNeedsLogin.needsLogin) welearnScreen = WeLearnNav.Main
+                    }
                     when (val ws = welearnScreen) {
                         WeLearnNav.Main -> WeLearnMainScreen(
                             viewModel = weLearnViewModel,

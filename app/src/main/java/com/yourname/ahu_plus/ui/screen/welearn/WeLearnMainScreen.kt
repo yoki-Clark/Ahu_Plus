@@ -53,6 +53,10 @@ fun WeLearnMainScreen(
     LaunchedEffect(Unit) {
         if (isLoggedIn.value) viewModel.refreshCourses()
     }
+    // session 过期重登失败 → 弹 LoginSheet(从 Detail 屏回来也会触发)
+    LaunchedEffect(coursesState.needsLogin) {
+        if (coursesState.needsLogin) showLoginSheet = true
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
