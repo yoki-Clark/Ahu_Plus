@@ -2,6 +2,7 @@ package com.yourname.ahu_plus.ui.screen.schedule
 
 import android.Manifest
 import android.content.ContentValues
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
