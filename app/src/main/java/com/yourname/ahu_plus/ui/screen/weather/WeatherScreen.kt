@@ -1,6 +1,7 @@
 package com.yourname.ahu_plus.ui.screen.weather
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,8 +33,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.model.weather.WeatherFeed
+import com.yourname.ahu_plus.data.repository.WeatherRepository
 import com.yourname.ahu_plus.data.weather.WeatherCode
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
 import com.yourname.ahu_plus.ui.components.CenteredError
@@ -100,7 +107,7 @@ private fun WeatherContent(feed: WeatherFeed) {
         item { DailyForecastCard(feed = feed) }
         item {
             Text(
-                text = "数据来源: Open-Meteo · 更新于 ${formatAge(feed.fetchedAt)}",
+                text = "数据来源: Open-Meteo · ${WeatherRepository.FORECAST_MODEL} · 更新于 ${formatAge(feed.fetchedAt)}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
@@ -249,6 +256,7 @@ private fun AirQualityCard(feed: WeatherFeed) {
 @Composable
 private fun HourlyForecastCard(feed: WeatherFeed) {
     val timeFormatter = DateTimeFormatter.ofPattern("H:00")
+    var showPopInfo by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -297,10 +305,12 @@ private fun HourlyForecastCard(feed: WeatherFeed) {
                             fontWeight = FontWeight.Medium,
                         )
                         if (pop > 0) {
+                            // 点击弹出说明: 这个蓝色数字是降雨概率 (PoP),不是湿度。
                             Text(
                                 text = "$pop%",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color(0xFF1E88E5),
+                                modifier = Modifier.clickable { showPopInfo = true },
                             )
                         }
                     }
@@ -308,7 +318,29 @@ private fun HourlyForecastCard(feed: WeatherFeed) {
             }
         }
     }
+
+    if (showPopInfo) {
+        AlertDialog(
+            onDismissRequest = { showPopInfo = false },
+            title = { Text("蓝色数字是什么", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "降雨概率 (PoP, Probability of Precipitation) — 当前小时 GFS 模型预测发生可观测降水的概率。\n\n" +
+                            "数字越高,该小时越可能下雨;和具体下多大、下多久无关。\n\n" +
+                            "数据来源: NOAA GFS,经 Open-Meteo 聚合。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showPopInfo = false }) {
+                    Text("知道了")
+                }
+            },
+        )
+    }
 }
+
+
 
 @Composable
 private fun DailyForecastCard(feed: WeatherFeed) {
