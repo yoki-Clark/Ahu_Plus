@@ -457,6 +457,35 @@ val guideCategories: List<GuideCategory> = listOf(
                 ),
             ),
             GuideEntry(
+                id = "weather",
+                title = "天气",
+                summary = "Open-Meteo 公开数据,当前位置合肥蜀山区",
+                sections = listOf(
+                    usage {
+                        p("从「应用中心 → 校园生活」或工作台「最近使用」进。顶部当前气温+体感+大图标+湿度/风速；下方一张空气质量卡(PM2.5/PM10/AQI + 健康建议，PM2.5>75 时显示红色「污染较高，建议戴口罩」)；")
+                        p("再往下是未来 24 小时横滚条(逐小时图标+温度+降雨概率的蓝色%)，以及未来 5 天卡片(每天图标+文案+最低/最高温)。右下角显示更新时间（「刚刚」/「N 分钟前」/「N 小时前」），右上角按钮可手动刷新。")
+                        p("点降雨概率那个蓝色数字会弹说明框：它是 NOAA GFS 模型给出的当小时降雨概率 (PoP)，不是湿度，越高越可能下雨，和下多大、下多久无关。")
+                        p("另一处出现在课程提醒：天气严重(雨/雪)或空气污染时，课表上对应课程会加「带伞」「戴口罩」徽章。")
+                    },
+                    impl {
+                        p("数据源 Open-Meteo 公开 API（零登录）：api.open-meteo.com/v1/forecast（current + hourly + 5 天 daily）+ air-quality-api.open-meteo.com/v1/air-quality（PM2.5/PM10/AQI）。")
+                        p("模型固定 gfs_seamless：默认的 best_match ensemble 会把 ECMWF IFS025 的「最严重码」选出来，导致合肥天天报雷暴/雷暴冰雹，严重失真；GFS Seamless 在国内 5 日预报更克制，与中国天气/彩云一致得多。cma_grapes_global 虽然是中国气象局原生，但只支持 3-4 天。")
+                        p("位置固定合肥市蜀山区（安徽大学本部，31.82/117.39），不可切换。两端点串行拉取，任一成功就保留那一部分的缓存，不互相破坏。")
+                        p("网络照搬 AnnouncementRepository：策略 A HTTP/1.1 + COMPATIBLE_TLS + ResilientDns 手动 302，策略 B OkHttp 默认 HTTP/2 + MODERN_TLS 兜底——绕开部分国产 ROM（vivo 等）的 HTTP/2/TLS 协商问题。")
+                        p("WeatherManager 单例 + StateFlow 持有最新 WeatherFeed：进程启动先把缓存喂进 _feed，MainActivity 进入首页时触发 1h Coroutine 循环 refresh；WeatherRepository.getCached() 同步读 SessionManager.WEATHER_JSON_KEY，WeatherFeed 合并两端点 raw JSON（含 WeatherCurrent/WeatherHourly/WeatherDaily + WeatherAirQuality）+ fetchedAt。")
+                        p("课程天气提醒：按 startUnit/endUnit 查 unitTimes 拿起止分钟，对齐整点去 hourly.weatherCode 取上下课时 weatherCode，severity≥2 加「带伞」，PM2.5>75 加「戴口罩」，取起止 max 严重度。WMO 天气码映射在 WeatherCode.severity 0-4：0/1 晴阴、45/48 雾、51-55 毛毛雨、61-67 雨/冻雨、71-77 雪/雪粒、80-82 阵雨、85-86 阵雪、95-99 雷暴。")
+                    },
+                    problems {
+                        b("best_match ensemble 把 ECMWF 雷暴冰雹过激选出来 → 模型改 gfs_seamless，与中国天气/彩云一致得多。")
+                        b("国产 ROM HTTP/2 + TLS 协商挂 → 策略 A HTTP/1.1 + COMPATIBLE_TLS + ResilientDns，OkHttp 默认走不通时兜底。")
+                    },
+                    unresolved {
+                        b("位置固定合肥蜀山区，不支持切换其他城市。")
+                        b("数据由 Open-Meteo 第三方提供，可能与中国天气网略有偏差。")
+                    },
+                ),
+            ),
+            GuideEntry(
                 id = "student_info",
                 title = "个人信息与学籍",
                 summary = "学校登记的学生信息，分三大块：基本信息、住宿数据、学业预警",
@@ -542,13 +571,56 @@ val guideCategories: List<GuideCategory> = listOf(
                 ),
             ),
             GuideEntry(
+                id = "welearn",
+                title = "WeLearn 随行课堂",
+                summary = "外教社 welearn.sflep.com,刷完成度+真答案填空题",
+                sections = listOf(
+                    usage {
+                        p("底部 Tab「WeLearn 随行课堂」，独立账号（与超星/智慧安大都无关）：用 welearn.sflep.com 的手机号 + 密码登录。")
+                        p("登录后是课程列表，每张卡显示课程名 + 完成度进度条 + 百分比。点一门课进详情：顶部「完成度」卡（总进度 % + 已学习 X 时 Y 分），下方单元→章节树。单元默认全部展开，每节显示图标（已完成打勾、未开放显锁、未开始空心圆）+ 章节名 + 父路径 + 每节已学时长。")
+                        p("三种刷课入口：")
+                        b("详情页顶栏右上角的▶立刻启服务，刷全部 + 真答案填空题")
+                        b("底部「选择性刷」按钮 → 弹单选 Dialog 选某一单元，立刻启服务只刷该单元")
+                        b("底部「刷全部章节」 → 进 Study 屏，可调「正确率 / 增量全量 / 刷时长」参数后再按开始")
+                        p("Study 屏：")
+                        b("正确率输入框：默认 100，多课不同正确率可填「70,100」（按单元顺序使用对应值）")
+                        b("增量 / 全量 切换：默认「增量」只刷未完成 sco，「全量」会把已完成的也重提交（覆盖分数）")
+                        b("刷时长开关：默认开，每节 3 分钟（可改 1–60），期间每 30s 发一次心跳 keep，失败自动 retry 2 次")
+                        b("大按钮「开始刷课 / 停止刷课」，下方进度卡：✓完成 / △部分 / ✗失败 / 跳过计数 + 进度条；心跳进行中再显示已用/总时 + ⚠keep 失败计数（被 carrier NAT 切断时这里会涨），底部日志区滚动显示关键步骤")
+                    },
+                    impl {
+                        p("三屏式：WeLearnMainScreen（列表） → WeLearnCourseDetailScreen（单元-章节） → WeLearnStudyScreen（刷课控制台）；后台由 WeLearnStudyService ForegroundService 执行，通知 + 通知栏 / 悬浮窗显示实时进度。")
+                        p("协议基础（SFLEP 账号登录态不可省）：")
+                        b("WeLearnAuthRepository 复刻 OIDC 登录，Cookie 落 SessionManager.WELEARN_COOKIES_KEY")
+                        b("课程列表：GET /ajax/authCourse.aspx?action=gmc（加 _t=nowMs cache-buster）")
+                        b("单元：GET /student/course_info.aspx?cid=X 抠 uid+classid → GET /ajax/StudyStat.aspx?action=courseunits&cid=X&uid=Y")
+                        b("章节：GET /ajax/StudyStat.aspx?action=scoLeaves&cid=X&uid=Y&unitidx=Z&classid=W → isvisible/iscomplete 映射 WeLearnScoStatus.LOCKED/COMPLETED/TODO")
+                        b("课程统计：GET /ajax/StudyStat.aspx?action=scogeneral&cid=X&stuid=Y → Totalcount/Finishcount/ExAvgRate/Hour/Minute（H+M 折算 studiedSeconds 给详情卡显示）")
+                        p("答题真答案数据：centercourseware.sflep.com 是 Aliyun OSS CDN，完全公开，无 auth/SMS/激活门。WeLearnAnswerRepository 走 POST /Ajax/SCO.aspx?action=scoAddr 拿 addr（形如 //centercourseware.sflep.com/课程名/index.html#/1/1-1-3|...）→ 解析 hash → GET https://...data/1/1-1-3.html → Jsoup 解 <et-blank> 填空 / <et-choice key='..'> 选择 → 构造 SCORM cmi interactions JSON。")
+                        p("提交 POST /Ajax/SCO.aspx?action=setscoinfo：data 字段顶层必须 {「cmi」:{...}、「adl」:{...}、「cci」:{...}} 三键并列；漏掉 cmi 包装会让服务端 ret=0 但服务端不写状态（课程完成度不涨），这是最初踩到的最隐蔽的一个 bug。")
+                        p("刷时长三步（每节独立 SCORM 会话）：startsco160928 开口 → keepsco_with_getticket_with_updatecmitime 每 30s keep（session_time + total_time 必填）→ savescoinfo160928 关，心跳模式 crate=0 避免覆盖完成度统计。")
+                        p("session 过期嗅探：response body 以 < 开头或 JSON 解析失败 → 抛 IOException(「session expired: ...」)，VM 静默调 autoLoginIfPossible 用已存账密重登一次，外部 request 无感重试。")
+                    },
+                    problems {
+                        b("cmi 包装 bug：cmiDataWithAnswers 把 SCORM 字段直接放 JSONObject 根，没用 {「cmi」:{...}、「adl」:{...}、「cci」:{...}} 三键顶层并列 → 提交 ret=0 但服务端不写状态，刷成功不涨进度。改完三键并列解决。")
+                        b("心跳 PC 通手机不通：60s 节奏在手机端被 carrier NAT / 移动网络中间设备 RST 切断，首条 keep 就 readTimeout，后续全程失败，savescoinfo 关了一个空 session，learntime 0。改 30s 节奏 + keep 失败 retry 2 次（retry 前先 heartbeatStart 重启 session）+ UI 与通知栏暴露 keep 失败计数。")
+                        b("服务端缓存返回旧 course.per / scoLeaves.iscomplete：列表/章节接口加 _t=System.currentTimeMillis() cache-buster 打破。")
+                        b("session 过期：嗅探到 HTML 登录页（body 以 < 开头）→ 用存好的账密静默重登一次再重试，无需用户手动输入。")
+                    },
+                    unresolved {
+                        b("录音题（<et-audio>）没有标准答案，目前跳过不提交，需要用户手动完成。")
+                    },
+                    future {
+                        p("接 AI 续写开放题（复用 ChaoxingTikuRepository 的 AI provider，DeepSeek 优先）。")
+                        p("离线缓存答案 CDN HTML 到本地，二次启动跳过 GET，加速首拉。")
+                    },
+                ),
+            ),
+            GuideEntry(
                 id = "planned_platforms",
                 title = "计划接入的第三方平台",
                 summary = "正在调研的平台",
                 sections = listOf(
-                    future(heading = "WeLearn") {
-                        p("已经初步调研好了，接进去难度不大，可以实现刷课。")
-                    },
                     future(heading = "U校园") {
                         p("做了初步调研，但是发现现有项目都有点老，不一定能实现。")
                     },
