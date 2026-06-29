@@ -40,9 +40,13 @@ val faqCategories: List<FaqCategory> = listOf(
         title = "第三方平台接入",
         items = listOf(
             FaqItem(
-                question = "什么时候能接入 WeLearn？",
-                answer = "快了。接口已经初步调研过，难度不大，能实现自动刷课，" +
-                    "等学习通这边稳定后再排期。"
+                question = "WeLearn 的刷题能保证正确率么？",
+                answer = "可以的。WeLearn 的答案模块做的不好，可以直接在前端获取到答案，" +
+                    "所以这些答案都是直接从前端扣出来填入的，理论上来说可以达到百分百的正确率。"
+            ),
+            FaqItem(
+                question = "WeLearn 为什么跑完了，还是有一些任务点没完成？",
+                answer = "那些是录音题或者作文题这种没法直接作答的题目。"
             ),
             FaqItem(
                 question = "什么时候能接入 u 校园？",
@@ -104,6 +108,10 @@ val faqCategories: List<FaqCategory> = listOf(
                 answer = "第一次初次加载会加载全量数据，可能确实会比较久，" +
                     "后面再点开就会好很多了。" +
                     "账单结果会缓存到本地，所以只要不是切换账号或清缓存，体验是逐次变好的。"
+            ),
+            FaqItem(
+                question = "这个里面的天气为什么和我手机软件的天气不一样？",
+                answer = "因为接口用的是公开的天气 API，可能和你手机自带天气的数据来源不是一个。"
             ),
         ),
     ),
