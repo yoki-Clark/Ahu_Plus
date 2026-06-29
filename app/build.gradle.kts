@@ -39,6 +39,11 @@ android {
         // 导致兜底包也只剩 arm64 libs。splits.abi.include 才是 per-variant 控制。
     }
 
+    // 2026-06-29: 让 unit test 不抛 android.util.Log not mocked 异常
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     // ── 签名配置 ─────────────────────────────────────────
     // 优先使用 local.properties 中配置的正式签名;
     // 未配置时回退到本机 Android SDK 自带的 debug.keystore(仅限本机自测,

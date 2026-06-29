@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -36,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +55,8 @@ import com.yourname.ahu_plus.data.model.InternetBillRecord
 import com.yourname.ahu_plus.ui.screen.home.ElectricityBalanceCard
 import com.yourname.ahu_plus.ui.screen.home.ElectricityBillRange
 import com.yourname.ahu_plus.ui.screen.home.ElectricityState
+import com.yourname.ahu_plus.ui.screen.home.DepositSheet
+import com.yourname.ahu_plus.ui.screen.home.DepositTarget
 import com.yourname.ahu_plus.ui.screen.home.HomeViewModel
 import com.yourname.ahu_plus.ui.screen.home.ElectricityTarget
 import com.yourname.ahu_plus.ui.screen.home.InternetBalanceCard
@@ -167,7 +171,8 @@ fun WaterElectricityUtilityDetailScreen(
                 billsError = internetBillsError,
                 onBack = { selectedUtility = null },
                 onRefreshBalance = onRefreshInternetBalance,
-                onRefreshBills = onRefreshInternetBills
+                onRefreshBills = onRefreshInternetBills,
+                cardViewModel = cardViewModel,
             )
             return
         }
@@ -194,7 +199,11 @@ fun WaterElectricityUtilityDetailScreen(
                     error = bathroomError,
                     phone = bathroomPhone,
                     onSavePhone = onSaveBathroomPhone,
-                    onRetry = onRefreshBathroom
+                    onRetry = onRefreshBathroom,
+                    onPay = {
+                        val d = bathroomData ?: return@BathroomBalanceCard
+                        cardViewModel.openDepositSheet(DepositTarget.Bathroom(d))
+                    },
                 )
             }
         }
@@ -208,7 +217,20 @@ fun WaterElectricityUtilityDetailScreen(
                     onSelectBuilding = { cardViewModel.selectBuilding(ElectricityTarget.AC, it) },
                     onSelectFloor = { cardViewModel.selectFloor(ElectricityTarget.AC, it) },
                     onSelectRoom = { cardViewModel.selectRoom(ElectricityTarget.AC, it) },
-                    onRetry = onRefreshAcBalance
+                    onRetry = onRefreshAcBalance,
+                    onPay = {
+                        val d = acState.data ?: return@ElectricityBalanceCard
+                        cardViewModel.openDepositSheet(DepositTarget.Electricity(
+                            feeitemid = "408",
+                            room = d,
+                            buildingName = d.buildingName,
+                            areaName = acState.config.campus.substringAfter("&", ""),
+                            buildingValue = acState.config.building,
+                            floorValue = acState.config.floor,
+                            roomValue = acState.config.room,
+                            floorName = d.floorName,
+                        ))
+                    },
                 )
             }
         }
@@ -222,7 +244,20 @@ fun WaterElectricityUtilityDetailScreen(
                     onSelectBuilding = { cardViewModel.selectBuilding(ElectricityTarget.LIGHTING, it) },
                     onSelectFloor = { cardViewModel.selectFloor(ElectricityTarget.LIGHTING, it) },
                     onSelectRoom = { cardViewModel.selectRoom(ElectricityTarget.LIGHTING, it) },
-                    onRetry = onRefreshLightingBalance
+                    onRetry = onRefreshLightingBalance,
+                    onPay = {
+                        val d = lightingState.data ?: return@ElectricityBalanceCard
+                        cardViewModel.openDepositSheet(DepositTarget.Electricity(
+                            feeitemid = "428",
+                            room = d,
+                            buildingName = d.buildingName,
+                            areaName = lightingState.config.campus.substringAfter("&", ""),
+                            buildingValue = lightingState.config.building,
+                            floorValue = lightingState.config.floor,
+                            roomValue = lightingState.config.room,
+                            floorName = d.floorName,
+                        ))
+                    },
                 )
             }
         }
@@ -232,7 +267,11 @@ fun WaterElectricityUtilityDetailScreen(
                     data = internetData,
                     isLoading = internetLoading,
                     error = internetError,
-                    onRetry = onRefreshInternetBalance
+                    onRetry = onRefreshInternetBalance,
+                    onPay = {
+                        val d = internetData ?: return@InternetBalanceCard
+                        cardViewModel.openDepositSheet(DepositTarget.Internet(d))
+                    },
                 )
             }
         }
@@ -243,6 +282,20 @@ fun WaterElectricityUtilityDetailScreen(
             )
         }
     }
+
+    // 概览页自身的卡片(浴室/空调/照明)点充值会 openDepositSheet,这里必须挂 sheet 才弹得出来。
+    // 子页 selectedUtility != null 时已提前 return,不会和子页的 DepositSheet 重复挂载。
+    val uiState by cardViewModel.uiState.collectAsStateWithLifecycle()
+    val depositSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    DepositSheet(
+        state = uiState.depositSheet,
+        sheetState = depositSheetState,
+        onAmountChange = cardViewModel::updateDepositAmount,
+        onPasswordChange = cardViewModel::updateDepositPassword,
+        onSubTargetChange = cardViewModel::updateDepositSubTarget,
+        onConfirm = cardViewModel::submitDeposit,
+        onDismiss = cardViewModel::closeDepositSheet,
+    )
 }
 
 @Composable
@@ -326,7 +379,20 @@ fun ElectricityUtilityDetailScreen(
                 onSelectBuilding = { cardViewModel.selectBuilding(target, it) },
                 onSelectFloor = { cardViewModel.selectFloor(target, it) },
                 onSelectRoom = { cardViewModel.selectRoom(target, it) },
-                onRetry = onRefreshBalance
+                onRetry = onRefreshBalance,
+                onPay = {
+                    val d = state.data ?: return@ElectricityBalanceCard
+                    cardViewModel.openDepositSheet(DepositTarget.Electricity(
+                        feeitemid = if (target == ElectricityTarget.LIGHTING) "428" else "408",
+                        room = d,
+                        buildingName = d.buildingName,
+                        areaName = state.config.campus.substringAfter("&", ""),
+                        buildingValue = state.config.building,
+                        floorValue = state.config.floor,
+                        roomValue = state.config.room,
+                        floorName = d.floorName,
+                    ))
+                },
             )
         }
         item {
@@ -341,6 +407,19 @@ fun ElectricityUtilityDetailScreen(
             )
         }
     }
+
+    val uiState by cardViewModel.uiState.collectAsStateWithLifecycle()
+    // 2026-06-29: 预创建避免 state.visible=true 时首次组合 SheetState 阻塞 2-4s
+    val depositSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    DepositSheet(
+        state = uiState.depositSheet,
+        sheetState = depositSheetState,
+        onAmountChange = cardViewModel::updateDepositAmount,
+        onPasswordChange = cardViewModel::updateDepositPassword,
+        onSubTargetChange = cardViewModel::updateDepositSubTarget,
+        onConfirm = cardViewModel::submitDeposit,
+        onDismiss = cardViewModel::closeDepositSheet,
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -354,7 +433,8 @@ fun InternetUtilityDetailScreen(
     billsError: String?,
     onBack: () -> Unit,
     onRefreshBalance: () -> Unit,
-    onRefreshBills: () -> Unit
+    onRefreshBills: () -> Unit,
+    cardViewModel: HomeViewModel,
 ) {
     LaunchedEffect(Unit) {
         onRefreshBills()
@@ -372,7 +452,11 @@ fun InternetUtilityDetailScreen(
                 data = data,
                 isLoading = isLoading,
                 error = error,
-                onRetry = onRefreshBalance
+                onRetry = onRefreshBalance,
+                onPay = {
+                    val d = data ?: return@InternetBalanceCard
+                    cardViewModel.openDepositSheet(DepositTarget.Internet(d))
+                },
             )
         }
         item {
@@ -384,6 +468,18 @@ fun InternetUtilityDetailScreen(
             )
         }
     }
+
+    val uiState by cardViewModel.uiState.collectAsStateWithLifecycle()
+    val depositSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    DepositSheet(
+        state = uiState.depositSheet,
+        sheetState = depositSheetState,
+        onAmountChange = cardViewModel::updateDepositAmount,
+        onPasswordChange = cardViewModel::updateDepositPassword,
+        onSubTargetChange = cardViewModel::updateDepositSubTarget,
+        onConfirm = cardViewModel::submitDeposit,
+        onDismiss = cardViewModel::closeDepositSheet,
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -420,10 +516,10 @@ private fun UtilityDetailScaffold(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             content = {
                 content()
-                item { Spacer(modifier = Modifier.height(80.dp)) }
+                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         )
     }

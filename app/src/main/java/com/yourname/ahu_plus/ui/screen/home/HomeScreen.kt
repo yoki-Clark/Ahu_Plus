@@ -46,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -92,6 +93,8 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showFullQrCode by rememberSaveable { mutableStateOf(false) }
+    // 2026-06-29: 预创建避免 state.visible=true 时首次组合 SheetState 阻塞 2-4s
+    val depositSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
         topBar = {
@@ -143,7 +146,11 @@ fun HomeScreen(
                     error = uiState.bathroomError,
                     phone = uiState.bathroomPhone,
                     onSavePhone = viewModel::saveBathroomPhone,
-                    onRetry = viewModel::loadBathroomBalance
+                    onRetry = viewModel::loadBathroomBalance,
+                    onPay = {
+                        val d = uiState.bathroomData ?: return@BathroomBalanceCard
+                        viewModel.openDepositSheet(DepositTarget.Bathroom(d))
+                    },
                 )
             }
             item {
@@ -155,7 +162,21 @@ fun HomeScreen(
                     onSelectBuilding = { viewModel.selectBuilding(ElectricityTarget.AC, it) },
                     onSelectFloor = { viewModel.selectFloor(ElectricityTarget.AC, it) },
                     onSelectRoom = { viewModel.selectRoom(ElectricityTarget.AC, it) },
-                    onRetry = { viewModel.loadElectricityBalance(ElectricityTarget.AC) }
+                    onRetry = { viewModel.loadElectricityBalance(ElectricityTarget.AC) },
+                    onPay = {
+                        val ac = uiState.ac
+                        val data = ac.data ?: return@ElectricityBalanceCard
+                        viewModel.openDepositSheet(DepositTarget.Electricity(
+                            feeitemid = "408",
+                            room = data,
+                            buildingName = data.buildingName,
+                            areaName = ac.config.campus.substringAfter("&", ""),
+                            buildingValue = ac.config.building,
+                            floorValue = ac.config.floor,
+                            roomValue = ac.config.room,
+                            floorName = data.floorName,
+                        ))
+                    },
                 )
             }
             item {
@@ -167,7 +188,21 @@ fun HomeScreen(
                     onSelectBuilding = { viewModel.selectBuilding(ElectricityTarget.LIGHTING, it) },
                     onSelectFloor = { viewModel.selectFloor(ElectricityTarget.LIGHTING, it) },
                     onSelectRoom = { viewModel.selectRoom(ElectricityTarget.LIGHTING, it) },
-                    onRetry = { viewModel.loadElectricityBalance(ElectricityTarget.LIGHTING) }
+                    onRetry = { viewModel.loadElectricityBalance(ElectricityTarget.LIGHTING) },
+                    onPay = {
+                        val light = uiState.lighting
+                        val data = light.data ?: return@ElectricityBalanceCard
+                        viewModel.openDepositSheet(DepositTarget.Electricity(
+                            feeitemid = "428",
+                            room = data,
+                            buildingName = data.buildingName,
+                            areaName = light.config.campus.substringAfter("&", ""),
+                            buildingValue = light.config.building,
+                            floorValue = light.config.floor,
+                            roomValue = light.config.room,
+                            floorName = data.floorName,
+                        ))
+                    },
                 )
             }
             item {
@@ -175,7 +210,11 @@ fun HomeScreen(
                     data = uiState.internetData,
                     isLoading = uiState.internetLoading,
                     error = uiState.internetError,
-                    onRetry = viewModel::loadInternetBalance
+                    onRetry = viewModel::loadInternetBalance,
+                    onPay = {
+                        val d = uiState.internetData ?: return@InternetBalanceCard
+                        viewModel.openDepositSheet(DepositTarget.Internet(d))
+                    },
                 )
             }
             item {
@@ -214,6 +253,17 @@ fun HomeScreen(
                 onRefresh = viewModel::loadCampusQrCode
             )
         }
+
+        // 水电费充值 sheet (2026-06-29 接入)
+        DepositSheet(
+            state = uiState.depositSheet,
+            sheetState = depositSheetState,
+            onAmountChange = viewModel::updateDepositAmount,
+            onPasswordChange = viewModel::updateDepositPassword,
+            onSubTargetChange = viewModel::updateDepositSubTarget,
+            onConfirm = viewModel::submitDeposit,
+            onDismiss = viewModel::closeDepositSheet,
+        )
     }
 }
 

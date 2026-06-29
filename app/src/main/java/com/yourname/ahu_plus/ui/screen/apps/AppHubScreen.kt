@@ -269,7 +269,8 @@ fun AppHubScreen(
             billsError = cardUiState.internetBillsError,
             onBack = { currentPage = null },
             onRefreshBalance = cardViewModel::loadInternetBalance,
-            onRefreshBills = cardViewModel::loadInternetBills
+            onRefreshBills = cardViewModel::loadInternetBills,
+            cardViewModel = cardViewModel,
         )
         PAGE_MY_INFO_HUB -> MyInfoHubScreen(
             studentInfoUiState = studentInfoUiState,
