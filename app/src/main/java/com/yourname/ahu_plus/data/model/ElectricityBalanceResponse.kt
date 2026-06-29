@@ -26,7 +26,14 @@ data class ElectricityBalanceMap(
             floorName = data?.floorName ?: "",
             roomName = data?.roomName ?: "",
             remainingKwh = kwh,
-            infoText = infoText ?: ""
+            infoText = infoText ?: "",
+            aid = data?.aid ?: "",
+            account = data?.account ?: "",
+            building = data?.building ?: "",
+            floor = data?.floor ?: "",
+            room = data?.room ?: "",
+            area = data?.area ?: "",
+            areaName = data?.areaName ?: "",
         )
     }
 }
@@ -54,7 +61,18 @@ data class ElectricityUiData(
     /** 剩余电量(度),解析失败为 null */
     val remainingKwh: Double?,
     /** showData["信息"] 原文,解析失败时用于展示 */
-    val infoText: String
+    val infoText: String,
+    /** 房间账户 ID (充值 third_party 必填)。2026-06-29 接入水电费充值。 */
+    val aid: String = "",
+    /** 房间账户号 (充值 third_party 必填) */
+    val account: String = "",
+    /** 服务器回显的楼栋/楼层/房间码 (充值 third_party 必填,以服务器为准而非用户级联值) */
+    val building: String = "",
+    val floor: String = "",
+    val room: String = "",
+    /** 服务器回显的校区码/名 (新区 488 必填,老区为空) */
+    val area: String = "",
+    val areaName: String = "",
 )
 
 /**

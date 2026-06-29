@@ -69,8 +69,8 @@ class YcardRepository(
     private val gson = GsonProvider.instance
 
     // ── Cookie 存储 ──────────────────────────────────
-    private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
-    private val cookieJar = object : CookieJar {
+    internal val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+    internal val cookieJar = object : CookieJar {
         override fun loadForRequest(url: HttpUrl): List<Cookie> =
             cookieStore[url.host] ?: emptyList()
 
@@ -84,7 +84,7 @@ class YcardRepository(
     }
 
     // ── OkHttp 客户端 ──────────────────────────────────
-    private val client: OkHttpClient = SecureHttpClientFactory.create(
+    internal val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = cookieJar,
         followRedirects = false,
         disableGzip = true,
@@ -100,7 +100,7 @@ class YcardRepository(
 
     // 缓存的 JWT
     @Volatile
-    private var cachedJwt: String? = null
+    internal var cachedJwt: String? = null
 
     /** ycard.login 互斥锁 + 5 秒成功复用窗口,避免并发请求重复打 CAS */
     private val loginMutex = Mutex()

@@ -9,6 +9,7 @@ import com.yourname.ahu_plus.data.local.SessionManager
 import com.yourname.ahu_plus.data.model.BathroomBalanceData
 import com.yourname.ahu_plus.data.model.BillRecord
 import com.yourname.ahu_plus.data.model.DormHint
+import com.yourname.ahu_plus.data.model.ElectricityBalanceData
 import com.yourname.ahu_plus.data.model.ElectricityDailyRecord
 import com.yourname.ahu_plus.data.model.ElectricityUiData
 import com.yourname.ahu_plus.data.model.FeeItemOption
@@ -24,6 +25,7 @@ import com.yourname.ahu_plus.data.repository.SessionExpiredException
 import com.yourname.ahu_plus.data.repository.StudentInfoRepository
 import com.yourname.ahu_plus.data.repository.YcardAuthExpiredException
 import com.yourname.ahu_plus.data.repository.YcardRepository
+import com.yourname.ahu_plus.data.repository.YcardPayRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -50,6 +52,9 @@ class HomeViewModel(
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    /** 充值仓库 (2026-06-29 接入,懒构造,直接复用 ycardRepository 的 client/JWT/cookie) */
+    private val ycardPayRepository: YcardPayRepository by lazy { YcardPayRepository(ycardRepository) }
 
     // 级联加载 Job 引用,用于取消过期请求避免竞态
     private var cascadeJobAc: Job? = null
@@ -1197,6 +1202,219 @@ class HomeViewModel(
         loadCampusQrCode()
     }
 
+    // ─── 水电费充值 (2026-06-29 接入) ────────────────────────────────
+
+    /**
+     * 打开充值 sheet,根据 target 预填。
+     * - 电费:用对应 ElectricityState 的 room 元数据
+     * - 浴室:用 bathroomData
+     *
+     * 密码从学生信息 `ID_NUMBER` / `SFZH` 字段取后 6 位(默认查询密码 = 身份证后 6 位),
+     * 取不到就留空让用户手输。
+     */
+    fun openDepositSheet(target: DepositTarget) {
+        if (target === DepositTarget.None) return
+        val info = studentInfoRepository?.readCachedStudentInfo()
+        val idNumber = info?.firstValueOf("身份证号", "身份证件号", "ID_NUMBER", "SFZH")
+        val prefilledPassword = idNumber
+            ?.filter(Char::isDigit)
+            ?.takeLast(6)
+            ?.takeIf { it.length == 6 }
+            ?: ""
+
+        val sheet = when (target) {
+            is DepositTarget.Electricity -> {
+                val ac = _uiState.value.ac
+                val lighting = _uiState.value.lighting
+                val eState = if (target.feeitemid == "428") lighting else ac
+                val isNew = target.feeitemid == "488"
+                DepositSheetState(
+                    visible = true,
+                    target = target,
+                    title = if (target.feeitemid == "428") "照明充值" else "空调充值",
+                    subtitle = "${eState.config.campus.substringAfter("&", "未知校区")} " +
+                        "${eState.config.building.substringAfter("&", "")} " +
+                        eState.config.room.substringAfter("&", ""),
+                    amount = _uiState.value.depositSheet.amount.ifBlank { "5" },
+                    password = prefilledPassword,
+                    passwordPrefilled = prefilledPassword.isNotEmpty(),
+                    showAcOrLighting = isNew,
+                    subTarget = if (target.feeitemid == "428") DepositSubTarget.Lighting
+                                 else DepositSubTarget.Ac,
+                )
+            }
+            is DepositTarget.Bathroom -> {
+                DepositSheetState(
+                    visible = true,
+                    target = target,
+                    title = "浴室充值",
+                    subtitle = "项目:${target.bathroom.projectName.ifBlank { "浴室" }} " +
+                        "手机:${_uiState.value.bathroomPhone}",
+                    amount = _uiState.value.depositSheet.amount.ifBlank { "5" },
+                    password = prefilledPassword,
+                    passwordPrefilled = prefilledPassword.isNotEmpty(),
+                    showAcOrLighting = false,
+                )
+            }
+            is DepositTarget.Internet -> {
+                DepositSheetState(
+                    visible = true,
+                    target = target,
+                    title = "网费充值",
+                    subtitle = "账号: ${target.internet.account} · " +
+                        "余额: ${"%.2f".format(target.internet.balanceYuan)} 元",
+                    amount = _uiState.value.depositSheet.amount.ifBlank { "5" },
+                    password = prefilledPassword,
+                    passwordPrefilled = prefilledPassword.isNotEmpty(),
+                    showAcOrLighting = false,
+                )
+            }
+            DepositTarget.None -> return
+        }
+        _uiState.update { it.copy(depositSheet = sheet) }
+    }
+
+    /** 关闭 sheet(取消 / 成功 / 失败) */
+    fun closeDepositSheet() {
+        _uiState.update { it.copy(depositSheet = it.depositSheet.copy(visible = false, error = null)) }
+    }
+
+    fun updateDepositAmount(v: String) {
+        _uiState.update { it.copy(depositSheet = it.depositSheet.copy(amount = v, error = null)) }
+    }
+
+    fun updateDepositPassword(v: String) {
+        _uiState.update { it.copy(
+            depositSheet = it.depositSheet.copy(
+                password = v.filter(Char::isDigit).take(6),
+                passwordError = null,
+                error = null,
+            )
+        ) }
+    }
+
+    fun updateDepositSubTarget(t: DepositSubTarget) {
+        _uiState.update { it.copy(depositSheet = it.depositSheet.copy(subTarget = t)) }
+    }
+
+    /**
+     * 提交充值:Step 1 下单 → Step 2+3 拉 passwordMap + 提交密文(真扣款)。
+     *
+     * @return 成功 → 关闭 sheet + 刷新余额
+     */
+    fun submitDeposit() {
+        val sheet = _uiState.value.depositSheet
+        if (!sheet.canConfirm) return
+
+        _uiState.update { it.copy(
+            depositSheet = sheet.copy(inProgress = true, error = null)
+        ) }
+
+        viewModelScope.launch {
+            val target = sheet.target
+            val amount = sheet.amount
+            val password = sheet.password
+
+            val result: Result<Unit> = when (target) {
+                is DepositTarget.Electricity -> {
+                    val ac = _uiState.value.ac
+                    val lighting = _uiState.value.lighting
+                    val eState = if (target.feeitemid == "428") lighting else ac
+                    val eData = eState.data
+                    if (eData == null) {
+                        Result.failure(IllegalStateException("请先选择房间再充值"))
+                    } else if (eData.aid.isBlank() || eData.account.isBlank()) {
+                        Result.failure(IllegalStateException("未取到账户信息,请刷新余额后重试"))
+                    } else {
+                        // 缴费实际 feeitemid:用户选「充空调」仍传 488 (沿用 AHUTong)
+                        val payFeeitemid = if (target.feeitemid == "488") "488" else target.feeitemid
+                        // third_party 以服务器回显字段为准 (对齐 AHUTong),仅在服务器没回填时回退 config。
+                        // 老区 config.campus 为空,新区为 "code&name"。
+                        val cfgAreaCode = eState.config.campus.substringBefore("&", "")
+                        val cfgAreaName = eState.config.campus.substringAfter("&", "")
+                        val roomData = ElectricityBalanceData(
+                            area = eData.area.ifBlank { cfgAreaCode },
+                            buildingName = eData.buildingName,
+                            areaName = eData.areaName.ifBlank { cfgAreaName },
+                            floorName = eData.floorName,
+                            floor = eData.floor.ifBlank { eState.config.floor },
+                            aid = eData.aid,
+                            account = eData.account,
+                            building = eData.building.ifBlank { eState.config.building },
+                            room = eData.room.ifBlank { eState.config.room },
+                            roomName = eData.roomName,
+                        )
+                        val orderRes = ycardPayRepository.createElectricityOrder(
+                            amount = amount,
+                            feeitemid = payFeeitemid,
+                            room = roomData,
+                        )
+                        if (orderRes.isFailure) {
+                            Result.failure(orderRes.exceptionOrNull()!!)
+                        } else {
+                            ycardPayRepository.payWithAccount(orderRes.getOrThrow(), password)
+                        }
+                    }
+                }
+                is DepositTarget.Bathroom -> {
+                    val orderRes = ycardPayRepository.createBathroomOrder(
+                        amount = amount,
+                        bathroom = target.bathroom,
+                    )
+                    if (orderRes.isFailure) {
+                        Result.failure(orderRes.exceptionOrNull()!!)
+                    } else {
+                        ycardPayRepository.payBathroomWithAccount(orderRes.getOrThrow(), password)
+                    }
+                }
+                is DepositTarget.Internet -> {
+                    val orderRes = ycardPayRepository.createInternetOrder(
+                        amount = amount,
+                        internet = target.internet,
+                    )
+                    if (orderRes.isFailure) {
+                        Result.failure(orderRes.exceptionOrNull()!!)
+                    } else {
+                        ycardPayRepository.payWithAccount(orderRes.getOrThrow(), password)
+                    }
+                }
+                DepositTarget.None -> Result.failure(IllegalStateException("未知充值类型"))
+            }
+
+            result.fold(
+                onSuccess = {
+                    _uiState.update { it.copy(
+                        depositSheet = it.depositSheet.copy(visible = false, inProgress = false, error = null)
+                    ) }
+                    // 刷新余额 / 账单
+                    when (target) {
+                        is DepositTarget.Electricity -> {
+                            if (target.feeitemid == "428") loadElectricityBalance(ElectricityTarget.LIGHTING)
+                            else loadElectricityBalance(ElectricityTarget.AC)
+                        }
+                        is DepositTarget.Bathroom -> loadBathroomBalance()
+                        is DepositTarget.Internet -> loadInternetBalance()
+                        DepositTarget.None -> Unit
+                    }
+                },
+                onFailure = { e ->
+                    val msg = e.message ?: "充值失败"
+                    val isPasswordError = msg.contains("密码", ignoreCase = true) ||
+                        msg.contains("password", ignoreCase = true) ||
+                        msg.contains("0001")
+                    _uiState.update { it.copy(
+                        depositSheet = it.depositSheet.copy(
+                            inProgress = false,
+                            error = if (isPasswordError) "密码错误,请重新输入" else msg,
+                            password = if (isPasswordError) "" else it.depositSheet.password,
+                            passwordError = if (isPasswordError) "密码错误" else null,
+                        )
+                    ) }
+                },
+            )
+        }
+    }
+
     private fun startQrAutoRefresh() {
         if (adwmhCardRepository == null) return
         viewModelScope.launch {
@@ -1292,6 +1510,8 @@ data class HomeUiState(
     val adwmhLoginLoading: Boolean = false,
     val adwmhLoginError: String? = null,
     val adwmhLoginInfo: AdwmhLoginInfo? = null,
+    // 水电费充值 sheet (2026-06-29 接入)
+    val depositSheet: DepositSheetState = DepositSheetState(),
 )
 
 enum class ElectricityBillRange(val label: String, val loadingText: String, val emptyText: String) {

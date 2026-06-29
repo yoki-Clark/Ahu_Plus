@@ -57,7 +57,8 @@ fun BathroomBalanceCard(
     error: String?,
     phone: String,
     onSavePhone: (String) -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onPay: () -> Unit = {},  // 2026-06-29 充值入口
 ) {
     var showPhoneDialog by remember { mutableStateOf(false) }
 
@@ -80,7 +81,7 @@ fun BathroomBalanceCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp),
             contentAlignment = Alignment.Center
         ) {
             when {
@@ -123,6 +124,11 @@ fun BathroomBalanceCard(
                             TextButton(onClick = onRetry) {
                                 Text("重试")
                             }
+                            TextButton(
+                                onClick = onPay,
+                            ) {
+                                Text("充值", color = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }
                 }
@@ -161,10 +167,16 @@ fun BathroomBalanceCard(
                             ) {
                                 Text("修改", style = MaterialTheme.typography.bodySmall)
                             }
-                        }
-                        if (isLoading) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            TextButton(
+                                onClick = onPay,
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("充值", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (isLoading) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            }
                         }
                     }
                 }
@@ -227,7 +239,8 @@ fun ElectricityBalanceCard(
     onSelectBuilding: (FeeItemOption) -> Unit,
     onSelectFloor: (FeeItemOption) -> Unit,
     onSelectRoom: (FeeItemOption) -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onPay: () -> Unit = {},  // 2026-06-29 充值入口
 ) {
     var showConfigDialog by remember { mutableStateOf(false) }
 
@@ -251,7 +264,7 @@ fun ElectricityBalanceCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp),
             contentAlignment = Alignment.Center
         ) {
             when {
@@ -293,6 +306,11 @@ fun ElectricityBalanceCard(
                             TextButton(onClick = onRetry) {
                                 Text("重试")
                             }
+                            TextButton(
+                                onClick = onPay,
+                            ) {
+                                Text("充值", color = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }
                 }
@@ -333,10 +351,16 @@ fun ElectricityBalanceCard(
                             ) {
                                 Text("修改", style = MaterialTheme.typography.bodySmall)
                             }
-                        }
-                        if (state.loading) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            TextButton(
+                                onClick = onPay,
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("充值", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (state.loading) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            }
                         }
                     }
                 }
@@ -511,7 +535,8 @@ fun InternetBalanceCard(
     data: InternetBalanceData?,
     isLoading: Boolean,
     error: String?,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onPay: () -> Unit = {},
 ) {
     Card(
         shape = AhuShapes.Card,
@@ -521,7 +546,7 @@ fun InternetBalanceCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp),
             contentAlignment = Alignment.Center
         ) {
             when {
@@ -571,6 +596,12 @@ fun InternetBalanceCard(
                         if (isLoading) {
                             Spacer(modifier = Modifier.height(4.dp))
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        }
+                        TextButton(
+                            onClick = onPay,
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("充值", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
