@@ -457,7 +457,11 @@ class ChaoxingStudyRepository(
         // 4. 主循环（原仓库: while not passed）
         var lastLogTime = startSec
         var lastIter = System.nanoTime()
-        var waitTime = Random.nextInt(30, 90)
+        // 视频心跳间隔:从 30~90s 改为 5~10s。
+        // 原因:真实用户 1.0x 看视频每 5~10s 一次进度上报,30~90s 跳进度被反作弊识别为
+        // "跳着看"+配合 isdrag=4 = 典型工具指纹;改 5~10s 后 playingTime 增量也变小,
+        // 单 IP 时间聚类曲线接近真人。
+        var waitTime = Random.nextInt(5, 11)
         var forbiddenRetry = 0
         var reportCount = 0
 
@@ -510,7 +514,8 @@ class ChaoxingStudyRepository(
                     addLog("    上报异常 code=$code")
                     return CxStudyResult.ERROR
                 }
-                waitTime = Random.nextInt(30, 90)
+                // 每次上报后重置下一次间隔,同样 5~10s(同 L464)
+                waitTime = Random.nextInt(5, 11)
                 lastLogTime = curSec
             }
 
