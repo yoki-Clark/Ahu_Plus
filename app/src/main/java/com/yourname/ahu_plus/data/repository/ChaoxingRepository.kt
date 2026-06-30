@@ -21,10 +21,12 @@ import com.yourname.ahu_plus.data.model.CxVideoInfo
 import com.yourname.ahu_plus.data.model.CxWorkData
 import com.yourname.ahu_plus.data.model.CxHomeworkItem
 import com.yourname.ahu_plus.data.model.CxQuestion
+import com.yourname.ahu_plus.data.network.ChaoxingHeaderInterceptor
 import com.yourname.ahu_plus.data.network.SecureHttpClientFactory
 import com.yourname.ahu_plus.util.AESCipher
 import com.yourname.ahu_plus.util.CxFontDecoder
 import kotlinx.coroutines.Dispatchers
+import kotlin.random.Random
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
@@ -57,16 +59,24 @@ class ChaoxingRepository(
         private const val BASE_MOOC2 = "https://mooc2-ans.chaoxing.com"
         private const val BASE_MOOC1 = "https://mooc1.chaoxing.com"
         private const val BASE_MOBILE = "https://mobilelearn.chaoxing.com"
-        private val UA_POOL = listOf(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        )
-        private fun randomUA(): String = UA_POOL.random()
+        /**
+         * 固定单值 User-Agent。
+         *
+         * 历史:曾用 7 个桌面 Chrome UA 池随机切换,实测反而**加重** IP 封号——
+         * 中国学习通 99% 用户是 Android Webview / iOS Safari,7 个全桌面 UA
+         * 随机切换 = 7 倍概率触发"UA 家族 vs 移动 IP 段"不匹配反作弊规则。
+         * 改为固定 1 个桌面 Chrome 120,与 `ChaoxingHeaderInterceptor` 注入的
+         * `sec-ch-ua-platform: "Windows"` / `sec-ch-ua-mobile: ?0` 自洽。
+         *
+         * 参考:https://github.com/Samueli924/chaoxing/blob/main/api/config.py#L7
+         * (fork 源也只用 1 个固定 UA)
+         */
+        private const val UA_FIXED =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        /** @deprecated 用 [UA_FIXED]。保留仅为过渡期兼容,2026-Q3 删除。 */
+        private val UA_POOL = listOf(UA_FIXED)
+        private fun randomUA(): String = UA_FIXED
     }
 
     // ── Cookie 存储 ──────────────────────────────────────────────
@@ -109,6 +119,9 @@ class ChaoxingRepository(
         trustAll = false,  // 超星用标准 HTTPS 证书
         connectTimeoutSec = 20,
         readTimeoutSec = 30,
+        // 全局补 sec-ch-ua / Accept-Language / Referer / X-Requested-With
+        // 解决 30 分钟 IP 封号(根因:无现代浏览器头 + 无 Referer)。
+        extraInterceptors = listOf(ChaoxingHeaderInterceptor()),
     )
 
     private val gson = Gson()
@@ -212,8 +225,7 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url("$BASE_PASSPORT/fanyalogin")
                 .post(body)
-                .header("User-Agent", randomUA())
-                .header("X-Requested-With", "XMLHttpRequest")
+                .header("User-Agent", UA_FIXED)
                 .build()
 
             val resp = client.newCall(request).execute()
@@ -694,12 +706,7 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url("$BASE_MOOC1/mooc-ans/work/addStudentWorkNew")
                 .post(body)
-                .header("User-Agent", randomUA())
-                .header("X-Requested-With", "XMLHttpRequest")
-                .header("Accept", "*/*")
-                .header("Accept-Language", "zh-CN,zh;q=0.9")
-                .header("Origin", BASE_MOOC1)
-                .header("Referer", "$BASE_MOOC1/mooc-ans/work/addStudentWorkNew")
+                .header("User-Agent", UA_FIXED)
                 .build()
 
             val resp = client.newCall(request).execute()
@@ -795,6 +802,9 @@ class ChaoxingRepository(
                 val code = resp.code
                 val body = resp.body?.string() ?: ""
                 resp.close()
+                // 模拟真人阅读/查看时间(15~90s 随机),避免 0 秒完成的工具指纹
+                // 真实用户在文档任务点停留至少 60~300s
+                delay(Random.nextLong(15_000L, 90_000L))
                 checkJobResponse("document", code, body)
             } catch (e: Exception) {
                 Result.failure(e)
@@ -815,6 +825,8 @@ class ChaoxingRepository(
                 val code = resp.code
                 val body = resp.body?.string() ?: ""
                 resp.close()
+                // 模拟真人阅读时间(15~90s),阅读任务点真实停留 30~600s
+                delay(Random.nextLong(15_000L, 90_000L))
                 checkJobResponse("read", code, body)
             } catch (e: Exception) {
                 Result.failure(e)
@@ -835,6 +847,8 @@ class ChaoxingRepository(
                 val code = resp.code
                 val body = resp.body?.string() ?: ""
                 resp.close()
+                // 模拟真人听音频时间(15~90s,等于任务点最小停留)
+                delay(Random.nextLong(15_000L, 90_000L))
                 checkJobResponse("audio", code, body)
             } catch (e: Exception) {
                 Result.failure(e)
@@ -855,6 +869,8 @@ class ChaoxingRepository(
                 val code = resp.code
                 val body = resp.body?.string() ?: ""
                 resp.close()
+                // 直播回放按音频节奏(15~90s)
+                delay(Random.nextLong(15_000L, 90_000L))
                 checkJobResponse("live", code, body)
             } catch (e: Exception) {
                 Result.failure(e)
@@ -1684,8 +1700,7 @@ class ChaoxingRepository(
                 val request = Request.Builder()
                     .url(url)
                     .post(body)
-                    .header("User-Agent", randomUA())
-                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("User-Agent", UA_FIXED)
                     .build()
 
                 val resp = client.newCall(request).execute()
