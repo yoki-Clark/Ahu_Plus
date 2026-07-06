@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import com.yourname.ahu_plus.ui.common.rememberSaveableLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -492,7 +491,7 @@ fun InternetUtilityDetailScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun UtilityDetailScaffold(
-    listState: LazyListState = rememberSaveableLazyListState(),
+    listState: LazyListState = rememberLazyListState(),
     title: String,
     onBack: () -> Unit,
     onRefresh: () -> Unit,

@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import com.yourname.ahu_plus.ui.common.rememberSaveableLazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.AccountBalanceWallet
@@ -148,7 +148,7 @@ fun AppHubScreen(
     val attendanceUiState by attendanceViewModel.uiState.collectAsStateWithLifecycle()
 
     var currentPage by rememberSaveable { mutableStateOf<String?>(null) }
-    val hubListState = rememberSaveableLazyListState()
+    val hubListState = rememberLazyListState()
 
     // 系统返回键：子页面 → hub
     // 注意: 我的信息二级入口(基本信息/住宿/预警) → MyInfoHub；财务/考勤 → 直接回应用页
