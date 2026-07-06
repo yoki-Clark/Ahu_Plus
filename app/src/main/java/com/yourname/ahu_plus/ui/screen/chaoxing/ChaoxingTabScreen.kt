@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -123,6 +124,9 @@ fun ChaoxingTabScreen(
     var showDetail by rememberSaveable { mutableStateOf(false) }
     var selectedCourse by remember { mutableStateOf<CxCourse?>(null) }
     var showStudySheet by rememberSaveable { mutableStateOf(false) }
+    // 2026-07-06 修复: 提升到 ChaoxingTabScreen 顶层(不在 CoursesTabContent 子 Composable 内),
+    // 避免 showDetail/showStudyScreen/showHomeworkDetail 短路时 CoursesTabContent 销毁重建导致滚动丢。
+    val coursesListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var showStudyScreen by rememberSaveable { mutableStateOf(false) }
     var showHomeworkDetail by rememberSaveable { mutableStateOf(false) }
     var selectedHomework by rememberSaveable { mutableStateOf<CxHomeworkItem?>(null) }
@@ -293,6 +297,7 @@ fun ChaoxingTabScreen(
                             selectedTab = ChaoxingSubTab.SETTINGS.ordinal
                             scope.launch { pagerState.animateScrollToPage(ChaoxingSubTab.SETTINGS.ordinal) }
                         },
+                        listState = coursesListState,
                     )
                     ChaoxingSubTab.HOMEWORK -> HomeworkTabContent(
                         viewModel = viewModel,

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -66,6 +67,7 @@ internal fun CoursesTabContent(
     onShowStudySheet: () -> Unit,
     onCourseClick: (CxCourse) -> Unit,
     onNavigateToSettings: () -> Unit,
+    listState: LazyListState,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -139,6 +141,7 @@ internal fun CoursesTabContent(
 
                     // 课程列表
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .weight(1f)
                             .padding(horizontal = 16.dp),

@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -101,6 +103,9 @@ fun WaterElectricityUtilityDetailScreen(
     initialUtility: String? = null
 ) {
     var selectedUtility by rememberSaveable { mutableStateOf(initialUtility) }
+    // 2026-07-06 修复: 提升到 WaterElectricityUtilityDetailScreen 顶层(if-return 短路之外),
+    // 避免 selectedUtility 切到具体 utility 子页时列表子 Composable 销毁重建导致滚动丢。
+    val utilityListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     LaunchedEffect(Unit) {
         onRefreshAcBills()
@@ -179,6 +184,7 @@ fun WaterElectricityUtilityDetailScreen(
     }
 
     UtilityDetailScaffold(
+        listState = utilityListState,
         title = "水电费查询",
         onBack = onBack,
         onRefresh = {
@@ -485,6 +491,7 @@ fun InternetUtilityDetailScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun UtilityDetailScaffold(
+    listState: LazyListState = rememberLazyListState(),
     title: String,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
@@ -512,6 +519,7 @@ private fun UtilityDetailScaffold(
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)

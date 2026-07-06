@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -102,6 +103,9 @@ fun XzxxScreen(
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showCompose by rememberSaveable { mutableStateOf(false) }
+    // 2026-07-06 修复: 提升到 XzxxScreen 函数体顶层(if 链之外),showCompose 切换跨
+    // if-return 短路不丢 listState(同 ProfileScreen 根因)。
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     // ── 写信页 ──
     if (showCompose) {
@@ -149,6 +153,7 @@ fun XzxxScreen(
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             XzxxLetterList(
+                listState = listState,
                 uiState = uiState,
                 onToggleDetail = viewModel::toggleDetail,
                 onLoadMore = viewModel::loadNextPage,
@@ -173,12 +178,13 @@ fun XzxxScreen(
 
 @Composable
 private fun XzxxLetterList(
+    listState: LazyListState,
     uiState: XzxxListUiState,
     onToggleDetail: (XzxxLetter) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit
 ) {
-    val listState = rememberLazyListState()
+    // listState 从 XzxxScreen 顶层传入(rememberSaveable 跨 if-return 短路保留)
     val shouldLoadMore by remember {
         derivedStateOf {
             val t = listState.layoutInfo.totalItemsCount
