@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -156,6 +157,11 @@ fun ProfileScreen(
     onGuideIntroSeen: () -> Unit = {},
     onLogout: () -> Unit
 ) {
+    // 2026-07-06 修复: 提升到 ProfileScreen 顶层(不嵌套在 if 链内部)。
+    // 原因: SaveableStateHolder 内的 inner Composable 切换(如 ProfileHomeScreen → AppSettingsScreen)
+    // 不会保留 inner registry 的 saved state。提升后 listState 注册到 ProfileScreen 自己的
+    // registry,inner Composable 切换不影响。
+    val profileListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var showBills by rememberSaveable { mutableStateOf(false) }
     var showMyInfoHub by rememberSaveable { mutableStateOf(false) }
     var showStudentBasicInfo by rememberSaveable { mutableStateOf(false) }
@@ -370,6 +376,7 @@ fun ProfileScreen(
     } else {
         val studentInfo = studentInfoUiState.info
         ProfileHomeScreen(
+            listState = profileListState,
             studentName = studentInfo?.displayName() ?: scheduleUiState.studentName,
             department = studentInfo?.department() ?: scheduleUiState.department,
             className = studentInfo?.classOrMajor() ?: scheduleUiState.className,
@@ -458,6 +465,7 @@ fun ProfileScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProfileHomeScreen(
+    listState: LazyListState,
     studentName: String?,
     department: String?,
     className: String?,
@@ -530,23 +538,6 @@ private fun ProfileHomeScreen(
     // 内测计划确认弹窗:开关拨到 ON 时置 true,弹窗内自带 1/2 步状态机。
     var showBetaPlanDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
-
-    // 2026 Bug14: 保存/恢复滚动位置。
-    // rememberLazyListState 内部用 remember——子页面渲染时 HomeScreen 被移除,state 丢失。
-    // 因此需要显式 save/restore firstVisibleItemIndex + offset。
-    val profileListState = androidx.compose.foundation.lazy.rememberLazyListState()
-    var savedIndex by rememberSaveable { mutableIntStateOf(0) }
-    var savedOffset by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        if (savedIndex > 0 || savedOffset > 0) {
-            profileListState.scrollToItem(savedIndex, savedOffset)
-        }
-    }
-    // 用 snapshotFlow 监听滚动变化,避免每帧写入
-    LaunchedEffect(profileListState) {
-        snapshotFlow { profileListState.firstVisibleItemIndex to profileListState.firstVisibleItemScrollOffset }
-            .collect { (idx, off) -> savedIndex = idx; savedOffset = off }
-    }
 
     if (showThirdPartyDialog) {
         ThirdPartyEnableDialog(
@@ -643,7 +634,7 @@ private fun ProfileHomeScreen(
                 .padding(innerPadding)
         ) {
         LazyColumn(
-            state = profileListState,
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
