@@ -26,10 +26,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AttachFile
@@ -168,7 +170,8 @@ private fun NoticeListBody(
     onLoadMore: () -> Unit,
     onRetry: () -> Unit
 ) {
-    val listState = rememberLazyListState()
+    // 2026-07-06 P0: LazyListState.Saver 让 SaveableStateHolder 跨分支剔除时恢复滚动位置。
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     val shouldLoadMore by remember {
         derivedStateOf {

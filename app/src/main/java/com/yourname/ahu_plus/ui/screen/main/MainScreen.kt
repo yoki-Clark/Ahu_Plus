@@ -30,7 +30,9 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -120,6 +122,37 @@ private sealed class WeLearnNav {
     data class Study(val course: com.yourname.ahu_plus.data.model.WeLearnCourse, val unitFilter: IntArray? = null) : WeLearnNav()
 }
 
+/**
+ * 2026-07-06 P0: WeLearnNav 的 Saver — 让 `welearnScreen` 跨 Tab/分支剔除恢复。
+ *
+ * 存 [typeInt, cid, unitFilterList?];Detail/Study 恢复时 course 字段只回填 cid,name/per
+ * 暂时为空,等用户下拉或 vm.loadCourseTree 完成后续数据补全。这是进程死亡后的已知 trade-off,
+ * P0 不做 VM 加 `getCourseByCid` 同步 course 元信息(改动 4 个文件,延后 P1)。
+ */
+private val WeLearnNavSaver: Saver<WeLearnNav, List<Any?>> = Saver(
+    save = { nav ->
+        when (nav) {
+            WeLearnNav.Main -> listOf(0)
+            is WeLearnNav.Detail -> listOf(1, nav.course.cid)
+            is WeLearnNav.Study -> listOf(2, nav.course.cid, nav.unitFilter?.toList())
+        }
+    },
+    restore = { saved ->
+        val cid = saved.getOrNull(1) as? String ?: ""
+        when (saved.getOrNull(0) as? Int) {
+            0 -> WeLearnNav.Main
+            1 -> WeLearnNav.Detail(
+                com.yourname.ahu_plus.data.model.WeLearnCourse(cid = cid, name = "", per = 0)
+            )
+            2 -> WeLearnNav.Study(
+                com.yourname.ahu_plus.data.model.WeLearnCourse(cid = cid, name = "", per = 0),
+                (saved.getOrNull(2) as? List<*>)?.filterIsInstance<Int>()?.toIntArray()
+            )
+            else -> WeLearnNav.Main
+        }
+    }
+)
+
 @Composable
 fun MainScreen(
     sessionManager: SessionManager,
@@ -152,6 +185,9 @@ fun MainScreen(
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(TAB_HOME) }
     var homePage by rememberSaveable { mutableIntStateOf(HOME_DASHBOARD) }
+    // 2026-07-06: 滚动位置保留 — SaveableStateHolder 按 key 持久化子树的 saved state,
+    // 配合 LazyListState.Saver 让 when 切走的子页回到原位置。
+    val stateHolder = rememberSaveableStateHolder()
 
     // 首次登录初始化冒泡 — SnackbarHost
     val initSnackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
@@ -476,6 +512,11 @@ fun MainScreen(
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
+            // 2026-07-06 P0: SaveableStateHolder 包裹 when — 外层 key=tab,内层 key=home;
+            // 配套各 Screen 用 rememberSaveable(saver = LazyListState.Saver) 才能跨分支恢复滚动位置。
+            // 缩进故意保留,不动 when 内 280+ 行。
+            stateHolder.SaveableStateProvider(key = "tab_$selectedTab") {
+            stateHolder.SaveableStateProvider(key = "home_$homePage") {
             when {
                 (!marketVisible && selectedTab == TAB_MARKET) ||
                     (!chaoxingVisible && selectedTab == TAB_CHAOXING) ||
@@ -639,7 +680,10 @@ fun MainScreen(
                 selectedTab == TAB_WELEARN -> {
                     // WeLearn 内部三段式:课程列表 → 课程详情(单元+章节) → 刷课控制
                     // 2026-06-28: 插入 CourseDetailScreen 显示章节,后续可拓展为针对性刷
-                    var welearnScreen by remember { mutableStateOf<WeLearnNav>(WeLearnNav.Main) }
+                    // 2026-07-06 P0: rememberSaveable(stateSaver=WeLearnNavSaver) 跨 Tab 切换保留 WeLearn 内部路径。
+                    var welearnScreen by rememberSaveable(stateSaver = WeLearnNavSaver) {
+                        mutableStateOf<WeLearnNav>(WeLearnNav.Main)
+                    }
                     val ctx = LocalContext.current
                     // session 过期 → 强制回主页,LoginSheet 由 WeLearnMainScreen 自己弹
                     val welearnCoursesNeedsLogin by weLearnViewModel.coursesState.collectAsStateWithLifecycle()
@@ -757,7 +801,9 @@ fun MainScreen(
                     onRecordApp = recordApp,
                     onNeedsLogin = onReauth
                 )
-            }
-        }
-    }
-}
+            }       // when close (含 else 分支)
+            }       // home_$homePage SaveableStateProvider close
+            }       // tab_$selectedTab SaveableStateProvider close
+        }       // Box close
+    }       // Scaffold trailing lambda close
+}       // MainScreen close
