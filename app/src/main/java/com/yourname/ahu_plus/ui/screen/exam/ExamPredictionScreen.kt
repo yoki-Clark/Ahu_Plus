@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import com.yourname.ahu_plus.ui.common.rememberSaveableLazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -297,7 +297,7 @@ private fun AggregatedList(
     items: List<AggregatedCourse>,
     expandedMap: MutableMap<String, Boolean>
 ) {
-    val listState = rememberSaveableLazyListState()
+    val listState = rememberLazyListState()
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),

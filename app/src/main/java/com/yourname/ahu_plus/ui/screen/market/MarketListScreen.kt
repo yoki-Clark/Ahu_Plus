@@ -21,7 +21,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggerItems
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
-import com.yourname.ahu_plus.ui.common.rememberSaveableScrollState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -438,7 +438,7 @@ private fun SchoolSwitcherRow(
     onSelectAll: () -> Unit = {}
 ) {
     val allSelected = identities.all { it.id in selectedIds }
-    val scrollState = rememberSaveableScrollState()
+    val scrollState = rememberScrollState()
 
     Card(
         shape = AhuShapes.Card,

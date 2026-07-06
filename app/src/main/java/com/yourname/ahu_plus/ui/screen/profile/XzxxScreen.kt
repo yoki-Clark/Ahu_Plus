@@ -35,8 +35,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import com.yourname.ahu_plus.ui.common.rememberSaveableLazyListState
-import com.yourname.ahu_plus.ui.common.rememberSaveableScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
@@ -107,7 +105,7 @@ fun XzxxScreen(
     var showCompose by rememberSaveable { mutableStateOf(false) }
     // 2026-07-06 修复: 提升到 XzxxScreen 函数体顶层(if 链之外),showCompose 切换跨
     // if-return 短路不丢 listState(同 ProfileScreen 根因)。
-    val listState = rememberSaveableLazyListState()
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     // ── 写信页 ──
     if (showCompose) {
@@ -409,7 +407,7 @@ private fun XzxxComposeScreen(repository: XzxxRepository, onBack: () -> Unit) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberSaveableScrollState())
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {

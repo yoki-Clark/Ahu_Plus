@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import com.yourname.ahu_plus.ui.common.rememberSaveableLazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -56,7 +56,7 @@ internal fun MarketNoticesScreen(
     onLoadMore: () -> Unit,
     onOpenTopic: (MarketTopic) -> Unit
 ) {
-    val listState = rememberSaveableLazyListState()
+    val listState = rememberLazyListState()
     val shouldLoadMore by remember(uiState.notices.size, uiState.hasMoreNotices) {
         derivedStateOf {
             val total = listState.layoutInfo.totalItemsCount
