@@ -1,7 +1,7 @@
 package com.yourname.ahu_plus.ui.screen.market
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.lazy.rememberLazyListState
+import com.yourname.ahu_plus.ui.common.rememberSaveableLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,8 +21,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun MarketScreen(viewModel: MarketViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val listState = rememberLazyListState()
-    val hotListState = rememberLazyListState()
+    val listState = rememberSaveableLazyListState()
+    val hotListState = rememberSaveableLazyListState()
     // 2026-06-17 Bug5: 将 stagger 状态提升到 MarketScreen, 导航到详情后再返回能恢复位置
     val staggerListState = rememberLazyStaggeredGridState()
 

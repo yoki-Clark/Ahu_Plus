@@ -29,7 +29,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import com.yourname.ahu_plus.ui.common.rememberSaveableLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -103,7 +103,7 @@ internal fun MarketDetailScreen(
     val topic = uiState.topicDetail ?: uiState.selectedTopic
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val commentsListState = rememberLazyListState()
+    val commentsListState = rememberSaveableLazyListState()
     val shouldLoadMoreComments by remember(uiState.comments.size, uiState.hasMoreComments) {
         derivedStateOf {
             val total = commentsListState.layoutInfo.totalItemsCount

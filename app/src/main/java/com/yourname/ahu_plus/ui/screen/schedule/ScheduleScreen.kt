@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.rememberScrollState
+import com.yourname.ahu_plus.ui.common.rememberSaveableScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -286,7 +286,7 @@ fun ScheduleScreen(
                     val currentPage = (uiState.selectedWeek - 1).coerceIn(0, maxPage - 1)
                     // 固定时间列与各周网格体共享垂直滚动状态:
                     // 时间列放在 Pager 左侧、不随换页滑动 → 切换周次时保持不动(2026-06-25)。
-                    val sharedVerScroll = androidx.compose.foundation.rememberScrollState()
+                    val sharedVerScroll = rememberSaveableScrollState()
                     Row(modifier = Modifier.fillMaxSize()) {
                         com.yourname.ahu_plus.ui.screen.schedule.FixedTimeColumn(
                             unitTimes = uiState.unitTimes,
@@ -799,7 +799,7 @@ private fun SemesterChips(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
+            .horizontalScroll(rememberSaveableScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {

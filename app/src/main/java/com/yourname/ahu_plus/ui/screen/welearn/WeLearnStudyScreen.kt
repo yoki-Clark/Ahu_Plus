@@ -1,7 +1,7 @@
 package com.yourname.ahu_plus.ui.screen.welearn
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import com.yourname.ahu_plus.ui.common.rememberSaveableScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -70,7 +70,7 @@ fun WeLearnStudyScreen(
         },
     ) { pad ->
         Column(
-            Modifier.padding(pad).fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()),
+            Modifier.padding(pad).fillMaxSize().padding(20.dp).verticalScroll(rememberSaveableScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // 2026-06-28:选择性刷 — 顶卡按 unitInfo 分支(单元级 vs 课程级)
@@ -340,7 +340,7 @@ fun WeLearnStudyScreen(
                     shape = RoundedCornerShape(8.dp),
                 ) {
                     Column(
-                        Modifier.padding(12.dp).heightIn(max = 240.dp).verticalScroll(rememberScrollState()),
+                        Modifier.padding(12.dp).heightIn(max = 240.dp).verticalScroll(rememberSaveableScrollState()),
                     ) {
                         state.logs.takeLast(30).forEach { line ->
                             Text(
