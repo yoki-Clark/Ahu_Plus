@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import com.yourname.ahu_plus.ui.common.rememberSaveableScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -354,7 +354,7 @@ private fun SelectorArea(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+            .horizontalScroll(rememberSaveableScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         uiState.availableCampuses.forEach { campus ->
@@ -382,7 +382,7 @@ private fun SelectorArea(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+                .horizontalScroll(rememberSaveableScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             uiState.buildings.forEach { building ->
@@ -411,7 +411,7 @@ private fun SelectorArea(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+                .horizontalScroll(rememberSaveableScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FilterChip(

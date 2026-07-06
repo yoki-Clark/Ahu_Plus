@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import com.yourname.ahu_plus.ui.common.rememberSaveableLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -46,7 +46,7 @@ fun ChaoxingStudyScreen(
     onStop: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val logListState = rememberLazyListState()
+    val logListState = rememberSaveableLazyListState()
 
     LaunchedEffect(studyState.logs.size) {
         if (studyState.logs.isNotEmpty()) logListState.animateScrollToItem(studyState.logs.size - 1)

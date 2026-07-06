@@ -90,6 +90,7 @@ import com.yourname.ahu_plus.data.model.MarketUser
 import com.yourname.ahu_plus.ui.theme.AhuShapes
 import com.yourname.ahu_plus.ui.components.AhuTag
 import com.yourname.ahu_plus.ui.theme.MarketColors
+import com.yourname.ahu_plus.ui.common.rememberSaveableScrollState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -313,7 +314,7 @@ internal fun SchoolPickerRow(
     selectedId: String?,
     onSelect: (String) -> Unit
 ) {
-    val scrollState = androidx.compose.foundation.rememberScrollState()
+    val scrollState = rememberSaveableScrollState()
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)

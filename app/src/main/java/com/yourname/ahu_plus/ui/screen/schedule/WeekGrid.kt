@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import com.yourname.ahu_plus.ui.common.rememberSaveableScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
@@ -117,8 +117,8 @@ fun WeekGrid(
     val totalRows = maxUnit - minUnit + 1
     val unitMap = sortedUnits.associateBy { it.indexNo }
 
-    val horScroll = rememberScrollState()
-    val verScroll = sharedVerScroll ?: rememberScrollState()
+    val horScroll = rememberSaveableScrollState()
+    val verScroll = sharedVerScroll ?: rememberSaveableScrollState()
 
     val gridWidth = colWidth * visibleDays.size
     val bodyHeight = rowHeight * totalRows

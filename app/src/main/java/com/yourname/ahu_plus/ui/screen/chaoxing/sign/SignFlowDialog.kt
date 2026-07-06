@@ -30,7 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.rememberScrollState
+import com.yourname.ahu_plus.ui.common.rememberSaveableScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -154,7 +154,7 @@ private fun LocationSignDialog(
         onDismissRequest = { if (!submitting) onDismiss() },
         title = { Text(title, fontWeight = FontWeight.Bold) },
         text = {
-            androidx.compose.foundation.rememberScrollState().let { scroll ->
+            rememberSaveableScrollState().let { scroll ->
                 Column(modifier = Modifier.verticalScroll(scroll)) {
                     Text("位置签到,选择坐标来源后即签到:", style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(8.dp))
