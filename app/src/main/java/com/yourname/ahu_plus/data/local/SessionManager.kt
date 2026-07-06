@@ -126,6 +126,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     @Volatile private var cachedRecentApps: String = ""
 
+    // 首页"我的收藏"应用列表 (JSON 数组 List<String>, 最多 6 个;退登保留)
+    @Volatile private var cachedFavoriteIds: List<String> = emptyList()
+
     /** 已注册的课程提醒 lessonKey 集合(换行分隔),供 cancelAll 精确清理,避免课表变更后旧闹钟成孤儿 */
     @Volatile private var cachedReminderKeys: String = ""
 
@@ -497,6 +500,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedBlockKeywords = parseStringList(prefs[MARKET_BLOCK_KEYWORDS_KEY])
 
         cachedFilterNodeIds = parseLongList(prefs[MARKET_FILTER_NODES_KEY])
+
+        cachedFavoriteIds = parseStringList(prefs[FAVORITE_APP_IDS_KEY])
 
         // \u96C6\u5E02\u529F\u80FD\u603B\u5F00\u5173: \u7F3A\u7701 true,\u4FDD\u6301\u5411\u540E\u517C\u5BB9 (\u8001\u7528\u6237\u9ED8\u8BA4\u542F\u7528)
 
@@ -1277,6 +1282,19 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedRecentApps = value
 
         appDataStore.dataStore.edit { it[RECENT_APPS_KEY] = value }
+
+    }
+
+    // ── 首页"我的收藏" ─────────────────────────────────────────────
+
+    /** 用户在首页显式收藏的 app key 列表(按展示顺序),最多 6 个。退登保留。 */
+    fun getFavoriteAppIds(): List<String> = cachedFavoriteIds
+
+    suspend fun saveFavoriteAppIds(ids: List<String>) {
+
+        cachedFavoriteIds = ids
+
+        appDataStore.dataStore.edit { it[FAVORITE_APP_IDS_KEY] = gson.toJson(ids) }
 
     }
 
@@ -2971,6 +2989,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val AI_COMMENT_SELECTED_TEMPLATE_KEY = stringPreferencesKey("ai_comment_selected_template")
 
         val RECENT_APPS_KEY = stringPreferencesKey("recent_apps")
+
+        val FAVORITE_APP_IDS_KEY = stringPreferencesKey("favorite_app_ids")
 
         val SCHEDULE_COL_WIDTH_KEY = stringPreferencesKey("schedule_col_width")
 

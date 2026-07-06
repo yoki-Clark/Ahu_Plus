@@ -7,8 +7,13 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,10 +36,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AcUnit
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -63,8 +71,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
@@ -74,10 +85,18 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yourname.ahu_plus.data.debug.DebugClock
@@ -88,6 +107,7 @@ import com.yourname.ahu_plus.data.model.jw.formatTime
 import com.yourname.ahu_plus.data.model.jw.parseTimeMinutes
 import com.yourname.ahu_plus.data.repository.CourseRepository
 import com.yourname.ahu_plus.data.home.AppRegistry
+import com.yourname.ahu_plus.data.home.AppSpec
 import com.yourname.ahu_plus.ui.components.AhuCard
 import com.yourname.ahu_plus.ui.components.AhuIconBox
 import com.yourname.ahu_plus.ui.components.AhuSectionTitle
@@ -103,6 +123,7 @@ import com.yourname.ahu_plus.ui.theme.AhuRed
 import com.yourname.ahu_plus.ui.theme.AhuTeal
 import com.yourname.ahu_plus.ui.theme.AhuViolet
 import com.yourname.ahu_plus.ui.theme.AhuGradient
+import com.yourname.ahu_plus.ui.screen.home.FavoritesPickerSheet
 import org.json.JSONArray
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -126,6 +147,8 @@ fun DashboardScreen(
     onOpenWeather: () -> Unit = {},
     recentApps: List<String> = emptyList(),
     onRecordApp: (String) -> Unit = {},
+    favoriteIds: List<String> = emptyList(),
+    onFavoriteIdsChange: (List<String>) -> Unit = {},
     onAddUserTask: () -> Unit = {},
     onToggleTask: (com.yourname.ahu_plus.data.model.task.RecentTaskItem) -> Unit = {},
     onAddTodayHomework: () -> Unit = {},
@@ -225,7 +248,9 @@ fun DashboardScreen(
                 }
 
                 item {
-                    AppDock(
+                    FavoritesDock(
+                        favoriteIds = favoriteIds,
+                        onFavoriteIdsChange = onFavoriteIdsChange,
                         onOpenSchedule = { onRecordApp("schedule"); onOpenSchedule() },
                         onOpenCard = { onRecordApp("card"); onOpenCard() },
                         onOpenGrade = { onRecordApp("grade"); onOpenGrade() },
@@ -239,7 +264,6 @@ fun DashboardScreen(
                         onOpenTrainingPlan = { onRecordApp("trainingPlan"); onOpenTrainingPlan() },
                         onOpenEmptyClassroom = { onRecordApp("emptyClassroom"); onOpenEmptyClassroom() },
                         onOpenAppHub = onOpenAppHub,
-                        recentApps = recentApps
                     )
                 }
 
@@ -886,4 +910,468 @@ private fun courseStartMinutes(
     val text = course.startTime?.takeIf { it.isNotBlank() }
         ?: unitTimes.firstOrNull { it.indexNo == course.startUnit }?.startTimeStr()
     return parseTimeMinutes(text)
+}
+
+// ── 首页"我的收藏"应用栏 ─────────────────────────────────────
+//
+// 2026-07-06 重构 v4:拖拽引擎整体换成"容器级手势 + 浮层跟手 + move 语义"。
+//
+// 旧引擎(v2/v3)的死结,逐条根治:
+//  1. 只能同列纵向移:targetFlat = targetRow*COLS + sourceCol，sourceCol 恒等于源列,
+//     导致左上永远换不到右上。→ 现在双轴 hit-test,(row,col) 都由手指算,任意格↔任意格。
+//  2. 只跟踪 dragOffsetY 单轴,横拖卡片不动。→ 现在 rawOffset:Offset 双轴。
+//  3. swap 后手动 dragOffsetY = fingerY - targetCenterY 补偿,而 targetCenter 用的是换位前
+//     的旧 anchor(布局要下一帧才更新)→ 快拖漂移/跳位。→ 现在被拖项视觉位移每帧从
+//     fingerPos 现算(纯 derived),reorder 逻辑绝不回写 offset,零漂移。
+//  4. 每卡片各挂 detectDragGesturesAfterLongPress + onGloballyPositioned 上报全局 anchor,
+//     reorder 后节点身份漂移、anchor 表用 flat-index 复用错乱;且 zIndex 只在 Row 内生效,
+//     跨行拖拽会被下一行裁剪。→ 手势收敛到容器一处,只测"一个格子尺寸"用网格数学推所有坐标;
+//     被拖项提到**顶层浮层**绝对定位,永不被裁。
+//  5. NULL_KEY 的 swap 分支是死代码(displayIds 从不含 NULL_KEY)。→ 删除,空位纯尾部 UI。
+//
+// 数据契约不变:favoriteIds (List<String>) 由 SessionManager 持久化,本组件只持本地 editing/
+// picker/drag 状态,自身不写盘。drop 时 onFavoriteIdsChange(displayIds) 持久化。
+//
+// ponytail: 6 固定上限 + 2行×3列固定几何,不上 LazyVerticalGrid / reorderable 库
+// (它们为可变长 Lazy 列表设计,固定小网格用纯坐标数学更短更稳)。
+
+private const val FAVORITES_MAX = 6
+private const val FAVORITES_COLS = 3
+private val FAVORITES_SPACING = 10.dp
+
+/**
+ * 手指坐标(相对网格内容区左上)→ 命中的 flat index。
+ *
+ * 旧引擎在这一步栽跟头(targetCol 恒等于 sourceCol,只能同列纵移)。这里 col/row 都由手指
+ * 独立算,任意格↔任意格。越界一律 clamp:横向超出 → 首/末列;纵向落到空位区 → 最后真实行;
+ * 最终再 clamp 到 [0, size-1],保证永远命中一个真实项。
+ *
+ * 抽成顶层纯函数以便 FavoritesGridIndexTest 覆盖(组件里的坐标数学最易回归)。
+ */
+internal fun favIndexAt(
+    x: Float,
+    y: Float,
+    slotW: Int,
+    slotH: Int,
+    gapPx: Float,
+    rowCount: Int,
+    size: Int,
+): Int {
+    if (slotW == 0 || size == 0) return 0
+    val col = (x / (slotW + gapPx)).toInt().coerceIn(0, FAVORITES_COLS - 1)
+    val row = (y / (slotH + gapPx)).toInt().coerceIn(0, rowCount - 1)
+    return (row * FAVORITES_COLS + col).coerceIn(0, size - 1)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FavoritesDock(
+    favoriteIds: List<String>,
+    onFavoriteIdsChange: (List<String>) -> Unit,
+    onOpenAppHub: () -> Unit,
+    onOpenSchedule: () -> Unit,
+    onOpenCard: () -> Unit,
+    onOpenGrade: () -> Unit,
+    onOpenExam: () -> Unit,
+    onOpenNoticeList: () -> Unit,
+    onOpenBathroom: () -> Unit,
+    onOpenAc: () -> Unit,
+    onOpenLighting: () -> Unit,
+    onOpenInternet: () -> Unit,
+    onOpenCardAnalytics: () -> Unit,
+    onOpenTrainingPlan: () -> Unit,
+    onOpenEmptyClassroom: () -> Unit,
+) {
+    var isEditing by rememberSaveable { mutableStateOf(false) }
+    var pickerVisible by remember { mutableStateOf(false) }
+
+    // 回调表 — 复用 AppRegistry 静态元数据 + 调用方提供的 openXxx,本组件无业务路由权。
+    val clickMap = mapOf(
+        AppRegistry.KEY_SCHEDULE to onOpenSchedule,
+        AppRegistry.KEY_GRADE to onOpenGrade,
+        AppRegistry.KEY_EXAM to onOpenExam,
+        AppRegistry.KEY_CARD to onOpenCard,
+        AppRegistry.KEY_NOTICE_LIST to onOpenNoticeList,
+        AppRegistry.KEY_BATHROOM to onOpenBathroom,
+        AppRegistry.KEY_AC to onOpenAc,
+        AppRegistry.KEY_LIGHTING to onOpenLighting,
+        AppRegistry.KEY_INTERNET to onOpenInternet,
+        AppRegistry.KEY_CARD_ANALYTICS to onOpenCardAnalytics,
+        AppRegistry.KEY_TRAINING_PLAN to onOpenTrainingPlan,
+        AppRegistry.KEY_EMPTY_CLASSROOM to onOpenEmptyClassroom,
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AhuSectionTitle(text = "收藏应用", modifier = Modifier.weight(1f))
+            if (favoriteIds.isNotEmpty()) {
+                TextButton(onClick = { isEditing = !isEditing }) {
+                    Text(if (isEditing) "完成" else "编辑")
+                }
+            }
+            TextButton(onClick = onOpenAppHub) {
+                Text("更多")
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        if (favoriteIds.isEmpty()) {
+            EmptyFavoritesHint(onTap = { pickerVisible = true })
+        } else {
+            FavoritesGrid(
+                favoriteIds = favoriteIds,
+                editing = isEditing,
+                onReorder = onFavoriteIdsChange,
+                onRemove = { id -> onFavoriteIdsChange(favoriteIds - id) },
+                onOpen = { id -> clickMap[id]?.invoke() },
+                onAddTap = { pickerVisible = true },
+            )
+        }
+    }
+
+    if (pickerVisible) {
+        FavoritesPickerSheet(
+            favoriteIds = favoriteIds,
+            onConfirm = onFavoriteIdsChange,
+            onDismiss = {
+                pickerVisible = false
+                isEditing = false
+            },
+        )
+    }
+}
+
+/**
+ * 收藏应用网格 + 拖拽重排引擎。
+ *
+ * 坐标系:一律用「网格内容区左上角」为原点的**相对坐标**(不碰 positionInRoot 全局坐标)。
+ * 只需测量一个格子的尺寸(slotSize),配合固定列数/间距即可推出任意 flat index 的中心:
+ *   centerOf(i) = ( col*(w+gap)+w/2 , row*(h+gap)+h/2 )   其中 col=i%3, row=i/3
+ *
+ * 手势(单一容器级 detectDragGesturesAfterLongPress):
+ *   - 长按命中 → indexAt(按下点) 定源;记 startCenter = centerOf(源);rawOffset = 0
+ *   - 拖动 → rawOffset += delta(双轴);target = indexAt(startCenter + rawOffset)
+ *            若 target != dragging → displayIds = move(from,to);dragging = target
+ *   - 抬手 → displayIds 变了就 onReorder 落盘;清状态
+ *
+ * 被拖项 **不** 靠 translation 留在原格(会被相邻行裁剪),而是提到网格顶层用绝对 offset
+ * 单独画一份浮层跟手;原格渲染成半透明占位(占位随 dragging 实时移动 = 落点预览)。
+ */
+@Composable
+private fun FavoritesGrid(
+    favoriteIds: List<String>,
+    editing: Boolean,
+    onReorder: (List<String>) -> Unit,
+    onRemove: (String) -> Unit,
+    onOpen: (String) -> Unit,
+    onAddTap: () -> Unit,
+) {
+    val density = LocalDensity.current
+    val gapPx = with(density) { FAVORITES_SPACING.toPx() }
+
+    // 拖拽中的视觉顺序;favoriteIds 变化(外部增删)时重置。
+    var displayIds by remember(favoriteIds) { mutableStateOf(favoriteIds) }
+    var draggingIndex by remember { mutableStateOf(-1) }
+    var startCenter by remember { mutableStateOf(Offset.Zero) }
+    var rawOffset by remember { mutableStateOf(Offset.Zero) }
+    // 单个格子尺寸(px),由任一格子 onSizeChanged 上报一次;拖拽几何全靠它。
+    var slotSize by remember { mutableStateOf(IntSize.Zero) }
+    val latestFavoriteIds by rememberUpdatedState(favoriteIds)
+
+    val dragging = draggingIndex >= 0
+    val rowCount = ((displayIds.size + FAVORITES_COLS - 1) / FAVORITES_COLS).coerceAtLeast(1)
+
+    fun centerOf(index: Int): Offset {
+        val col = index % FAVORITES_COLS
+        val row = index / FAVORITES_COLS
+        val w = slotSize.width.toFloat()
+        val h = slotSize.height.toFloat()
+        return Offset(col * (w + gapPx) + w / 2f, row * (h + gapPx) + h / 2f)
+    }
+
+    fun indexAt(pos: Offset): Int =
+        favIndexAt(pos.x, pos.y, slotSize.width, slotSize.height, gapPx, rowCount, displayIds.size)
+
+    // jiggle 相位(三角波,±0.8°):editing && !dragging 时循环,拖拽时平滑收到 0。
+    val jigglePhase = remember { Animatable(0f) }
+    LaunchedEffect(editing, dragging) {
+        if (editing && !dragging) {
+            while (true) {
+                jigglePhase.animateTo(1f, tween(420, easing = LinearEasing))
+                jigglePhase.animateTo(0f, tween(420, easing = LinearEasing))
+            }
+        } else {
+            jigglePhase.animateTo(0f, tween(140, easing = FastOutSlowInEasing))
+        }
+    }
+    val jiggleRotation = (jigglePhase.value - 0.5f) * 1.6f
+
+    // 编辑态补足尾部"+"空位(纯 UI,不参与拖拽命中)。
+    val emptySlots = if (editing) (FAVORITES_MAX - displayIds.size).coerceAtLeast(0) else 0
+    val totalSlots = displayIds.size + emptySlots
+    val gridRows = (totalSlots + FAVORITES_COLS - 1) / FAVORITES_COLS
+
+    Box {
+        Column(verticalArrangement = Arrangement.spacedBy(FAVORITES_SPACING)) {
+            for (rowIdx in 0 until gridRows) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(FAVORITES_SPACING),
+                ) {
+                    for (colIdx in 0 until FAVORITES_COLS) {
+                        val flatIdx = rowIdx * FAVORITES_COLS + colIdx
+                        val id = displayIds.getOrNull(flatIdx)
+                        val cellModifier = Modifier
+                            .weight(1f)
+                            .then(
+                                // 只需任意一个格子上报尺寸即可。
+                                if (flatIdx == 0) {
+                                    Modifier.onSizeChanged { slotSize = it }
+                                } else Modifier
+                            )
+                        when {
+                            id == null -> {
+                                if (flatIdx < totalSlots) {
+                                    EmptySlotCard(onTap = onAddTap, modifier = cellModifier)
+                                } else {
+                                    Spacer(cellModifier)
+                                }
+                            }
+                            else -> {
+                                val spec = AppRegistry.byId(id)
+                                if (spec == null) {
+                                    Spacer(cellModifier)
+                                } else {
+                                    // 被拖项:原格渲染成半透明占位(落点预览),真身在浮层。
+                                    // 手势挂在真实 item 上(物理槽位 = call-site,reorder 后节点
+                                    // 身份不变,协程不断);空位不挂 → "+"的 tap 得以保留。
+                                    // onDrag 只用帧间 delta(坐标系无关),onDragStart 用 centerOf(槽)
+                                    // 定位,均不依赖 item 自身的全局坐标。
+                                    FavoriteItem(
+                                        spec = spec,
+                                        editing = editing,
+                                        placeholder = flatIdx == draggingIndex,
+                                        jiggleRotation = jiggleRotation,
+                                        onClick = { onOpen(id) },
+                                        onRemove = { onRemove(id) },
+                                        onDragStart = {
+                                            // 用当前物理槽位定位,不用 item 自身坐标。
+                                            val idx = displayIds.indexOf(id)
+                                            if (idx >= 0) {
+                                                draggingIndex = idx
+                                                startCenter = centerOf(idx)
+                                                rawOffset = Offset.Zero
+                                            }
+                                        },
+                                        onDrag = { amount ->
+                                            if (draggingIndex < 0) return@FavoriteItem
+                                            rawOffset += amount
+                                            val target = indexAt(startCenter + rawOffset)
+                                            if (target != draggingIndex && target in displayIds.indices) {
+                                                displayIds = displayIds.toMutableList()
+                                                    .apply { add(target, removeAt(draggingIndex)) }
+                                                draggingIndex = target
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            if (displayIds != latestFavoriteIds) onReorder(displayIds)
+                                            draggingIndex = -1
+                                            rawOffset = Offset.Zero
+                                        },
+                                        onDragCancel = {
+                                            draggingIndex = -1
+                                            rawOffset = Offset.Zero
+                                            displayIds = latestFavoriteIds
+                                        },
+                                        modifier = cellModifier,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 拖拽浮层:被拖项真身,绝对定位跟手,永不被行裁剪 ──
+        if (dragging) {
+            val id = displayIds.getOrNull(draggingIndex)
+            val spec = id?.let { AppRegistry.byId(it) }
+            if (spec != null) {
+                // 视觉位移每帧现算:手指位置 - 当前所在格中心。reorder 后 center 变小 → 卡片仍贴手指。
+                val fingerPos = startCenter + rawOffset
+                val topLeft = fingerPos - Offset(slotSize.width / 2f, slotSize.height / 2f)
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(topLeft.x.toInt(), topLeft.y.toInt()) }
+                        .width(with(density) { slotSize.width.toDp() })
+                        .zIndex(1f)
+                        .graphicsLayer {
+                            scaleX = 1.08f
+                            scaleY = 1.08f
+                            shadowElevation = 20f
+                            alpha = 0.95f
+                        },
+                ) {
+                    AppDockItem(
+                        title = spec.title,
+                        iconColor = spec.tint,
+                        onClick = {},
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(spec.icon, contentDescription = null)
+                    }
+                }
+            }
+        }
+
+    }
+}
+
+@Composable
+private fun FavoriteItem(
+    spec: AppSpec,
+    editing: Boolean,
+    placeholder: Boolean,
+    jiggleRotation: Float,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // 拖拽真身在父组件浮层(绝对定位,不被行裁剪),这里 placeholder=true 时把原格淡成
+    // 占位(落点预览)。手势挂在本项:长按后把双轴 delta 交给父组件重排。
+    Box(
+        modifier = modifier
+            .pointerInput(editing) {
+                if (!editing) return@pointerInput
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { onDragStart() },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        onDrag(amount)
+                    },
+                    onDragEnd = { onDragEnd() },
+                    onDragCancel = { onDragCancel() },
+                )
+            }
+            .graphicsLayer {
+                if (placeholder) {
+                    alpha = 0.3f
+                } else if (editing) {
+                    rotationZ = jiggleRotation
+                    shadowElevation = 2f
+                }
+            },
+    ) {
+        // 编辑态下点卡片本身 = 无操作,删除只通过 × 角标;非编辑态点击 = 打开。
+        AppDockItem(
+            title = spec.title,
+            iconColor = spec.tint,
+            onClick = if (editing) { {} } else onClick,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(spec.icon, contentDescription = null)
+        }
+        if (editing) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 6.dp, y = (-6).dp)
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.error)
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "移除",
+                    tint = MaterialTheme.colorScheme.onError,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyFavoritesHint(onTap: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onTap),
+        shape = AhuShapes.Card,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 18.dp, horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "添加常用应用",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptySlotCard(onTap: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onTap),
+        shape = AhuShapes.Card,
+        color = Color.Transparent,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(AhuShapes.IconBox)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = "添加",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
 }
