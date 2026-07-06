@@ -140,11 +140,6 @@ fun ProfileScreen(
     scheduleUiState: ScheduleUiState,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
-    /** 2026-06-17 Bug2: 近期任务全局设置 */
-    showCompletedTasks: Boolean = false,
-    showCompletedExams: Boolean = false,
-    onShowCompletedTasksChanged: (Boolean) -> Unit = {},
-    onShowCompletedExamsChanged: (Boolean) -> Unit = {},
     scrollTarget: String? = null,
     onScrollTargetConsumed: () -> Unit = {},
     profileSubPage: String? = null,
@@ -363,10 +358,6 @@ fun ProfileScreen(
         AppSettingsScreen(
             themeMode = themeMode,
             onThemeModeChange = onThemeModeChange,
-            showCompletedTasks = scheduleUiState.showCompletedTasks,
-            showCompletedExams = scheduleUiState.showCompletedExams,
-            onShowCompletedTasksChanged = onShowCompletedTasksChanged,
-            onShowCompletedExamsChanged = onShowCompletedExamsChanged,
             qrBrightnessBoost = cardViewModel.getQrBrightnessBoost(),
             onQrBrightnessBoostChanged = cardViewModel::setQrBrightnessBoost,
             adwmhConcurrentRetry = cardViewModel.getAdwmhConcurrentRetry(),

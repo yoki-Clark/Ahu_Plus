@@ -26,6 +26,9 @@ class UserTaskRepository(private val sessionManager: SessionManager) {
     private val flow = MutableStateFlow<List<UserTask>>(emptyList())
     val tasks: Flow<List<UserTask>> = flow.asStateFlow()
 
+    /** 当前任务快照(编辑预填等只读场景)。 */
+    fun tasksSnapshot(): List<UserTask> = flow.value
+
     /** 互斥锁:保护 flow.value 的读-改-写原子性 */
     private val mutex = Mutex()
 

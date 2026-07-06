@@ -572,14 +572,12 @@ private fun AddCourseSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var mode by remember { mutableStateOf(UserScheduleItem.TYPE_COURSE) }
     var name by remember { mutableStateOf("") }
     var weekday by remember { mutableIntStateOf(1) }
     var startUnit by remember { mutableIntStateOf(1) }
     var endUnit by remember { mutableIntStateOf(2) }
     var room by remember { mutableStateOf("") }
     var teacher by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
     var selectedWeeks by remember { mutableStateOf((1..18).toSet()) }
 
     val sortedUnits = remember(unitTimes) {
@@ -602,38 +600,21 @@ private fun AddCourseSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                text = "添加课程 / 安排",
+                text = "添加课程",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
-
-            // 模式切换
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = mode == UserScheduleItem.TYPE_COURSE,
-                    onClick = { mode = UserScheduleItem.TYPE_COURSE },
-                    label = { Text("加课") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                )
-                FilterChip(
-                    selected = mode == UserScheduleItem.TYPE_ARRANGEMENT,
-                    onClick = { mode = UserScheduleItem.TYPE_ARRANGEMENT },
-                    label = { Text("加安排") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                )
-            }
+            Text(
+                text = "周期性上课的课程。一次性事件请用首页「日程」添加。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             // 名称
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text(if (mode == UserScheduleItem.TYPE_COURSE) "课程名称" else "安排名称") },
+                label = { Text("课程名称") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -699,27 +680,14 @@ private fun AddCourseSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // 教师（仅加课模式）
-            if (mode == UserScheduleItem.TYPE_COURSE) {
-                OutlinedTextField(
-                    value = teacher,
-                    onValueChange = { teacher = it },
-                    label = { Text("教师（选填）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            // 备注（仅加安排模式）
-            if (mode == UserScheduleItem.TYPE_ARRANGEMENT) {
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = { Text("备注（选填，如班会）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
+            // 教师（选填）
+            OutlinedTextField(
+                value = teacher,
+                onValueChange = { teacher = it },
+                label = { Text("教师（选填）") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
 
             // 周次选择
             Text(
@@ -761,14 +729,14 @@ private fun AddCourseSheet(
                                 UserScheduleItem(
                                     id = UUID.randomUUID().toString(),
                                     name = name.trim(),
-                                    type = mode,
+                                    type = UserScheduleItem.TYPE_COURSE,
                                     weekday = weekday,
                                     startUnit = startUnit,
                                     endUnit = endUnit,
                                     weeks = selectedWeeks.sorted(),
                                     room = room.trim(),
                                     teacher = teacher.trim(),
-                                    note = note.trim(),
+                                    note = "",
                                 )
                             )
                             onDismiss()

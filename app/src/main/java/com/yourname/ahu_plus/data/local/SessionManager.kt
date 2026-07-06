@@ -138,6 +138,13 @@ class SessionManager(private val appDataStore: AppDataStore) {
     /** 课程提醒提前分钟数(默认 15) */
     @Volatile private var cachedCourseReminderLead: String = "15"
 
+    /** 日程页:课程是否自动加入日程(默认开) */
+    @Volatile private var cachedAgendaShowCourses: String = "true"
+    /** 日程页:考试是否自动加入日程(默认开) */
+    @Volatile private var cachedAgendaShowExams: String = "true"
+    /** 已注册的日程提醒 key 集合(换行分隔),与课程提醒 key 隔离 */
+    @Volatile private var cachedAgendaReminderKeys: String = ""
+
     @Volatile private var cachedScheduleColWidth: Float = 64f
 
     @Volatile private var cachedScheduleRowHeight: Float = 56f
@@ -155,10 +162,6 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedResetOnEnter: Boolean = true
 
     @Volatile private var cachedShowOtherSemesters: Boolean = true
-
-    @Volatile private var cachedShowCompletedTasks: Boolean = false
-
-    @Volatile private var cachedShowCompletedExams: Boolean = false
 
     // \u2500\u2500 \u4E1A\u52A1\u6570\u636E\u7F13\u5B58 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
@@ -555,6 +558,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedReminderKeys = prefs[REMINDER_KEYS_KEY] ?: ""
         cachedCourseReminderEnabled = prefs[COURSE_REMINDER_ENABLED_KEY] ?: "true"
         cachedCourseReminderLead = prefs[COURSE_REMINDER_LEAD_KEY] ?: "15"
+        cachedAgendaShowCourses = prefs[AGENDA_SHOW_COURSES_KEY] ?: "true"
+        cachedAgendaShowExams = prefs[AGENDA_SHOW_EXAMS_KEY] ?: "true"
+        cachedAgendaReminderKeys = prefs[AGENDA_REMINDER_KEYS_KEY] ?: ""
 
         // \u8BFE\u8868\u5E03\u5C40\u504F\u597D\uFF08\u5E26\u9ED8\u8BA4\u503C\u5BB9\u9519\uFF09
 
@@ -575,10 +581,6 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedResetOnEnter = (prefs[KEY_RESET_ON_ENTER] ?: "true") == "true"
 
         cachedShowOtherSemesters = (prefs[KEY_SHOW_OTHER_SEMESTERS] ?: "true") == "true"
-
-        cachedShowCompletedTasks = (prefs[KEY_SHOW_COMPLETED_TASKS] ?: "false") == "true"
-
-        cachedShowCompletedExams = (prefs[KEY_SHOW_COMPLETED_EXAMS] ?: "false") == "true"
 
         // \u2500\u2500 \u4E1A\u52A1\u6570\u636E\u7F13\u5B58\u6062\u590D \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
@@ -1682,26 +1684,6 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     }
 
-    fun getShowCompletedTasks(): Boolean = cachedShowCompletedTasks
-
-    suspend fun setShowCompletedTasks(value: Boolean) {
-
-        cachedShowCompletedTasks = value
-
-        appDataStore.dataStore.edit { it[KEY_SHOW_COMPLETED_TASKS] = if (value) "true" else "false" }
-
-    }
-
-    fun getShowCompletedExams(): Boolean = cachedShowCompletedExams
-
-    suspend fun setShowCompletedExams(value: Boolean) {
-
-        cachedShowCompletedExams = value
-
-        appDataStore.dataStore.edit { it[KEY_SHOW_COMPLETED_EXAMS] = if (value) "true" else "false" }
-
-    }
-
     // \u2500\u2500 \u8003\u6838\u65B9\u6848\u7F13\u5B58 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     fun getAssessmentJson(): String? = cachedAssessmentJson
@@ -2287,10 +2269,6 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedShowOtherSemesters = true
 
-        cachedShowCompletedTasks = false
-
-        cachedShowCompletedExams = false
-
         // \u4E00\u6B21 edit \u5B8C\u6210\u6240\u6709\u5220\u9664\uFF0C\u907F\u514D\u591A\u6B21 DataStore \u5E8F\u5217\u5316/\u5199\u5165
 
         appDataStore.dataStore.edit { preferences ->
@@ -2747,6 +2725,33 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it[COURSE_REMINDER_ENABLED_KEY] = v.toString() }
     }
 
+    /** 日程页:课程自动入日程开关。默认 true。 */
+    fun getAgendaShowCourses(): Boolean = cachedAgendaShowCourses != "false"
+
+    suspend fun saveAgendaShowCourses(v: Boolean) {
+        cachedAgendaShowCourses = v.toString()
+        appDataStore.dataStore.edit { it[AGENDA_SHOW_COURSES_KEY] = v.toString() }
+    }
+
+    /** 日程页:考试自动入日程开关。默认 true。 */
+    fun getAgendaShowExams(): Boolean = cachedAgendaShowExams != "false"
+
+    suspend fun saveAgendaShowExams(v: Boolean) {
+        cachedAgendaShowExams = v.toString()
+        appDataStore.dataStore.edit { it[AGENDA_SHOW_EXAMS_KEY] = v.toString() }
+    }
+
+    /** 读取上次注册的日程提醒 key 列表(供 AgendaReminderScheduler.cancelAll 精确清理) */
+    fun getAgendaReminderKeys(): List<String> =
+        cachedAgendaReminderKeys.split("\n").filter { it.isNotBlank() }
+
+    /** 覆盖保存当前已注册的日程提醒 key 列表 */
+    suspend fun saveAgendaReminderKeys(keys: List<String>) {
+        val value = keys.filter { it.isNotBlank() }.joinToString("\n")
+        cachedAgendaReminderKeys = value
+        appDataStore.dataStore.edit { it[AGENDA_REMINDER_KEYS_KEY] = value }
+    }
+
     /** 课程提醒提前分钟数。默认 15。 */
     fun getCourseReminderLeadMinutes(): Int = cachedCourseReminderLead.toIntOrNull() ?: 15
 
@@ -3008,10 +3013,6 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         val KEY_SHOW_OTHER_SEMESTERS = stringPreferencesKey("schedule_show_other_semesters")
 
-        val KEY_SHOW_COMPLETED_TASKS = stringPreferencesKey("schedule_show_completed_tasks")
-
-        val KEY_SHOW_COMPLETED_EXAMS = stringPreferencesKey("schedule_show_completed_exams")
-
         val SCHEDULE_JSON_KEY = stringPreferencesKey("schedule_json")
 
         val SCHEDULE_UPDATED_AT_KEY = longPreferencesKey("schedule_updated_at")
@@ -3172,6 +3173,12 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val COURSE_REMINDER_ENABLED_KEY = stringPreferencesKey("course_reminder_enabled")
         /** 课程提醒提前分钟数 */
         val COURSE_REMINDER_LEAD_KEY = stringPreferencesKey("course_reminder_lead")
+        /** 日程:课程自动入日程开关 */
+        val AGENDA_SHOW_COURSES_KEY = stringPreferencesKey("agenda_show_courses")
+        /** 日程:考试自动入日程开关 */
+        val AGENDA_SHOW_EXAMS_KEY = stringPreferencesKey("agenda_show_exams")
+        /** 已注册日程提醒 key 集合(换行分隔) */
+        val AGENDA_REMINDER_KEYS_KEY = stringPreferencesKey("agenda_reminder_keys")
 
         // Phase 4 (2026-06-20) - \u9898\u5E93\u6269\u5C55
 
@@ -3300,7 +3307,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
             KEY_SHOW_SAT, KEY_SHOW_SUN, KEY_PAGER_ENABLED,
 
-            KEY_RESET_ON_ENTER, KEY_SHOW_OTHER_SEMESTERS, KEY_SHOW_COMPLETED_TASKS, KEY_SHOW_COMPLETED_EXAMS,
+            KEY_RESET_ON_ENTER, KEY_SHOW_OTHER_SEMESTERS,
 
             CX_COOKIES_KEY, CX_COURSES_JSON_KEY, CX_COURSES_PROGRESS_JSON_KEY, CX_HOMEWORK_JSON_KEY, CX_HOMEWORK_DETAIL_JSON_KEY,
             CX_VISIT_BRUSH_ENABLED_KEY, CX_VISIT_BRUSH_INTERVAL_KEY, CX_DOWNLOAD_ENABLED_KEY,

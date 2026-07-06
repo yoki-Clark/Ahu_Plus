@@ -59,6 +59,11 @@
             android:name=".notification.CourseReminderReceiver"
             android:exported="false" />
 
+        <!-- 日程提醒接收器 (AlarmManager 触发) -->
+        <receiver
+            android:name=".notification.AgendaReminderReceiver"
+            android:exported="false" />
+
         <!-- Widget / 课程提醒统一调度接收器 (自递归 AlarmManager) -->
         <receiver
             android:name=".notification.WidgetUpdateScheduler"

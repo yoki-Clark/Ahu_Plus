@@ -113,6 +113,7 @@ private const val HOME_TRAINING_PLAN = 6
 private const val HOME_EMPTY_CLASSROOM = 7
 private const val HOME_EXAM_PREDICTION = 8
 private const val HOME_WEATHER = 9
+private const val HOME_AGENDA = 10
 
 /** WeLearn 内部三段式导航 (2026-06-28 新增 CourseDetailScreen) */
 private sealed class WeLearnNav {
@@ -184,6 +185,8 @@ fun MainScreen(
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(TAB_HOME) }
     var homePage by rememberSaveable { mutableIntStateOf(HOME_DASHBOARD) }
+    // 首页"日程"卡片右上 + → 进日程页并自动弹添加 sheet(一次性)
+    var agendaOpenAdd by rememberSaveable { mutableStateOf(false) }
 
     // 首次登录初始化冒泡 — SnackbarHost
     val initSnackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
@@ -238,6 +241,10 @@ fun MainScreen(
             MainActivity.DEEP_LINK_GRADE -> {
                 selectedTab = TAB_HOME
                 homePage = HOME_GRADE
+            }
+            MainActivity.DEEP_LINK_AGENDA -> {
+                selectedTab = TAB_HOME
+                homePage = HOME_AGENDA
             }
             MainActivity.DEEP_LINK_CHAOXING -> selectedTab = TAB_CHAOXING
             MainActivity.DEEP_LINK_WELEARN -> selectedTab = TAB_WELEARN
@@ -324,6 +331,8 @@ fun MainScreen(
     val chaoxingViewModel: ChaoxingViewModel = viewModel(factory = factory)
     val weLearnViewModel: WeLearnViewModel = viewModel(factory = factory)
     val weatherViewModel: WeatherViewModel = viewModel(factory = factory)
+    val agendaViewModel: com.yourname.ahu_plus.ui.screen.agenda.AgendaViewModel = viewModel(factory = factory)
+    val agendaEventsByDate by agendaViewModel.eventsByDate.collectAsStateWithLifecycle()
 
     // 每次进入首页时触发一次天气刷新(用户要求)。常驻 1h Coroutine 兜底。
     LaunchedEffect(selectedTab) {
@@ -562,6 +571,9 @@ fun MainScreen(
                         onRecordApp = recordApp,
                         favoriteIds = favoriteIds,
                         onFavoriteIdsChange = onFavoriteIdsChange,
+                        agendaEventsByDate = agendaEventsByDate,
+                        onOpenAgenda = { homePage = HOME_AGENDA },
+                        onAddAgenda = { agendaOpenAdd = true; homePage = HOME_AGENDA },
                         onNeedsLogin = onReauth
                     )
                 }
@@ -627,6 +639,12 @@ fun MainScreen(
                             viewModel = weatherViewModel,
                             onBack = { homePage = HOME_DASHBOARD }
                         )
+                        HOME_AGENDA -> com.yourname.ahu_plus.ui.screen.agenda.AgendaScreen(
+                            viewModel = agendaViewModel,
+                            onBack = { homePage = HOME_DASHBOARD },
+                            openAddOnEnter = agendaOpenAdd,
+                            onAddConsumed = { agendaOpenAdd = false },
+                        )
                         else -> DashboardScreen(
                             viewModel = scheduleViewModel,
                             noticeViewModel = jwcNoticeViewModel,
@@ -671,6 +689,9 @@ fun MainScreen(
                             onRecordApp = recordApp,
                             favoriteIds = favoriteIds,
                             onFavoriteIdsChange = onFavoriteIdsChange,
+                            agendaEventsByDate = agendaEventsByDate,
+                            onOpenAgenda = { homePage = HOME_AGENDA },
+                            onAddAgenda = { agendaOpenAdd = true; homePage = HOME_AGENDA },
                             onNeedsLogin = onReauth
                         )
                     }
@@ -735,6 +756,7 @@ fun MainScreen(
                     financeViewModel = financeViewModel,
                     attendanceViewModel = attendanceViewModel,
                     weatherViewModel = weatherViewModel,
+                    agendaViewModel = agendaViewModel,
                     onNeedsLogin = onReauth
                 )
                 selectedTab == TAB_PROFILE -> ProfileScreen(
@@ -745,11 +767,6 @@ fun MainScreen(
                     scheduleUiState = scheduleUiState,
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
-                    // 2026-06-17 Bug2: 近期任务全局设置
-                    showCompletedTasks = scheduleUiState.showCompletedTasks,
-                    showCompletedExams = scheduleUiState.showCompletedExams,
-                    onShowCompletedTasksChanged = { scheduleViewModel.setShowCompletedTasks(it) },
-                    onShowCompletedExamsChanged = { scheduleViewModel.setShowCompletedExams(it) },
                     scrollTarget = profileScrollTarget,
                     onScrollTargetConsumed = { profileScrollTarget = null },
                     profileSubPage = profileSubPage,

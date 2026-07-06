@@ -30,6 +30,9 @@ class MainActivity : ComponentActivity() {
         /** 深链到课表页(课程提醒通知点击时使用) */
         const val DEEP_LINK_SCHEDULE = "schedule"
 
+        /** 深链到日程页(日程提醒通知点击时使用) */
+        const val DEEP_LINK_AGENDA = "agenda"
+
         /** 深链到成绩页 */
         const val DEEP_LINK_GRADE = "grade"
 

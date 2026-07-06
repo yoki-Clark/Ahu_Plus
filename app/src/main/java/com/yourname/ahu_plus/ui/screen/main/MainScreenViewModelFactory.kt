@@ -19,6 +19,7 @@ import com.yourname.ahu_plus.data.repository.MarketRepository
 import com.yourname.ahu_plus.data.repository.StudentInfoRepository
 import com.yourname.ahu_plus.data.repository.YcardRepository
 import com.yourname.ahu_plus.data.local.CourseNoteRepository
+import com.yourname.ahu_plus.ui.screen.agenda.AgendaViewModel
 import com.yourname.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
 import com.yourname.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel
@@ -84,6 +85,12 @@ class MainScreenViewModelFactory(
                 userTaskRepository = app.userTaskRepository,
                 examRepository = examRepository,
                 kqAttendanceRepository = attendanceRepository,
+            ) as T
+            AgendaViewModel::class.java -> AgendaViewModel(
+                application = app,
+                sessionManager = sessionManager,
+                userTaskRepository = app.userTaskRepository,
+                homeworkRepository = app.homeworkRepository,
             ) as T
             MarketViewModel::class.java -> MarketViewModel(marketRepository, app.aiCommentRepository) as T
             JwcNoticeViewModel::class.java -> JwcNoticeViewModel(jwcNoticeRepository) as T

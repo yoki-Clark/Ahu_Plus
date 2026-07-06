@@ -46,6 +46,7 @@ class BootReceiver : BroadcastReceiver() {
         // scheduleAll 是 suspend 函数,需要在协程内调用
         GlobalScope.launch(Dispatchers.IO) {
             CourseReminderScheduler.scheduleAll(appContext)
+            AgendaReminderScheduler.scheduleAll(appContext)
         }
 
         // 立即触发一次 widget 更新,避免用户开机看到陈旧缓存

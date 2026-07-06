@@ -46,8 +46,9 @@ class WidgetUpdateScheduler : BroadcastReceiver() {
                     // 仅在数据闹钟触发时重排课程提醒
                     try {
                         CourseReminderScheduler.scheduleAll(context.applicationContext)
+                        AgendaReminderScheduler.scheduleAll(context.applicationContext)
                     } catch (e: Exception) {
-                        Log.e(TAG, "课程提醒重排失败: ${e.message}", e)
+                        Log.e(TAG, "课程/日程提醒重排失败: ${e.message}", e)
                     }
                 }
                 pendingResult.finish()

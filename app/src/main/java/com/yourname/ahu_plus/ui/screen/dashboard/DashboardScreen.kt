@@ -149,29 +149,20 @@ fun DashboardScreen(
     onRecordApp: (String) -> Unit = {},
     favoriteIds: List<String> = emptyList(),
     onFavoriteIdsChange: (List<String>) -> Unit = {},
-    onAddUserTask: () -> Unit = {},
-    onToggleTask: (com.yourname.ahu_plus.data.model.task.RecentTaskItem) -> Unit = {},
     onAddTodayHomework: () -> Unit = {},
-    onOpenAllTasks: () -> Unit = {},
+    agendaEventsByDate: Map<java.time.LocalDate, List<com.yourname.ahu_plus.data.model.agenda.AgendaEvent>> = emptyMap(),
+    onOpenAgenda: () -> Unit = {},
+    onAddAgenda: () -> Unit = {},
     onNeedsLogin: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val noticeUiState by noticeViewModel.uiState.collectAsStateWithLifecycle()
-    val recentTasks by viewModel.recentTasks.collectAsStateWithLifecycle()
     val todayAttendance by viewModel.todayCourseAttendance.collectAsStateWithLifecycle()
 
     // 订阅 WeatherManager.feed (公开数据, 首页每次进入由 MainScreen 触发 refresh)
     val app = LocalContext.current.applicationContext as com.yourname.ahu_plus.AhuPlusApplication
     val weatherFeed by app.weatherManager.feed.collectAsStateWithLifecycle()
 
-    // 2026-06-17 Bug4: 弹"添加待办"对话框
-    var showAddTaskDialog by androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf(false)
-    }
-    // 2026-06-17 Bug9: 弹"查看全部近期任务"对话框
-    var showAllTasksDialog by androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf(false)
-    }
     // 2026-06-17 Bug4 修复: 首页添加作业对话框
     var showTodayHomeworkDialog by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf(false)
@@ -238,12 +229,10 @@ fun DashboardScreen(
                 }
 
                 item {
-                    com.yourname.ahu_plus.ui.screen.dashboard.UpcomingTasksCard(
-                        tasks = recentTasks,
-                        // 2026-06-17 Bug4 修复: + 号真正接上对话框
-                        onToggleComplete = { viewModel.toggleRecentTask(it) },
-                        onAdd = { showAddTaskDialog = true },
-                        onViewAll = { showAllTasksDialog = true },
+                    AgendaCard(
+                        eventsByDate = agendaEventsByDate,
+                        onOpenAgenda = onOpenAgenda,
+                        onAdd = onAddAgenda,
                     )
                 }
 
@@ -298,33 +287,6 @@ fun DashboardScreen(
                 )
             }
         }
-    }
-
-    // 2026-06-17 Bug4: 添加待办对话框
-    if (showAddTaskDialog) {
-        com.yourname.ahu_plus.ui.screen.dashboard.AddUserTaskDialog(
-            onDismiss = { showAddTaskDialog = false },
-            onConfirm = { title, subtitle, dueAt ->
-                viewModel.addUserTask(title, subtitle, dueAt)
-                showAddTaskDialog = false
-            },
-        )
-    }
-
-    // 2026-06-17 Bug9: 全部近期任务对话框
-    if (showAllTasksDialog) {
-        AllTasksDialog(
-            tasks = recentTasks,
-            onToggle = { viewModel.toggleRecentTask(it) },
-            onDeleteUserTask = { item ->
-                viewModel.deleteUserTask(item.id.removePrefix("task:"))
-            },
-            onDeleteHomework = { item ->
-                viewModel.deleteRecord(item.id.removePrefix("hw:"))
-            },
-            onAdd = { showAddTaskDialog = true; showAllTasksDialog = false },
-            onDismiss = { showAllTasksDialog = false },
-        )
     }
 
     // 2026-06-17 Bug4 修复: 首页添加作业对话框

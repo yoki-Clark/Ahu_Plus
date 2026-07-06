@@ -268,18 +268,18 @@ val guideCategories: List<GuideCategory> = listOf(
             GuideEntry(
                 id = "dashboard",
                 title = "工作台（首页）",
-                summary = "今日课程、待办、最近使用、教务通告一屏聚合",
+                summary = "今日课程、日程、最近使用、教务通告一屏聚合",
                 sections = listOf(
                     usage {
                         p("进 App 第一个页面就是工作台，从上往下依次是：")
                         b("今日课程卡：显示今天要上的课、时间地点老师，临近的课会标「N 分钟后 / 已开始」倒计时；在上课时能一键加今日作业")
-                        b("待办清单：列出最近的作业和自己加的待办，点圆圈打勾完成，＋号加待办，「查看全部」能管理和删除")
+                        b("日程卡：列出今天起最近几条日程（课程、考试、作业和自己加的日程），整卡点进「日程」页看全部，＋号直接加日程")
                         b("最近使用：你最近点过的几个功能摆这儿，点「更多」进完整的应用列表")
                         b("教务通告：教务处的通知，点一条直接展开看正文，「更多」看全部")
                         b("右上角刷新按钮一次性刷新课程和通告")
                     },
                     impl {
-                        p("DashboardScreen 复用 ScheduleViewModel，今日课程经 CourseRepository.toDisplayItems() 按 currentWeek 过滤 weekIndexes（避免「今天 weekday 有课但本周不上」误显示）。倒计时 chip 用 DebugClock.nowTime() + 每 30s tick 重算。待办来自 recentTasks（合并 UserTaskRepository 自定义待办 + HomeworkRepository 作业，id 前缀 task:/hw: 区分）。「最近使用」由 AppRegistry.pickRecent() 取最近 3 个、onRecordApp 落点击记录。教务通告 JwcNoticeViewModel 用隐藏 1dp WebView（JwcHtmlLoader）加载教务处页面，JS 抽 #wp_news_w14/.news_list/.wp_articlecontent 正文，并检测 WAF 校验脚本做最多 12s 重试。")
+                        p("DashboardScreen 复用 ScheduleViewModel，今日课程经 CourseRepository.toDisplayItems() 按 currentWeek 过滤 weekIndexes（避免「今天 weekday 有课但本周不上」误显示）。倒计时 chip 用 DebugClock.nowTime() + 每 30s tick 重算。日程卡数据来自 AgendaViewModel.eventsByDate（AgendaBuilder 把课表/考试展开成带具体日期的事件，合并 HomeworkRepository 作业 + UserTaskRepository 手动日程，按 LocalDate 分组）。「最近使用」由 AppRegistry.pickRecent() 取最近 3 个、onRecordApp 落点击记录。教务通告 JwcNoticeViewModel 用隐藏 1dp WebView（JwcHtmlLoader）加载教务处页面，JS 抽 #wp_news_w14/.news_list/.wp_articlecontent 正文，并检测 WAF 校验脚本做最多 12s 重试。")
                     },
                 ),
             ),
