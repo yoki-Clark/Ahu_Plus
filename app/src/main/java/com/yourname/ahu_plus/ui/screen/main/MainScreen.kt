@@ -211,11 +211,19 @@ fun MainScreen(
 
     // 首页"最近使用"追踪 (mutableStateOf 保证 recordRecentApp 后 UI 立即刷新)
     var recentApps by remember { mutableStateOf(sessionManager.getRecentApps()) }
+    // 首页"我的收藏"应用列表 (mutableStateOf 保证 onFavoriteIdsChange 后 UI 立即刷新)
+    var favoriteIds by remember { mutableStateOf(sessionManager.getFavoriteAppIds()) }
     // 使用帮助首开弹窗：本会话内只弹一次，标记后即时生效（避免同会话二次进入重弹）
     var guideIntroSeen by remember { mutableStateOf(sessionManager.getGuideIntroSeen()) }
     val scope = rememberCoroutineScope()
     val recordApp: (String) -> Unit = remember {
         { appKey: String -> scope.launch { sessionManager.recordRecentApp(appKey); recentApps = sessionManager.getRecentApps() } }
+    }
+    val onFavoriteIdsChange: (List<String>) -> Unit = remember {
+        { ids: List<String> ->
+            favoriteIds = ids
+            scope.launch { sessionManager.saveFavoriteAppIds(ids) }
+        }
     }
 
     val context = LocalContext.current
@@ -552,6 +560,8 @@ fun MainScreen(
                         },
                         recentApps = recentApps,
                         onRecordApp = recordApp,
+                        favoriteIds = favoriteIds,
+                        onFavoriteIdsChange = onFavoriteIdsChange,
                         onNeedsLogin = onReauth
                     )
                 }
@@ -659,6 +669,8 @@ fun MainScreen(
                             },
                             recentApps = recentApps,
                             onRecordApp = recordApp,
+                            favoriteIds = favoriteIds,
+                            onFavoriteIdsChange = onFavoriteIdsChange,
                             onNeedsLogin = onReauth
                         )
                     }
@@ -790,6 +802,8 @@ fun MainScreen(
                     },
                     recentApps = recentApps,
                     onRecordApp = recordApp,
+                    favoriteIds = favoriteIds,
+                    onFavoriteIdsChange = onFavoriteIdsChange,
                     onNeedsLogin = onReauth
                 )
             }       // when close (含 else 分支)
