@@ -17,8 +17,6 @@ import com.yourname.ahu_plus.data.model.jw.GetDataLesson
 import com.yourname.ahu_plus.data.model.jw.SemesterInfo
 import com.yourname.ahu_plus.data.model.jw.UserScheduleItem
 import com.yourname.ahu_plus.data.model.task.HomeworkRecord
-import com.yourname.ahu_plus.data.model.task.RecentTaskItem
-import com.yourname.ahu_plus.data.model.task.RecentTaskSource
 import com.yourname.ahu_plus.data.model.task.UserTask
 import com.yourname.ahu_plus.data.model.KqAttendanceRecord
 import com.yourname.ahu_plus.data.repository.AssessmentRepository
@@ -95,12 +93,10 @@ class ScheduleViewModel(
     // 后续考勤/考试缓存更新 UI 看不到。这里抽出为字段,onRefresh / 外部刷新成功时
     // 调用 reload 重新读 cache 触发下游 combine 重算。
     private val _kqAttendanceCache = MutableStateFlow(loadKqAttendanceCached())
-    private val _examsCache = MutableStateFlow(loadExamsSnapshot())
 
-    /** 重新从持久层读 kqcard 考勤 / 考试缓存,driver 首页"今日考勤"和"近期任务"刷新 */
+    /** 重新从持久层读 kqcard 考勤缓存,driver 首页"今日考勤"刷新 */
     private fun reloadCrossRepoCaches() {
         _kqAttendanceCache.value = loadKqAttendanceCached()
-        _examsCache.value = loadExamsSnapshot()
     }
 
     /**
@@ -135,20 +131,6 @@ class ScheduleViewModel(
         return kqAttendanceRepository.readCached()?.records ?: emptyList()
     }
 
-    // ── 首页近期任务 (跨源合并) ───────────────────────
-    val recentTasks: StateFlow<List<RecentTaskItem>> = combine(
-        homeworkRepository.homework,
-        userTaskRepository.tasks,
-        _settingsTicker,
-    ) { hw, tasks, _ -> hw to tasks }
-        .combine(_examsCache) { (hw, tasks), exams ->
-            val sm = sessionManager
-            val showCompleted = sm?.getShowCompletedTasks() ?: false
-            val showCompletedExams = sm?.getShowCompletedExams() ?: true
-            buildRecentTasks(hw, tasks, exams, showCompleted, showCompletedExams)
-        }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
     init {
         // 从持久化恢复课表布局偏好
         val sm = sessionManager
@@ -163,8 +145,6 @@ class ScheduleViewModel(
                     pagerEnabled = sm.getPagerEnabled(),
                     resetOnEnter = sm.getResetOnEnter(),
                     showOtherSemesters = sm.getShowOtherSemesters(),
-                    showCompletedTasks = sm.getShowCompletedTasks(),
-                    showCompletedExams = sm.getShowCompletedExams(),
                 )
             }
         }
@@ -569,8 +549,6 @@ class ScheduleViewModel(
                 showSat = true, showSun = true,
                 pagerEnabled = true, resetOnEnter = true,
                 showOtherSemesters = true,
-                showCompletedTasks = false,
-                showCompletedExams = false,
             )
         }
         viewModelScope.launch {
@@ -582,8 +560,6 @@ class ScheduleViewModel(
             sessionManager?.setPagerEnabled(true)
             sessionManager?.setResetOnEnter(true)
             sessionManager?.setShowOtherSemesters(true)
-            sessionManager?.setShowCompletedTasks(false)
-            sessionManager?.setShowCompletedExams(false)
         }
         rebuildDisplayItems()
     }
@@ -616,22 +592,6 @@ class ScheduleViewModel(
     fun setShowOtherSemesters(value: Boolean) {
         _uiState.update { it.copy(showOtherSemesters = value) }
         viewModelScope.launch { sessionManager?.setShowOtherSemesters(value) }
-    }
-
-    fun setShowCompletedTasks(value: Boolean) {
-        _uiState.update { it.copy(showCompletedTasks = value) }
-        viewModelScope.launch {
-            sessionManager?.setShowCompletedTasks(value)
-            _settingsTicker.value++
-        }
-    }
-
-    fun setShowCompletedExams(value: Boolean) {
-        _uiState.update { it.copy(showCompletedExams = value) }
-        viewModelScope.launch {
-            sessionManager?.setShowCompletedExams(value)
-            _settingsTicker.value++
-        }
     }
 
     /** 计算当前课表状态在指定 weekday (6=周六, 7=周日) 上有课的所有节次 */
@@ -881,57 +841,6 @@ class ScheduleViewModel(
         }
     }
 
-    // ── 首页近期任务 (用户自定义待办) ─────────────────
-
-    fun addUserTask(title: String, subtitle: String?, dueAt: Long?) {
-        viewModelScope.launch {
-            userTaskRepository.upsert(
-                UserTask(
-                    id = UUID.randomUUID().toString(),
-                    title = title,
-                    subtitle = subtitle,
-                    dueAt = dueAt,
-                )
-            )
-        }
-    }
-
-    fun toggleUserTask(taskId: String) {
-        viewModelScope.launch { userTaskRepository.setCompleted(taskId, !isTaskCompleted(taskId)) }
-    }
-
-    private fun isTaskCompleted(taskId: String): Boolean {
-        // 通过当前 recentTasks 派生 (UserTask 段)
-        return recentTasks.value.firstOrNull { it.id == "task:$taskId" }?.isCompleted ?: false
-    }
-
-    fun deleteUserTask(taskId: String) {
-        viewModelScope.launch { userTaskRepository.delete(taskId) }
-    }
-
-    /**
-     * 统一处理"近期任务"勾选 (Bug3 修复)。
-     * 根据 item.source 路由到对应 Repository,并同步 RecordEntry。
-     */
-    fun toggleRecentTask(item: com.yourname.ahu_plus.data.model.task.RecentTaskItem) {
-        when (item.source) {
-            com.yourname.ahu_plus.data.model.task.RecentTaskSource.USER_TASK -> {
-                val id = item.id.removePrefix("task:")
-                viewModelScope.launch { userTaskRepository.setCompleted(id, !item.isCompleted) }
-            }
-            com.yourname.ahu_plus.data.model.task.RecentTaskSource.HOMEWORK -> {
-                val id = item.id.removePrefix("hw:")
-                viewModelScope.launch {
-                    homeworkRepository.setCompleted(id, !item.isCompleted)
-                    recordRepository.setCompleted(id, !item.isCompleted)
-                }
-            }
-            com.yourname.ahu_plus.data.model.task.RecentTaskSource.EXAM -> {
-                // 考试不可勾选,忽略
-            }
-        }
-    }
-
     // ── 教务考勤匹配 ──────────────────────────────────
 
     /**
@@ -950,87 +859,6 @@ class ScheduleViewModel(
             recName.contains(normalizedName, ignoreCase = true)
                     || normalizedName.contains(recName, ignoreCase = true)
         }
-    }
-
-    // ── 工具方法 ─────────────────────────────────────
-
-    /** 加载考试缓存快照 (一次性,首页近期任务用) */
-    private fun loadExamsSnapshot(): List<com.yourname.ahu_plus.data.model.jw.Exam> {
-        val sm = sessionManager ?: return emptyList()
-        val json = sm.getExamsJson() ?: return emptyList()
-        return runCatching {
-            gson.fromJson(json, Array<com.yourname.ahu_plus.data.model.jw.Exam>::class.java).toList()
-        }.getOrDefault(emptyList())
-    }
-
-    /** 合并作业 + 考试 + 用户任务 → 近期任务列表 */
-    private fun buildRecentTasks(
-        homeworks: List<HomeworkRecord>,
-        tasks: List<UserTask>,
-        exams: List<com.yourname.ahu_plus.data.model.jw.Exam>,
-        showCompleted: Boolean,
-        showCompletedExams: Boolean,
-    ): List<RecentTaskItem> {
-        val hwItems = homeworks.map { hw ->
-            RecentTaskItem(
-                id = "hw:${hw.id}",
-                source = RecentTaskSource.HOMEWORK,
-                title = "${hw.courseName.ifBlank { "作业" }} · ${hw.title}",
-                subtitle = hw.notes,
-                dueAt = hw.deadline,
-                isCompleted = hw.completed,
-            )
-        }
-        val taskItems = tasks.map { t ->
-            RecentTaskItem(
-                id = "task:${t.id}",
-                source = RecentTaskSource.USER_TASK,
-                title = t.title,
-                subtitle = t.subtitle,
-                dueAt = t.dueAt,
-                isCompleted = t.completed,
-            )
-        }
-        val examItems = exams.mapNotNull { e ->
-            val epoch = parseExamStartMillis(e.examTime) ?: return@mapNotNull null
-            RecentTaskItem(
-                id = "exam:${e.id}",
-                source = RecentTaskSource.EXAM,
-                title = e.displayCourse,
-                subtitle = e.displayLocation + " · " + e.displayTime,
-                dueAt = epoch,
-                isCompleted = e.isFinished,
-                payload = e.id,
-            )
-        }
-        val merged = (hwItems + taskItems + examItems)
-            .let { items ->
-                val filtered = if (showCompleted) items
-                else items.filter { !it.isCompleted && (it.source != RecentTaskSource.EXAM || !it.isCompleted) }
-                // 2026-06-17 Bug2: 过滤已考完考试 (isFinished == true)
-                if (showCompletedExams) filtered
-                else filtered.filter { it.source != RecentTaskSource.EXAM || !it.isCompleted }
-            }
-        // 2026-06-17 Bug3: 已完成沉底,未完成按 dueAt 升序
-        return merged.sortedWith(
-            compareBy<RecentTaskItem> { it.isCompleted }         // 未完成在前
-                .thenBy { it.dueAt == null }                     // 有截止在前
-                .thenBy { it.dueAt ?: Long.MAX_VALUE }           // 截止早在前
-        )
-    }
-
-    /**
-     * 解析 Exam.examTime 字符串为 epoch millis。
-     * 格式如 "2026-05-24 14:00~15:40" — 只取第一段。
-     */
-    private fun parseExamStartMillis(examTime: String): Long? {
-        val regex = Regex("""(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})""")
-        val match = regex.find(examTime) ?: return null
-        val (date, time) = match.destructured
-        return runCatching {
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
-            sdf.parse("$date $time")?.time
-        }.getOrNull()
     }
 
     private companion object {
@@ -1155,8 +983,6 @@ data class ScheduleUiState(
     val resetOnEnter: Boolean = true,
     /** 2026-06-25: 是否显示多学期切换行;默认 true。 */
     val showOtherSemesters: Boolean = true,
-    val showCompletedTasks: Boolean = false,
-    val showCompletedExams: Boolean = false,
 
     // ── 多学期切换 (2026-06-21) ─────────────────────
     /** 本学生可用学期列表(从 course-table HTML 解析) */

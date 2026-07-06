@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Info
@@ -94,6 +95,8 @@ import com.yourname.ahu_plus.ui.screen.schedule.ScheduleScreen
 import com.yourname.ahu_plus.ui.screen.schedule.ScheduleViewModel
 import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanScreen
 import com.yourname.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
+import com.yourname.ahu_plus.ui.screen.agenda.AgendaScreen
+import com.yourname.ahu_plus.ui.screen.agenda.AgendaViewModel
 import com.yourname.ahu_plus.ui.theme.AhuBlue
 import com.yourname.ahu_plus.ui.theme.AhuGreen
 import com.yourname.ahu_plus.ui.theme.AhuIndigo
@@ -103,6 +106,7 @@ import com.yourname.ahu_plus.ui.theme.AhuTeal
 import com.yourname.ahu_plus.ui.theme.AhuViolet
 
 // ── internal page keys ─────────────────────────────────────────────
+private const val PAGE_AGENDA = "agenda"
 private const val PAGE_SCHEDULE = "schedule"
 private const val PAGE_GRADE = "grade"
 private const val PAGE_EXAM = "exam"
@@ -137,6 +141,7 @@ fun AppHubScreen(
     financeViewModel: FinanceViewModel,
     attendanceViewModel: AttendanceViewModel,
     weatherViewModel: WeatherViewModel,
+    agendaViewModel: AgendaViewModel,
     onNeedsLogin: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as AhuPlusApplication
@@ -161,6 +166,11 @@ fun AppHubScreen(
     }
 
     when (currentPage) {
+        PAGE_AGENDA -> AgendaScreen(
+            viewModel = agendaViewModel,
+            onBack = { currentPage = null },
+            startExpanded = true, // 应用列表进入默认月视图
+        )
         PAGE_SCHEDULE -> ScheduleScreen(
             viewModel = scheduleViewModel,
             assessmentRepository = app.assessmentRepository,
@@ -357,6 +367,11 @@ private fun AppHubPage(
             item {
                 AppHubItem("课表", Icons.Filled.CalendarMonth, AhuBlue, gradient = AhuGradient.Blue.brush) {
                     onNavigate(PAGE_SCHEDULE)
+                }
+            }
+            item {
+                AppHubItem("日程", Icons.Filled.EditCalendar, AhuTeal, gradient = AhuGradient.Blue.brush) {
+                    onNavigate(PAGE_AGENDA)
                 }
             }
             item {

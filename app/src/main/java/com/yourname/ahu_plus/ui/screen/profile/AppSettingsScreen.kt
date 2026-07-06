@@ -45,10 +45,6 @@ import kotlinx.coroutines.launch
 internal fun AppSettingsScreen(
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
-    showCompletedTasks: Boolean = false,
-    showCompletedExams: Boolean = false,
-    onShowCompletedTasksChanged: (Boolean) -> Unit = {},
-    onShowCompletedExamsChanged: (Boolean) -> Unit = {},
     qrBrightnessBoost: Boolean = true,
     onQrBrightnessBoostChanged: (Boolean) -> Unit = {},
     adwmhConcurrentRetry: Boolean = false,
@@ -115,28 +111,6 @@ internal fun AppSettingsScreen(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        SettingsSwitchRow(
-                            title = "显示已完成考试",
-                            description = if (showCompletedExams) {
-                                "近期任务中展示已结束的考试"
-                            } else {
-                                "近期任务中隐藏已考完的考试"
-                            },
-                            checked = showCompletedExams,
-                            onCheckedChange = onShowCompletedExamsChanged,
-                        )
-                        HorizontalDivider()
-                        SettingsSwitchRow(
-                            title = "显示已完成任务",
-                            description = if (showCompletedTasks) {
-                                "近期任务中展示已划线的待办与作业"
-                            } else {
-                                "近期任务中隐藏已完成的待办与作业"
-                            },
-                            checked = showCompletedTasks,
-                            onCheckedChange = onShowCompletedTasksChanged,
-                        )
-                        HorizontalDivider()
                         SettingsSwitchRow(
                             title = "支付码调高亮度",
                             description = if (localQrBrightness) {
