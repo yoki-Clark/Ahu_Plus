@@ -32,7 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -185,9 +184,6 @@ fun MainScreen(
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(TAB_HOME) }
     var homePage by rememberSaveable { mutableIntStateOf(HOME_DASHBOARD) }
-    // 2026-07-06: 滚动位置保留 — SaveableStateHolder 按 key 持久化子树的 saved state,
-    // 配合 LazyListState.Saver 让 when 切走的子页回到原位置。
-    val stateHolder = rememberSaveableStateHolder()
 
     // 首次登录初始化冒泡 — SnackbarHost
     val initSnackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
@@ -512,11 +508,6 @@ fun MainScreen(
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
-            // 2026-07-06 P0: SaveableStateHolder 包裹 when — 外层 key=tab,内层 key=home;
-            // 配套各 Screen 用 rememberSaveable(saver = LazyListState.Saver) 才能跨分支恢复滚动位置。
-            // 缩进故意保留,不动 when 内 280+ 行。
-            stateHolder.SaveableStateProvider(key = "tab_$selectedTab") {
-            stateHolder.SaveableStateProvider(key = "home_$homePage") {
             when {
                 (!marketVisible && selectedTab == TAB_MARKET) ||
                     (!chaoxingVisible && selectedTab == TAB_CHAOXING) ||
@@ -802,8 +793,6 @@ fun MainScreen(
                     onNeedsLogin = onReauth
                 )
             }       // when close (含 else 分支)
-            }       // home_$homePage SaveableStateProvider close
-            }       // tab_$selectedTab SaveableStateProvider close
         }       // Box close
     }       // Scaffold trailing lambda close
 }       // MainScreen close
