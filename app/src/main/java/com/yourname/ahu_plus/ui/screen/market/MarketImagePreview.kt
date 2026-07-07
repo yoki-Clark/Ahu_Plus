@@ -2,6 +2,7 @@ package com.yourname.ahu_plus.ui.screen.market
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -34,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -135,6 +137,7 @@ private fun PagerImageItem(url: String) {
         scale = (scale * zoomChange).coerceIn(1f, 5f)
         offset = if (scale <= 1.01f) Offset.Zero else offset + panChange
     }
+    val zoomed = scale > 1.01f
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -145,19 +148,28 @@ private fun PagerImageItem(url: String) {
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()
-                // 图片本身不消费点击,让外层 Box 的"点黑边关闭"生效
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {}
-                )
+                // 双击缩放/还原;单击不消费,让外层"点黑边关闭"生效
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onDoubleTap = {
+                            if (zoomed) {
+                                scale = 1f
+                                offset = Offset.Zero
+                            } else {
+                                scale = 2.5f
+                            }
+                        }
+                    )
+                }
                 .graphicsLayer {
                     scaleX = scale
                     scaleY = scale
                     translationX = offset.x
                     translationY = offset.y
                 }
-                .transformable(transformState)
+                // 未放大时不挂 transformable,把拖动手势让给 Pager 翻页;
+                // 放大后才启用,支持捏合缩放 + 单指平移
+                .then(if (zoomed) Modifier.transformable(transformState) else Modifier)
         )
     }
 }
