@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -343,39 +342,17 @@ internal fun MarketListScreen(
             onClick = onOpenCompose
         )
 
-        // "回到顶部"按钮 — 左下角,避免与右下角 FAB 重叠
-        if (showScrollToTop) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = 16.dp, bottom = 84.dp),
-                contentAlignment = Alignment.BottomStart
-            ) {
-                Surface(
-                    onClick = {
-                        scope.launch {
-                            listState.animateScrollToItem(0)
-                            staggerState.animateScrollToItem(0)
-                            onRefresh()
-                        }
-                    },
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    tonalElevation = 4.dp,
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Filled.VerticalAlignTop,
-                            contentDescription = "回到顶部",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+        // "回到顶部"按钮 — 右侧,发布按钮上方,可拖动
+        DraggableScrollToTopButton(
+            visible = showScrollToTop,
+            onScrollToTop = {
+                scope.launch {
+                    listState.animateScrollToItem(0)
+                    staggerState.animateScrollToItem(0)
+                    onRefresh()
                 }
             }
-        }
+        )
     }
 }
 

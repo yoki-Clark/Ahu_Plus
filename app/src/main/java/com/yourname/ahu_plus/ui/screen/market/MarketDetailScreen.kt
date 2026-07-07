@@ -6,6 +6,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -69,7 +71,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -77,6 +81,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import coil.compose.AsyncImage
 import com.yourname.ahu_plus.data.model.MarketComment
 import com.yourname.ahu_plus.data.model.AiCommentTemplate
 import com.yourname.ahu_plus.ui.components.AhuTopAppBar
@@ -321,7 +326,13 @@ internal fun MarketDetailScreen(
                         replyError = uiState.replyErrors[comment.id],
                         onLoadMoreReplies = { onLoadMoreReplies(comment) },
                         onReplyClick = { onStartReplyingToComment(comment) },
-                        onReplyReplyClick = { reply -> onStartReplyingToReply(comment, reply) }
+                        onReplyReplyClick = { reply -> onStartReplyingToReply(comment, reply) },
+                        onImageClick = { _, index ->
+                            previewImage = ImagePreviewState(
+                                urls = comment.imgs.filter { it.isNotBlank() },
+                                initialIndex = index
+                            )
+                        }
                     )
                 }
 
@@ -357,7 +368,8 @@ private fun CommentCard(
     replyError: String?,
     onLoadMoreReplies: () -> Unit,
     onReplyClick: () -> Unit,
-    onReplyReplyClick: (MarketComment) -> Unit
+    onReplyReplyClick: (MarketComment) -> Unit,
+    onImageClick: (String, Int) -> Unit
 ) {
     Card(
         shape = AhuShapes.Card,
@@ -404,6 +416,13 @@ private fun CommentCard(
                 text = comment.content.ifBlank { "无内容" },
                 style = MaterialTheme.typography.bodyMedium
             )
+            // 评论图片
+            if (comment.imgs.isNotEmpty()) {
+                CommentImageGrid(
+                    imgs = comment.imgs,
+                    onImageClick = onImageClick
+                )
+            }
             val replies = comment.visibleReplies
             if (replies.isNotEmpty() || comment.visibleReplyCount > 0) {
                 HorizontalDivider()
@@ -507,6 +526,86 @@ private fun ReplyRow(
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
         ) {
             Text("回复", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun CommentImageGrid(
+    imgs: List<String>,
+    onImageClick: (String, Int) -> Unit
+) {
+    val visible = imgs.filter { it.isNotBlank() }
+    if (visible.isEmpty()) return
+
+    val corner = AhuShapes.Card
+    when (visible.size) {
+        1 -> AsyncImage(
+            model = visible.first(),
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .clip(corner)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable { onImageClick(visible.first(), 0) },
+            contentScale = ContentScale.Crop
+        )
+        2 -> Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            visible.take(2).forEachIndexed { index, url ->
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .weight(1f)
+                        .aspectRatio(1f)
+                        .clip(corner)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { onImageClick(url, index) },
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+        else -> Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            visible.take(3).forEachIndexed { index, url ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .aspectRatio(1f)
+                        .clip(corner)
+                        .clickable { onImageClick(url, index) }
+                ) {
+                    AsyncImage(
+                        model = url,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentScale = ContentScale.Crop
+                    )
+                    if (index == 2 && visible.size > 3) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.38f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "+${visible.size - 3}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

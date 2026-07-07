@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.ChatBubbleOutline
@@ -632,8 +633,54 @@ private fun TopicImageGrid(
 
     val corner = AhuShapes.Card
     val singleHeight = if (detail) 260.dp else 190.dp
-    when (visible.size) {
-        1 -> TopicImage(
+
+    // 使用 HorizontalPager 实现左右滑动
+    if (visible.size > 1) {
+        val pagerState = rememberPagerState(pageCount = { visible.size })
+        Column(modifier = Modifier.fillMaxWidth()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(singleHeight)
+            ) { page ->
+                TopicImage(
+                    url = visible[page],
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(singleHeight)
+                        .clip(corner)
+                        .clickable { onImageClick(visible[page], page) }
+                )
+            }
+            if (visible.size > 1) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    repeat(visible.size) { index ->
+                        Box(
+                            modifier = Modifier
+                                .size(if (pagerState.currentPage == index) 7.dp else 5.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (pagerState.currentPage == index)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                )
+                        )
+                        if (index < visible.size - 1) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                    }
+                }
+            }
+        }
+    } else if (visible.size == 1) {
+        TopicImage(
             url = visible.first(),
             modifier = Modifier
                 .fillMaxWidth()
@@ -641,55 +688,6 @@ private fun TopicImageGrid(
                 .clip(corner)
                 .clickable { onImageClick(visible.first(), 0) }
         )
-        2 -> Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            visible.take(2).forEachIndexed { index, url ->
-                TopicImage(
-                    url = url,
-                    modifier = Modifier
-                        .weight(1f)
-                        .aspectRatio(1f)
-                        .clip(corner)
-                        .clickable { onImageClick(url, index) }
-                )
-            }
-        }
-        else -> Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            visible.take(3).forEachIndexed { index, url ->
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .aspectRatio(1f)
-                        .clip(corner)
-                        .clickable { onImageClick(url, index) }
-                ) {
-                    TopicImage(
-                        url = url,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    if (index == 2 && visible.size > 3) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.38f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "+${visible.size - 3}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -755,7 +753,7 @@ internal fun buildSearchAnnotated(
 }
 
 // ═══════════════════════════════════════════════════════════
-//  可拖动悬浮按钮(DraggableFab)
+//  可拖动悬浮按钮(DraggableFab) + 可拖动返回顶部按钮
 // ═══════════════════════════════════════════════════════════
 
 /**
@@ -824,6 +822,73 @@ fun DraggableFab(
                 contentDescription = "发帖",
                 tint = MaterialTheme.colorScheme.onPrimary
             )
+        }
+    }
+}
+
+/**
+ * 可拖动的"返回顶部"按钮。
+ * - 默认位置:右侧,在发布按钮上方(bottom 84dp,end 16dp)
+ * - 拖动:用 [pointerInput] 累积 [IntOffset]
+ * - 位置:用 [rememberSaveable] 持久化
+ * - 点击:滚动到顶部 + 触发刷新
+ */
+@Composable
+internal fun DraggableScrollToTopButton(
+    visible: Boolean,
+    onScrollToTop: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (!visible) return
+    val density = LocalDensity.current
+    val buttonSize = 48.dp
+    val initialMarginEnd = 16.dp
+    val initialMarginBottom = 84.dp  // 在发布按钮上方
+
+    // 用 rememberSaveable 持久化位置
+    var offsetX by rememberSaveable { mutableIntStateOf(0) }
+    var offsetY by rememberSaveable { mutableIntStateOf(0) }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(end = initialMarginEnd, bottom = initialMarginBottom),
+        contentAlignment = Alignment.BottomEnd
+    ) {
+        Surface(
+            onClick = onScrollToTop,
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            tonalElevation = 4.dp,
+            shadowElevation = 6.dp,
+            modifier = Modifier
+                .offset {
+                    IntOffset(
+                        x = -offsetX,
+                        y = -offsetY
+                    )
+                }
+                .size(buttonSize)
+                .pointerInput(Unit) {
+                    detectDragGestures { change, drag ->
+                        change.consume()
+                        val maxX = (size.width - with(density) { buttonSize.toPx() }).toInt()
+                            .coerceAtLeast(0)
+                        val maxY = (size.height - with(density) { buttonSize.toPx() }).toInt()
+                            .coerceAtLeast(0)
+                        offsetX = (offsetX - drag.x.toInt()).coerceIn(-maxX, maxX)
+                        offsetY = (offsetY - drag.y.toInt()).coerceIn(-maxY, maxY)
+                    }
+                }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                androidx.compose.material3.Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Filled.VerticalAlignTop,
+                    contentDescription = "回到顶部",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
     }
 }
