@@ -274,7 +274,7 @@ val guideCategories: List<GuideCategory> = listOf(
                         p("进 App 第一个页面就是工作台，从上往下依次是：")
                         b("今日课程卡：显示今天要上的课、时间地点老师，临近的课会标「N 分钟后 / 已开始」倒计时；在上课时能一键加今日作业")
                         b("日程卡：列出今天起最近几条日程（课程、考试、作业和自己加的日程），整卡点进「日程」页看全部，＋号直接加日程")
-                        b("最近使用：你最近点过的几个功能摆这儿，点「更多」进完整的应用列表")
+                        b("收藏应用：把你最常用的功能 pinned 到首页，最多 6 个，按 2 行 × 3 列排布。没收藏时点「添加常用应用」打开选择面板；有收藏时点标题栏「编辑」进入编辑模式，也可以直接长按任意图标一步进入编辑并开始拖拽排序。编辑模式下图标抖动提示，被拖拽的图标以浮层跟手移动，松开后位置保存；尾部「＋」可继续添加，点图标上的 × 移除。右侧「更多」进完整应用中心。")
                         b("教务通告：教务处的通知，点一条直接展开看正文，「更多」看全部")
                         b("右上角刷新按钮一次性刷新课程和通告")
                     },
@@ -289,7 +289,7 @@ val guideCategories: List<GuideCategory> = listOf(
                 summary = "所有功能的总入口，分组陈列",
                 sections = listOf(
                     usage {
-                        p("工作台「最近使用 → 更多」进来，所有功能按「学习 / 通知 / 校园卡 / 生活 / 个人信息」分组列好：课表、成绩、考试、培养方案进度、空教室、教务通知、消费账单、消费分析、浴室、空调、照明、网费、学生信息、财务汇总、考勤记录。点哪个进哪个，返回回到这里。")
+                        p("工作台「收藏应用 → 更多」进来，所有功能按「学习 / 通知 / 校园卡 / 生活 / 个人信息」分组列好：课表、成绩、考试、培养方案进度、空教室、教务通知、消费账单、消费分析、浴室、空调、照明、网费、学生信息、财务汇总、考勤记录。点哪个进哪个，返回回到这里。")
                     },
                     impl {
                         p("AppHubScreen 自带页面栈（currentPage + BackHandler），所有子页 ViewModel 由外部注入共享实例，不重新加载。我的信息二级页（基本信息/住宿/学业预警）返回回到 MyInfoHub 而非直接退出。排考预测页延迟到进入时才 remember { ExamPredictionViewModel(...) } 触发首拉。")
@@ -398,17 +398,18 @@ val guideCategories: List<GuideCategory> = listOf(
             GuideEntry(
                 id = "card",
                 title = "校园卡",
-                summary = "一卡通余额查询，智慧安大支付码，消费账单",
+                summary = "一卡通余额、智慧安大支付码、水电网费余额与充值、消费账单",
                 sections = listOf(
                     usage {
                         p("在「校园卡」页面可以看到：")
                         b("一卡通余额（实时查）")
                         b("智慧安大支付码：有倒计时环（45 秒刷一次），点二维码可放大全屏；支付码右下角有刷新按钮")
+                        b("水电网费余额：浴室、空调、照明、网费余额卡片，点「充值」输入金额和 6 位查询密码即可在线充值（查询密码默认从学生信息自动填）")
                         p("支付码有离线兜底：服务器抖动或限流时，会先用上次成功取到的码（10 分钟内）撑住展示，避免白屏；超过 60 秒的码会被标可能失效，卡片和全屏弹窗都会弹琥珀色提醒，可以照常试刷也可以手动刷新。")
                         p("点消费账单进账单列表，再点「消费分析」进详细分析页。")
                     },
                     impl {
-                        p("一卡通余额 CardRepository（one.ahu.edu.cn，CAS → JSESSIONID，自签名 TLS 信任）。支付码 AdwmhCardRepository（adwmh.ahu.edu.cn）：仅接受 TLS 1.2，Tls12OnlySocketFactory 强制协议版本 + 约 2-3 次/分钟速率限制冷却；二维码用 QrCodeBitmap.create(payload, 720) 生成 720px Bitmap。浴室余额 YcardRepository（ycard.ahu.edu.cn，CAS → JWT synjones-auth: bearer）。电费走 AdwmhCardRepository 三级级联接口（FeeItemOption），房间配置持久化 ElectricityRoomConfig DataStore。")
+                        p("一卡通余额 CardRepository（one.ahu.edu.cn，CAS → JSESSIONID，自签名 TLS 信任）。支付码 AdwmhCardRepository（adwmh.ahu.edu.cn）：仅接受 TLS 1.2，Tls12OnlySocketFactory 强制协议版本 + 约 2-3 次/分钟速率限制冷却；二维码用 QrCodeBitmap.create(payload, 720) 生成 720px Bitmap。浴室/电费/网费走 YcardRepository / YcardPayRepository，复用 blade-pay/pay 三步流程下单→拉码→提交，其中空调/照明共用 feeitemid=488，充值 sheet 会让用户先选充哪个。房间配置持久化 ElectricityRoomConfig DataStore。")
                     },
                 ),
             ),
@@ -430,16 +431,16 @@ val guideCategories: List<GuideCategory> = listOf(
             GuideEntry(
                 id = "utilities",
                 title = "水电网费",
-                summary = "浴室/空调/照明/网费余额及账单明细",
+                summary = "浴室/空调/照明/网费余额、账单明细与在线充值",
                 sections = listOf(
                     usage {
-                        p("这部分已经实现了自动填充，只需要更新「我的信息」即可实现填充相关需求信息。在「校园卡」页已有余额摘要；点进各项可看账单明细：")
-                        b("浴室：账单列表，可在详情页修改绑定手机号")
-                        b("空调/照明：账单列表，支持按时间范围筛选（近 1 个月/3 个月/6 个月）")
-                        b("网费：余额 + 账单，显示本期已用流量和时长")
+                        p("这部分已经实现了自动填充，只需要更新「我的信息」即可实现填充相关需求信息。在「校园卡」页已有余额摘要，点卡片上的「充值」可直接充值；点进各项可看账单明细：")
+                        b("浴室：余额 + 账单列表，可在详情页修改绑定手机号，充值时输入金额和 6 位查询密码")
+                        b("空调/照明：余额 + 账单列表，支持按时间范围筛选（近 1 个月/3 个月/6 个月）；若空调/照明共用一个缴费项，充值 sheet 会先让你选充哪个")
+                        b("网费：余额 + 账单，显示本期已用流量和时长，已接入 blade-pay 在线充值")
                     },
                     impl {
-                        p("FinanceRepository 汇总各余额，BathroomUtilityDetailScreen/ElectricityUtilityDetailScreen/InternetUtilityDetailScreen 独立页面；电费账单按 ElectricityBillRange 枚举的日期范围发请求。")
+                        p("FinanceRepository 汇总各余额，BathroomUtilityDetailScreen/ElectricityUtilityDetailScreen/InternetUtilityDetailScreen 独立页面；电费账单按 ElectricityBillRange 枚举的日期范围发请求。充值复用 DepositSheet，经 YcardPayRepository 走 blade-pay/pay 下单→拉码→提交三步，InternetBalanceData 通过 @SerializedName 对齐 API 字段。")
                     },
                 ),
             ),
@@ -516,17 +517,19 @@ val guideCategories: List<GuideCategory> = listOf(
                 sections = listOf(
                     usage {
                         p("首次使用要先填一个身份凭证才能访问集市。凭证从微信「集市」小程序里抓出来（一段长字符串），进「集市」tab 后在顶部右上角的齿轮图标里找到「集市设置 → API 身份字段」粘贴保存。配置好之后：")
-                        b("刷帖子：单列或双列瀑布流，下拉刷新，顶部可搜索、可按板块筛选")
-                        b("看帖子：正文、图片、评论都有，可以评论回复，还能把整帖导出成长图分享")
+                        b("刷帖子：单列或双列瀑布流，下拉刷新，顶部可搜索、可按板块筛选。帖子里的多图可以左右滑动翻看，带小圆点指示器；点单张图进全屏预览，左右滑切换、点黑边关闭")
+                        b("看帖子：正文、图片、评论都有，评论也支持显示图片；可以评论回复，还能把整帖导出成长图分享")
                         b("发帖子：右下角＋按钮，选板块、可匿名、可选发帖校区")
                         b("热榜：看当前热门帖（仅单账号模式可用）")
                         b("消息：看回复/通知（仅单账号模式可用）")
                         b("多校：在集市设置里加多个凭证切换不同学校的集市")
+                        b("返回顶部：列表滑出一定距离后右侧会出现「回到顶部」按钮，长按可拖动换位置，点一下回到顶部并触发刷新。若不想显示可在集市设置里关闭")
                         p("凭证大概 30 天失效，失效时会提示「身份字段已失效」，重新抓一次更新即可。")
                         p("凭证的具体获取方式：去仓库下载 tool 文件夹中的集市 token 获取工具，运行那个 cmd 文件即可。")
                     },
                     impl {
                         p("MarketRepository 调集市 API（api.zxs-bbs.cn，标准 HTTPS、trustAll=false），认证用 Authorization: Bearer <jwt>，凭证由用户手动粘贴（小程序登录走微信 code2session 锁在沙箱内，App 内无法自动获取）。列表用 LazyVerticalStaggeredGrid 实现瀑布流。导出长图见 MarketExportUtils（把帖子内容渲染到离屏 Composable/Canvas 再导出 Bitmap）。多校模式存多份 MarketIdentity，热榜与消息接口仅在单账号上下文可用。")
+                        p("帖子图片：多张时用 HorizontalPager 实现卡片内左右滑动，单张/多张均点击进入 MarketImagePreview 全屏浏览；评论图片由 CommentImageGrid 按 1/2/3+ 张数做不同布局。返回顶部按钮 DraggableScrollToTopButton 用 pointerInput detectDragGestures 实现长按拖动，位置 rememberSaveable 持久化，点击触发 scrollToTop + refresh。")
                     },
                     problems {
                         p("Bearer 失效：拦截 401/403 → 提示「身份字段已失效」引导重新抓包。")
@@ -554,12 +557,14 @@ val guideCategories: List<GuideCategory> = listOf(
                     impl {
                         p("登录 ChaoxingRepository 用 AES/CBC 加密手机号密码，Cookie 持久化。正文字体加密：CxFontDecoder 启动时加载 font_map_table.json（3 万+ 字形映射），TtfGlyphParser 纯 Kotlin 解析 TTF glyf 表，逐字形 MD5 反查汉字。")
                         p("题库回退链 ChaoxingTikuRepository：CACHE → YANXI → GO → LIKE → ADAPTER → AI → SILICONFLOW；normalizeAnswer() 标准化（单选取字母、多选模糊匹配、判断映射 true/false）。")
-                        p("自动学习 ChaoxingStudyRepository：任务优先级 document > read > audio > live > workid > video；403 指数退避 2s→4s→8s；UA 随机化（7 个池）；ChaoxingStudyService ForegroundService + OverlayWindow 悬浮窗。")
+                        p("自动学习 ChaoxingStudyRepository：任务优先级 document > read > audio > live > workid > video；403 指数退避 2s→4s→8s；ChaoxingStudyService ForegroundService + OverlayWindow 悬浮窗。")
+                        p("反作弊/封号加固：新增 ChaoxingHeaderInterceptor 补全 sec-ch-ua* / Accept-Language / 按 URL 智能分发 Referer / 跨域 POST 加 Origin；UA 从 7 池随机改为单固定 UA；视频心跳 30~90s 改为 5~10s；document/read/audio/live 任务点上报后 delay 15~90s 模拟真人停留。")
                         p("签到 sign/SignFlowDialog：preSign 接口类型标记不可靠，改用响应内容关键字二次校验；GesturePad 九宫格手势绘制；位置签到读 LocationPicker 预设坐标。")
                     },
                     problems {
                         b("被动任务（document/read/audio）曾上报无脑返回成功虚标完成，改为 checkJobResponse() 校验；答题覆盖率 <80% 标 SKIPPED「仅保存未提交」。")
                         b("TTF 解析有 bbox 漏读、cmap4 偏移量、cmap12 对齐三处 Bug，均已修复。")
+                        b("封号风险：早期 UA 池 + 请求头不全 + 视频心跳 30~90s、任务点 0s 完成易被反作弊识别。已做 UA 单值、请求头补全、真人节奏等加固，但仍存在被封可能，不放心建议不刷。")
                     },
                     unresolved {
                         b("悬浮窗需手动授权 SYSTEM_ALERT_WINDOW，拒绝后只有通知。")
