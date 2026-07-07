@@ -1039,14 +1039,18 @@ private fun FavoritesGrid(
 
     // 拖拽中的视觉顺序;favoriteIds 变化(外部增删)时重置。
     var displayIds by remember(favoriteIds) { mutableStateOf(favoriteIds) }
-    var draggingIndex by remember { mutableStateOf(-1) }
+    // 按 **id** 跟踪被拖项,不按槽位下标:下标随重排移动,拿它当身份 → 浮层会显示成"手指
+    // 路过的那格的项"(拖课表经过成绩就变成绩)。id 是稳定标识,抓起时定死,重排只挪位置。
+    var draggedId by remember { mutableStateOf<String?>(null) }
     var startCenter by remember { mutableStateOf(Offset.Zero) }
     var rawOffset by remember { mutableStateOf(Offset.Zero) }
     // 单个格子尺寸(px),由任一格子 onSizeChanged 上报一次;拖拽几何全靠它。
     var slotSize by remember { mutableStateOf(IntSize.Zero) }
+    // 每次拖动结束 +1 → 换掉手势 pointerInput 的 key,强制协程带最新闭包重建(见 FavoriteItem)。
+    var dragRestart by remember { mutableStateOf(0) }
     val latestFavoriteIds by rememberUpdatedState(favoriteIds)
 
-    val dragging = draggingIndex >= 0
+    val dragging = draggedId != null
     val rowCount = ((displayIds.size + FAVORITES_COLS - 1) / FAVORITES_COLS).coerceAtLeast(1)
 
     fun centerOf(index: Int): Offset {
@@ -1118,38 +1122,42 @@ private fun FavoritesGrid(
                                     FavoriteItem(
                                         spec = spec,
                                         editing = editing,
-                                        placeholder = flatIdx == draggingIndex,
+                                        placeholder = id == draggedId,
                                         jiggleRotation = jiggleRotation,
+                                        restartKey = dragRestart,
                                         onClick = { onOpen(id) },
                                         onRemove = { onRemove(id) },
                                         onDragStart = {
-                                            // 用当前物理槽位定位,不用 item 自身坐标。
-                                            val idx = displayIds.indexOf(id)
-                                            if (idx >= 0) {
-                                                draggingIndex = idx
-                                                startCenter = centerOf(idx)
-                                                rawOffset = Offset.Zero
-                                            }
+                                            // 记住被拖项的 id(稳定身份),不是槽位下标。
+                                            // 注意:这里的闭包变量 `id` 被 pointerInput 协程冻结成
+                                            // 抓起前的旧值,不能用;flatIdx 是 call-site 常量 = 物理
+                                            // 槽,displayIds 是活 state → displayIds[flatIdx] 才是
+                                            // 该槽此刻真正显示的项。
+                                            draggedId = displayIds.getOrNull(flatIdx)
+                                            startCenter = centerOf(flatIdx)
+                                            rawOffset = Offset.Zero
                                         },
                                         onDrag = { amount ->
-                                            if (draggingIndex < 0) return@FavoriteItem
+                                            val from = displayIds.indexOf(draggedId)
+                                            if (from < 0) return@FavoriteItem
                                             rawOffset += amount
                                             val target = indexAt(startCenter + rawOffset)
-                                            if (target != draggingIndex && target in displayIds.indices) {
+                                            if (target != from && target in displayIds.indices) {
                                                 displayIds = displayIds.toMutableList()
-                                                    .apply { add(target, removeAt(draggingIndex)) }
-                                                draggingIndex = target
+                                                    .apply { add(target, removeAt(from)) }
                                             }
                                         },
                                         onDragEnd = {
                                             if (displayIds != latestFavoriteIds) onReorder(displayIds)
-                                            draggingIndex = -1
+                                            draggedId = null
                                             rawOffset = Offset.Zero
+                                            dragRestart++
                                         },
                                         onDragCancel = {
-                                            draggingIndex = -1
+                                            draggedId = null
                                             rawOffset = Offset.Zero
                                             displayIds = latestFavoriteIds
+                                            dragRestart++
                                         },
                                         modifier = cellModifier,
                                     )
@@ -1162,9 +1170,9 @@ private fun FavoritesGrid(
         }
 
         // ── 拖拽浮层:被拖项真身,绝对定位跟手,永不被行裁剪 ──
+        // 身份直接取 draggedId(不从 displayIds[下标] 反查) → 浮层图标恒为被拖项。
         if (dragging) {
-            val id = displayIds.getOrNull(draggingIndex)
-            val spec = id?.let { AppRegistry.byId(it) }
+            val spec = draggedId?.let { AppRegistry.byId(it) }
             if (spec != null) {
                 // 视觉位移每帧现算:手指位置 - 当前所在格中心。reorder 后 center 变小 → 卡片仍贴手指。
                 val fingerPos = startCenter + rawOffset
@@ -1202,6 +1210,7 @@ private fun FavoriteItem(
     editing: Boolean,
     placeholder: Boolean,
     jiggleRotation: Float,
+    restartKey: Int,
     onClick: () -> Unit,
     onRemove: () -> Unit,
     onDragStart: () -> Unit,
@@ -1212,9 +1221,14 @@ private fun FavoriteItem(
 ) {
     // 拖拽真身在父组件浮层(绝对定位,不被行裁剪),这里 placeholder=true 时把原格淡成
     // 占位(落点预览)。手势挂在本项:长按后把双轴 delta 交给父组件重排。
+    //
+    // pointerInput 的 key 含 restartKey:detectDragGesturesAfterLongPress 会把回调 lambda
+    // 冻结进协程,key 不变则协程跨重组不重启,一直用第一次那份捕获了过时 displayIds/flatIdx
+    // 的旧闭包 → "第二次拖动不动/错乱"。父组件每次拖动结束 bump restartKey → 协程带最新闭包
+    // 重建,于是每次拖动都等价于"第一次"。
     Box(
         modifier = modifier
-            .pointerInput(editing) {
+            .pointerInput(editing, restartKey) {
                 if (!editing) return@pointerInput
                 detectDragGesturesAfterLongPress(
                     onDragStart = { onDragStart() },
