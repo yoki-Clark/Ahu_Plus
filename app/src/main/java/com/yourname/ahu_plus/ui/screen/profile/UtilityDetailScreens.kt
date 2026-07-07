@@ -1,6 +1,7 @@
 package com.yourname.ahu_plus.ui.screen.profile
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -44,11 +47,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.ui.components.AhuStatusCard
+import com.yourname.ahu_plus.ui.theme.AhuShapes
+import com.yourname.ahu_plus.data.debug.DebugClock
 import com.yourname.ahu_plus.data.local.ElectricityRoomConfig
 import com.yourname.ahu_plus.data.model.ElectricityDailyRecord
 import com.yourname.ahu_plus.ui.screen.home.BathroomBalanceCard
@@ -366,7 +376,13 @@ fun ElectricityUtilityDetailScreen(
     onBillRangeSelected: (ElectricityBillRange) -> Unit
 ) {
     LaunchedEffect(Unit) {
-        onRefreshBills()
+        // 详情页里要绘制近 30 天曲线,如果当前仍是近 7 天,先切到近一个月再拉数据。
+        // 避免下面的分析卡片显示 7 天的曲线给"日均"算错。
+        if (billRange != ElectricityBillRange.LAST_MONTH) {
+            onBillRangeSelected(ElectricityBillRange.LAST_MONTH)
+        } else {
+            onRefreshBills()
+        }
     }
     UtilityDetailScaffold(
         title = title,
@@ -399,6 +415,14 @@ fun ElectricityUtilityDetailScreen(
                         floorName = d.floorName,
                     ))
                 },
+            )
+        }
+        item {
+            ElectricityAnalyticsCard(
+                title = "${title}用量分析",
+                records = bills,
+                remainingKwh = state.data?.remainingKwh,
+                range = billRange
             )
         }
         item {
@@ -708,4 +732,245 @@ private fun InternetBillRow(record: InternetBillRecord) {
         )
     }
 }
+
+// ════════════════════════════════════════════════════════════════
+// 用量分析卡片(空调 / 照明 详情页共用)
+//
+// 显示:
+//   1) 近 30 天每日用电曲线(Canvas 平滑曲线)
+//   2) 日均消耗
+//   3) 按日均推算剩余电量还能用多久
+//
+// 仅当 [range] == LAST_MONTH 时计算,7 天模式下提示用户切到近一个月。
+// ════════════════════════════════════════════════════════════════
+
+/** 近 30 天用电分析所需的原始聚合结果。 */
+private data class ElectricityUsageWindow(
+    val points: List<DailyKwhPoint>,
+    val totalKwh: Double,
+    val dailyAvg: Double,
+    val daysRemaining: Int?
+)
+
+/** 分析用的逐日数据点(避免复用一卡通 DailyPoint 语义混淆,amount→kwh)。 */
+private data class DailyKwhPoint(val date: String, val kwh: Double)
+
+@Composable
+private fun ElectricityAnalyticsCard(
+    title: String,
+    records: List<ElectricityDailyRecord>,
+    remainingKwh: Double?,
+    range: ElectricityBillRange
+) {
+    ProfileSection {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            if (range != ElectricityBillRange.LAST_MONTH) {
+                EmptyBlock("当前时段为${range.label},请切换到「近一个月」查看用量分析。")
+                return@Column
+            }
+            val window = remember(records, remainingKwh) {
+                buildUsageWindow(records = records, remainingKwh = remainingKwh)
+            }
+            if (window.points.isEmpty() || window.totalKwh <= 0.0) {
+                EmptyBlock("近 30 天暂无用量明细")
+                return@Column
+            }
+            ElectricityUsageBody(window = window)
+        }
+    }
+}
+
+@Composable
+private fun ElectricityUsageBody(window: ElectricityUsageWindow) {
+    Text(
+        text = "${window.points.first().date} 至 ${window.points.last().date}",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    ElectricityUsageSmoothChart(points = window.points)
+    Spacer(modifier = Modifier.height(14.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        UsageMetricCard(
+            label = "日均消耗",
+            value = "${formatKwh(window.dailyAvg)} 度",
+            sub = "近 30 天 / 30",
+            modifier = Modifier.weight(1f)
+        )
+        UsageMetricCard(
+            label = "还能用",
+            value = window.daysRemaining?.let { "≈ $it 天" } ?: "—",
+            sub = "按日均推算",
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun UsageMetricCard(label: String, value: String, sub: String, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** 复用一卡通分析里 SmoothTrendChart 的 Canvas 平滑曲线绘制方式(同款贝塞尔)。 */
+@Composable
+private fun ElectricityUsageSmoothChart(points: List<DailyKwhPoint>) {
+    val primary = Color(0xFF00A6A6)
+    val grid = MaterialTheme.colorScheme.outlineVariant
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .padding(top = 4.dp, bottom = 4.dp)
+    ) {
+        val top = 12f
+        val bottom = size.height - 24f
+        val left = 8f
+        val right = size.width - 8f
+        val chartHeight = bottom - top
+        val chartWidth = right - left
+        val maxValue = points.maxOf { it.kwh }.coerceAtLeast(0.01).toFloat()
+
+        repeat(4) { index ->
+            val y = top + chartHeight * (index + 1) / 5f
+            drawLine(
+                color = grid.copy(alpha = 0.55f),
+                start = Offset(left, y),
+                end = Offset(right, y),
+                strokeWidth = 1f
+            )
+        }
+
+        val offsets = points.mapIndexed { index, point ->
+            val x = left + chartWidth * index / (points.lastIndex.coerceAtLeast(1)).toFloat()
+            val y = bottom - (point.kwh.toFloat() / maxValue) * chartHeight
+            Offset(x, y.coerceIn(top, bottom))
+        }
+        val curve = smoothUsagePath(offsets)
+        val area = Path().apply {
+            addPath(curve)
+            lineTo(offsets.last().x, bottom)
+            lineTo(offsets.first().x, bottom)
+            close()
+        }
+
+        drawPath(
+            path = area,
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    primary.copy(alpha = 0.17f),
+                    primary.copy(alpha = 0.06f),
+                    primary.copy(alpha = 0.015f)
+                ),
+                startY = top,
+                endY = bottom
+            )
+        )
+        drawPath(
+            path = curve,
+            color = primary,
+            style = Stroke(width = 4.2f, cap = StrokeCap.Round)
+        )
+        offsets.forEachIndexed { index, offset ->
+            if (points[index].kwh > 0.0) {
+                drawCircle(
+                    color = primary.copy(alpha = 0.28f),
+                    radius = 3.4f,
+                    center = offset
+                )
+            }
+        }
+    }
+}
+
+private fun smoothUsagePath(points: List<Offset>): Path {
+    val path = Path()
+    if (points.isEmpty()) return path
+    path.moveTo(points.first().x, points.first().y)
+    if (points.size == 1) return path
+    if (points.size == 2) {
+        path.lineTo(points.last().x, points.last().y)
+        return path
+    }
+    for (index in 1 until points.size) {
+        val previous = points[index - 1]
+        val current = points[index]
+        val mid = Offset((previous.x + current.x) / 2f, (previous.y + current.y) / 2f)
+        path.quadraticTo(previous.x, previous.y, mid.x, mid.y)
+    }
+    val beforeLast = points[points.lastIndex - 1]
+    val last = points.last()
+    path.quadraticTo(beforeLast.x, beforeLast.y, last.x, last.y)
+    return path
+}
+
+/** 把记录过滤并填充成「近 30 天」逐日序列。空缺日按 0 填充,保证曲线宽 30 个点。 */
+private fun buildUsageWindow(
+    records: List<ElectricityDailyRecord>,
+    remainingKwh: Double?
+): ElectricityUsageWindow {
+    val today = DebugClock.todayDate()
+    val windowStart = today.minusDays(29) // 30 天窗口(含今天)
+    val startKey = windowStart.toString() // ISO yyyy-MM-dd
+    val endKey = today.toString()
+    val perDay = records
+        .mapNotNull { record ->
+            val kwh = record.kwh ?: return@mapNotNull null
+            val date = record.date.takeIf { it.length == 10 } ?: return@mapNotNull null
+            date to kwh
+        }
+        .groupBy({ it.first }, { it.second })
+        .mapValues { (_, values) -> values.sum() }
+
+    val points = mutableListOf<DailyKwhPoint>()
+    var day = windowStart
+    while (!day.isAfter(today)) {
+        val key = day.toString()
+        points += DailyKwhPoint(date = key, kwh = perDay[key] ?: 0.0)
+        day = day.plusDays(1)
+    }
+    val totalKwh = points.sumOf { it.kwh }
+    val dailyAvg = totalKwh / 30.0
+    val daysRemaining = computeDaysRemaining(remainingKwh = remainingKwh, dailyAvg = dailyAvg)
+    return ElectricityUsageWindow(
+        points = points,
+        totalKwh = totalKwh,
+        dailyAvg = dailyAvg,
+        daysRemaining = daysRemaining
+    )
+}
+
+/**
+ * 按日均消耗推算还能用几天。
+ * - remainingKwh 缺失 / dailyAvg==0 → 返回 null(在 UI 显示 "—")
+ * - 结果 < 1 天 → 显示 "≈ 0 天" 提醒赶紧充值
+ * - 结果 > 365 天 → 截断到 ">365 天"
+ */
+private fun computeDaysRemaining(remainingKwh: Double?, dailyAvg: Double): Int? {
+    if (remainingKwh == null || remainingKwh <= 0.0 || dailyAvg <= 0.0) return null
+    val raw = (remainingKwh / dailyAvg).toInt()
+    return raw.coerceIn(0, 365)
+}
+
+private val KwhFormat = DecimalFormat("0.00")
+private fun formatKwh(value: Double): String = KwhFormat.format(value)
+
 
