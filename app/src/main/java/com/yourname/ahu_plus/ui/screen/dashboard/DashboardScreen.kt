@@ -989,6 +989,7 @@ private fun FavoritesDock(
             FavoritesGrid(
                 favoriteIds = favoriteIds,
                 editing = isEditing,
+                onEnterEditing = { isEditing = true },
                 onReorder = onFavoriteIdsChange,
                 onRemove = { id -> onFavoriteIdsChange(favoriteIds - id) },
                 onOpen = { id -> clickMap[id]?.invoke() },
@@ -1017,7 +1018,7 @@ private fun FavoritesDock(
  *   centerOf(i) = ( col*(w+gap)+w/2 , row*(h+gap)+h/2 )   其中 col=i%3, row=i/3
  *
  * 手势(单一容器级 detectDragGesturesAfterLongPress):
- *   - 长按命中 → indexAt(按下点) 定源;记 startCenter = centerOf(源);rawOffset = 0
+ *   - 长按命中 → 若未编辑先调 onEnterEditing;indexAt(按下点) 定源;记 startCenter = centerOf(源);rawOffset = 0
  *   - 拖动 → rawOffset += delta(双轴);target = indexAt(startCenter + rawOffset)
  *            若 target != dragging → displayIds = move(from,to);dragging = target
  *   - 抬手 → displayIds 变了就 onReorder 落盘;清状态
@@ -1029,6 +1030,7 @@ private fun FavoritesDock(
 private fun FavoritesGrid(
     favoriteIds: List<String>,
     editing: Boolean,
+    onEnterEditing: () -> Unit,
     onReorder: (List<String>) -> Unit,
     onRemove: (String) -> Unit,
     onOpen: (String) -> Unit,
@@ -1128,6 +1130,8 @@ private fun FavoritesGrid(
                                         onClick = { onOpen(id) },
                                         onRemove = { onRemove(id) },
                                         onDragStart = {
+                                            // 若未编辑,先切换到编辑状态
+                                            if (!editing) onEnterEditing()
                                             // 记住被拖项的 id(稳定身份),不是槽位下标。
                                             // 注意:这里的闭包变量 `id` 被 pointerInput 协程冻结成
                                             // 抓起前的旧值,不能用;flatIdx 是 call-site 常量 = 物理
@@ -1226,10 +1230,11 @@ private fun FavoriteItem(
     // 冻结进协程,key 不变则协程跨重组不重启,一直用第一次那份捕获了过时 displayIds/flatIdx
     // 的旧闭包 → "第二次拖动不动/错乱"。父组件每次拖动结束 bump restartKey → 协程带最新闭包
     // 重建,于是每次拖动都等价于"第一次"。
+    //
+    // 2026-07-07: 移除 editing 作为 pointerInput key,允许非编辑态下长按触发编辑+拖拽。
     Box(
         modifier = modifier
-            .pointerInput(editing, restartKey) {
-                if (!editing) return@pointerInput
+            .pointerInput(restartKey) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { onDragStart() },
                     onDrag = { change, amount ->
