@@ -3,6 +3,11 @@ package com.yourname.ahu_plus.ui.screen.profile
 import android.content.ClipData
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,6 +42,8 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
@@ -171,6 +178,7 @@ fun ProfileScreen(
     var showFaq by rememberSaveable { mutableStateOf(false) }
     var showAnnouncements by rememberSaveable { mutableStateOf(false) }
     var showOpenSourceLicenses by rememberSaveable { mutableStateOf(false) }
+    var showAbout by rememberSaveable { mutableStateOf(false) }
     var showFullQrCode by rememberSaveable { mutableStateOf(false) }
     val cardUiState by cardViewModel.uiState.collectAsStateWithLifecycle()
     val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
@@ -364,6 +372,18 @@ fun ProfileScreen(
             onAdwmhConcurrentRetryChanged = cardViewModel::setAdwmhConcurrentRetry,
             onBack = { showSettings = false }
         )
+    } else if (showAbout) {
+        BackHandler(enabled = true) { showAbout = false }
+        AboutScreen(
+            onBack = { showAbout = false },
+            guideIntroSeen = guideIntroSeen,
+            onGuideIntroSeen = onGuideIntroSeen,
+            betaEnabled = betaEnabled,
+            onBetaEnabledChange = { newValue ->
+                scope.launch { sessionManager.setBetaEnabled(newValue) }
+                betaEnabled = newValue
+            }
+        )
     } else {
         val studentInfo = studentInfoUiState.info
         ProfileHomeScreen(
@@ -421,16 +441,7 @@ fun ProfileScreen(
             themeMode = themeMode,
             onOpenSettings = { showSettings = true },
             onOpenXzxx = { showXzxx = true },
-            onOpenGuide = { showGuide = true },
-            onOpenFaq = { showFaq = true },
-            onOpenAnnouncements = { showAnnouncements = true },
-            onOpenOpenSourceLicenses = { showOpenSourceLicenses = true },
-            betaEnabled = betaEnabled,
-            onBetaEnabledChange = { newValue ->
-                // 开关一拨就持久化:卡片/感谢页只是过渡状态,持久态由开关决定
-                scope.launch { sessionManager.setBetaEnabled(newValue) }
-                betaEnabled = newValue
-            },
+            onOpenAbout = { showAbout = true },
             onLogout = onLogout
         )
     }
@@ -507,12 +518,7 @@ private fun ProfileHomeScreen(
     themeMode: AppThemeMode,
     onOpenSettings: () -> Unit,
     onOpenXzxx: () -> Unit,
-    onOpenGuide: () -> Unit,
-    onOpenFaq: () -> Unit,
-    onOpenAnnouncements: () -> Unit,
-    onOpenOpenSourceLicenses: () -> Unit,
-    betaEnabled: Boolean,
-    onBetaEnabledChange: (Boolean) -> Unit,
+    onOpenAbout: () -> Unit,
     onLogout: () -> Unit
 ) {
     val displayName = studentName?.takeIf { it.isNotBlank() } ?: "未命名同学"
@@ -526,8 +532,6 @@ private fun ProfileHomeScreen(
     var showDeveloperContact by rememberSaveable { mutableStateOf(false) }
     var showShareSheet by rememberSaveable { mutableStateOf(false) }
     var showQrCard by rememberSaveable { mutableStateOf(false) }
-    // 内测计划确认弹窗:开关拨到 ON 时置 true,弹窗内自带 1/2 步状态机。
-    var showBetaPlanDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     if (showThirdPartyDialog) {
@@ -537,20 +541,6 @@ private fun ProfileHomeScreen(
                 showThirdPartyDialog = false
             },
             onDismiss = { showThirdPartyDialog = false }
-        )
-    }
-
-    if (showBetaPlanDialog) {
-        BetaPlanEnableDialog(
-            // 不参加 / step 1 外部点击: 还原开关到 OFF,关闭弹窗
-            onDecline = {
-                onBetaEnabledChange(false)
-                showBetaPlanDialog = false
-            },
-            // 完成 / step 2 外部点击: 保持开关 ON,只关闭弹窗
-            onClose = {
-                showBetaPlanDialog = false
-            }
         )
     }
 
@@ -703,7 +693,7 @@ private fun ProfileHomeScreen(
             }
 
             // ── 第三方服务 section (v1.3.6) ─────────────────
-            // parent 总开关 (5s 弹窗) → 集市/学习通 子开关 (独立切换)
+            // 收纳式展开卡片:点击头部展开,内部包含 parent 总开关 + 子开关
             item {
                 AhuSectionHeader(
                     title = "第三方服务",
@@ -712,97 +702,132 @@ private fun ProfileHomeScreen(
             }
 
             item {
+                var expandedThirdParty by rememberSaveable { mutableStateOf(false) }
                 ProfileSection {
-                    // parent: 启用第三方服务 (整体入口,开启前需 5s 弹窗确认风险)
-                    SettingsSwitchRow(
-                        title = "启用第三方服务",
-                        description = if (thirdPartyEnabled) {
-                            "已开启：可单独控制「集市」「学习通」「WeLearn」Tab 显示"
-                        } else {
-                            "默认关闭，启用需阅读并确认风险声明"
-                        },
-                        checked = thirdPartyEnabled,
-                        onCheckedChange = { wantEnable ->
-                            if (wantEnable) {
-                                showThirdPartyDialog = true
-                            } else {
-                                onThirdPartyEnabledChanged(false)
+                    Column {
+                        // 头部:可点击展开/收起
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { expandedThirdParty = !expandedThirdParty }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(AhuShapes.IconBox)
+                                    .background(Color(0xFF9B59B6).copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Group,
+                                    contentDescription = null,
+                                    tint = Color(0xFF9B59B6)
+                                )
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 12.dp)
+                            ) {
+                                Text(
+                                    text = "第三方服务",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "非安大官方平台,启用前需确认风险声明",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Icon(
+                                imageVector = if (expandedThirdParty) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                contentDescription = if (expandedThirdParty) "收起" else "展开",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        // 展开内容
+                        AnimatedVisibility(
+                            visible = expandedThirdParty,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Column {
+                                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                                // parent: 是否开启
+                                SettingsSwitchRow(
+                                    title = "是否开启",
+                                    description = if (thirdPartyEnabled) {
+                                        "已开启：可单独控制「集市」「学习通」「WeLearn」Tab 显示"
+                                    } else {
+                                        "默认关闭，启用需阅读并确认风险声明"
+                                    },
+                                    checked = thirdPartyEnabled,
+                                    onCheckedChange = { wantEnable ->
+                                        if (wantEnable) {
+                                            showThirdPartyDialog = true
+                                        } else {
+                                            onThirdPartyEnabledChanged(false)
+                                        }
+                                    }
+                                )
+                                // 子开关: 仅在 parent 开启后可见
+                                if (thirdPartyEnabled) {
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                                    SettingsSwitchRow(
+                                        title = "校园集市",
+                                        description = if (marketChildEnabled) {
+                                            "底部导航显示「集市」Tab"
+                                        } else {
+                                            "已隐藏「集市」Tab,本地 token/设置保留"
+                                        },
+                                        checked = marketChildEnabled,
+                                        onCheckedChange = onMarketChildEnabledChanged
+                                    )
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                                    SettingsSwitchRow(
+                                        title = "超星学习通",
+                                        description = if (chaoxingChildEnabled) {
+                                            "底部导航显示「学习通」Tab"
+                                        } else {
+                                            "已隐藏「学习通」Tab,本地登录态保留"
+                                        },
+                                        checked = chaoxingChildEnabled,
+                                        onCheckedChange = onChaoxingChildEnabledChanged
+                                    )
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                                    SettingsSwitchRow(
+                                        title = "WeLearn 随行课堂",
+                                        description = if (welearnChildEnabled) {
+                                            "底部导航显示「WeLearn」Tab"
+                                        } else {
+                                            "已隐藏「WeLearn」Tab,本地登录态保留"
+                                        },
+                                        checked = welearnChildEnabled,
+                                        onCheckedChange = onWelearnChildEnabledChanged
+                                    )
+                                }
                             }
                         }
-                    )
-                    // 子开关: 仅在 parent 开启后可见
-                    if (thirdPartyEnabled) {
-                        HorizontalDivider()
-                        SettingsSwitchRow(
-                            title = "校园集市",
-                            description = if (marketChildEnabled) {
-                                "底部导航显示「集市」Tab"
-                            } else {
-                                "已隐藏「集市」Tab,本地 token/设置保留"
-                            },
-                            checked = marketChildEnabled,
-                            onCheckedChange = onMarketChildEnabledChanged
-                        )
-                        HorizontalDivider()
-                        SettingsSwitchRow(
-                            title = "超星学习通",
-                            description = if (chaoxingChildEnabled) {
-                                "底部导航显示「学习通」Tab"
-                            } else {
-                                "已隐藏「学习通」Tab,本地登录态保留"
-                            },
-                            checked = chaoxingChildEnabled,
-                            onCheckedChange = onChaoxingChildEnabledChanged
-                        )
-                        HorizontalDivider()
-                        SettingsSwitchRow(
-                            title = "WeLearn 随行课堂",
-                            description = if (welearnChildEnabled) {
-                                "底部导航显示「WeLearn」Tab"
-                            } else {
-                                "已隐藏「WeLearn」Tab,本地登录态保留"
-                            },
-                            checked = welearnChildEnabled,
-                            onCheckedChange = onWelearnChildEnabledChanged
-                        )
                     }
                 }
             }
 
             item {
                 AhuSectionHeader(
-                    title = "关于",
-                    subtitle = "信息、设置与帮助"
+                    title = "其他",
+                    subtitle = "设置、关于与推荐"
                 )
             }
 
             item {
                 ProfileSection {
-                    HorizontalDivider()
-                    SettingsRow(
-                        title = "使用帮助",
-                        description = "功能说明、操作指引与常见问题",
-                        iconColor = Color(0xFF2F80ED),
-                        icon = { Icon(Icons.AutoMirrored.Filled.Help, contentDescription = null) },
-                        onClick = onOpenGuide
-                    )
-                    HorizontalDivider()
-                    SettingsRow(
-                        title = "常见问题",
-                        description = "数据安全、平台接入、性能等 ${faqCategories.sumOf { it.items.size }} 题分类整理",
-                        iconColor = Color(0xFF00B894),
-                        icon = { Icon(Icons.Filled.QuestionAnswer, contentDescription = null) },
-                        onClick = onOpenFaq
-                    )
-                    HorizontalDivider()
-                    SettingsRow(
-                        title = "通知公告",
-                        description = "查看开发者发布的历史公告",
-                        iconColor = Color(0xFFE67E22),
-                        icon = { Icon(Icons.Filled.Campaign, contentDescription = null) },
-                        onClick = onOpenAnnouncements
-                    )
-                    HorizontalDivider()
                     SettingsRow(
                         title = "设置",
                         description = "外观：${themeMode.titleText()}、功能设置",
@@ -812,37 +837,19 @@ private fun ProfileHomeScreen(
                     )
                     HorizontalDivider()
                     SettingsRow(
-                        title = "开源协议",
-                        description = "本应用使用的所有开源项目与 License",
+                        title = "关于",
+                        description = "软件信息、公告、帮助与协议",
                         iconColor = Color(0xFF607D8B),
-                        icon = { Icon(Icons.Filled.Code, contentDescription = null) },
-                        onClick = onOpenOpenSourceLicenses
+                        icon = { Icon(Icons.Filled.Info, contentDescription = null) },
+                        onClick = onOpenAbout
                     )
                     HorizontalDivider()
                     SettingsRow(
-                        title = "推荐给朋友",
+                        title = "推荐",
                         description = "分享下载链接或安装包给好友",
                         iconColor = Color(0xFF2F80ED),
                         icon = { Icon(Icons.Filled.Share, contentDescription = null) },
                         onClick = { showShareSheet = true }
-                    )
-                }
-            }
-
-            item {
-                ProfileSection {
-                    HorizontalDivider()
-                    SettingsSwitchRow(
-                        title = "内测计划",
-                        description = if (betaEnabled) "已加入,正在接收内测版本" else "加入内测计划,体验未发布功能",
-                        checked = betaEnabled,
-                        onCheckedChange = { wantOn ->
-                            onBetaEnabledChange(wantOn)
-                            // 拨到 ON → 弹出确认弹窗(类似第三方服务);拨到 OFF → 直接关闭
-                            if (wantOn) {
-                                showBetaPlanDialog = true
-                            }
-                        }
                     )
                 }
             }

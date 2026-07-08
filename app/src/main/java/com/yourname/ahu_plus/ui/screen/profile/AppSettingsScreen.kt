@@ -1,6 +1,5 @@
 package com.yourname.ahu_plus.ui.screen.profile
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -28,17 +26,13 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourname.ahu_plus.data.local.AppThemeMode
-import com.yourname.ahu_plus.data.model.CheckResult
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,10 +45,6 @@ internal fun AppSettingsScreen(
     onAdwmhConcurrentRetryChanged: (Boolean) -> Unit = {},
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val app = context.applicationContext as com.yourname.ahu_plus.AhuPlusApplication
-
     // 本地状态确保开关即时响应
     var localQrBrightness by remember { mutableStateOf(qrBrightnessBoost) }
     var localAdwmhRetry by remember { mutableStateOf(adwmhConcurrentRetry) }
@@ -137,28 +127,6 @@ internal fun AppSettingsScreen(
                                 localAdwmhRetry = it
                                 onAdwmhConcurrentRetryChanged(it)
                             },
-                        )
-                        HorizontalDivider()
-                        SettingsRow(
-                            title = "检查更新",
-                            description = "当前版本 ${com.yourname.ahu_plus.BuildConfig.VERSION_NAME}",
-                            iconColor = Color(0xFF6C63FF),
-                            icon = { Icon(Icons.Filled.Info, contentDescription = null) },
-                            onClick = {
-                                scope.launch {
-                                    Toast.makeText(context, "正在检查更新…", Toast.LENGTH_SHORT).show()
-                                    when (app.updateManager.checkManually()) {
-                                        CheckResult.UPDATE_AVAILABLE,
-                                        CheckResult.FORCE_UPDATE -> Unit
-                                        CheckResult.LATEST -> {
-                                            Toast.makeText(context, "已是最新版本", Toast.LENGTH_SHORT).show()
-                                        }
-                                        CheckResult.ERROR -> {
-                                            Toast.makeText(context, "检查更新失败,请检查网络连接", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                            }
                         )
                     }
                 }
