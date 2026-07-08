@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -43,6 +45,7 @@ internal fun AppSettingsScreen(
     onQrBrightnessBoostChanged: (Boolean) -> Unit = {},
     adwmhConcurrentRetry: Boolean = false,
     onAdwmhConcurrentRetryChanged: (Boolean) -> Unit = {},
+    onOpenCacheCleanup: () -> Unit = {},
     onBack: () -> Unit
 ) {
     // 本地状态确保开关即时响应
@@ -127,6 +130,33 @@ internal fun AppSettingsScreen(
                                 localAdwmhRetry = it
                                 onAdwmhConcurrentRetryChanged(it)
                             },
+                        )
+                        HorizontalDivider()
+                        ListItem(
+                            headlineContent = {
+                                Text("清理本地缓存", fontWeight = FontWeight.Medium)
+                            },
+                            supportingContent = {
+                                Text(
+                                    "释放已缓存的业务数据；登录态、个人设置与超星凭据均保留",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    Icons.Filled.CleaningServices,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            trailingContent = {
+                                Icon(
+                                    Icons.Filled.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            modifier = Modifier.clickable { onOpenCacheCleanup() }
                         )
                     }
                 }
