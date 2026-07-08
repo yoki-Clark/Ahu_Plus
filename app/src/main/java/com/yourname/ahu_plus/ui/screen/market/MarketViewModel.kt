@@ -303,6 +303,10 @@ class MarketViewModel(
                 isSearching = true,
                 searchQuery = "",
                 searchResults = emptyList(),
+                searchPage = 0,
+                hasMoreSearch = true,
+                searchLoading = false,
+                searchLoadingMore = false,
                 searchError = null
             )
         }
@@ -314,8 +318,11 @@ class MarketViewModel(
                 isSearching = false,
                 searchQuery = "",
                 searchResults = emptyList(),
-                searchError = null,
-                searchLoading = false
+                searchPage = 0,
+                hasMoreSearch = true,
+                searchLoading = false,
+                searchLoadingMore = false,
+                searchError = null
             )
         }
     }
@@ -328,44 +335,72 @@ class MarketViewModel(
         val query = _uiState.value.searchQuery.trim()
         if (query.isBlank()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(searchLoading = true, searchError = null) }
-            val identities = selectedIdentities()
-            val result = if (identities.size == 1) {
-                val identity = identities.first()
-                repository.searchTopics(query, page = 1, identity = identity.token).map { topics ->
-                    MarketTopicBatch(
-                        topics = topics,
-                        topicSchoolMap = identity.school?.let { school ->
-                            topics.associate { it.id to school }
-                        } ?: emptyMap(),
-                        topicIdentityMap = topics.associate { it.id to identity.token }
+            loadSearchPage(query = query, page = 1, append = false)
+        }
+    }
+
+    fun loadMoreSearchResults() {
+        val state = _uiState.value
+        if (!state.isSearching) return
+        if (state.searchLoading || state.searchLoadingMore || !state.hasMoreSearch) return
+        val query = state.searchQuery.trim()
+        if (query.isBlank()) return
+        viewModelScope.launch {
+            loadSearchPage(query = query, page = state.searchPage + 1, append = true)
+        }
+    }
+
+    private suspend fun loadSearchPage(query: String, page: Int, append: Boolean) {
+        _uiState.update {
+            if (append) it.copy(searchLoadingMore = true, searchError = null)
+            else it.copy(searchLoading = true, searchError = null)
+        }
+        val identities = selectedIdentities()
+        val result = if (identities.size == 1) {
+            val identity = identities.first()
+            repository.searchTopics(query, page = page, identity = identity.token).map { topics ->
+                MarketTopicBatch(
+                    topics = topics,
+                    topicSchoolMap = identity.school?.let { school ->
+                        topics.associate { it.id to school }
+                    } ?: emptyMap(),
+                    topicIdentityMap = topics.associate { it.id to identity.token }
+                )
+            }
+        } else {
+            repository.searchTopicsMulti(query, identities, page = page)
+        }
+        result.fold(
+            onSuccess = { batch ->
+                _uiState.update { s ->
+                    val merged = if (append) {
+                        (s.searchResults + batch.topics).distinctBy { it.id }
+                    } else {
+                        batch.topics
+                    }
+                    s.copy(
+                        searchLoading = false,
+                        searchLoadingMore = false,
+                        searchResults = merged,
+                        searchPage = page,
+                        // 空页视为耗尽:避免对同一末页反复请求
+                        hasMoreSearch = batch.topics.isNotEmpty(),
+                        searchError = null,
+                        topicSchoolMap = s.topicSchoolMap + batch.topicSchoolMap,
+                        topicIdentityMap = s.topicIdentityMap + batch.topicIdentityMap
                     )
                 }
-            } else {
-                repository.searchTopicsMulti(query, identities, page = 1)
-            }
-            result.fold(
-                onSuccess = { batch ->
-                    _uiState.update {
-                        it.copy(
-                            searchLoading = false,
-                            searchResults = batch.topics,
-                            searchError = null,
-                            topicSchoolMap = it.topicSchoolMap + batch.topicSchoolMap,
-                            topicIdentityMap = it.topicIdentityMap + batch.topicIdentityMap
-                        )
-                    }
-                },
-                onFailure = { e ->
-                    _uiState.update {
-                        it.copy(
-                            searchLoading = false,
-                            searchError = e.message ?: "搜索失败"
-                        )
-                    }
+            },
+            onFailure = { e ->
+                _uiState.update {
+                    it.copy(
+                        searchLoading = false,
+                        searchLoadingMore = false,
+                        searchError = e.message ?: "搜索失败"
+                    )
                 }
-            )
-        }
+            }
+        )
     }
 
     // ── 多校园管理 ──────────────────────────────────────
@@ -1358,7 +1393,10 @@ data class MarketUiState(
     val isSearching: Boolean = false,
     val searchQuery: String = "",
     val searchResults: List<MarketTopic> = emptyList(),
+    val searchPage: Int = 0,
+    val hasMoreSearch: Boolean = true,
     val searchLoading: Boolean = false,
+    val searchLoadingMore: Boolean = false,
     val searchError: String? = null,
     // ── 多校发帖路由 ─────────────────────────────
     // 多校模式下,发新帖用哪个 identity.token。

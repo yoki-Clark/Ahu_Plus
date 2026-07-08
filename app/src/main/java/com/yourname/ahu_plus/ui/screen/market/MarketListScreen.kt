@@ -88,6 +88,7 @@ internal fun MarketListScreen(
     onSearchQueryChanged: (String) -> Unit,
     onSearchSubmit: () -> Unit,
     onSearchClose: () -> Unit,
+    onLoadMoreSearch: () -> Unit,
     onToggleSchool: (String, Boolean) -> Unit = { _, _ -> },
     onSelectAllSchools: () -> Unit = {}
 ) {
@@ -146,9 +147,7 @@ internal fun MarketListScreen(
                         OutlinedTextField(
                             value = uiState.searchQuery,
                             onValueChange = onSearchQueryChanged,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(42.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             placeholder = { Text("搜索帖子内容") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
@@ -201,6 +200,7 @@ internal fun MarketListScreen(
             SearchResultList(
                 uiState = uiState,
                 onOpenTopic = onOpenTopic,
+                onLoadMore = onLoadMoreSearch,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
@@ -360,9 +360,24 @@ internal fun MarketListScreen(
 private fun SearchResultList(
     uiState: MarketUiState,
     onOpenTopic: (MarketTopic) -> Unit,
+    onLoadMore: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val searchListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val shouldLoadMore by remember(uiState.searchResults.size, uiState.hasMoreSearch) {
+        derivedStateOf {
+            val info = searchListState.layoutInfo
+            val total = info.totalItemsCount
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            total > 0 && lastVisible >= total - 5
+        }
+    }
+    LaunchedEffect(shouldLoadMore, uiState.searchResults.size, uiState.hasMoreSearch) {
+        if (shouldLoadMore) onLoadMore()
+    }
+
     LazyColumn(
+        state = searchListState,
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -396,9 +411,11 @@ private fun SearchResultList(
 
         if (uiState.searchResults.isNotEmpty()) {
             item {
-                StatusCard(
-                    text = "共 ${uiState.searchResults.size} 条结果",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                AutoLoadFooter(
+                    isLoading = uiState.searchLoadingMore,
+                    hasMore = uiState.hasMoreSearch,
+                    loadingText = "正在加载更多结果...",
+                    emptyText = "没有更多结果了"
                 )
             }
         }
