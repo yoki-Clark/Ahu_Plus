@@ -99,6 +99,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.yourname.ahu_plus.data.repository.CacheCleanupRepository
 import com.yourname.ahu_plus.data.local.AppThemeMode
 import com.yourname.ahu_plus.data.model.BillRecord
 import com.yourname.ahu_plus.data.model.CheckResult
@@ -173,6 +175,7 @@ fun ProfileScreen(
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showUtilities by rememberSaveable { mutableStateOf(false) }
     var showCardAnalytics by rememberSaveable { mutableStateOf(false) }
+    var showCacheCleanup by rememberSaveable { mutableStateOf(false) }
     var showXzxx by rememberSaveable { mutableStateOf(false) }
     var showGuide by rememberSaveable { mutableStateOf(false) }
     var showFaq by rememberSaveable { mutableStateOf(false) }
@@ -217,6 +220,7 @@ fun ProfileScreen(
             "finance" -> showFinance = true
             "settings" -> showSettings = true
             "cardAnalytics" -> showCardAnalytics = true
+            "cacheCleanup" -> showCacheCleanup = true
         }
         if (profileSubPage != null) {
             onProfileSubPageConsumed()
@@ -370,7 +374,30 @@ fun ProfileScreen(
             onQrBrightnessBoostChanged = cardViewModel::setQrBrightnessBoost,
             adwmhConcurrentRetry = cardViewModel.getAdwmhConcurrentRetry(),
             onAdwmhConcurrentRetryChanged = cardViewModel::setAdwmhConcurrentRetry,
+            onOpenCacheCleanup = {
+                showCacheCleanup = true
+                showSettings = false
+            },
             onBack = { showSettings = false }
+        )
+    } else if (showCacheCleanup) {
+        BackHandler(enabled = true) { showCacheCleanup = false; showSettings = true }
+        val cacheRepo = remember(appContext) {
+            CacheCleanupRepository(
+                appDataStore = (appContext.applicationContext as AhuPlusApplication).appDataStore,
+                appContext = appContext
+            )
+        }
+        val cacheVm: CacheCleanupViewModel = viewModel(factory = CacheCleanupViewModel.Factory(cacheRepo))
+        val cacheUi by cacheVm.uiState.collectAsStateWithLifecycle()
+        CacheCleanupScreen(
+            sizeInfo = cacheUi.sizeInfo,
+            downloadSize = cacheUi.downloadSize,
+            downloadCount = cacheUi.downloadCount,
+            isCalculating = cacheUi.isCalculating || cacheUi.isClearing,
+            onToggleGroup = { /* 由 Screen 内部维护选中态,此处无需上抛 */ },
+            onClear = { selected -> cacheVm.clear(selected) },
+            onBack = { showCacheCleanup = false }
         )
     } else if (showAbout) {
         BackHandler(enabled = true) { showAbout = false }

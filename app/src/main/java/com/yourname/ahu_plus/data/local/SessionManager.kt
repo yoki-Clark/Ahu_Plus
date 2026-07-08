@@ -2929,7 +2929,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     }
 
-    private companion object {
+    companion object {
 
         const val TAG = "SessionManager"
 
