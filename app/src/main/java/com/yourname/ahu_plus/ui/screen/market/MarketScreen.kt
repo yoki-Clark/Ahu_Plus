@@ -138,6 +138,7 @@ fun MarketScreen(viewModel: MarketViewModel) {
                 onSearchQueryChanged = viewModel::onSearchQueryChanged,
                 onSearchSubmit = viewModel::submitSearch,
                 onSearchClose = viewModel::closeSearch,
+                onLoadMoreSearch = viewModel::loadMoreSearchResults,
                 onToggleSchool = viewModel::toggleIdentitySelection,
                 onSelectAllSchools = viewModel::selectAllIdentities
             )
