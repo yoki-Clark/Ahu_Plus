@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.market
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -207,7 +208,7 @@ internal fun MarketListScreen(
             )
         } else {
             PullToRefreshBox(
-                isRefreshing = uiState.isLoading && uiState.topics.isEmpty(),
+                isRefreshing = uiState.isLoading,
                 onRefresh = onRefresh,
                 modifier = Modifier
                     .fillMaxSize()
@@ -346,10 +347,11 @@ internal fun MarketListScreen(
         DraggableScrollToTopButton(
             visible = showScrollToTop,
             onScrollToTop = {
+                Log.i("MarketList", "scroll-to-top clicked, firing onRefresh immediately")
+                onRefresh()  // 立即触发,viewModelScope 独立,不受 UI scope / 滚动挂起影响
                 scope.launch {
                     listState.animateScrollToItem(0)
                     staggerState.animateScrollToItem(0)
-                    onRefresh()
                 }
             }
         )
