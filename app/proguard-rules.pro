@@ -8,10 +8,10 @@
 -keepattributes *Annotation*
 
 # Keep all data model classes used for Gson serialization/deserialization
--keep class com.yourname.ahu_plus.data.model.** { *; }
--keep class com.yourname.ahu_plus.data.model.jw.** { *; }
--keep class com.yourname.ahu_plus.data.model.course.** { *; }
--keep class com.yourname.ahu_plus.data.model.task.** { *; }
+-keep class com.ahu_plus.data.model.** { *; }
+-keep class com.ahu_plus.data.model.jw.** { *; }
+-keep class com.ahu_plus.data.model.course.** { *; }
+-keep class com.ahu_plus.data.model.task.** { *; }
 
 # Gson specific
 -dontwarn sun.misc.**
@@ -69,7 +69,7 @@
 # ============================================================
 
 # 激进混淆：合并包路径，所有未 keep 的类归入单一 internal 包
--repackageclasses 'com.yourname.ahu_plus.internal'
+-repackageclasses 'com.ahu_plus.internal'
 
 # 允许 R8 修改访问修饰符（public → private），利于内联/优化
 -allowaccessmodification
@@ -126,8 +126,8 @@
 
 # 保留我们自己的抗污染 DNS 实现 (Kotlin object → public static final INSTANCE 字段)
 # 不 keep 的话 R8 会把 ResilientDns.INSTANCE 改名或内联,OkHttp.Builder.dns(...) 拿到的是无名实例
--keep class com.yourname.ahu_plus.data.network.ResilientDns { *; }
+-keep class com.ahu_plus.data.network.ResilientDns { *; }
 
 # 保留 ExamDataRepository 的 OkHttpClient DSL 构建路径
 # (里面用了 ConnectionSpec / Protocol / Protocol listOf 等反射敏感的 API)
--keep class com.yourname.ahu_plus.data.repository.ExamDataRepository { *; }
+-keep class com.ahu_plus.data.repository.ExamDataRepository { *; }
