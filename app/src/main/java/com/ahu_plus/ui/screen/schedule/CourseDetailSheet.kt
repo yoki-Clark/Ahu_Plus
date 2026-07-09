@@ -1,0 +1,222 @@
+package com.ahu_plus.ui.screen.schedule
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ahu_plus.data.model.jw.CourseDisplayItem
+import com.ahu_plus.data.model.jw.GetDataLesson
+import com.ahu_plus.data.repository.AssessmentRepository
+import com.ahu_plus.ui.components.CollapsibleSection
+import com.ahu_plus.ui.screen.schedule.sections.AssessmentSection
+import com.ahu_plus.ui.screen.schedule.sections.AttendanceCourseDetailScreen
+import com.ahu_plus.ui.screen.schedule.sections.AttendanceCourseSection
+import com.ahu_plus.ui.screen.schedule.sections.CourseNoteSection
+import com.ahu_plus.ui.screen.schedule.sections.SlotNoteSection
+
+/**
+ * 课程详情底部弹窗 (2026-06-17 重构, 2026-06-18 考勤联动)。
+ *
+ * 包含 5 个可折叠 section:
+ *  1. 课程详情 — 教务静态信息
+ *  2. 考核方案 — 用户自填文字 + 图片
+ *  3. 课程备注 — 跨节次共享,按 courseCode
+ *  4. 此节课备注 — 按 lessonId+week (含作业 quick action)
+ *  5. 考勤记录 — 教务考勤系统真实数据 (kqcard.ahu.edu.cn)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CourseDetailSheet(
+    viewModel: ScheduleViewModel,
+    assessmentRepository: AssessmentRepository,
+    onDismiss: () -> Unit,
+) {
+    val detail = viewModel.uiState.collectAsStateWithLifecycle().value.selectedCourseDetail ?: return
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val courseNote by viewModel.courseNote.collectAsStateWithLifecycle()
+    val slotNote by viewModel.slotNote.collectAsStateWithLifecycle()
+    val assessmentPlan by viewModel.assessmentPlan.collectAsStateWithLifecycle()
+    val attendanceRecords by viewModel.courseAttendance.collectAsStateWithLifecycle()
+
+    val item = detail.item
+    val lessonDetail = detail.lessonDetail
+    val courseCode = item.courseCode.orEmpty()
+
+    // 2026 Bug1: 手风琴模式 — 同一时间只展开一个 section
+    var expandedSection by rememberSaveable { mutableStateOf<String?>(null) }
+    // 考勤全量列表查看模式
+    var showFullAttendance by remember { mutableStateOf(false) }
+
+    // 全屏考勤列表 — 直接替代 sheet，selectedCourseDetail 状态保持不丢
+    if (showFullAttendance) {
+        AttendanceCourseDetailScreen(
+            courseName = item.courseName,
+            records = attendanceRecords,
+            currentWeek = detail.currentWeek,
+            onBack = { showFullAttendance = false },
+        )
+        return
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            // 2026-06-17 Bug3: 移除外部 verticalScroll — 每个 CollapsibleSection
+            // 有内部滚动(含 max height),ModalBottomSheet 自己处理整页 overflow。
+        ) {
+            // ── 标题 ─────────────────────────────────
+            Text(
+                text = item.courseName,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(12.dp))
+
+            // ── 1. 课程详情 (默认全部收起, 手风琴模式) ───────
+            CollapsibleSection(
+                title = "课程详情",
+                defaultExpanded = false,
+                expanded = expandedSection == "courseDetail",
+                onToggle = { if (it) expandedSection = "courseDetail" else expandedSection = null },
+            ) {
+                DetailRow("课程代码", item.courseCode)
+                DetailRow("学分", (lessonDetail?.course?.credits ?: item.credits)?.toString())
+                DetailRow("教师", item.teacherNames)
+                DetailRow("教室", item.room)
+                DetailRow("校区", lessonDetail?.campus?.nameZh ?: item.campus)
+                DetailRow("课程类型", lessonDetail?.courseType?.nameZh ?: item.courseType)
+                DetailRow("考核方式", lessonDetail?.examMode?.nameZh)
+                DetailRow("修读类别", lessonDetail?.compulsorysStr)
+                DetailRow("周次", item.weeksStr ?: item.weekIndexes.toString())
+                DetailRow("排课周次", lessonDetail?.scheduleWeeksInfo)
+                DetailRow(
+                    "上课时间",
+                    buildString {
+                        item.startTime?.let { append(it) }
+                        item.endTime?.let {
+                            if (isNotEmpty()) append(" - ")
+                            append(it)
+                        }
+                    }.ifBlank { null }
+                )
+                DetailRow(
+                    "排课描述",
+                    lessonDetail?.scheduleText?.dateTimePlaceText?.textZh
+                        ?: lessonDetail?.scheduleText?.dateTimePlacePersonText?.textZh
+                )
+                if (lessonDetail?.stdCount != null || lessonDetail?.limitCount != null) {
+                    DetailRow(
+                        "已选/限选",
+                        "${lessonDetail?.stdCount ?: "-"} / ${lessonDetail?.limitCount ?: "-"}"
+                    )
+                }
+            }
+
+            // ── 2. 考核方案 (Step 4 已接入) ──────────
+            AssessmentSection(
+                plan = assessmentPlan,
+                lessonId = item.lessonId.toString(),
+                assessmentRepository = assessmentRepository,
+                onSave = { text, paths ->
+                    viewModel.saveAssessment(
+                        com.ahu_plus.data.model.course.AssessmentPlan(
+                            lessonId = item.lessonId.toString(),
+                            text = text,
+                            imagePaths = paths,
+                        )
+                    )
+                },
+                expanded = expandedSection == "assessment",
+                onToggle = { if (it) expandedSection = "assessment" else expandedSection = null },
+            )
+
+            // ── 3. 课程备注 (跨节次共享) ──────────────
+            if (courseCode.isNotBlank()) {
+                CourseNoteSection(
+                    savedNote = courseNote,
+                    onSave = { viewModel.saveCourseNote(it) },
+                    expanded = expandedSection == "courseNote",
+                    onToggle = { if (it) expandedSection = "courseNote" else expandedSection = null },
+                )
+            }
+
+            // ── 4. 此节课备注 ─────────────────────────
+            SlotNoteSection(
+                savedNote = slotNote,
+                courseName = item.courseName,
+                onSaveNote = { viewModel.saveSlotNote(it) },
+                onAddHomework = { text, deadline -> viewModel.addHomework(text, deadline) },
+                expanded = expandedSection == "slotNote",
+                onToggle = { if (it) expandedSection = "slotNote" else expandedSection = null },
+            )
+
+            // ── 5. 考勤记录 (教务考勤联动) ──────────────
+            AttendanceCourseSection(
+                records = attendanceRecords,
+                currentWeek = detail.currentWeek,
+                expanded = expandedSection == "attendance",
+                onToggle = { if (it) expandedSection = "attendance" else expandedSection = null },
+                onViewAll = { showFullAttendance = true },
+            )
+
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/** 单行键值对:左边标签灰色,右边取值右对齐;值为空不渲染整行 */
+@Composable
+private fun DetailRow(label: String, value: String?) {
+    if (value.isNullOrBlank()) return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.size(12.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.End,
+        )
+    }
+}

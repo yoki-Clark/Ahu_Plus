@@ -69,7 +69,7 @@
             android:name=".notification.WidgetUpdateScheduler"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.yourname.ahu_plus.widget.ACTION_UPDATE_WIDGETS" />
+                <action android:name="com.ahu_plus.widget.ACTION_UPDATE_WIDGETS" />
             </intent-filter>
         </receiver>
 

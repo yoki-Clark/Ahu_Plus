@@ -22,10 +22,13 @@ val localProps = Properties().apply {
 fun localProp(key: String): String? = localProps.getProperty(key)?.takeIf { it.isNotBlank() }
 
 android {
-    namespace = "com.yourname.ahu_plus"
+    namespace = "com.ahu_plus"
     compileSdk = 36
 
     defaultConfig {
+        // applicationId 保持原值不变:它是 App 在系统里的唯一身份标识,
+        // 改了会导致老用户无法平滑升级(自动更新会并排装两个 App)、本地数据全丢。
+        // 代码包名(namespace)已改为 com.ahu_plus,此处仅是历史遗留的对外身份,用户不可见。
         applicationId = "com.yourname.ahu_plus"
         minSdk = 24
         targetSdk = 36

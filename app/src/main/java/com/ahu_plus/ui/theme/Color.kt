@@ -1,0 +1,39 @@
+package com.ahu_plus.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+val AhuBlue = Color(0xFF1F5AA6)
+val AhuBlueLight = Color(0xFFDCE8FF)
+val AhuBlueDark = Color(0xFF9BBEFF)
+val AhuIndigo = Color(0xFF4C63A6)
+val AhuTeal = Color(0xFF168C80)
+val AhuGreen = Color(0xFF2A9D8F)
+val AhuOrange = Color(0xFFF28C28)
+val AhuRed = Color(0xFFE05252)
+val AhuViolet = Color(0xFF7567C8)
+
+val AhuLightBackground = Color(0xFFF7FAFF)
+val AhuLightSurface = Color(0xFFFFFFFF)
+val AhuLightSurfaceVariant = Color(0xFFEAF1FF)
+val AhuLightOnSurface = Color(0xFF172033)
+val AhuLightOnSurfaceVariant = Color(0xFF5D6678)
+val AhuLightOutline = Color(0xFFC6D4EA)
+
+val AhuDarkBackground = Color(0xFF101319)
+val AhuDarkSurface = Color(0xFF171B23)
+val AhuDarkSurfaceVariant = Color(0xFF232936)
+val AhuDarkOnSurface = Color(0xFFE8ECF6)
+val AhuDarkOnSurfaceVariant = Color(0xFFB5BDCE)
+val AhuDarkOutline = Color(0xFF3A4253)
+
+// ── 渐变色 token ──
+val AhuGradientBlueStart = Color(0xFF2962FF)
+val AhuGradientBlueEnd = Color(0xFF448AFF)
+val AhuGradientTealStart = Color(0xFF00897B)
+val AhuGradientTealEnd = Color(0xFF26A69A)
+val AhuGradientOrangeStart = Color(0xFFEF6C00)
+val AhuGradientOrangeEnd = Color(0xFFFF9800)
+val AhuGradientVioletStart = Color(0xFF5C6BC0)
+val AhuGradientVioletEnd = Color(0xFF7986CB)
+val AhuGradientGreenStart = Color(0xFF2E7D32)
+val AhuGradientGreenEnd = Color(0xFF43A047)
