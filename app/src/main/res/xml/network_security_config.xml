@@ -24,4 +24,12 @@
         <domain includeSubdomains="false">welearn.sflep.com</domain>
         <domain includeSubdomains="false">sso.sflep.com</domain>
     </domain-config>
+    <!--
+        大学计算机平台 (C 语言在线评测) 内网明文 HTTP (2026-07)。
+        抓包地址 172.17.106.232;若机房换 IP,用户在登录页"高级设置"改 baseUrl,
+        但新 IP 需在此登记才允许明文。172.17.x 段整段放开覆盖同网段漂移。
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">172.17.106.232</domain>
+    </domain-config>
 </network-security-config>

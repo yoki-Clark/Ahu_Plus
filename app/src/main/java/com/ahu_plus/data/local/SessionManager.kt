@@ -304,6 +304,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedWeLearnHeartbeatEnabled: String = "true"
     @Volatile private var cachedWeLearnHeartbeatMinutesPerSco: String = "3"
 
+    // 大学计算机平台(C 语言在线评测)
+    @Volatile private var cachedCProgBaseUrl: String? = null
+    @Volatile private var cachedCProgJwt: String? = null
+    @Volatile private var cachedCProgJsessionid: String? = null
+    @Volatile private var cachedCProgUserId: String? = null
+    @Volatile private var cachedCProgUsername: String? = null
+    @Volatile private var cachedCProgIdno: String? = null
+
     @Volatile private var cachedCxCoursesJson: String? = null
 
     @Volatile private var cachedCxCoursesProgressJson: String? = null
@@ -691,6 +699,13 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedWeLearnPassword = prefs[WELEARN_PASSWORD_KEY]
         cachedWeLearnHeartbeatEnabled = prefs[WELEARN_HEARTBEAT_ENABLED_KEY] ?: "true"
         cachedWeLearnHeartbeatMinutesPerSco = prefs[WELEARN_HEARTBEAT_MINUTES_PER_SCO_KEY] ?: "3"
+
+        cachedCProgBaseUrl = prefs[CPROG_BASE_URL_KEY]
+        cachedCProgJwt = prefs[CPROG_JWT_KEY]
+        cachedCProgJsessionid = prefs[CPROG_JSESSIONID_KEY]
+        cachedCProgUserId = prefs[CPROG_USER_ID_KEY]
+        cachedCProgUsername = prefs[CPROG_USERNAME_KEY]
+        cachedCProgIdno = prefs[CPROG_IDNO_KEY]
 
         cachedCxCoursesJson = prefs[CX_COURSES_JSON_KEY]
         cachedCxCoursesProgressJson = prefs[CX_COURSES_PROGRESS_JSON_KEY]
@@ -2547,6 +2562,51 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it[WELEARN_HEARTBEAT_MINUTES_PER_SCO_KEY] = v }
     }
 
+    // ── 大学计算机平台(C 语言在线评测)──────────────────────────
+    fun getCProgBaseUrl(): String? = cachedCProgBaseUrl
+    fun getCProgJwt(): String? = cachedCProgJwt
+    fun getCProgJsessionid(): String? = cachedCProgJsessionid
+    fun getCProgUserId(): String? = cachedCProgUserId
+    fun getCProgUsername(): String? = cachedCProgUsername
+    fun getCProgIdno(): String? = cachedCProgIdno
+
+    suspend fun saveCProgBaseUrl(url: String) {
+        cachedCProgBaseUrl = url
+        appDataStore.dataStore.edit { it[CPROG_BASE_URL_KEY] = url }
+    }
+
+    suspend fun saveCProgSession(jwt: String, userId: String, jsessionid: String) {
+        cachedCProgJwt = jwt
+        cachedCProgUserId = userId
+        cachedCProgJsessionid = jsessionid
+        appDataStore.dataStore.edit {
+            it[CPROG_JWT_KEY] = jwt
+            it[CPROG_USER_ID_KEY] = userId
+            it[CPROG_JSESSIONID_KEY] = jsessionid
+        }
+    }
+
+    suspend fun saveCProgCredentials(username: String, idno: String) {
+        cachedCProgUsername = username
+        cachedCProgIdno = idno
+        appDataStore.dataStore.edit {
+            it[CPROG_USERNAME_KEY] = username
+            it[CPROG_IDNO_KEY] = idno
+        }
+    }
+
+    /** 退登时只清会话(JWT/JSESSIONID/userId),保留学号/身份证/baseUrl 供下次预填 */
+    suspend fun clearCProgSession() {
+        cachedCProgJwt = null
+        cachedCProgJsessionid = null
+        cachedCProgUserId = null
+        appDataStore.dataStore.edit {
+            it.remove(CPROG_JWT_KEY)
+            it.remove(CPROG_JSESSIONID_KEY)
+            it.remove(CPROG_USER_ID_KEY)
+        }
+    }
+
     fun getCxCoursesJson(): String? = cachedCxCoursesJson
 
     suspend fun saveCxCoursesJson(value: String) {
@@ -3124,6 +3184,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
         // 2026-06-28:刷时长配置(退登保留,跟 WELEARN_* 同策略)
         val WELEARN_HEARTBEAT_ENABLED_KEY = stringPreferencesKey("welearn_heartbeat_enabled")  // "true" / "false",默认 true
         val WELEARN_HEARTBEAT_MINUTES_PER_SCO_KEY = stringPreferencesKey("welearn_heartbeat_minutes_per_sco")  // 分钟数,默认 "3"
+
+        // 大学计算机平台(C 语言在线评测, w2eesweb)。独立认证,退登保留(同集市/超星)。
+        val CPROG_BASE_URL_KEY = stringPreferencesKey("cprog_base_url")     // 内网可配置,默认抓包 IP
+        val CPROG_JWT_KEY = stringPreferencesKey("cprog_jwt")              // 主站 JWT(24h)
+        val CPROG_JSESSIONID_KEY = stringPreferencesKey("cprog_jsessionid") // 与 JWT 强绑定
+        val CPROG_USER_ID_KEY = stringPreferencesKey("cprog_user_id")      // userId uuid
+        val CPROG_USERNAME_KEY = stringPreferencesKey("cprog_username")    // 学号(登录卡预填)
+        val CPROG_IDNO_KEY = stringPreferencesKey("cprog_idno")            // 身份证后 6 位(登录卡预填)
 
         val CX_COURSES_JSON_KEY = stringPreferencesKey("cx_courses_json")
 

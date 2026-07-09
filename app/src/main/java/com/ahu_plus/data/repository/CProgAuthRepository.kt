@@ -1,0 +1,226 @@
+package com.ahu_plus.data.repository
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Log
+import com.google.gson.JsonParser
+import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.network.SecureHttpClientFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.FormBody
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * 大学计算机平台(C 语言在线评测, issuer w2eesweb)认证仓库。
+ *
+ * 登录闭环(在 App 内完成,唯一人工步骤是填验证码):
+ *   GET  /redirect/login          建 session,下发 JSESSIONID
+ *   GET  /kaptcha/jpg             取验证码图(绑到 session)
+ *   POST /login/get               学号+身份证后6位+验证码 → {userId, jwt1}
+ *   POST /login/unified           dfgdfg=jwt1.payload.sub → 主站 JWT
+ *
+ * ⚠️ 坑:/login/get 返回的 data.dfgdfg 是 userId(uuid),但 /login/unified 提交的
+ *    dfgdfg 是 jwt1 payload 的 sub(32 位 hex),两者同名不同值(见 replay_exam.py)。
+ *
+ * baseUrl 内网可配置(默认抓包 IP),仅校园网可达。JWT 与 JSESSIONID 强绑定,
+ * 换 session 复用老 JWT 会被踢回登录页。
+ */
+class CProgAuthRepository(
+    private val sessionManager: SessionManager,
+) {
+    companion object {
+        private const val TAG = "CProg"
+        const val DEFAULT_BASE_URL = "http://172.17.106.232:8080"
+        private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+    }
+
+    /** 当前 baseUrl(去尾斜杠),来自 SessionManager,可在设置里改 */
+    val baseUrl: String
+        get() = (sessionManager.getCProgBaseUrl()?.takeIf { it.isNotBlank() } ?: DEFAULT_BASE_URL)
+            .trimEnd('/')
+
+    // ── Cookie(JSESSIONID)存储,按 host 归集 ────────────────────
+    private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+
+    private val cookieJar = object : CookieJar {
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+            val list = cookieStore.getOrPut(url.host) { mutableListOf() }
+            for (c in cookies) {
+                list.removeAll { it.name == c.name }
+                list.add(c)
+            }
+        }
+
+        override fun loadForRequest(url: HttpUrl): List<Cookie> =
+            cookieStore[url.host]?.toList() ?: emptyList()
+    }
+
+    val client: OkHttpClient = SecureHttpClientFactory.create(
+        cookieJar = cookieJar,
+        followRedirects = false,   // 登录跳转/踢回登录页需要自己判 302,不自动跟
+        trustAll = false,          // 明文 HTTP,不涉及证书;走 network config cleartext 白名单
+        connectTimeoutSec = 15,
+        readTimeoutSec = 20,
+    )
+
+    // ── 登录态 ───────────────────────────────────────────────
+    @Volatile var tk: String? = sessionManager.getCProgJwt()
+        private set
+    @Volatile var userId: String? = sessionManager.getCProgUserId()
+        private set
+
+    fun isLoggedIn(): Boolean = !tk.isNullOrBlank() && !userId.isNullOrBlank()
+
+    /** 启动时把持久化的 JSESSIONID 灌回 CookieJar(JWT/userId 已在字段初始化时读出) */
+    fun loadPersistedSession() {
+        val jsid = sessionManager.getCProgJsessionid()?.takeIf { it.isNotBlank() } ?: return
+        val host = runCatching { baseUrl.toHttpUrl().host }.getOrNull() ?: return
+        val list = cookieStore.getOrPut(host) { mutableListOf() }
+        list.removeAll { it.name == "JSESSIONID" }
+        list.add(Cookie.Builder().domain(host).path("/").name("JSESSIONID").value(jsid).build())
+    }
+
+    private fun currentJsessionid(): String? {
+        val host = runCatching { baseUrl.toHttpUrl().host }.getOrNull() ?: return null
+        return cookieStore[host]?.firstOrNull { it.name == "JSESSIONID" }?.value
+    }
+
+    // ── 验证码 ───────────────────────────────────────────────
+    /**
+     * 建 session + 取验证码图。每次调用都先 GET /redirect/login 刷新 session,
+     * 再 GET /kaptcha/jpg,保证验证码答案与当前 JSESSIONID 绑定。
+     */
+    suspend fun fetchCaptcha(): Result<Bitmap> = withContext(Dispatchers.IO) {
+        try {
+            // 建 session(302 到登录页,不跟)
+            client.newCall(
+                Request.Builder().url("$baseUrl/redirect/login").header("User-Agent", UA).build()
+            ).execute().close()
+            // 取验证码(?r 防缓存;r 值来自 systemTime 无法用,退化为固定串,session 已建立)
+            val resp = client.newCall(
+                Request.Builder().url("$baseUrl/kaptcha/jpg")
+                    .header("User-Agent", UA)
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("Referer", "$baseUrl/redirect/login")
+                    .build()
+            ).execute()
+            resp.use {
+                if (!it.isSuccessful) return@withContext Result.failure(IOException("验证码 HTTP ${it.code}"))
+                val bytes = it.body?.bytes() ?: return@withContext Result.failure(IOException("验证码为空"))
+                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: return@withContext Result.failure(IOException("验证码图解码失败"))
+                Result.success(bmp)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchCaptcha 失败(可能未连校园网)", e)
+            Result.failure(e)
+        }
+    }
+
+    // ── 登录 ─────────────────────────────────────────────────
+    /**
+     * 完整登录。需先 [fetchCaptcha] 展示验证码图,用户输入后调此方法。
+     * @param username 用户名 = C + 学号(如 CG62314006)
+     * @param password 密码 = 学号本身(如 G62314006);文档表格误标为"身份证后6位",
+     *                 抓包/复现脚本实际跑通值是学号
+     * @param captcha 4 位验证码
+     */
+    suspend fun login(username: String, password: String, captcha: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            try {
+                // step1: /login/get
+                val step1Body = FormBody.Builder()
+                    .add("asdfsdf", username).add("dfgdfg", password).add("fghfghfg", captcha).build()
+                val r1 = client.newCall(
+                    Request.Builder().url("$baseUrl/login/get?tk=null")
+                        .header("User-Agent", UA)
+                        .header("X-Requested-With", "XMLHttpRequest")
+                        .header("Referer", "$baseUrl/redirect/login")
+                        .post(step1Body).build()
+                ).execute()
+                val body1 = r1.use { if (!it.isSuccessful) return@withContext Result.failure(IOException("login/get HTTP ${it.code}")); it.body?.string().orEmpty() }
+                val json1 = runCatching { JsonParser.parseString(body1).asJsonObject }.getOrNull()
+                    ?: return@withContext Result.failure(IOException("login/get 非 JSON: ${body1.take(120)}"))
+                val err1 = json1.get("errCode")?.asString
+                if (err1 != "0") {
+                    val msg = if (err1 == "993") "验证码错误" else json1.get("errMsg")?.asString ?: "登录失败($err1)"
+                    return@withContext Result.failure(IOException(msg))
+                }
+                val data1 = json1.getAsJsonObject("data")
+                    ?: return@withContext Result.failure(IOException("登录返回 data 为空"))
+                val uid = data1.get("dfgdfg")?.asString.orEmpty()
+                val jwt1 = data1.get("zxczxc")?.asString.orEmpty()
+                // errCode=0 但 data 为空串 → 账密错(服务端不报错,靠空 data 表达)
+                if (uid.isBlank() || jwt1.isBlank())
+                    return@withContext Result.failure(IOException("用户名或密码错误(用户名 = C+学号,密码 = 学号)"))
+
+                // step2: /login/unified
+                // dfgdfg = MD5(uuid + 密码).大写 —— 登录页 JS login1(): $.md5(data + dfgdfg).toUpperCase()
+                // (曾误用 jwt1.sub,服务端拒绝返回 data:null;算法从 redirect/login 内联脚本破解)
+                val hashed = md5Upper(uid + password)
+                val step2Body = FormBody.Builder()
+                    .add("asdfsdf", username).add("dfgdfg", hashed).add("zxczxc", jwt1)
+                    .add("fghfghfg", captcha).add("vbnvbnvbn", "false")
+                    .add("url", "$baseUrl/redirect/login").build()
+                val r2 = client.newCall(
+                    Request.Builder().url("$baseUrl/login/unified?tk=null")
+                        .header("User-Agent", UA)
+                        .header("X-Requested-With", "XMLHttpRequest")
+                        .header("Referer", "$baseUrl/redirect/login")
+                        .post(step2Body).build()
+                ).execute()
+                val body2 = r2.use { if (!it.isSuccessful) return@withContext Result.failure(IOException("login/unified HTTP ${it.code}")); it.body?.string().orEmpty() }
+                val json2 = runCatching { JsonParser.parseString(body2).asJsonObject }.getOrNull()
+                    ?: return@withContext Result.failure(IOException("login/unified 非 JSON: ${body2.take(120)}"))
+                val err2 = json2.get("errCode")?.asString
+                if (err2 != "0") {
+                    val msg = when (err2) {
+                        "995" -> "登录校验失败(参数错误)"
+                        "993" -> "验证码错误"
+                        "997" -> "登录已超时,请重试"
+                        else -> json2.get("errMsg")?.asString ?: "统一登录失败($err2)"
+                    }
+                    return@withContext Result.failure(IOException(msg))
+                }
+                val mainJwt = json2.getAsJsonObject("data")?.get("t")?.asString.orEmpty()
+                if (mainJwt.isBlank())
+                    return@withContext Result.failure(IOException("未拿到主站 JWT"))
+
+                // 落地
+                tk = mainJwt
+                userId = uid
+                sessionManager.saveCProgSession(mainJwt, uid, currentJsessionid().orEmpty())
+                sessionManager.saveCProgCredentials(username, password)
+                Result.success("登录成功")
+            } catch (e: Exception) {
+                Log.e(TAG, "login 失败", e)
+                Result.failure(e)
+            }
+        }
+
+    /** 标准 MD5,输出大写 hex(对齐登录页 $.md5(...).toUpperCase()) */
+    private fun md5Upper(input: String): String {
+        val bytes = java.security.MessageDigest.getInstance("MD5").digest(input.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02X".format(it) }
+    }
+
+    suspend fun clearSession() {
+        tk = null
+        userId = null
+        cookieStore.clear()
+        sessionManager.clearCProgSession()
+    }
+
+    /** 保存的用户名/密码,供登录卡预填 */
+    fun savedUsername(): String? = sessionManager.getCProgUsername()
+    fun savedPassword(): String? = sessionManager.getCProgIdno()
+}

@@ -16,6 +16,8 @@ import com.ahu_plus.data.repository.WeLearnAuthRepository
 import com.ahu_plus.data.repository.WeLearnRepository
 import com.ahu_plus.data.repository.WeLearnAnswerRepository
 import com.ahu_plus.data.repository.WeLearnStudyRepository
+import com.ahu_plus.data.repository.CProgAuthRepository
+import com.ahu_plus.data.repository.CProgRepository
 import com.ahu_plus.data.repository.KqAttendanceRepository
 import com.ahu_plus.data.update.UpdateManager
 import com.ahu_plus.data.repository.CardRepository
@@ -120,6 +122,11 @@ class AhuPlusApplication : Application() {
     lateinit var weLearnAnswerRepository: WeLearnAnswerRepository
     lateinit var weLearnStudyRepository: WeLearnStudyRepository
         private set
+    // 大学计算机平台 (C 语言在线评测, 内网)
+    lateinit var cProgAuthRepository: CProgAuthRepository
+        private set
+    lateinit var cProgRepository: CProgRepository
+        private set
     lateinit var chaoxingNotificationRepository: ChaoxingNotificationRepository
         private set
     lateinit var updateManager: UpdateManager
@@ -204,6 +211,10 @@ class AhuPlusApplication : Application() {
         weLearnAnswerRepository = WeLearnAnswerRepository(weLearnAuthRepository)
         weLearnStudyRepository = WeLearnStudyRepository(weLearnAuthRepository, weLearnRepository, weLearnAnswerRepository)
         weLearnAuthRepository.loadPersistedCookies()
+        // 大学计算机平台 (C 语言在线评测, 内网, 独立 JWT+JSESSIONID)
+        cProgAuthRepository = CProgAuthRepository(sessionManager)
+        cProgRepository = CProgRepository(cProgAuthRepository)
+        cProgAuthRepository.loadPersistedSession()
         // 首次登录初始化协调器 (2026-06-22 新增) — 串行预热 7 项核心数据
         initCoordinator = com.ahu_plus.data.repository.InitCoordinator(
             sessionManager = sessionManager,

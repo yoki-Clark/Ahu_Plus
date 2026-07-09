@@ -46,6 +46,13 @@
 - repos：`MarketRepository` `AiCommentRepository`(AI 点评)
 - screens：`market/`（List/Hot/Detail/Notices/Settings/Compose + Components/ExportUtils/ViewModel）
 
+## :feature-cprog — 大学计算机平台（C 语言在线评测,内网 http;独立学号+身份证后6位+验证码;key 前缀 cprog_）
+
+- repos：`CProgAuthRepository`(登录闭环:redirect/login→kaptcha→login/get→login/unified,dfgdfg=jwt1.sub;JSESSIONID+JWT 持久化) `CProgRepository`(只读:section/query·getSubjects·exams/search/query 分页·assign/paper3+paper/message 整卷)
+- screens：`cprog/`（Screen 容器 + Login/List/Paper 三页 + ViewModel 状态机）。入口挂 AppHub「学习」组「大学计算机平台」
+- 合规：仅练习(lianxi)进卷看答案;考试/测试进卷=真开考+监考+耗次数,UI 不放行
+- 网络：内网 172.17.106.232:8080 明文,network_security_config 白名单;baseUrl 登录页高级设置可配
+
 ## :feature-chaoxing — 超星学习通（独立手机号+密码；key 前缀 cx_）
 
 - repos：`ChaoxingRepository`(核心 API) `ChaoxingStudyRepository`(自动学习引擎) `ChaoxingTikuRepository`(题库链+答案标准化) `ChaoxingNotificationRepository`(完成通知)
