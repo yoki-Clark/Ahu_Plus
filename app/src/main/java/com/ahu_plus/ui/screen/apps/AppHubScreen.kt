@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.EventBusy
@@ -127,6 +128,7 @@ private const val PAGE_TRAINING_PLAN = "trainingPlan"
 private const val PAGE_ATTENDANCE = "attendance"
 private const val PAGE_EMPTY_CLASSROOM = "emptyClassroom"
 private const val PAGE_WEATHER = "weather"
+private const val PAGE_CPROG = "cprog"
 
 @Composable
 fun AppHubScreen(
@@ -212,6 +214,16 @@ fun AppHubScreen(
             viewModel = weatherViewModel,
             onBack = { currentPage = null }
         )
+        PAGE_CPROG -> {
+            // 进入时才建 VM(触发登录态判定/首次拉列表),对齐排考预测懒创建
+            val cProgViewModel = remember {
+                com.ahu_plus.ui.screen.cprog.CProgViewModel(app)
+            }
+            com.ahu_plus.ui.screen.cprog.CProgScreen(
+                viewModel = cProgViewModel,
+                onBack = { currentPage = null }
+            )
+        }
         PAGE_NOTICES -> JwcNoticeListScreen(
             viewModel = jwcNoticeListViewModel,
             onBack = { currentPage = null }
@@ -392,6 +404,11 @@ private fun AppHubPage(
             item {
                 AppHubItem("空教室查询", Icons.Filled.Room, AhuGreen) {
                     onNavigate(PAGE_EMPTY_CLASSROOM)
+                }
+            }
+            item {
+                AppHubItem("大学计算机平台", Icons.Filled.Computer, AhuTeal) {
+                    onNavigate(PAGE_CPROG)
                 }
             }
 
