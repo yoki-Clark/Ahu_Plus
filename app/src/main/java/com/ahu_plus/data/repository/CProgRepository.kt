@@ -3,6 +3,7 @@ package com.ahu_plus.data.repository
 import android.util.Log
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.ahu_plus.data.model.CProgAttemptPage
 import com.ahu_plus.data.model.CProgExamPage
 import com.ahu_plus.data.model.CProgExamRow
 import com.ahu_plus.data.model.CProgOption
@@ -14,6 +15,7 @@ import com.ahu_plus.data.model.CProgSubject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import java.io.IOException
 
@@ -83,6 +85,75 @@ class CProgRepository(
         }
     }
 
+    private fun buildUrl(
+        path: String,
+        query: Map<String, String> = emptyMap(),
+        includeTk: Boolean = false,
+    ): String = "$base$path".toHttpUrl().newBuilder().apply {
+        if (includeTk) addQueryParameter("tk", auth.tk.orEmpty())
+        query.forEach { (key, value) -> addQueryParameter(key, value) }
+    }.build().toString()
+
+    /** POST used by the achievement pages. Referer query parameters matter on detail requests. */
+    private fun postAchievement(
+        path: String,
+        refererPath: String,
+        form: Map<String, String>,
+        refererQuery: Map<String, String> = emptyMap(),
+        includeTkInReferer: Boolean = false,
+    ): String {
+        val url = buildUrl(
+            path = path,
+            query = mapOf("rand" to System.currentTimeMillis().toString()),
+            includeTk = true,
+        )
+        val requestBody = FormBody.Builder().apply {
+            form.forEach { (key, value) -> add(key, value) }
+        }.build()
+        val response = client.newCall(
+            Request.Builder().url(url)
+                .header("User-Agent", UA)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Referer", buildUrl(refererPath, refererQuery, includeTkInReferer))
+                .post(requestBody)
+                .build()
+        ).execute()
+        response.use {
+            if (it.code == 302 || it.code == 401 || it.code == 403) throw IOException(SESSION_EXPIRED)
+            if (!it.isSuccessful) throw IOException("HTTP ${it.code}")
+            val body = it.body?.string().orEmpty()
+            if (isLoginPage(body)) throw IOException(SESSION_EXPIRED)
+            return body
+        }
+    }
+
+    /** GET a content page. Valid HTML must not be classified as an expired JSON session. */
+    private fun getHtml(
+        path: String,
+        refererPath: String,
+        query: Map<String, String>,
+        refererQuery: Map<String, String> = emptyMap(),
+        includeTk: Boolean = false,
+        includeTkInReferer: Boolean = false,
+    ): String {
+        val response = client.newCall(
+            Request.Builder().url(buildUrl(path, query, includeTk))
+                .header("User-Agent", UA)
+                .header("Referer", buildUrl(refererPath, refererQuery, includeTkInReferer))
+                .build()
+        ).execute()
+        response.use {
+            if (it.code == 302 || it.code == 401 || it.code == 403) throw IOException(SESSION_EXPIRED)
+            if (!it.isSuccessful) throw IOException("HTTP ${it.code}")
+            val body = it.body?.string().orEmpty()
+            if (isLoginPage(body)) throw IOException(SESSION_EXPIRED)
+            return body
+        }
+    }
+
+    private fun isLoginPage(body: String): Boolean =
+        body.contains("/login/get") && body.contains("asdfsdf")
+
     private fun requireData(body: String): JsonObject {
         val json = JsonParser.parseString(body).asJsonObject
         val err = json.get("errCode")?.asString
@@ -106,6 +177,102 @@ class CProgRepository(
         get() = if (isJsonPrimitive) runCatching { asInt }.getOrNull() else null
     private val com.google.gson.JsonElement.asDoubleOrNull: Double?
         get() = if (isJsonPrimitive) runCatching { asDouble }.getOrNull() else null
+
+    // ── 只读成绩与作答历史 ───────────────────────────────────────────────
+
+    /** 已提交成绩列表。该接口只查询历史结果,不会创建或恢复答题场次。 */
+    suspend fun listResults(
+        subjectId: String = "",
+        caption: String = "",
+        page: Int = 1,
+        rows: Int = 50,
+    ): Result<CProgExamPage> = withContext(Dispatchers.IO) {
+        runCatching {
+            val userId = auth.userId.orEmpty()
+            val body = postAchievement(
+                path = "/site/achievement/gradeTable/query",
+                refererPath = "/site/achievement/search/init",
+                refererQuery = mapOf("userId" to userId),
+                includeTkInReferer = true,
+                form = mapOf(
+                    "filter_EQ_eu.user_id" to userId,
+                    "filter_EQ_e.subject_id" to subjectId,
+                    "filter_LIKE_e.caption" to caption,
+                    "filter_NEQ_e.status" to "0",
+                    "filter_EQ_e.grouping" to "",
+                    "page" to page.toString(),
+                    "rows" to rows.toString(),
+                    "sidx" to "createTime",
+                    "sord" to "desc",
+                ),
+            )
+            CProgResponseParser.parseResultPage(body, subjectId)
+        }.onFailure { Log.e(TAG, "listResults", it) }
+    }
+
+    /** 某个考试的全部已提交作答,按成绩和更新时间倒序。 */
+    suspend fun listAttempts(
+        examId: String,
+        page: Int = 1,
+        rows: Int = 50,
+    ): Result<CProgAttemptPage> = withContext(Dispatchers.IO) {
+        runCatching {
+            val userId = auth.userId.orEmpty()
+            val refererQuery = mapOf("userId" to userId, "examId" to examId)
+            val body = postAchievement(
+                path = "/site/achievement/full/history/query",
+                refererPath = "/site/achievement/full/history/init",
+                refererQuery = refererQuery,
+                form = mapOf(
+                    "filter_EQ_euh.EXAM_ID" to examId,
+                    "filter_EQ_euh.USER_ID" to userId,
+                    "page" to page.toString(),
+                    "rows" to rows.toString(),
+                    "sidx" to "grade,updateTime",
+                    "sord" to "desc,desc",
+                ),
+            )
+            CProgResponseParser.parseAttemptPage(body)
+        }.onFailure { Log.e(TAG, "listAttempts", it) }
+    }
+
+    /**
+     * 读取一次历史作答。先打开 details/init 获取服务端注入的 paperId,再调用只读 result。
+     * 整个流程不触达 assign/paper3,因此不会创建答题场次或消耗次数。
+     */
+    suspend fun getAttemptPaper(examId: String, attemptId: String): Result<CProgPaper> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val userId = auth.userId.orEmpty()
+                val historyQuery = mapOf("userId" to userId, "examId" to examId)
+                val initQuery = mapOf(
+                    "examId" to examId,
+                    "userId" to userId,
+                    "top" to "0",
+                    "id" to attemptId,
+                )
+                val html = getHtml(
+                    path = "/site/achievement/full/history/details/init",
+                    refererPath = "/site/achievement/full/history/init",
+                    query = initQuery,
+                    refererQuery = historyQuery,
+                )
+                val paperId = CProgResponseParser.extractPaperId(html)
+                    ?: throw IOException("未找到作答试卷标识")
+                val body = postAchievement(
+                    path = "/site/achievement/full/history/details/result",
+                    refererPath = "/site/achievement/full/history/details/init",
+                    refererQuery = initQuery,
+                    form = mapOf(
+                        "eid" to examId,
+                        "pid" to paperId,
+                        "userId" to userId,
+                        "id" to attemptId,
+                    ),
+                )
+                CProgResponseParser.parsePaperResponse(body)
+            }.onFailure { Log.e(TAG, "getAttemptPaper", it) }
+        }
 
     // ── 分类计数 ─────────────────────────────────────────────
     suspend fun getSections(): Result<List<CProgSection>> = withContext(Dispatchers.IO) {
@@ -200,7 +367,7 @@ class CProgRepository(
     /**
      * 抽卷并拉完整试卷(题干 + 参考答案)。
      * ⚠️ 仅应对"练习"调用 —— 对考试/测试会真正开始一场受监考考试并消耗次数。
-     * 调用点(UI)已限制只有练习分类可进入。
+     * 方法暂时保留供未来答题能力复用,当前 UI 不调用。
      */
     suspend fun getPaper(examId: String): Result<CProgPaper> = withContext(Dispatchers.IO) {
         runCatching {
