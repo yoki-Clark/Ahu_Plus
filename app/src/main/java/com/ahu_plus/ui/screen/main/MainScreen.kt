@@ -331,6 +331,8 @@ fun MainScreen(
     val chaoxingViewModel: ChaoxingViewModel = viewModel(factory = factory)
     val weLearnViewModel: WeLearnViewModel = viewModel(factory = factory)
     val weatherViewModel: WeatherViewModel = viewModel(factory = factory)
+    val evaluationViewModel: com.ahu_plus.ui.screen.evaluation.EvaluationViewModel =
+        viewModel(factory = factory)
     val agendaViewModel: com.ahu_plus.ui.screen.agenda.AgendaViewModel = viewModel(factory = factory)
     val agendaEventsByDate by agendaViewModel.eventsByDate.collectAsStateWithLifecycle()
 
@@ -757,6 +759,7 @@ fun MainScreen(
                     attendanceViewModel = attendanceViewModel,
                     weatherViewModel = weatherViewModel,
                     agendaViewModel = agendaViewModel,
+                    evaluationViewModel = evaluationViewModel,
                     onNeedsLogin = onReauth
                 )
                 selectedTab == TAB_PROFILE -> ProfileScreen(

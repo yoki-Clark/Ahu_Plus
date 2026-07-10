@@ -24,6 +24,7 @@ import com.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
+import com.ahu_plus.ui.screen.evaluation.EvaluationViewModel
 import com.ahu_plus.ui.screen.exam.ExamViewModel
 import com.ahu_plus.ui.screen.grade.GradeViewModel
 import com.ahu_plus.ui.screen.home.HomeViewModel
@@ -117,6 +118,10 @@ class MainScreenViewModelFactory(
             ) as T
             WeLearnViewModel::class.java -> WeLearnViewModel(app) as T
             WeatherViewModel::class.java -> WeatherViewModel(app.weatherManager) as T
+            EvaluationViewModel::class.java -> EvaluationViewModel(
+                evaluationRepository = app.evaluationRepository,
+                jwAuthRepository = jwAuthRepository,
+            ) as T
             else -> error("Unknown ViewModel class: ${modelClass.name}")
         }
     }
