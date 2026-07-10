@@ -4,9 +4,9 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.AhuPlusApplication
+import com.ahu_plus.data.model.CProgAttempt
 import com.ahu_plus.data.model.CProgExamRow
 import com.ahu_plus.data.model.CProgPaper
-import com.ahu_plus.data.model.CProgSection
 import com.ahu_plus.data.model.CProgSubject
 import com.ahu_plus.data.repository.CProgRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,11 +15,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 大学计算机平台 ViewModel。三层页面栈:登录 → 列表 → 整卷。
+ * 大学计算机平台 ViewModel。页面栈:登录 → 成绩列表 → 作答记录 → 作答详情。
  *
  * 登录闭环:fetchCaptcha 展示验证码 → 用户输码 → login。
- * 列表:科目下拉 + 分类计数 + jqGrid 分页。
- * 整卷:仅练习(isPracticeSafe)可进,查看题干 + 参考答案。
+ * 所有主页面都走 achievement 只读接口,不会调用 assign/paper3 创建答题场次。
  */
 class CProgViewModel(
     private val app: AhuPlusApplication,
@@ -32,7 +31,8 @@ class CProgViewModel(
     sealed class Page {
         data object Login : Page()
         data object List : Page()
-        data class Paper(val exam: CProgExamRow) : Page()
+        data class History(val exam: CProgExamRow) : Page()
+        data class Paper(val exam: CProgExamRow, val attempt: CProgAttempt) : Page()
     }
 
     private val _page = MutableStateFlow<Page>(if (auth.isLoggedIn()) Page.List else Page.Login)
@@ -59,7 +59,6 @@ class CProgViewModel(
     // ── 列表态 ───────────────────────────────────────────────
     data class ListUiState(
         val loading: Boolean = false,
-        val sections: List<CProgSection> = emptyList(),
         val subjects: List<CProgSubject> = emptyList(),
         val selectedSubjectId: String = "",      // ""=全部
         val exams: List<CProgExamRow> = emptyList(),
@@ -73,6 +72,20 @@ class CProgViewModel(
 
     private val _list = MutableStateFlow(ListUiState())
     val list: StateFlow<ListUiState> = _list.asStateFlow()
+
+    data class HistoryUiState(
+        val loading: Boolean = false,
+        val attempts: List<CProgAttempt> = emptyList(),
+        val page: Int = 1,
+        val records: Int = 0,
+        val hasMore: Boolean = false,
+        val loadingMore: Boolean = false,
+        val error: String? = null,
+        val needsLogin: Boolean = false,
+    )
+
+    private val _history = MutableStateFlow(HistoryUiState())
+    val history: StateFlow<HistoryUiState> = _history.asStateFlow()
 
     // ── 整卷态 ───────────────────────────────────────────────
     data class PaperUiState(
@@ -150,6 +163,7 @@ class CProgViewModel(
         viewModelScope.launch {
             auth.clearSession()
             _list.value = ListUiState()
+            _history.value = HistoryUiState()
             _paper.value = PaperUiState()
             _login.value = _login.value.copy(captcha = null, error = null)
             _page.value = Page.Login
@@ -160,16 +174,13 @@ class CProgViewModel(
     fun refreshList() {
         viewModelScope.launch {
             _list.value = _list.value.copy(loading = true, error = null, needsLogin = false)
-            // 并行拉分类计数 + 科目(首次)
-            val sections = repo.getSections().getOrDefault(emptyList())
             val subjects = if (_list.value.subjects.isEmpty())
                 repo.getSubjects().getOrDefault(emptyList()) else _list.value.subjects
-            val examRes = repo.listExams(subjectId = _list.value.selectedSubjectId, page = 1, rows = PAGE_ROWS)
+            val examRes = repo.listResults(subjectId = _list.value.selectedSubjectId, page = 1, rows = PAGE_ROWS)
             examRes.fold(
                 onSuccess = { pg ->
                     _list.value = _list.value.copy(
                         loading = false,
-                        sections = sections,
                         subjects = subjects,
                         exams = pg.rows,
                         page = 1,
@@ -190,7 +201,7 @@ class CProgViewModel(
         viewModelScope.launch {
             _list.value = s.copy(loadingMore = true)
             val next = s.page + 1
-            repo.listExams(subjectId = s.selectedSubjectId, page = next, rows = PAGE_ROWS).fold(
+            repo.listResults(subjectId = s.selectedSubjectId, page = next, rows = PAGE_ROWS).fold(
                 onSuccess = { pg ->
                     val merged = s.exams + pg.rows
                     _list.value = _list.value.copy(
@@ -221,12 +232,64 @@ class CProgViewModel(
         if (expired) _page.value = Page.Login
     }
 
-    // ── 整卷动作 ─────────────────────────────────────────────
-    fun openPaper(exam: CProgExamRow) {
-        _page.value = Page.Paper(exam)
+    // ── 作答历史与详情 ─────────────────────────────────────────
+    fun openHistory(exam: CProgExamRow) {
+        _page.value = Page.History(exam)
+        refreshHistory(exam)
+    }
+
+    fun refreshHistory(exam: CProgExamRow) {
+        _history.value = HistoryUiState(loading = true)
+        viewModelScope.launch {
+            repo.listAttempts(exam.examId, page = 1, rows = PAGE_ROWS).fold(
+                onSuccess = { page ->
+                    _history.value = HistoryUiState(
+                        attempts = page.rows,
+                        page = 1,
+                        records = page.records,
+                        hasMore = page.rows.size < page.records,
+                    )
+                },
+                onFailure = { error -> handleHistoryError(error) },
+            )
+        }
+    }
+
+    fun loadMoreHistory(exam: CProgExamRow) {
+        val state = _history.value
+        if (state.loading || state.loadingMore || !state.hasMore) return
+        viewModelScope.launch {
+            _history.value = state.copy(loadingMore = true)
+            val next = state.page + 1
+            repo.listAttempts(exam.examId, page = next, rows = PAGE_ROWS).fold(
+                onSuccess = { page ->
+                    val merged = state.attempts + page.rows
+                    _history.value = _history.value.copy(
+                        loadingMore = false,
+                        attempts = merged,
+                        page = next,
+                        hasMore = merged.size < page.records && page.rows.isNotEmpty(),
+                    )
+                },
+                onFailure = { _history.value = _history.value.copy(loadingMore = false) },
+            )
+        }
+    }
+
+    private fun handleHistoryError(error: Throwable) {
+        val expired = error.message == CProgRepository.SESSION_EXPIRED
+        _history.value = HistoryUiState(
+            error = if (expired) null else (error.message ?: "作答记录加载失败"),
+            needsLogin = expired,
+        )
+        if (expired) _page.value = Page.Login
+    }
+
+    fun openPaper(exam: CProgExamRow, attempt: CProgAttempt) {
+        _page.value = Page.Paper(exam, attempt)
         _paper.value = PaperUiState(loading = true)
         viewModelScope.launch {
-            repo.getPaper(exam.examId).fold(
+            repo.getAttemptPaper(exam.examId, attempt.id).fold(
                 onSuccess = { _paper.value = PaperUiState(paper = it) },
                 onFailure = {
                     val expired = it.message == CProgRepository.SESSION_EXPIRED
@@ -240,8 +303,14 @@ class CProgViewModel(
         }
     }
 
+    fun backToHistory(exam: CProgExamRow) {
+        _page.value = Page.History(exam)
+        _paper.value = PaperUiState()
+    }
+
     fun backToList() {
         _page.value = Page.List
+        _history.value = HistoryUiState()
         _paper.value = PaperUiState()
     }
 }

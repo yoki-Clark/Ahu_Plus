@@ -4,10 +4,11 @@ package com.ahu_plus.data.model
  * 大学计算机平台(C 语言在线评测系统, issuer w2eesweb)数据模型。
  *
  * 独立认证:学号 + 身份证后 6 位 + 验证码 → JWT + JSESSIONID 双因素。
- * 只读接入:分类计数 → 科目 → 考试/练习列表(jqGrid) → 整卷(题干 + 参考答案)。
+ * 主只读链路:成绩列表 → 作答记录 → 作答详情(本人答案 + 标准答案)。
+ * 原考试/练习与抽卷模型暂时保留,供未来答题能力复用。
  *
- * ⚠️ 合规:进卷(assign/paper3)对"考试/测试"是真正开始一场受监考的考试,
- * 仅"练习(lianxi)"分类无害且带标准答案 —— UI 层只放行练习进卷。
+ * ⚠️ 合规:进卷(assign/paper3)对"考试/测试"会真正开始一场受监考的考试。
+ * 当前 UI 不调用该接口;未来重新启用时只能对"练习(lianxi)"开放。
  */
 
 /** 登录第一步 /login/get 返回:userId(uuid) + 第一段 JWT */
@@ -43,6 +44,9 @@ data class CProgExamRow(
     val grade: Double = 0.0,
     val examCreateTime: String?,
     val examClient: String?,       // "1"=客户端 "2"=服务端
+    val recordCounts: Int = 0,
+    val examStatus: Int = 0,
+    val examHistoryLook: String? = null,
 )
 
 /** jqGrid 分页响应包装(无 errCode,靠 HTTP 状态判成败) */
@@ -53,6 +57,26 @@ data class CProgExamPage(
     val rows: List<CProgExamRow> = emptyList(),
 )
 
+/** 一次已提交的作答记录。详情接口需要 [id]、考试 ID 和当前登录用户 ID。 */
+data class CProgAttempt(
+    val id: String,
+    val examId: String,
+    val examCaption: String,
+    val subjectCaption: String?,
+    val status: Int,
+    val grade: Double,
+    val durationSeconds: Int,
+    val createTime: String?,
+    val submitTime: String?,
+)
+
+data class CProgAttemptPage(
+    val total: Int = 0,
+    val records: Int = 0,
+    val page: Int = 1,
+    val rows: List<CProgAttempt> = emptyList(),
+)
+
 /** 整卷:题型分组 + 元信息 */
 data class CProgPaper(
     val examId: String,
@@ -61,6 +85,7 @@ data class CProgPaper(
     val paperQuestionCount: Int = 0,
     val paperQuestionTypeCount: Int = 0,
     val paperGrade: Double = 0.0,
+    val studentGrade: Double? = null,
     val paperRemainingTimesHourMinuteSecond: String? = null,
     val questionTypes: List<CProgQuestionType> = emptyList(),
 )
@@ -80,6 +105,9 @@ data class CProgQuestionItem(
     val answer: String?,            // 参考答案(改错题以 ^~^ 分隔片段)
     val knowledgeCaption: String?,  // 知识点,如 "/C语言/数据类型"
     val options: List<CProgOption> = emptyList(),
+    val studentAnswer: String? = null,
+    val studentGrade: Double? = null,
+    val analysis: String? = null,
 )
 
 /** 单选题选项 */

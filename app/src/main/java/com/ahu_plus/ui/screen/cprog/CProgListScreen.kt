@@ -22,8 +22,8 @@ import com.ahu_plus.ui.components.AhuCard
 import com.ahu_plus.ui.components.AhuTopAppBar
 
 /**
- * 大学计算机平台列表页:科目下拉 + 分类计数 + jqGrid 分页列表。
- * 只有练习行可点进整卷看答案(其余分类当前抓包为 0 条,列表通常为空)。
+ * 大学计算机平台成绩列表页:科目筛选 + jqGrid 分页。
+ * 点击一项进入已提交作答记录,不会开始新的考试。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,24 +64,6 @@ fun CProgListScreen(
         },
     ) { inner ->
         Column(modifier = Modifier.fillMaxSize().padding(inner)) {
-            // 分类计数条(只读展示)
-            if (state.sections.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    state.sections.forEach { sec ->
-                        AssistChip(
-                            onClick = {},
-                            enabled = false,
-                            label = { Text("${sec.title} ${sec.counts}") },
-                        )
-                    }
-                }
-            }
-
             // 科目下拉
             if (state.subjects.isNotEmpty()) {
                 SubjectDropdown(
@@ -103,7 +85,7 @@ fun CProgListScreen(
 
                 state.exams.isEmpty() -> Box(
                     Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center,
-                ) { Text("暂无可查看的练习", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                ) { Text("暂无可查看的成绩记录", color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
                 else -> LazyColumn(
                     state = listState,
@@ -112,7 +94,7 @@ fun CProgListScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(state.exams, key = { it.examId }) { exam ->
-                        ExamCard(exam = exam, onClick = { viewModel.openPaper(exam) })
+                        ExamCard(exam = exam, onClick = { viewModel.openHistory(exam) })
                     }
                     if (state.loadingMore) {
                         item {
@@ -181,3 +163,6 @@ private fun ExamCard(exam: CProgExamRow, onClick: () -> Unit) {
         }
     }
 }
+
+internal fun formatCProgScore(score: Double): String =
+    if (score % 1.0 == 0.0) score.toInt().toString() else "%.1f".format(score)

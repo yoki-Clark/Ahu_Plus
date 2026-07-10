@@ -41,12 +41,20 @@ class CProgAuthRepository(
         const val DEFAULT_BASE_URL = "http://172.17.106.232:8080"
         private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+
+        internal fun normalizeBaseUrl(configured: String?): String {
+            val normalized = configured?.trim()?.trimEnd('/').orEmpty()
+            if (normalized.isBlank()) return DEFAULT_BASE_URL
+            val url = runCatching { normalized.toHttpUrl() }.getOrNull()
+            val isWebVpnWrapper = url?.host == "wvpn.ahu.edu.cn" &&
+                url.encodedPath.startsWith("/http-8080/")
+            return if (isWebVpnWrapper) DEFAULT_BASE_URL else normalized
+        }
     }
 
     /** 当前 baseUrl(去尾斜杠),来自 SessionManager,可在设置里改 */
     val baseUrl: String
-        get() = (sessionManager.getCProgBaseUrl()?.takeIf { it.isNotBlank() } ?: DEFAULT_BASE_URL)
-            .trimEnd('/')
+        get() = normalizeBaseUrl(sessionManager.getCProgBaseUrl())
 
     // ── Cookie(JSESSIONID)存储,按 host 归集 ────────────────────
     private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
