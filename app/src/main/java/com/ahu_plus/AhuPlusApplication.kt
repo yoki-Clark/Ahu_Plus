@@ -141,6 +141,9 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var weatherManager: WeatherManager
         private set
+    // 评教 (jw.ahu.edu.cn/eams5-evaluation-service, 2026-07-11)
+    lateinit var evaluationRepository: com.ahu_plus.data.repository.EvaluationRepository
+        private set
     override fun onCreate() {
         super.onCreate()
 
@@ -248,6 +251,11 @@ class AhuPlusApplication : Application() {
         // 零登录,首页小卡 + 独立天气屏共用。
         weatherRepository = WeatherRepository(sessionManager)
         weatherManager = WeatherManager(sessionManager, weatherRepository)
+        // 评教 (2026-07-11 新增)
+        evaluationRepository = com.ahu_plus.data.repository.EvaluationRepository(
+            jwAuthRepository = jwAuthRepository,
+            sessionManager = sessionManager,
+        )
 
         // ── Widget / 课程提醒统一调度(2026-06-22 借鉴 AHUTong) ──
         // 首次启动排程,后续每次 scheduleNext 自递归。

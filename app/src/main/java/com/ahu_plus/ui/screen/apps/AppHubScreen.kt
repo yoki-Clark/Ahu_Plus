@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Grade
@@ -40,6 +41,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,12 +64,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import com.ahu_plus.ui.components.AhuSectionTitle
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.CenteredMessage
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeListScreen
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
 import com.ahu_plus.ui.screen.chaoxing.ChaoxingScreen
 import com.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomScreen
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
+import com.ahu_plus.ui.screen.evaluation.EvaluationDetailScreen
+import com.ahu_plus.ui.screen.evaluation.EvaluationListScreen
+import com.ahu_plus.ui.screen.evaluation.EvaluationViewModel
 import com.ahu_plus.ui.screen.weather.WeatherScreen
 import com.ahu_plus.ui.screen.weather.WeatherViewModel
 import com.ahu_plus.ui.screen.exam.ExamScreen
@@ -129,6 +135,8 @@ private const val PAGE_ATTENDANCE = "attendance"
 private const val PAGE_EMPTY_CLASSROOM = "emptyClassroom"
 private const val PAGE_WEATHER = "weather"
 private const val PAGE_CPROG = "cprog"
+private const val PAGE_EVALUATION = "evaluation"
+private const val PAGE_EVALUATION_DETAIL = "evaluationDetail"
 
 @Composable
 fun AppHubScreen(
@@ -144,6 +152,7 @@ fun AppHubScreen(
     attendanceViewModel: AttendanceViewModel,
     weatherViewModel: WeatherViewModel,
     agendaViewModel: AgendaViewModel,
+    evaluationViewModel: EvaluationViewModel,
     onNeedsLogin: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as AhuPlusApplication
@@ -157,12 +166,18 @@ fun AppHubScreen(
     var currentPage by rememberSaveable { mutableStateOf<String?>(null) }
     val hubListState = rememberLazyListState()
 
+    // 评教详情子页的当前任务(由列表点击进入,不序列化以避免 stdSumTaskId 序列化要求)
+    var selectedEvaluationTask by remember {
+        mutableStateOf<com.ahu_plus.data.model.evaluation.TeacherEvaluationTask?>(null)
+    }
+
     // 系统返回键：子页面 → hub
     // 注意: 我的信息二级入口(基本信息/住宿/预警) → MyInfoHub；财务/考勤 → 直接回应用页
     BackHandler(enabled = currentPage != null) {
         currentPage = when (currentPage) {
             PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO, PAGE_ACADEMIC_WARNING -> PAGE_MY_INFO_HUB
             PAGE_EXAM_PREDICTION -> PAGE_EXAM
+            PAGE_EVALUATION_DETAIL -> PAGE_EVALUATION
             else -> null
         }
     }
@@ -223,6 +238,32 @@ fun AppHubScreen(
                 viewModel = cProgViewModel,
                 onBack = { currentPage = null }
             )
+        }
+        PAGE_EVALUATION -> EvaluationListScreen(
+            viewModel = evaluationViewModel,
+            onBack = { currentPage = null },
+            onOpenTask = {
+                selectedEvaluationTask = it
+                currentPage = PAGE_EVALUATION_DETAIL
+            },
+        )
+        PAGE_EVALUATION_DETAIL -> {
+            val task = selectedEvaluationTask
+            if (task == null) {
+                // 无 task 上下文(理论上 BackHandler 已经回 PAGE_EVALUATION),直接返回列表
+                LaunchedEffect(Unit) { currentPage = PAGE_EVALUATION }
+                CenteredMessage("正在返回列表…")
+            } else {
+                EvaluationDetailScreen(
+                    task = task,
+                    viewModel = evaluationViewModel,
+                    onBack = {
+                        evaluationViewModel.resetDetail()
+                        selectedEvaluationTask = null
+                        currentPage = PAGE_EVALUATION
+                    },
+                )
+            }
         }
         PAGE_NOTICES -> JwcNoticeListScreen(
             viewModel = jwcNoticeListViewModel,
@@ -409,6 +450,11 @@ private fun AppHubPage(
             item {
                 AppHubItem("大学计算机平台", Icons.Filled.Computer, AhuTeal) {
                     onNavigate(PAGE_CPROG)
+                }
+            }
+            item {
+                AppHubItem("评教", Icons.Filled.RateReview, AhuIndigo, gradient = AhuGradient.Blue.brush) {
+                    onNavigate(PAGE_EVALUATION)
                 }
             }
 

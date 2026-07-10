@@ -239,6 +239,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
      */
     @Volatile private var cachedExamPredictionsJson: String? = null
 
+    @Volatile private var cachedEvaluationJwt: String? = null
+
     /**
      * 开发者公告 Gitee JSON 缓存:
      * 由 [com.ahu_plus.data.repository.AnnouncementRepository]
@@ -654,6 +656,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedAdwmhQrFetchedAt = prefs[ADWMH_QR_FETCHED_AT_KEY] ?: 0L
 
         cachedExamPredictionsJson = prefs[EXAM_PREDICTIONS_JSON_KEY]
+        cachedEvaluationJwt = prefs[EVALUATION_JWT_KEY]
 
         cachedAnnouncementsJson = prefs[ANNOUNCEMENTS_JSON_KEY]
         cachedAnnouncementsFetchedAt = prefs[ANNOUNCEMENTS_FETCHED_AT_KEY] ?: 0L
@@ -2032,6 +2035,22 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it.remove(EXAM_PREDICTIONS_JSON_KEY) }
     }
 
+    // ── 评教 JWT 缓存 ─────────────────────────
+    // EvaluationRepository POST /token/renew 拿到的 JWT(12h),存起来跨次启动复用,
+    // 401 时由 Repository 自动 lazy 重 renew。
+
+    fun getEvaluationJwt(): String? = cachedEvaluationJwt
+
+    suspend fun saveEvaluationJwt(jwt: String) {
+        cachedEvaluationJwt = jwt
+        appDataStore.dataStore.edit { it[EVALUATION_JWT_KEY] = jwt }
+    }
+
+    suspend fun clearEvaluationJwt() {
+        cachedEvaluationJwt = null
+        appDataStore.dataStore.edit { it.remove(EVALUATION_JWT_KEY) }
+    }
+
     // ── 开发者公告 Gitee JSON 缓存 ─────────────────────────
     // 由 AnnouncementRepository 从 Gitee yao-enqi/ahu-plus-update 仓库的
     // announcements/announcements.json 拉取后写入。零登录。
@@ -3134,6 +3153,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val ADWMH_QR_SERVER_TEXT_KEY = stringPreferencesKey("adwmh_qr_server_text")
         val ADWMH_QR_FETCHED_AT_KEY = longPreferencesKey("adwmh_qr_fetched_at")
         val EXAM_PREDICTIONS_JSON_KEY = stringPreferencesKey("exam_predictions_json")
+        val EVALUATION_JWT_KEY = stringPreferencesKey("evaluation_jwt")
 
         // 开发者公告
         val ANNOUNCEMENTS_JSON_KEY = stringPreferencesKey("announcements_json")
@@ -3338,7 +3358,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
             AC_CONFIG_KEY, LIGHTING_CONFIG_KEY, NEW_CAMPUS_CONFIG_KEY,
 
-            ADWMH_SESSION_KEY, EXAM_PREDICTIONS_JSON_KEY,
+            ADWMH_SESSION_KEY, EXAM_PREDICTIONS_JSON_KEY, EVALUATION_JWT_KEY,
             ADWMH_QR_PAYLOAD_KEY, ADWMH_QR_SERVER_TEXT_KEY, ADWMH_QR_FETCHED_AT_KEY,
 
             TRAINING_PLAN_JSON_KEY, TRAINING_PLAN_UPDATED_AT_KEY, TRAINING_PLAN_CACHE_VERSION_KEY,
