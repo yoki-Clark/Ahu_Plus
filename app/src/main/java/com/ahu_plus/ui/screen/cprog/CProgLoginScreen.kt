@@ -23,7 +23,7 @@ import com.ahu_plus.ui.components.AhuTopAppBar
 
 /**
  * 大学计算机平台登录页:用户名(C+学号) + 密码(学号) + 验证码图。
- * 全程 App 内完成,验证码点击刷新。直连内网,用本机当前网络(校园网可达)。
+ * 全程 App 内完成,验证码点击刷新。校园网直连,其他网络自动通过 WebVPN。
  * 密码始终打码;提示只给格式,不带任何真实账号。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,7 +65,8 @@ fun CProgLoginScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    "仅校园网可访问。\n用户名 = 字母 C + 学号\n密码 = 你的学号",
+                    "校园网直连，其他网络自动通过 WebVPN。\n" +
+                        "用户名 = 字母 C + 学号\n密码 = 你的学号",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(12.dp),

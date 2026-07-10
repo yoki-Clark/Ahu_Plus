@@ -8,6 +8,8 @@ import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.network.SecureHttpClientFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
@@ -16,6 +18,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -30,8 +34,8 @@ import java.util.concurrent.ConcurrentHashMap
  * ⚠️ 坑:/login/get 返回的 data.dfgdfg 是 userId(uuid),但 /login/unified 提交的
  *    dfgdfg 是 jwt1 payload 的 sub(32 位 hex),两者同名不同值(见 replay_exam.py)。
  *
- * baseUrl 内网可配置(默认抓包 IP),仅校园网可达。JWT 与 JSESSIONID 强绑定,
- * 换 session 复用老 JWT 会被踢回登录页。
+ * 传输层自动选择:校园网直连内网 IP,不可达时通过 WebVPN + 代理 CAS 建立外网会话。
+ * JWT 与目标系统 session 强绑定,切换传输通道后需要重新完成本平台验证码登录。
  */
 class CProgAuthRepository(
     private val sessionManager: SessionManager,
@@ -39,22 +43,53 @@ class CProgAuthRepository(
     companion object {
         private const val TAG = "CProg"
         const val DEFAULT_BASE_URL = "http://172.17.106.232:8080"
+        const val WEBVPN_BASE_URL = "https://wvpn.ahu.edu.cn/http-8080/" +
+            "77726476706e69737468656265737421a1a013d2766726012e5ec7fecb07"
+        private const val WEBVPN_PORTAL_URL = "https://wvpn.ahu.edu.cn/https/" +
+            "77726476706e69737468656265737421fff944d226387d1e7b0c9ce29b5b/tp_up/view?m=up"
+        private const val WEBVPN_LOGIN_URL = "https://wvpn.ahu.edu.cn/login"
+        private const val WEBVPN_AJAX_MARKER = "vpn-12-o1-172.17.106.232:8080"
+        private const val DIRECT_PROBE_TIMEOUT_MS = 2_500
         private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
 
         internal fun normalizeBaseUrl(configured: String?): String {
             val normalized = configured?.trim()?.trimEnd('/').orEmpty()
             if (normalized.isBlank()) return DEFAULT_BASE_URL
-            val url = runCatching { normalized.toHttpUrl() }.getOrNull()
-            val isWebVpnWrapper = url?.host == "wvpn.ahu.edu.cn" &&
-                url.encodedPath.startsWith("/http-8080/")
-            return if (isWebVpnWrapper) DEFAULT_BASE_URL else normalized
+            return if (isWebVpnUrl(normalized)) DEFAULT_BASE_URL else normalized
+        }
+
+        internal fun buildEndpointUrl(
+            baseUrl: String,
+            path: String,
+            query: Map<String, String?> = emptyMap(),
+            proxiedAjax: Boolean = false,
+        ): HttpUrl = "${baseUrl.trimEnd('/')}$path".toHttpUrl().newBuilder().apply {
+            if (proxiedAjax && isWebVpnUrl(baseUrl)) addQueryParameter(WEBVPN_AJAX_MARKER, null)
+            query.forEach { (key, value) -> addQueryParameter(key, value) }
+        }.build()
+
+        private fun isWebVpnUrl(value: String): Boolean {
+            val url = runCatching { value.toHttpUrl() }.getOrNull() ?: return false
+            return url.host == "wvpn.ahu.edu.cn" && url.encodedPath.startsWith("/http-8080/")
         }
     }
 
-    /** 当前 baseUrl(去尾斜杠),来自 SessionManager,可在设置里改 */
+    private enum class TransportMode { UNKNOWN, DIRECT, WEBVPN }
+
+    @Volatile private var activeBaseUrl: String = normalizeBaseUrl(sessionManager.getCProgBaseUrl())
+    @Volatile private var transportMode: TransportMode = TransportMode.UNKNOWN
+    private val transportMutex = Mutex()
+
+    /** 当前已选择的目标系统地址。 */
     val baseUrl: String
-        get() = normalizeBaseUrl(sessionManager.getCProgBaseUrl())
+        get() = activeBaseUrl
+
+    internal fun endpointUrl(
+        path: String,
+        query: Map<String, String?> = emptyMap(),
+        proxiedAjax: Boolean = false,
+    ): String = buildEndpointUrl(baseUrl, path, query, proxiedAjax).toString()
 
     // ── Cookie(JSESSIONID)存储,按 host 归集 ────────────────────
     private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
@@ -79,6 +114,54 @@ class CProgAuthRepository(
         connectTimeoutSec = 15,
         readTimeoutSec = 20,
     )
+
+    private val webVpnAuthenticator = CProgWebVpnAuthenticator(
+        client = client,
+        portalUrl = WEBVPN_PORTAL_URL.toHttpUrl(),
+        webVpnLoginUrl = WEBVPN_LOGIN_URL.toHttpUrl(),
+        credentials = {
+            val username = sessionManager.getUsername()?.takeIf { it.isNotBlank() }
+            val password = sessionManager.getPassword()?.takeIf { it.isNotBlank() }
+            if (username != null && password != null) username to password else null
+        },
+        userAgent = UA,
+    )
+
+    /** Selects campus direct access when reachable, otherwise authenticates a WebVPN session. */
+    suspend fun prepareTransport(): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            transportMutex.withLock {
+                if (transportMode != TransportMode.UNKNOWN) return@withLock
+                val directUrl = normalizeBaseUrl(sessionManager.getCProgBaseUrl())
+                if (canConnect(directUrl)) {
+                    activeBaseUrl = directUrl
+                    transportMode = TransportMode.DIRECT
+                } else {
+                    activateWebVpnLocked()
+                }
+            }
+        }
+    }
+
+    private suspend fun switchToWebVpn(): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            transportMutex.withLock { activateWebVpnLocked() }
+        }
+    }
+
+    private fun activateWebVpnLocked() {
+        webVpnAuthenticator.authenticate()
+        activeBaseUrl = WEBVPN_BASE_URL
+        transportMode = TransportMode.WEBVPN
+    }
+
+    private fun canConnect(url: String): Boolean = runCatching {
+        val httpUrl = url.toHttpUrl()
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress(httpUrl.host, httpUrl.port), DIRECT_PROBE_TIMEOUT_MS)
+        }
+        true
+    }.getOrDefault(false)
 
     // ── 登录态 ───────────────────────────────────────────────
     @Volatile var tk: String? = sessionManager.getCProgJwt()
@@ -108,29 +191,43 @@ class CProgAuthRepository(
      * 再 GET /kaptcha/jpg,保证验证码答案与当前 JSESSIONID 绑定。
      */
     suspend fun fetchCaptcha(): Result<Bitmap> = withContext(Dispatchers.IO) {
-        try {
-            // 建 session(302 到登录页,不跟)
-            client.newCall(
-                Request.Builder().url("$baseUrl/redirect/login").header("User-Agent", UA).build()
-            ).execute().close()
-            // 取验证码(?r 防缓存;r 值来自 systemTime 无法用,退化为固定串,session 已建立)
-            val resp = client.newCall(
-                Request.Builder().url("$baseUrl/kaptcha/jpg")
-                    .header("User-Agent", UA)
-                    .header("X-Requested-With", "XMLHttpRequest")
-                    .header("Referer", "$baseUrl/redirect/login")
-                    .build()
-            ).execute()
-            resp.use {
-                if (!it.isSuccessful) return@withContext Result.failure(IOException("验证码 HTTP ${it.code}"))
-                val bytes = it.body?.bytes() ?: return@withContext Result.failure(IOException("验证码为空"))
-                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    ?: return@withContext Result.failure(IOException("验证码图解码失败"))
-                Result.success(bmp)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "fetchCaptcha 失败(可能未连校园网)", e)
-            Result.failure(e)
+        prepareTransport().fold(
+            onSuccess = {
+                val first = runCatching { fetchCaptchaOnce() }
+                if (first.isSuccess || transportMode == TransportMode.WEBVPN) {
+                    first
+                } else {
+                    switchToWebVpn().fold(
+                        onSuccess = { runCatching { fetchCaptchaOnce() } },
+                        onFailure = { first },
+                    )
+                }
+            },
+            onFailure = { Result.failure(it) },
+        ).onFailure { error ->
+            Log.e(TAG, "fetchCaptcha 失败: ${error.message}", error)
+        }
+    }
+
+    private fun fetchCaptchaOnce(): Bitmap {
+        val loginUrl = endpointUrl("/redirect/login")
+        client.newCall(
+            Request.Builder().url(loginUrl).header("User-Agent", UA).build()
+        ).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("平台会话初始化 HTTP ${response.code}")
+        }
+        val captchaQuery = if (transportMode == TransportMode.WEBVPN) mapOf("vpn-1" to null) else emptyMap()
+        client.newCall(
+            Request.Builder().url(endpointUrl("/kaptcha/jpg", captchaQuery))
+                .header("User-Agent", UA)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Referer", loginUrl)
+                .build()
+        ).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("验证码 HTTP ${response.code}")
+            val bytes = response.body?.bytes() ?: throw IOException("验证码为空")
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                ?: throw IOException("验证码图解码失败")
         }
     }
 
@@ -145,14 +242,18 @@ class CProgAuthRepository(
     suspend fun login(username: String, password: String, captcha: String): Result<String> =
         withContext(Dispatchers.IO) {
             try {
+                prepareTransport().getOrThrow()
+                val loginPageUrl = endpointUrl("/redirect/login")
                 // step1: /login/get
                 val step1Body = FormBody.Builder()
                     .add("asdfsdf", username).add("dfgdfg", password).add("fghfghfg", captcha).build()
                 val r1 = client.newCall(
-                    Request.Builder().url("$baseUrl/login/get?tk=null")
+                    Request.Builder().url(
+                        endpointUrl("/login/get", mapOf("tk" to "null"), proxiedAjax = true)
+                    )
                         .header("User-Agent", UA)
                         .header("X-Requested-With", "XMLHttpRequest")
-                        .header("Referer", "$baseUrl/redirect/login")
+                        .header("Referer", loginPageUrl)
                         .post(step1Body).build()
                 ).execute()
                 val body1 = r1.use { if (!it.isSuccessful) return@withContext Result.failure(IOException("login/get HTTP ${it.code}")); it.body?.string().orEmpty() }
@@ -178,12 +279,14 @@ class CProgAuthRepository(
                 val step2Body = FormBody.Builder()
                     .add("asdfsdf", username).add("dfgdfg", hashed).add("zxczxc", jwt1)
                     .add("fghfghfg", captcha).add("vbnvbnvbn", "false")
-                    .add("url", "$baseUrl/redirect/login").build()
+                    .add("url", loginPageUrl).build()
                 val r2 = client.newCall(
-                    Request.Builder().url("$baseUrl/login/unified?tk=null")
+                    Request.Builder().url(
+                        endpointUrl("/login/unified", mapOf("tk" to "null"), proxiedAjax = true)
+                    )
                         .header("User-Agent", UA)
                         .header("X-Requested-With", "XMLHttpRequest")
-                        .header("Referer", "$baseUrl/redirect/login")
+                        .header("Referer", loginPageUrl)
                         .post(step2Body).build()
                 ).execute()
                 val body2 = r2.use { if (!it.isSuccessful) return@withContext Result.failure(IOException("login/unified HTTP ${it.code}")); it.body?.string().orEmpty() }
@@ -225,6 +328,8 @@ class CProgAuthRepository(
         tk = null
         userId = null
         cookieStore.clear()
+        activeBaseUrl = normalizeBaseUrl(sessionManager.getCProgBaseUrl())
+        transportMode = TransportMode.UNKNOWN
         sessionManager.clearCProgSession()
     }
 

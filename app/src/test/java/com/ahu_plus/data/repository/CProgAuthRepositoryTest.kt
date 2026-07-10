@@ -30,4 +30,19 @@ class CProgAuthRepositoryTest {
             CProgAuthRepository.normalizeBaseUrl("  "),
         )
     }
+
+    @Test
+    fun `webvpn ajax endpoint includes upstream marker`() {
+        val url = CProgAuthRepository.buildEndpointUrl(
+            baseUrl = CProgAuthRepository.WEBVPN_BASE_URL,
+            path = "/site/achievement/gradeTable/query",
+            query = mapOf("tk" to "jwt"),
+            proxiedAjax = true,
+        )
+
+        assertEquals(
+            setOf("vpn-12-o1-172.17.106.232:8080", "tk"),
+            url.queryParameterNames,
+        )
+    }
 }
