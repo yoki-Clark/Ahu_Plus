@@ -15,7 +15,6 @@ import com.ahu_plus.data.model.CProgSubject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import java.io.IOException
 
@@ -37,11 +36,13 @@ class CProgRepository(
     }
 
     private val client get() = auth.client
-    private val base get() = auth.baseUrl
 
     private fun tkUrl(path: String, referer: String): Pair<String, String> {
-        val tk = auth.tk.orEmpty()
-        return "$base$path?tk=$tk" to "$base$referer"
+        return auth.endpointUrl(
+            path = path,
+            query = mapOf("tk" to auth.tk.orEmpty()),
+            proxiedAjax = true,
+        ) to auth.endpointUrl(referer)
     }
 
     /** 统一 POST:form-urlencoded,带 Referer/X-Requested-With,返回原始 body 字符串 */
@@ -87,12 +88,16 @@ class CProgRepository(
 
     private fun buildUrl(
         path: String,
-        query: Map<String, String> = emptyMap(),
+        query: Map<String, String?> = emptyMap(),
         includeTk: Boolean = false,
-    ): String = "$base$path".toHttpUrl().newBuilder().apply {
-        if (includeTk) addQueryParameter("tk", auth.tk.orEmpty())
-        query.forEach { (key, value) -> addQueryParameter(key, value) }
-    }.build().toString()
+        proxiedAjax: Boolean = false,
+    ): String {
+        val fullQuery = buildMap<String, String?> {
+            if (includeTk) put("tk", auth.tk.orEmpty())
+            putAll(query)
+        }
+        return auth.endpointUrl(path, fullQuery, proxiedAjax)
+    }
 
     /** POST used by the achievement pages. Referer query parameters matter on detail requests. */
     private fun postAchievement(
@@ -106,6 +111,7 @@ class CProgRepository(
             path = path,
             query = mapOf("rand" to System.currentTimeMillis().toString()),
             includeTk = true,
+            proxiedAjax = true,
         )
         val requestBody = FormBody.Builder().apply {
             form.forEach { (key, value) -> add(key, value) }
@@ -188,6 +194,7 @@ class CProgRepository(
         rows: Int = 50,
     ): Result<CProgExamPage> = withContext(Dispatchers.IO) {
         runCatching {
+            auth.prepareTransport().getOrThrow()
             val userId = auth.userId.orEmpty()
             val body = postAchievement(
                 path = "/site/achievement/gradeTable/query",
@@ -217,6 +224,7 @@ class CProgRepository(
         rows: Int = 50,
     ): Result<CProgAttemptPage> = withContext(Dispatchers.IO) {
         runCatching {
+            auth.prepareTransport().getOrThrow()
             val userId = auth.userId.orEmpty()
             val refererQuery = mapOf("userId" to userId, "examId" to examId)
             val body = postAchievement(
@@ -243,6 +251,7 @@ class CProgRepository(
     suspend fun getAttemptPaper(examId: String, attemptId: String): Result<CProgPaper> =
         withContext(Dispatchers.IO) {
             runCatching {
+                auth.prepareTransport().getOrThrow()
                 val userId = auth.userId.orEmpty()
                 val historyQuery = mapOf("userId" to userId, "examId" to examId)
                 val initQuery = mapOf(
@@ -277,6 +286,7 @@ class CProgRepository(
     // ── 分类计数 ─────────────────────────────────────────────
     suspend fun getSections(): Result<List<CProgSection>> = withContext(Dispatchers.IO) {
         runCatching {
+            auth.prepareTransport().getOrThrow()
             val body = post(
                 "/site/test/main/section/query", "/site/test/main",
                 mapOf("userId" to auth.userId.orEmpty()),
@@ -295,6 +305,7 @@ class CProgRepository(
     // ── 科目 ─────────────────────────────────────────────────
     suspend fun getSubjects(): Result<List<CProgSubject>> = withContext(Dispatchers.IO) {
         runCatching {
+            auth.prepareTransport().getOrThrow()
             val body = get(
                 "/mgr/common/subjects/site/getSubjects",
                 "/site/test/main",
@@ -322,6 +333,7 @@ class CProgRepository(
         rows: Int = 50,
     ): Result<CProgExamPage> = withContext(Dispatchers.IO) {
         runCatching {
+            auth.prepareTransport().getOrThrow()
             val body = post(
                 "/site/evaluation/exams/search/query",
                 "/site/evaluation/exams/search/init",
@@ -371,6 +383,7 @@ class CProgRepository(
      */
     suspend fun getPaper(examId: String): Result<CProgPaper> = withContext(Dispatchers.IO) {
         runCatching {
+            auth.prepareTransport().getOrThrow()
             val ref = "/site/evaluation/exams/main/init"
             // rrm=0:全新抽卷(rrm=1 是"续做已开始的场次",无场次时 message 返回 data:null)
             val assignBody = post(
