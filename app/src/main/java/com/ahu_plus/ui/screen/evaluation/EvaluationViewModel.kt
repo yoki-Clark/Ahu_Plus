@@ -49,8 +49,32 @@ class EvaluationViewModel(
     private val _detailState = MutableStateFlow(EvaluationDetailUiState())
     val detailState: StateFlow<EvaluationDetailUiState> = _detailState.asStateFlow()
 
-    init {
-        loadSemesters()
+    private var activated = false
+
+    fun activate() {
+        if (activated) return
+        activated = true
+        viewModelScope.launch {
+            val cache = readCache()
+            val initial = selectInitialEvaluationSemester(
+                cache.semesters,
+                evaluationRepository.getCurrentSemesterId(),
+            )
+            if (cache.semesters.isNotEmpty()) {
+                _listState.update {
+                    it.copy(
+                        semesters = cache.semesters,
+                        selectedSemesterId = initial?.id,
+                        tasks = initial?.let { sem -> cache.tasks[sem.id] }.orEmpty(),
+                    )
+                }
+            }
+            val now = System.currentTimeMillis()
+            val semestersFresh = now - cache.semestersUpdatedAt < 24L * 60 * 60 * 1000
+            val tasksFresh = initial != null &&
+                now - (cache.taskUpdatedAt[initial.id] ?: 0L) < 5L * 60 * 1000
+            if (!semestersFresh || !tasksFresh) loadSemesters()
+        }
     }
 
     // ════════════════════════════════════════════════════════
@@ -59,11 +83,6 @@ class EvaluationViewModel(
 
     private fun loadSemesters() {
         viewModelScope.launch {
-            val auth = jwAuthRepository.authenticate()
-            if (auth.isFailure) {
-                _listState.update { it.copy(error = "教务处登录失败", needsLogin = true) }
-                return@launch
-            }
             evaluationRepository.getSemesters().fold(
                 onSuccess = { semesters ->
                     val initial = selectInitialEvaluationSemester(
@@ -73,6 +92,11 @@ class EvaluationViewModel(
                     _listState.update {
                         it.copy(semesters = semesters, selectedSemesterId = initial?.id)
                     }
+                    val cache = readCache().copy(
+                        semesters = semesters,
+                        semestersUpdatedAt = System.currentTimeMillis(),
+                    )
+                    saveCache(cache)
                     if (initial != null) loadTasks(initial.id)
                 },
                 onFailure = { e ->
@@ -109,6 +133,12 @@ class EvaluationViewModel(
                             needsLogin = false,
                         )
                     }
+                    val cache = readCache()
+                    saveCache(cache.copy(
+                        tasks = cache.tasks + (semesterId to tasks),
+                        taskUpdatedAt = cache.taskUpdatedAt +
+                            (semesterId to System.currentTimeMillis()),
+                    ))
                 },
                 onFailure = { e ->
                     if (!wasLoaded && e is EvaluationAuthException) {
@@ -139,10 +169,9 @@ class EvaluationViewModel(
             task = task,
         )
         viewModelScope.launch {
-            val auth = jwAuthRepository.authenticate()
-            if (auth.isFailure) {
+            readCache().questionnaires[task.evaluationQuestionnaireId]?.let { cached ->
                 _detailState.update {
-                    it.copy(isLoading = false, error = "教务处登录失败", needsLogin = true)
+                    it.copy(isLoading = false, questionnaire = cached, error = null)
                 }
                 return@launch
             }
@@ -157,6 +186,11 @@ class EvaluationViewModel(
                             needsLogin = false,
                         )
                     }
+                    val cache = readCache()
+                    saveCache(cache.copy(
+                        questionnaires = cache.questionnaires +
+                            (task.evaluationQuestionnaireId to q)
+                    ))
                 },
                 onFailure = { e ->
                     Log.w(TAG, "拉问卷失败: ${e.message}", e)
@@ -346,7 +380,25 @@ class EvaluationViewModel(
     companion object {
         private const val TAG = "EvaluationVM"
     }
+
+    private fun readCache(): EvaluationCacheSnapshot {
+        val raw = sessionManager.getEvaluationDataJson() ?: return EvaluationCacheSnapshot()
+        return runCatching { gson.fromJson(raw, EvaluationCacheSnapshot::class.java) }
+            .getOrNull() ?: EvaluationCacheSnapshot()
+    }
+
+    private suspend fun saveCache(cache: EvaluationCacheSnapshot) {
+        sessionManager.saveEvaluationDataJson(gson.toJson(cache))
+    }
 }
+
+private data class EvaluationCacheSnapshot(
+    val semesters: List<EvaluationSemester> = emptyList(),
+    val semestersUpdatedAt: Long = 0L,
+    val tasks: Map<String, List<TeacherEvaluationTask>> = emptyMap(),
+    val taskUpdatedAt: Map<String, Long> = emptyMap(),
+    val questionnaires: Map<String, EvaluationQuestionnaire> = emptyMap(),
+)
 
 // ──────────────────────────────────────────────────────────
 // UI State

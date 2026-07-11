@@ -103,4 +103,9 @@ class WeatherManager(
 
     /** 缓存年龄 (毫秒), Long.MAX_VALUE 表示无缓存。 */
     fun getCachedAgeMillis(): Long = repository.getCachedAgeMillis()
+
+    suspend fun refreshIfStale(maxAgeMillis: Long = 30L * 60 * 1000): Boolean {
+        if (getCachedAgeMillis() < maxAgeMillis) return true
+        return refresh()
+    }
 }

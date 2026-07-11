@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.jw.Exam
+import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.repository.ExamRepository
 import com.ahu_plus.data.repository.JwAuthRepository
 import com.ahu_plus.data.repository.SessionExpiredException
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 
 class ExamViewModel(
     private val jwAuthRepository: JwAuthRepository,
@@ -27,14 +29,23 @@ class ExamViewModel(
     private val gson = com.ahu_plus.data.GsonProvider.instance
 
     init {
-        viewModelScope.launch {
-            val cached = loadFromCache()
-            if (cached) {
-                launch { loadExams(isRefresh = true) }
-            } else {
-                loadExams(isRefresh = false)
-            }
+        viewModelScope.launch { loadFromCache() }
+    }
+
+    fun activate() {
+        val today = LocalDate.now()
+        val hasUpcomingSoon = _uiState.value.exams.any { exam ->
+            if (exam.isFinished) return@any false
+            val date = runCatching { LocalDate.parse(exam.examTime.take(10)) }.getOrNull()
+            date != null && !date.isBefore(today) && !date.isAfter(today.plusDays(45))
         }
+        val maxAge = if (hasUpcomingSoon) {
+            6L * 60 * 60 * 1000
+        } else {
+            24L * 60 * 60 * 1000
+        }
+        if (!DataRefreshPolicy.isStale(sessionManager?.getExamsUpdatedAt() ?: 0L, maxAge)) return
+        viewModelScope.launch { loadExams(isRefresh = _uiState.value.exams.isNotEmpty()) }
     }
 
     fun onRefresh() {
@@ -63,19 +74,7 @@ class ExamViewModel(
         val wasLoaded = _uiState.value.exams.isNotEmpty()
         try {
             withContext(Dispatchers.IO) {
-                val authResult = jwAuthRepository.authenticate()
-                if (authResult.isFailure) {
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            needsLogin = !wasLoaded,
-                            error = if (!wasLoaded) "教务处认证失败: ${authResult.exceptionOrNull()?.message}" else null
-                        )
-                    }
-                    return@withContext
-                }
-
-                examRepository.getExams().fold(
+                jwAuthRepository.executeWithSessionRetry { examRepository.getExams() }.fold(
                     onSuccess = { list ->
                         // 缓存到本地
                         val sm = sessionManager
@@ -93,13 +92,6 @@ class ExamViewModel(
                     },
                     onFailure = { e ->
                         // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
-                        if (e is SessionExpiredException) {
-                            val retry = retryAfterSilentReauth()
-                            if (retry != null) {
-                                handleExamsResult(retry, wasLoaded)
-                                return@fold
-                            }
-                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -126,21 +118,6 @@ class ExamViewModel(
     }
 
     /** 2026-06-23: SessionExpiredException 后尝试静默重连+重试一次。 */
-    private suspend fun retryAfterSilentReauth(): List<com.ahu_plus.data.model.jw.Exam>? {
-        return try {
-            jwAuthRepository.clearCookies()
-            val authOk = jwAuthRepository.authenticate().isSuccess
-            if (!authOk) {
-                Log.w(TAG, "retryAfterSilentReauth: 静默重连失败,放弃重试")
-                return null
-            }
-            examRepository.getExams().getOrNull()
-        } catch (e: Exception) {
-            Log.w(TAG, "retryAfterSilentReauth 异常: ${e.message}")
-            null
-        }
-    }
-
     /** 应用重连+重试后的考试结果。 */
     private suspend fun handleExamsResult(
         list: List<com.ahu_plus.data.model.jw.Exam>,

@@ -114,20 +114,11 @@ class JwAuthRepository(
      * 探测失败 → 清空内存 cookie + 持久化 session,走完整 SSO 重拿。
      */
     suspend fun authenticate(): Result<Unit> {
-        val savedSession = sessionManager.getJwSessionId()
-        if (!savedSession.isNullOrBlank() && probeSavedSession()) {
-            saveToCookieStore(JW_HOST, "SESSION", savedSession)
-            return Result.success(Unit)
-        }
-        // 持久化 session 无效或被服务器吊销:清掉,让下面的完整 SSO 拿新值
-        if (!savedSession.isNullOrBlank()) {
-            Log.w(TAG, "持久化 JW SESSION 已失效,清空并重连")
-            clearCookies()
-            sessionManager.clearJwSession()
-        }
         return authMutex.withLock {
-            // 持锁后再检一次:holder 可能刚把 session 写入持久化
-            sessionManager.getJwSessionId()?.let {
+            jwCookieStore[JW_HOST]?.find { it.name == "SESSION" }?.value?.let {
+                return@withLock Result.success(Unit)
+            }
+            sessionManager.getJwSessionId()?.takeIf { it.isNotBlank() }?.let {
                 saveToCookieStore(JW_HOST, "SESSION", it)
                 return@withLock Result.success(Unit)
             }
@@ -141,22 +132,37 @@ class JwAuthRepository(
      * 用轻量 GET 教务首页:302 到 CAS / body 含登录页标记 = 已失效。
      * 返回 true 表示 SESSION 仍有效,false 表示需重新登录。
      */
-    private suspend fun probeSavedSession(): Boolean {
-        return try {
-            val request = Request.Builder()
-                .url("$JW_BASE/student/for-std/course-table")
-                .header("User-Agent", UA)
-                .build()
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                response.isSuccessful &&
-                    !body.contains("cas/login") &&
-                    !body.contains("name=\"lt\"")
+    suspend fun <T> executeWithSessionRetry(
+        block: suspend () -> Result<T>,
+    ): Result<T> {
+        authenticate().getOrElse { return Result.failure(it) }
+        val failedSession = getJwSessionId()
+        val first = runCatching { block().getOrThrow() }
+        if (first.exceptionOrNull() !is SessionExpiredException) return first
+
+        val refreshed = refreshExpiredSession(failedSession)
+        if (refreshed.isFailure) return Result.failure(refreshed.exceptionOrNull()!!)
+        return runCatching { block().getOrThrow() }
+    }
+
+    private suspend fun refreshExpiredSession(failedSession: String?): Result<Unit> {
+        return authMutex.withLock {
+            val current = getJwSessionId()
+            if (!current.isNullOrBlank() && current != failedSession) {
+                saveToCookieStore(JW_HOST, "SESSION", current)
+                return@withLock Result.success(Unit)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "probeSavedSession 异常(视为失效): ${e.message}")
-            false
+            Log.w(TAG, "JW SESSION confirmed expired; renewing once")
+            clearCookies()
+            sessionManager.clearJwSession()
+            performAuth()
         }
+    }
+
+    suspend fun forceReauthenticate(): Result<Unit> = authMutex.withLock {
+        clearCookies()
+        sessionManager.clearJwSession()
+        performAuth()
     }
 
     /** 实际认证逻辑 */
@@ -272,13 +278,15 @@ class JwAuthRepository(
 
     private fun saveToCookieStore(host: String, name: String, value: String) {
         val list = jwCookieStore.getOrPut(host) { mutableListOf() }
-        list.removeAll { it.name == name }
-        list.add(Cookie.Builder()
-            .name(name)
-            .value(value)
-            .domain(host)
-            .path("/")
-            .build())
+        synchronized(list) {
+            list.removeAll { it.name == name }
+            list.add(Cookie.Builder()
+                .name(name)
+                .value(value)
+                .domain(host)
+                .path("/")
+                .build())
+        }
     }
 
     // ══════════════════════════════════════════════════════

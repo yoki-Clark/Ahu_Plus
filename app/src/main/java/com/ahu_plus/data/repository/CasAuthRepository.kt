@@ -256,7 +256,11 @@ class CasAuthRepository(
                 val body = response.body?.string().orEmpty()
                 if (response.isSuccessful && body.contains("\"code\"")) {
                     Result.success(Unit)
-                } else if (response.code == 302 || body.contains("name=\"lt\"")) {
+                } else if (
+                    (response.code in 300..399 && response.header("Location").orEmpty()
+                        .contains("cas/login", ignoreCase = true)) ||
+                    body.contains("name=\"lt\"")
+                ) {
                     // 仅 CAS 登录表单(含 name="lt")才是真过期；HTML 中引用 "cas/login" 链接不算
                     Result.failure(Exception("JSESSIONID 失效"))
                 } else {

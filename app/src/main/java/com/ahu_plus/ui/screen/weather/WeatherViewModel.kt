@@ -28,10 +28,10 @@ class WeatherViewModel(
     /** 共享 WeatherManager 的最新 feed; UI 直接 collect。 */
     val feed: StateFlow<WeatherFeed?> = weatherManager.feed
 
-    init {
+    fun activate() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            val ok = weatherManager.refresh()
+            val ok = weatherManager.refreshIfStale()
             _uiState.update {
                 it.copy(
                     isLoading = false,

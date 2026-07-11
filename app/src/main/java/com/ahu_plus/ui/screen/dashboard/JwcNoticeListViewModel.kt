@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.JwcNoticeDetail
 import com.ahu_plus.data.repository.JwcNoticeRepository
+import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.GsonProvider
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,14 +24,30 @@ import kotlinx.coroutines.withContext
  * - 点击条目由 Screen 负责调用浏览器打开
  */
 class JwcNoticeListViewModel(
-    private val repository: JwcNoticeRepository
+    private val repository: JwcNoticeRepository,
+    private val sessionManager: SessionManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(JwcNoticeListUiState())
     val uiState: StateFlow<JwcNoticeListUiState> = _uiState.asStateFlow()
+    private val cachedDetails = mutableMapOf<String, CachedNoticeDetail>()
 
     init {
-        loadFirstPage()
+        sessionManager.getJwcNoticeDetailsJson()?.let { raw ->
+            runCatching {
+                val type = object : TypeToken<Map<String, CachedNoticeDetail>>() {}.type
+                val parsed: Map<String, CachedNoticeDetail> = GsonProvider.instance.fromJson(raw, type)
+                val cutoff = System.currentTimeMillis() - 24L * 60 * 60 * 1000
+                cachedDetails.putAll(parsed.filterValues { it.updatedAt >= cutoff })
+                _uiState.update { state ->
+                    state.copy(details = cachedDetails.mapValues { NoticeDetailState.Success(it.value.detail) })
+                }
+            }
+        }
+    }
+
+    fun activate() {
+        if (_uiState.value.currentPage == 0 && !_uiState.value.isLoading) loadFirstPage()
     }
 
     /** 首次进入或下拉刷新:清空已有数据,重新加载第 1 页。 */
@@ -171,6 +190,8 @@ class JwcNoticeListViewModel(
                     details = it.details + (url to NoticeDetailState.Success(detail))
                 )
             }
+            cachedDetails[url] = CachedNoticeDetail(detail, System.currentTimeMillis())
+            sessionManager.saveJwcNoticeDetailsJson(GsonProvider.instance.toJson(cachedDetails))
         }
     }
 
@@ -189,6 +210,11 @@ class JwcNoticeListViewModel(
         return match?.groupValues?.get(1)?.toIntOrNull() ?: 1
     }
 }
+
+private data class CachedNoticeDetail(
+    val detail: JwcNoticeDetail,
+    val updatedAt: Long,
+)
 
 data class JwcNoticeListUiState(
     val notices: List<JwcNotice> = emptyList(),

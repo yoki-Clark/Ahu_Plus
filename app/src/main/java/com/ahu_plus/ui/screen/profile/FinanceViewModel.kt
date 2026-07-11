@@ -2,6 +2,7 @@ package com.ahu_plus.ui.screen.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.model.FinanceSummary
 import com.ahu_plus.data.model.StudentInfoField
 import com.ahu_plus.data.repository.FinanceRepository
@@ -34,6 +35,13 @@ class FinanceViewModel(
         if (cached != null) {
             _uiState.update { it.copy(summary = cached, lastUpdatedAt = cached.lastUpdatedAt) }
         }
+    }
+
+    fun activate() {
+        if (_uiState.value.summary != null && !DataRefreshPolicy.isStale(
+                sessionManager.getFinanceUpdatedAt(), 30L * 24 * 60 * 60 * 1000
+            )) return
+        refreshFinance()
     }
 
     fun refreshFinance() {

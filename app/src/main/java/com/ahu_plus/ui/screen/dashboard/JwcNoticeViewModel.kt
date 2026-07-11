@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.JwcNoticeDetail
 import com.ahu_plus.data.repository.JwcNoticeRepository
+import com.ahu_plus.data.local.DataRefreshPolicy
+import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.GsonProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,7 +23,8 @@ import kotlinx.coroutines.withContext
  * - "更多" 按钮跳转独立二级页 [JwcNoticeListViewModel] 处理
  */
 class JwcNoticeViewModel(
-    private val repository: JwcNoticeRepository
+    private val repository: JwcNoticeRepository,
+    private val sessionManager: SessionManager,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         JwcNoticeUiState(
@@ -30,7 +34,14 @@ class JwcNoticeViewModel(
     val uiState: StateFlow<JwcNoticeUiState> = _uiState.asStateFlow()
 
     init {
-        loadNotices()
+        val cached = sessionManager.getJwcNoticeJson()?.let { raw ->
+            runCatching { GsonProvider.instance.fromJson(raw, Array<JwcNotice>::class.java).toList() }
+                .getOrNull()
+        }.orEmpty()
+        if (cached.isNotEmpty()) _uiState.update { it.copy(notices = cached) }
+        if (DataRefreshPolicy.isStale(
+                sessionManager.getJwcNoticeUpdatedAt(), 30L * 60 * 1000
+            )) loadNotices()
     }
 
     fun loadNotices() {
@@ -71,6 +82,7 @@ class JwcNoticeViewModel(
                     )
                 }
             } else {
+                sessionManager.saveJwcNoticeJson(GsonProvider.instance.toJson(notices))
                 _uiState.update {
                     it.copy(
                         notices = notices,

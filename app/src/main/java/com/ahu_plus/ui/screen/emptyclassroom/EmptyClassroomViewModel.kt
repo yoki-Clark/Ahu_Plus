@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.local.DataRefreshPolicy
+import com.google.gson.reflect.TypeToken
 import com.ahu_plus.data.model.AhuUnitTimes
 import com.ahu_plus.data.model.BuildingInfo
 import com.ahu_plus.data.model.CampusBuildingData
@@ -53,6 +55,13 @@ class EmptyClassroomViewModel(
     }
 
     init {
+        sessionManager?.getBuildingFloorsJson()?.let { raw ->
+            runCatching {
+                val type = object : TypeToken<Map<String, List<Int>>>() {}.type
+                val cached: Map<String, List<Int>> = gson.fromJson(raw, type)
+                buildingRoomsFloors.putAll(cached)
+            }
+        }
         viewModelScope.launch {
             val restored = restoreFromCache()
             if (!restored) {
@@ -105,7 +114,14 @@ class EmptyClassroomViewModel(
         viewModelScope.launch { loadData(isRefresh = false) }
         // 2026-06-27: fire-and-forget 拉全楼房间,补全楼层 chip。
         // 不阻塞 loadData;失败时静默回退,fallback 已隐含在 computeAllFloors 优先级里。
-        viewModelScope.launch { loadBuildingFloors(buildingId) }
+        val floorsFresh = sessionManager?.let {
+            !DataRefreshPolicy.isStale(
+                it.getBuildingFloorsUpdatedAt(), 24L * 60 * 60 * 1000
+            )
+        } == true
+        if (!floorsFresh || buildingId !in buildingRoomsFloors) {
+            viewModelScope.launch { loadBuildingFloors(buildingId) }
+        }
     }
 
     /**
@@ -119,6 +135,7 @@ class EmptyClassroomViewModel(
                 val floors = rooms.mapNotNull { it.floor }.distinct().sorted()
                 if (floors.isNotEmpty()) {
                     buildingRoomsFloors[buildingId] = floors
+                    sessionManager?.saveBuildingFloorsJson(gson.toJson(buildingRoomsFloors))
                     // 仅当用户仍停留在同一 buildingId 时刷新 chip(防止切走后覆盖)
                     if (_uiState.value.selectedBuildingId == buildingId) {
                         _uiState.update { it.copy(availableFloors = floors) }
@@ -271,24 +288,14 @@ class EmptyClassroomViewModel(
 
         try {
             withContext(Dispatchers.IO) {
-                val authResult = jwAuthRepository.authenticate()
-                if (authResult.isFailure) {
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            needsLogin = !wasLoaded,
-                            error = if (!wasLoaded) "教务处认证失败" else null
-                        )
-                    }
-                    return@withContext
-                }
-
-                emptyClassroomRepository.getFreeRoomsWithDuration(
-                    buildingId = buildingId,
-                    campusId = campusId,
-                    currentUnit = currentUnit,   // null = 全天(未来日期)
-                    date = date
-                ).fold(
+                jwAuthRepository.executeWithSessionRetry {
+                    emptyClassroomRepository.getFreeRoomsWithDuration(
+                        buildingId = buildingId,
+                        campusId = campusId,
+                        currentUnit = currentUnit,
+                        date = date,
+                    )
+                }.fold(
                     onSuccess = { rooms ->
                         val sm = sessionManager
                         if (sm != null) {
@@ -316,14 +323,6 @@ class EmptyClassroomViewModel(
                     onFailure = { e ->
                         // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次,
                         // 避免直接走到 needsLogin → onReauth 跳转登录的路径。
-                        if (e is SessionExpiredException) {
-                            val retryResult = retryAfterSilentReauth(buildingId, campusId, currentUnit, date)
-                            if (retryResult != null) {
-                                // 重连+重试成功,直接消费结果
-                                handleRoomsResult(retryResult, buildingId, campusId, date)
-                                return@fold
-                            }
-                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -353,34 +352,6 @@ class EmptyClassroomViewModel(
      * 它在没有 saved session 时会走 `trySimplifiedSso` 用 CAS 的 CASTGC 换新 SESSION;
      * CASTGC 也过期时会自动 fallback 到 `performFullLogin`(使用本地保存的账号密码)。
      */
-    private suspend fun retryAfterSilentReauth(
-        buildingId: String,
-        campusId: String,
-        currentUnit: Int?,
-        date: LocalDate
-    ): List<FreeRoomResult>? {
-        return try {
-            // 1. 清掉 JW 旧 cookie,强制 authenticate() 走 SSO(否则它会用 stale session 直接返回 success)
-            jwAuthRepository.clearCookies()
-            val authOk = jwAuthRepository.authenticate().isSuccess
-            if (!authOk) {
-                Log.w(TAG, "retryAfterSilentReauth: 静默重连失败,放弃重试")
-                return null
-            }
-            // 2. 重试一次查询
-            val retry = emptyClassroomRepository.getFreeRoomsWithDuration(
-                buildingId = buildingId,
-                campusId = campusId,
-                currentUnit = currentUnit,
-                date = date
-            )
-            retry.getOrNull()
-        } catch (e: Exception) {
-            Log.w(TAG, "retryAfterSilentReauth 异常: ${e.message}")
-            null
-        }
-    }
-
     /** 应用房间查询结果到 UI state(重连+重试成功后调用)。 */
     private suspend fun handleRoomsResult(
         rooms: List<FreeRoomResult>,

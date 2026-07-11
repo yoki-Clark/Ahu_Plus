@@ -83,7 +83,9 @@ class ExamRepository(
                 .build()
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
-                if (response.code == 302) {
+                if (JwSessionResponseClassifier.isExpired(
+                        response.code, response.header("Location"), body
+                    )) {
                     throw SessionExpiredException()
                 }
                 if (!response.isSuccessful) {
@@ -231,6 +233,9 @@ class ExamRepository(
             client.newCall(request).execute().use { response ->
                 val location = response.headers["Location"] ?: ""
                 Log.i(TAG, "exam-arrange HTTP ${response.code}, Location=$location")
+                if (JwSessionResponseClassifier.isExpired(response.code, location)) {
+                    return Result.failure(SessionExpiredException())
+                }
                 val id = GradeRepository.parseStudentIdFromLocation(location)
                 if (id != null) {
                     cachedStudentId = id

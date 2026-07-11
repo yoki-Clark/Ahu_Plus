@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.jw.GpaMetadata
 import com.ahu_plus.data.model.jw.Grade
+import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.repository.GradeRepository
 import com.ahu_plus.data.repository.JwAuthRepository
 import com.ahu_plus.data.repository.SessionExpiredException
@@ -30,15 +31,13 @@ class GradeViewModel(
     private val gson = com.ahu_plus.data.GsonProvider.instance
 
     init {
-        // 优先加载本地缓存
-        viewModelScope.launch {
-            val cached = loadFromCache()
-            if (cached) {
-                launch { loadGrades(isRefresh = true) }
-            } else {
-                loadGrades(isRefresh = false)
-            }
-        }
+        viewModelScope.launch { loadFromCache() }
+    }
+
+    fun activate() {
+        val updatedAt = sessionManager?.getGradesUpdatedAt() ?: 0L
+        if (!DataRefreshPolicy.isStale(updatedAt, 12L * 60 * 60 * 1000)) return
+        viewModelScope.launch { loadGrades(isRefresh = _uiState.value.gradesBySemester.isNotEmpty()) }
     }
 
     fun onRefresh() {
@@ -102,22 +101,14 @@ class GradeViewModel(
         val wasLoaded = _uiState.value.gradesBySemester.isNotEmpty()
         try {
             withContext(Dispatchers.IO) {
-                val authResult = jwAuthRepository.authenticate()
-                if (authResult.isFailure) {
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            needsLogin = !wasLoaded,
-                            error = if (!wasLoaded) "教务处认证失败: ${authResult.exceptionOrNull()?.message}" else null
-                        )
-                    }
-                    return@withContext
-                }
-
                 // 并发请求：grades JSON + GPA HTML
                 val (gradesResult, gpaResult) = coroutineScope {
-                    val gradesDeferred = async { gradeRepository.getGrades() }
-                    val gpaDeferred = async { gradeRepository.getGpaMetadata() }
+                    val gradesDeferred = async {
+                        jwAuthRepository.executeWithSessionRetry { gradeRepository.getGrades() }
+                    }
+                    val gpaDeferred = async {
+                        jwAuthRepository.executeWithSessionRetry { gradeRepository.getGpaMetadata() }
+                    }
                     gradesDeferred.await() to gpaDeferred.await()
                 }
 
@@ -161,13 +152,6 @@ class GradeViewModel(
                     },
                     onFailure = { e ->
                         // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
-                        if (e is SessionExpiredException) {
-                            val retry = retryAfterSilentReauth()
-                            if (retry != null) {
-                                handleGradesResult(retry, wasLoaded)
-                                return@fold
-                            }
-                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -200,21 +184,6 @@ class GradeViewModel(
      * trySimplifiedSso (用 CASTGC 换新 JW SESSION) → 失败时 fallback 到 performFullLogin。
      * 返回 null 表示重连失败,让原 onFailure 继续走 needsLogin 路径。
      */
-    private suspend fun retryAfterSilentReauth(): com.ahu_plus.data.model.jw.GradeResponse? {
-        return try {
-            jwAuthRepository.clearCookies()
-            val authOk = jwAuthRepository.authenticate().isSuccess
-            if (!authOk) {
-                Log.w(TAG, "retryAfterSilentReauth: 静默重连失败,放弃重试")
-                return null
-            }
-            gradeRepository.getGrades().getOrNull()
-        } catch (e: Exception) {
-            Log.w(TAG, "retryAfterSilentReauth 异常: ${e.message}")
-            null
-        }
-    }
-
     /** 应用重连+重试后的成绩结果。GPA 仍用之前缓存的值(I-012)。 */
     private suspend fun handleGradesResult(
         resp: com.ahu_plus.data.model.jw.GradeResponse,

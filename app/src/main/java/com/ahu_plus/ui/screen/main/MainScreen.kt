@@ -336,11 +336,19 @@ fun MainScreen(
     val agendaViewModel: com.ahu_plus.ui.screen.agenda.AgendaViewModel = viewModel(factory = factory)
     val agendaEventsByDate by agendaViewModel.eventsByDate.collectAsStateWithLifecycle()
 
-    // 每次进入首页时触发一次天气刷新(用户要求)。常驻 1h Coroutine 兜底。
-    LaunchedEffect(selectedTab) {
-        if (selectedTab == TAB_HOME) {
-            weatherViewModel.refresh()
+    LaunchedEffect(selectedTab, homePage) {
+        val onHome = selectedTab == TAB_HOME
+        cardViewModel.setVisible(selectedTab == TAB_PROFILE || (onHome && homePage == HOME_BILLS))
+        if (onHome && homePage == HOME_GRADE) gradeViewModel.activate()
+        if (onHome && homePage == HOME_EXAM) examViewModel.activate()
+        if (onHome && homePage == HOME_TRAINING_PLAN) trainingPlanViewModel.activate()
+        if (onHome && homePage == HOME_NOTICE_LIST) jwcNoticeListViewModel.activate()
+        if (onHome && (homePage == HOME_DASHBOARD || homePage == HOME_WEATHER)) {
+            weatherViewModel.activate()
         }
+        if (selectedTab == TAB_MARKET) marketViewModel.activate()
+        if (selectedTab == TAB_WELEARN) weLearnViewModel.activate()
+        if (selectedTab == TAB_PROFILE) studentInfoViewModel.activate()
     }
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
     val showBottomNavigation = selectedTab != TAB_MARKET || (

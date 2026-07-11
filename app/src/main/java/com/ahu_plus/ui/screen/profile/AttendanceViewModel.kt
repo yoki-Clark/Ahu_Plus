@@ -2,6 +2,7 @@ package com.ahu_plus.ui.screen.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.KqAttendanceSummary
 import com.ahu_plus.data.repository.KqAttendanceRepository
@@ -34,10 +35,18 @@ class AttendanceViewModel(
         }
     }
 
+    fun activate() {
+        if (!DataRefreshPolicy.isStale(sessionManager.getKqcardAttendanceUpdatedAt(), 60L * 60 * 1000)) return
+        viewModelScope.launch { fetchAttendance(fullRefresh = false) }
+    }
+
     fun refreshAttendance() {
-        viewModelScope.launch {
+        viewModelScope.launch { fetchAttendance(fullRefresh = true) }
+    }
+
+    private suspend fun fetchAttendance(fullRefresh: Boolean) {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            val result = withContext(Dispatchers.IO) { repository.getAttendanceList() }
+            val result = withContext(Dispatchers.IO) { repository.getAttendanceList(fullRefresh) }
             result.fold(
                 onSuccess = { summary ->
                     _uiState.update {
@@ -60,7 +69,6 @@ class AttendanceViewModel(
                     }
                 }
             )
-        }
     }
 }
 

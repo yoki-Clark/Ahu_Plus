@@ -182,6 +182,21 @@ fun AppHubScreen(
         }
     }
 
+    LaunchedEffect(currentPage) {
+        when (currentPage) {
+            PAGE_GRADE -> gradeViewModel.activate()
+            PAGE_EXAM -> examViewModel.activate()
+            PAGE_TRAINING_PLAN -> trainingPlanViewModel.activate()
+            PAGE_NOTICES -> jwcNoticeListViewModel.activate()
+            PAGE_EVALUATION -> evaluationViewModel.activate()
+            PAGE_MY_INFO_HUB, PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO,
+            PAGE_ACADEMIC_WARNING -> studentInfoViewModel.activate()
+            PAGE_FINANCE -> financeViewModel.activate()
+            PAGE_ATTENDANCE -> attendanceViewModel.activate()
+            PAGE_WEATHER -> weatherViewModel.activate()
+        }
+    }
+
     when (currentPage) {
         PAGE_AGENDA -> AgendaScreen(
             viewModel = agendaViewModel,

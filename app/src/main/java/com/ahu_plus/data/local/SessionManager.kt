@@ -169,6 +169,20 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     @Volatile private var cachedScheduleUpdatedAt: Long = 0L
 
+    @Volatile private var cachedHistoricalSchedulesJson: String? = null
+
+    @Volatile private var cachedSemesterListJson: String? = null
+
+    @Volatile private var cachedEvaluationDataJson: String? = null
+
+    @Volatile private var cachedJwcNoticeJson: String? = null
+    @Volatile private var cachedJwcNoticeUpdatedAt: Long = 0L
+    @Volatile private var cachedJwcNoticeDetailsJson: String? = null
+    @Volatile private var cachedBuildingFloorsJson: String? = null
+    @Volatile private var cachedBuildingFloorsUpdatedAt: Long = 0L
+    @Volatile private var cachedWeLearnCoursesJson: String? = null
+    @Volatile private var cachedWeLearnCoursesUpdatedAt: Long = 0L
+
     @Volatile private var cachedGradesJson: String? = null
 
     @Volatile private var cachedGpaMetadataJson: String? = null
@@ -600,6 +614,20 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedScheduleJson = prefs[SCHEDULE_JSON_KEY]
 
         cachedScheduleUpdatedAt = prefs[SCHEDULE_UPDATED_AT_KEY] ?: 0L
+
+        cachedHistoricalSchedulesJson = prefs[HISTORICAL_SCHEDULES_JSON_KEY]
+
+        cachedSemesterListJson = prefs[SEMESTER_LIST_JSON_KEY]
+
+        cachedEvaluationDataJson = prefs[EVALUATION_DATA_JSON_KEY]
+
+        cachedJwcNoticeJson = prefs[JWC_NOTICE_JSON_KEY]
+        cachedJwcNoticeUpdatedAt = prefs[JWC_NOTICE_UPDATED_AT_KEY] ?: 0L
+        cachedJwcNoticeDetailsJson = prefs[JWC_NOTICE_DETAILS_JSON_KEY]
+        cachedBuildingFloorsJson = prefs[BUILDING_FLOORS_JSON_KEY]
+        cachedBuildingFloorsUpdatedAt = prefs[BUILDING_FLOORS_UPDATED_AT_KEY] ?: 0L
+        cachedWeLearnCoursesJson = prefs[WELEARN_COURSES_JSON_KEY]
+        cachedWeLearnCoursesUpdatedAt = prefs[WELEARN_COURSES_UPDATED_AT_KEY] ?: 0L
 
         cachedGradesJson = prefs[GRADES_JSON_KEY]
 
@@ -1396,6 +1424,69 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         }
 
+    }
+
+    fun getHistoricalSchedulesJson(): String? = cachedHistoricalSchedulesJson
+
+    suspend fun saveHistoricalSchedulesJson(json: String) {
+        cachedHistoricalSchedulesJson = json
+        appDataStore.dataStore.edit { it[HISTORICAL_SCHEDULES_JSON_KEY] = json }
+    }
+
+    fun getSemesterListJson(): String? = cachedSemesterListJson
+
+    suspend fun saveSemesterListJson(json: String) {
+        cachedSemesterListJson = json
+        appDataStore.dataStore.edit { it[SEMESTER_LIST_JSON_KEY] = json }
+    }
+
+    fun getEvaluationDataJson(): String? = cachedEvaluationDataJson
+
+    suspend fun saveEvaluationDataJson(json: String) {
+        cachedEvaluationDataJson = json
+        appDataStore.dataStore.edit { it[EVALUATION_DATA_JSON_KEY] = json }
+    }
+
+    fun getJwcNoticeJson(): String? = cachedJwcNoticeJson
+    fun getJwcNoticeUpdatedAt(): Long = cachedJwcNoticeUpdatedAt
+
+    suspend fun saveJwcNoticeJson(json: String) {
+        cachedJwcNoticeJson = json
+        cachedJwcNoticeUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit {
+            it[JWC_NOTICE_JSON_KEY] = json
+            it[JWC_NOTICE_UPDATED_AT_KEY] = cachedJwcNoticeUpdatedAt
+        }
+    }
+
+    fun getJwcNoticeDetailsJson(): String? = cachedJwcNoticeDetailsJson
+    suspend fun saveJwcNoticeDetailsJson(json: String) {
+        cachedJwcNoticeDetailsJson = json
+        appDataStore.dataStore.edit { it[JWC_NOTICE_DETAILS_JSON_KEY] = json }
+    }
+
+    fun getBuildingFloorsJson(): String? = cachedBuildingFloorsJson
+    fun getBuildingFloorsUpdatedAt(): Long = cachedBuildingFloorsUpdatedAt
+
+    suspend fun saveBuildingFloorsJson(json: String) {
+        cachedBuildingFloorsJson = json
+        cachedBuildingFloorsUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit {
+            it[BUILDING_FLOORS_JSON_KEY] = json
+            it[BUILDING_FLOORS_UPDATED_AT_KEY] = cachedBuildingFloorsUpdatedAt
+        }
+    }
+
+    fun getWeLearnCoursesJson(): String? = cachedWeLearnCoursesJson
+    fun getWeLearnCoursesUpdatedAt(): Long = cachedWeLearnCoursesUpdatedAt
+
+    suspend fun saveWeLearnCoursesJson(json: String) {
+        cachedWeLearnCoursesJson = json
+        cachedWeLearnCoursesUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit {
+            it[WELEARN_COURSES_JSON_KEY] = json
+            it[WELEARN_COURSES_UPDATED_AT_KEY] = cachedWeLearnCoursesUpdatedAt
+        }
     }
 
     // \u2500\u2500 \u6210\u7EE9\u7F13\u5B58 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -2349,6 +2440,20 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedScheduleUpdatedAt = 0L
 
+        cachedHistoricalSchedulesJson = null
+
+        cachedSemesterListJson = null
+
+        cachedEvaluationDataJson = null
+
+        cachedJwcNoticeJson = null
+        cachedJwcNoticeUpdatedAt = 0L
+        cachedJwcNoticeDetailsJson = null
+        cachedBuildingFloorsJson = null
+        cachedBuildingFloorsUpdatedAt = 0L
+        cachedWeLearnCoursesJson = null
+        cachedWeLearnCoursesUpdatedAt = 0L
+
         cachedGradesJson = null
 
         cachedGpaMetadataJson = null
@@ -3108,6 +3213,19 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         val SCHEDULE_UPDATED_AT_KEY = longPreferencesKey("schedule_updated_at")
 
+        val HISTORICAL_SCHEDULES_JSON_KEY = stringPreferencesKey("historical_schedules_json")
+
+        val SEMESTER_LIST_JSON_KEY = stringPreferencesKey("semester_list_json")
+
+        val EVALUATION_DATA_JSON_KEY = stringPreferencesKey("evaluation_data_json")
+        val JWC_NOTICE_JSON_KEY = stringPreferencesKey("jwc_notice_json")
+        val JWC_NOTICE_UPDATED_AT_KEY = longPreferencesKey("jwc_notice_updated_at")
+        val JWC_NOTICE_DETAILS_JSON_KEY = stringPreferencesKey("jwc_notice_details_json")
+        val BUILDING_FLOORS_JSON_KEY = stringPreferencesKey("building_floors_json")
+        val BUILDING_FLOORS_UPDATED_AT_KEY = longPreferencesKey("building_floors_updated_at")
+        val WELEARN_COURSES_JSON_KEY = stringPreferencesKey("welearn_courses_json")
+        val WELEARN_COURSES_UPDATED_AT_KEY = longPreferencesKey("welearn_courses_updated_at")
+
         val GRADES_JSON_KEY = stringPreferencesKey("grades_json")
 
         val GPA_METADATA_JSON_KEY = stringPreferencesKey("gpa_metadata_json")
@@ -3344,7 +3462,13 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
             STUDENT_INFO_KEY, STUDENT_INFO_UPDATED_AT_KEY,
 
-            SCHEDULE_JSON_KEY, SCHEDULE_UPDATED_AT_KEY,
+            SCHEDULE_JSON_KEY, SCHEDULE_UPDATED_AT_KEY, HISTORICAL_SCHEDULES_JSON_KEY,
+            SEMESTER_LIST_JSON_KEY,
+            EVALUATION_DATA_JSON_KEY,
+            JWC_NOTICE_JSON_KEY, JWC_NOTICE_UPDATED_AT_KEY,
+            JWC_NOTICE_DETAILS_JSON_KEY,
+            BUILDING_FLOORS_JSON_KEY, BUILDING_FLOORS_UPDATED_AT_KEY,
+            WELEARN_COURSES_JSON_KEY, WELEARN_COURSES_UPDATED_AT_KEY,
 
             GRADES_JSON_KEY, GPA_METADATA_JSON_KEY, GRADES_UPDATED_AT_KEY,
 

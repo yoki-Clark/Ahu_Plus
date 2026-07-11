@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.CourseNoteRepository
+import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.course.AssessmentPlan
 import com.ahu_plus.data.model.course.RecordEntry
@@ -24,6 +25,7 @@ import com.ahu_plus.data.repository.CourseRepository
 import com.ahu_plus.data.repository.ExamRepository
 import com.ahu_plus.data.repository.HomeworkRepository
 import com.ahu_plus.data.repository.JwAuthRepository
+import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.KqAttendanceRepository
 import com.ahu_plus.data.repository.RecordRepository
 import com.ahu_plus.data.repository.SessionExpiredException
@@ -152,14 +154,20 @@ class ScheduleViewModel(
         viewModelScope.launch {
             // 先加载用户自定义课表
             loadUserItems()
-            // 后台加载学期列表(不影响缓存秒显示)
-            launch { loadSemesterList() }
+            loadSemesterListFromCache()
             val cached = loadFromCache()
-            if (cached) {
-                // 有缓存数据 → 后台静默刷新
-                launch { loadScheduleData(isRefresh = true) }
+            val updatedToday = sessionManager?.let {
+                DataRefreshPolicy.wasUpdatedToday(it.getScheduleUpdatedAt())
+            } == true
+            if (cached && updatedToday) {
+                // 当天已成功同步过，直接使用缓存。
+                return@launch
+            } else if (cached) {
+                // 每个自然日首次打开时同步一次学期列表和当前课表。
+                loadSemesterList()
+                loadScheduleData(isRefresh = true)
             } else {
-                // 无缓存 → 主动加载
+                loadSemesterList()
                 loadScheduleData(isRefresh = false)
             }
         }
@@ -172,17 +180,25 @@ class ScheduleViewModel(
     private suspend fun loadSemesterList() {
         // 网络请求必须在 IO 线程,否则触发 NetworkOnMainThreadException
         withContext(Dispatchers.IO) {
-            // 先确保 JW 已认证(否则 course-table 页面 302 跳登录)
-            val authResult = jwAuthRepository.authenticate()
-            if (authResult.isFailure) {
-                Log.w(TAG, "学期列表加载跳过: 认证失败 ${authResult.exceptionOrNull()?.message}")
-                return@withContext
-            }
-            courseRepository.getSemesterList().onSuccess { list ->
+            jwAuthRepository.executeWithSessionRetry {
+                courseRepository.getSemesterList()
+            }.onSuccess { list ->
                 _uiState.update { it.copy(availableSemesters = list) }
+                sessionManager?.let { sm ->
+                    runCatching { sm.saveSemesterListJson(gson.toJson(list)) }
+                }
             }.onFailure { e ->
                 Log.w(TAG, "学期列表加载失败(非致命): ${e.message}")
             }
+        }
+    }
+
+    private fun loadSemesterListFromCache() {
+        val raw = sessionManager?.getSemesterListJson() ?: return
+        runCatching {
+            gson.fromJson(raw, Array<SemesterInfo>::class.java).toList()
+        }.onSuccess { list ->
+            _uiState.update { it.copy(availableSemesters = list) }
         }
     }
 
@@ -270,6 +286,30 @@ class ScheduleViewModel(
         }
     }
 
+    private fun loadHistoricalSchedule(semesterId: Int): com.ahu_plus.data.model.jw.ScheduleData? {
+        val raw = sessionManager?.getHistoricalSchedulesJson() ?: return null
+        return runCatching {
+            val root = com.google.gson.JsonParser.parseString(raw).asJsonObject
+            root.get(semesterId.toString())?.let {
+                gson.fromJson(it, com.ahu_plus.data.model.jw.ScheduleData::class.java)
+            }
+        }.getOrNull()
+    }
+
+    private suspend fun saveHistoricalSchedule(
+        semesterId: Int,
+        data: com.ahu_plus.data.model.jw.ScheduleData,
+    ) {
+        val sm = sessionManager ?: return
+        val root = runCatching {
+            sm.getHistoricalSchedulesJson()?.let {
+                com.google.gson.JsonParser.parseString(it).asJsonObject
+            }
+        }.getOrNull() ?: com.google.gson.JsonObject()
+        root.add(semesterId.toString(), gson.toJsonTree(data))
+        sm.saveHistoricalSchedulesJson(root.toString())
+    }
+
     /** courseCode → colorIndex 映射 (从 allActivities 构建一次,跨周稳定) */
     private var colorMap: Map<String, Int> = emptyMap()
 
@@ -346,23 +386,9 @@ class ScheduleViewModel(
         val wasLoaded = _uiState.value.allActivities.isNotEmpty()
         try {
             withContext(Dispatchers.IO) {
-                // Step 1: 认证
-                val authResult = jwAuthRepository.authenticate()
-                if (authResult.isFailure) {
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            isLoadingSemester = false,
-                            // 仅当本地无数据时才触发 needsLogin
-                            needsLogin = !wasLoaded,
-                            error = if (!wasLoaded) "教务处认证失败: ${authResult.exceptionOrNull()?.message}" else null
-                        )
-                    }
-                    return@withContext
+                val result = jwAuthRepository.executeWithSessionRetry {
+                    courseRepository.getSchedule(semesterId)
                 }
-
-                // Step 2: 获取课表(传入学期 ID)
-                val result = courseRepository.getSchedule(semesterId)
                 result.fold(
                     onSuccess = { data ->
                         // ★ 仅本学期写入本地缓存(其他学期按需加载)
@@ -375,6 +401,8 @@ class ScheduleViewModel(
                                     TodayScheduleWidgetUpdater.updateAll(getApplication())
                                 } catch (e: Exception) { Log.w(TAG, "Failed to cache schedule JSON: ${e.message}") }
                             }
+                        } else {
+                            saveHistoricalSchedule(semesterId, data)
                         }
 
                         val displayItems = buildDisplayItems(
@@ -408,19 +436,12 @@ class ScheduleViewModel(
                         }
                     },
                     onFailure = { e ->
-                        // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
-                        if (e is SessionExpiredException) {
-                            val retry = retryAfterSilentReauth(semesterId, isCurrentSemester)
-                            if (retry != null) {
-                                applyScheduleData(retry, isCurrentSemester, wasLoaded)
-                                return@fold
-                            }
-                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
                                 isLoadingSemester = false,
-                                error = if (!wasLoaded) "课表加载失败: ${e.message}" else it.error
+                                error = if (!wasLoaded) "课表加载失败: ${e.message}" else it.error,
+                                needsLogin = !wasLoaded && (e is SessionExpiredException || e is JwAuthException),
                             )
                         }
                     }
@@ -490,8 +511,13 @@ class ScheduleViewModel(
                 }
             }
         } else {
-            // 其他学期 → 网络按需加载
-            viewModelScope.launch { loadScheduleData(isRefresh = false, semesterId = semesterId) }
+            // 历史学期永久缓存：命中时直接显示，只有用户主动刷新才重新请求。
+            val cached = loadHistoricalSchedule(semesterId)
+            if (cached != null) {
+                viewModelScope.launch { applyScheduleData(cached, isCurrentSemester = false, wasLoaded = false) }
+            } else {
+                viewModelScope.launch { loadScheduleData(isRefresh = false, semesterId = semesterId) }
+            }
         }
     }
 
@@ -517,6 +543,7 @@ class ScheduleViewModel(
         viewModelScope.launch {
             // 跨 Repository 缓存(考勤 / 考试)可能在外部刷新过 — 重读一次让首页今日卡片同步
             reloadCrossRepoCaches()
+            loadSemesterList()
             loadScheduleData(isRefresh = true)
         }
     }
@@ -866,24 +893,6 @@ class ScheduleViewModel(
     }
 
     /** 2026-06-23: SessionExpiredException 后尝试静默重连+重试一次。 */
-    private suspend fun retryAfterSilentReauth(
-        semesterId: Int,
-        @Suppress("UNUSED_PARAMETER") isCurrentSemester: Boolean
-    ): com.ahu_plus.data.model.jw.ScheduleData? {
-        return try {
-            jwAuthRepository.clearCookies()
-            val authOk = jwAuthRepository.authenticate().isSuccess
-            if (!authOk) {
-                Log.w(TAG, "retryAfterSilentReauth: 静默重连失败,放弃重试")
-                return null
-            }
-            courseRepository.getSchedule(semesterId).getOrNull()
-        } catch (e: Exception) {
-            Log.w(TAG, "retryAfterSilentReauth 异常: ${e.message}")
-            null
-        }
-    }
-
     /** 应用重连+重试后的课表数据。 */
     private suspend fun applyScheduleData(
         data: com.ahu_plus.data.model.jw.ScheduleData,

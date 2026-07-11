@@ -263,18 +263,6 @@ class AhuPlusApplication : Application() {
         WidgetUpdateScheduler.scheduleNext(this)
         WidgetUpdateScheduler.scheduleTicker(this)  // 2026-06-22: 1 分钟 RTC 倒计时刷新
 
-        // ── 天气每小时自动刷新(零登录,前台常驻 Coroutine) ─────
-        // 用户要求:每次打开软件时刷新(由 MainActivity 进入首页触发)+ 每小时自动一次。
-        // 后台被 Doze 杀就停,符合"用户能看到才需要刷新"语义。
-        // 首次延迟 5s 避开冷启动竞争(网络/CookieJar 都未就绪)。
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            delay(5_000L)
-            runCatching { weatherManager.refresh() }
-            while (true) {
-                delay(60L * 60L * 1000L)
-                runCatching { weatherManager.refresh() }
-            }
-        }
     }
 
     /**

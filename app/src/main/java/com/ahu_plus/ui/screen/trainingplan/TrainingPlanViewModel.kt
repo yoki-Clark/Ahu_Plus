@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.GsonProvider
+import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.model.jw.CompletionCourse
 import com.ahu_plus.data.model.jw.CompletionSummary
 import com.ahu_plus.data.model.jw.GradeResponse
@@ -37,14 +38,13 @@ class TrainingPlanViewModel(
     private var expandedIds: Set<Int> = emptySet()
 
     init {
-        viewModelScope.launch {
-            val cached = loadFromCache()
-            if (cached) {
-                launch { loadAll(isRefresh = true) }
-            } else {
-                loadAll(isRefresh = false)
-            }
-        }
+        viewModelScope.launch { loadFromCache() }
+    }
+
+    fun activate() {
+        val updatedAt = sessionManager?.getTrainingPlanUpdatedAt() ?: 0L
+        if (!DataRefreshPolicy.isStale(updatedAt, 30L * 24 * 60 * 60 * 1000)) return
+        viewModelScope.launch { loadAll(isRefresh = _uiState.value.topModules.isNotEmpty()) }
     }
 
     fun onRefresh() {
@@ -88,20 +88,10 @@ class TrainingPlanViewModel(
         val wasLoaded = _uiState.value.topModules.isNotEmpty()
         try {
             withContext(Dispatchers.IO) {
-                val authResult = jwAuthRepository.authenticate()
-                if (authResult.isFailure) {
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            needsLogin = !wasLoaded,
-                            error = if (!wasLoaded) "教务处认证失败" else null
-                        )
-                    }
-                    return@withContext
-                }
-
                 // 并行加载培养方案 + 完成数据
-                val planResult = trainingPlanRepository.getTrainingPlan()
+                val planResult = jwAuthRepository.executeWithSessionRetry {
+                    trainingPlanRepository.getTrainingPlan()
+                }
                 val compResult = completionRepository?.getCompletionData()
 
                 planResult.fold(
@@ -114,17 +104,6 @@ class TrainingPlanViewModel(
                     },
                     onFailure = { e ->
                         // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
-                        if (e is SessionExpiredException) {
-                            val retry = retryAfterSilentReauth()
-                            if (retry != null) {
-                                sessionManager?.let { sm ->
-                                    try { sm.saveTrainingPlanJson(gson.toJson(retry)) }
-                                    catch (_: Exception) { Log.w(TAG, "Failed to cache training plan JSON") }
-                                }
-                                applyTrainingPlan(retry)
-                                return@fold
-                            }
-                        }
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -318,20 +297,6 @@ class TrainingPlanViewModel(
     }
 
     /** 2026-06-23: SessionExpiredException 后尝试静默重连+重试一次。 */
-    private suspend fun retryAfterSilentReauth(): TrainingPlanResponse? {
-        return try {
-            jwAuthRepository.clearCookies()
-            val authOk = jwAuthRepository.authenticate().isSuccess
-            if (!authOk) {
-                Log.w(TAG, "retryAfterSilentReauth: 静默重连失败,放弃重试")
-                return null
-            }
-            trainingPlanRepository.getTrainingPlan().getOrNull()
-        } catch (e: Exception) {
-            Log.w(TAG, "retryAfterSilentReauth 异常: ${e.message}")
-            null
-        }
-    }
 }
 
 enum class CourseCompletion { NOT_TAKEN, IN_PROGRESS, PASSED, FAILED }

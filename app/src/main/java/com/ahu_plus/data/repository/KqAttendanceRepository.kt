@@ -79,7 +79,7 @@ class KqAttendanceRepository(
     // 公开 API
     // ══════════════════════════════════════════════════════
 
-    suspend fun getAttendanceList(): Result<KqAttendanceSummary> = withContext(Dispatchers.IO) {
+    suspend fun getAttendanceList(fullRefresh: Boolean = true): Result<KqAttendanceSummary> = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "开始获取考勤数据...")
             ensureLoggedIn()
@@ -151,16 +151,31 @@ class KqAttendanceRepository(
                 totalCount = data.totalCount
                 allRecords.addAll(data.list)
 
+                if (!fullRefresh) break
+
                 // 空列表或不足一页就停止 (实测 page 14 返回空列表)
                 if (data.list.isEmpty() || data.list.size < PAGE_SIZE) break
                 currentPage++
             }
 
-            allRecords.sortByDescending { it.accountBean?.checkdate ?: "" }
+            val finalRecords = if (fullRefresh) {
+                allRecords
+            } else {
+                val cached = readCached()?.records.orEmpty()
+                (allRecords + cached).distinctBy { record ->
+                    listOf(
+                        record.accountBean?.checkdate,
+                        record.accountBean?.jtNo,
+                        record.accountBean?.startJc,
+                        record.subjectBean?.sCode,
+                    ).joinToString("|")
+                }.toMutableList()
+            }
+            finalRecords.sortByDescending { it.accountBean?.checkdate ?: "" }
             Log.i(TAG, "考勤数据加载完成: ${allRecords.size} / $totalCount")
 
             val summary = KqAttendanceSummary(
-                records = allRecords,
+                records = finalRecords,
                 total = totalCount,
                 lastUpdatedAt = System.currentTimeMillis()
             )
