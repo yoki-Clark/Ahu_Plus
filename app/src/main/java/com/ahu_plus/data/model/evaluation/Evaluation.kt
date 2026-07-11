@@ -176,3 +176,20 @@ sealed interface EvaluationAnswer {
     /** 文本 */
     data class Text(val questionId: String, val text: String) : EvaluationAnswer
 }
+
+// ── 一键填写评语选项 ─────────────────────────────────────
+
+/**
+ * 评教「一键填写」的评语备选项。
+ *
+ * 弹窗里以单选列表呈现,选中后把 [text] 填到所有文本题(type=4)。
+ * 单选题策略固定为「6 优 + 1 良,良在前 7 题中随机」,不暴露给用户配置。
+ *
+ * @param id 唯一标识,内置选项为 `"default"`,用户新增为 UUID
+ * @param builtIn 内置选项不能删;用户新增通过 SessionManager 持久化
+ */
+data class EvaluationCommentOption(
+    val id: String,
+    val text: String,
+    val builtIn: Boolean = false,
+)

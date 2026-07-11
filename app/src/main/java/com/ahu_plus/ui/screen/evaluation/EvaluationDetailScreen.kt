@@ -22,7 +22,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -42,10 +44,15 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.model.evaluation.EvaluationAnswer
+import com.ahu_plus.data.model.evaluation.EvaluationCommentOption
 import com.ahu_plus.data.model.evaluation.EvaluationOption
 import com.ahu_plus.data.model.evaluation.EvaluationQuestion
 import com.ahu_plus.data.model.evaluation.EvaluationQuestionnaire
@@ -65,6 +73,7 @@ import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuRed
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuSpacing
+import kotlinx.coroutines.launch
 
 /**
  * 评教详情页 — 显示一个老师的问卷,支持作答 + 提交。
@@ -86,6 +95,19 @@ fun EvaluationDetailScreen(
 ) {
     val state by viewModel.detailState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    var showFillDialog by rememberSaveable { mutableStateOf(false) }
+    var commentOptions by remember { mutableStateOf(viewModel.currentCommentOptions()) }
+    var selectedOptionId by remember(commentOptions) {
+        mutableStateOf(commentOptions.firstOrNull()?.id ?: "")
+    }
+
+    fun refreshCommentOptions() {
+        commentOptions = viewModel.currentCommentOptions()
+        if (commentOptions.none { it.id == selectedOptionId }) {
+            selectedOptionId = commentOptions.firstOrNull()?.id ?: ""
+        }
+    }
 
     LaunchedEffect(state.submitErrorVersion) {
         val message = state.submitError
@@ -104,6 +126,33 @@ fun EvaluationDetailScreen(
         }
     }
 
+    if (showFillDialog) {
+        FillDialog(
+            options = commentOptions,
+            selectedId = selectedOptionId,
+            onSelect = { selectedOptionId = it },
+            onAdd = { text ->
+                coroutineScope.launch {
+                    val added = viewModel.addCustomCommentOption(text)
+                    refreshCommentOptions()
+                    selectedOptionId = added.id
+                }
+            },
+            onDelete = { id ->
+                coroutineScope.launch {
+                    viewModel.removeCustomCommentOption(id)
+                    refreshCommentOptions()
+                }
+            },
+            onConfirm = {
+                val option = commentOptions.firstOrNull { it.id == selectedOptionId }
+                if (option != null) viewModel.applyFillPreset(option.text)
+                showFillDialog = false
+            },
+            onDismiss = { showFillDialog = false },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -112,6 +161,17 @@ fun EvaluationDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    TextButton(
+                        onClick = {
+                            refreshCommentOptions()
+                            showFillDialog = true
+                        },
+                        enabled = state.questionnaire != null,
+                    ) {
+                        Text("一键填写")
                     }
                 },
             )
@@ -424,6 +484,135 @@ private fun BottomActionBar(
                 } else {
                     Text("匿名提交")
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 一键填写弹窗。两块内容:
+ *  - 上:选择题策略(只读说明:六优一良,良随机)
+ *  - 下:评语选项(单选),默认「无」+ 用户新增,每行可删(内置除外)
+ * 点「确定」按选中评语填空,不触发提交。
+ */
+@Composable
+private fun FillDialog(
+    options: List<EvaluationCommentOption>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+    onAdd: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var newComment by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("一键填写") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm),
+            ) {
+                // 选择题策略(只读)
+                Column {
+                    Text(
+                        text = "选择题",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "六优一良(良随机选择)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                // 评语选项(单选列表)
+                Column {
+                    Text(
+                        text = "评语",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    options.forEach { option ->
+                        CommentOptionRow(
+                            option = option,
+                            selected = option.id == selectedId,
+                            onSelect = { onSelect(option.id) },
+                            onDelete = { onDelete(option.id) },
+                        )
+                    }
+                    // 添加新评语(行内输入)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = AhuSpacing.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = newComment,
+                            onValueChange = { newComment = it.take(500) },
+                            placeholder = { Text("新评语…") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = AhuShapes.Card,
+                        )
+                        TextButton(
+                            onClick = {
+                                val text = newComment.trim()
+                                if (text.isNotBlank()) {
+                                    onAdd(text)
+                                    newComment = ""
+                                }
+                            },
+                            enabled = newComment.isNotBlank(),
+                        ) { Text("+添加") }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = selectedId.isNotBlank(),
+            ) { Text("确定") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
+@Composable
+private fun CommentOptionRow(
+    option: EvaluationCommentOption,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onSelect)
+            .padding(vertical = 4.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onSelect)
+        Text(
+            text = option.text,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f).padding(start = 4.dp),
+            maxLines = 2,
+        )
+        if (!option.builtIn) {
+            IconButton(onClick = onDelete) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "删除${option.text}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

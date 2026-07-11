@@ -1,6 +1,8 @@
 package com.ahu_plus.ui.screen.evaluation
 
 import com.ahu_plus.data.model.evaluation.EvaluationAnswer
+import com.ahu_plus.data.model.evaluation.EvaluationCommentOption
+import com.ahu_plus.data.model.evaluation.EvaluationOption
 import com.ahu_plus.data.model.evaluation.EvaluationQuestionnaire
 import com.ahu_plus.data.model.evaluation.EvaluationSemester
 import com.ahu_plus.data.model.evaluation.TeacherEvaluationTask
@@ -86,4 +88,80 @@ internal fun validateEvaluationDraft(
     }
 
     return EvaluationDraftValidation()
+}
+
+/** 内置的「无」评语选项。 */
+internal val DefaultCommentOption = EvaluationCommentOption(
+    id = "default",
+    text = "无",
+    builtIn = true,
+)
+
+/**
+ * 单选题策略:固定「6 优 + 1 良」,唯一的「良」放在前 7 道单选里随机挑。
+ * < 7 道时,只取实际数量减一为优、随机一道为良;
+ * > 7 道时,前 7 道里随机一良,其余全优(等价于「第 7 道以外一律优」)。
+ * 题型识别:optionScore 最大为「优」,次大为「良」;找不到次大时退化为「优」。
+ * 文本题统一填 [commentText]。
+ */
+internal fun applyFillPreset(
+    questionnaire: EvaluationQuestionnaire,
+    commentText: String,
+    random: java.util.Random,
+): Map<String, EvaluationAnswer> {
+    val radioQuestions = questionnaire.questions.filter { it.type == 1 }
+    val sevenCandidatePool = radioQuestions.take(7)
+    val goodIndexInPool = if (sevenCandidatePool.isNotEmpty()) {
+        random.nextInt(sevenCandidatePool.size)
+    } else -1
+
+    val result = LinkedHashMap<String, EvaluationAnswer>(questionnaire.questions.size)
+    questionnaire.questions.forEach { question ->
+        when (question.type) {
+            1 -> {
+                val excellentOpt = pickExcellentOption(question.options)
+                val goodOpt = pickGoodOption(question.options)
+                val poolIndex = sevenCandidatePool.indexOf(question)
+                val pick = if (poolIndex >= 0 && poolIndex == goodIndexInPool && goodOpt != null) {
+                    goodOpt
+                } else {
+                    excellentOpt
+                }
+                if (pick != null) {
+                    result[question.questionId] = EvaluationAnswer.Option(
+                        questionId = question.questionId,
+                        optionId = pick.optionId,
+                        optionScore = pick.optionScore,
+                    )
+                }
+            }
+            4 -> result[question.questionId] = EvaluationAnswer.Text(
+                questionId = question.questionId,
+                text = commentText,
+            )
+        }
+    }
+    return result
+}
+
+/** optionScore 最大者;并列时取列表第一个。空列表返回 null。 */
+private fun pickExcellentOption(options: List<EvaluationOption>): EvaluationOption? =
+    options.maxByOrNull { it.optionScore }
+
+/** 「良」= 次大 optionScore。找不到(选项数 < 2 或所有并列)时退化为最大者;再不行返回 null。 */
+private fun pickGoodOption(options: List<EvaluationOption>): EvaluationOption? {
+    if (options.size < 2) return null
+    val sorted = options.sortedByDescending { it.optionScore }
+    val maxScore = sorted.first().optionScore
+    val secondOrSame = sorted.firstOrNull { it.optionScore < maxScore } ?: sorted.first()
+    return if (secondOrSame.optionScore < maxScore) secondOrSame else sorted.first()
+}
+
+/**
+ * 把评语选项列表(用户自定义 + 内置默认)拼接好,默认永远在最前,
+ * 且去重(防用户手动加了 id="default" 的脏数据)。
+ */
+internal fun mergeCommentOptions(custom: List<EvaluationCommentOption>): List<EvaluationCommentOption> {
+    val customOnly = custom.filter { it.id != DefaultCommentOption.id }
+    return listOf(DefaultCommentOption) + customOnly
 }

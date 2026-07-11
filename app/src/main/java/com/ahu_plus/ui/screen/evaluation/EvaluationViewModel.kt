@@ -3,11 +3,14 @@ package com.ahu_plus.ui.screen.evaluation
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.evaluation.EvaluationAnswer
+import com.ahu_plus.data.model.evaluation.EvaluationCommentOption
 import com.ahu_plus.data.model.evaluation.EvaluationQuestionnaire
 import com.ahu_plus.data.model.evaluation.EvaluationSemester
 import com.ahu_plus.data.model.evaluation.SubmissionPayload
 import com.ahu_plus.data.model.evaluation.TeacherEvaluationTask
+import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.repository.EvaluationApiException
 import com.ahu_plus.data.repository.EvaluationAuthException
 import com.ahu_plus.data.repository.EvaluationRepository
@@ -18,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 /**
  * 评教 ViewModel — 列表 + 详情两个状态。
@@ -34,7 +38,10 @@ import kotlinx.coroutines.launch
 class EvaluationViewModel(
     private val evaluationRepository: EvaluationRepository,
     private val jwAuthRepository: JwAuthRepository,
+    private val sessionManager: SessionManager,
 ) : ViewModel() {
+
+    private val gson = GsonProvider.instance
 
     private val _listState = MutableStateFlow(EvaluationListUiState())
     val listState: StateFlow<EvaluationListUiState> = _listState.asStateFlow()
@@ -190,6 +197,59 @@ class EvaluationViewModel(
     fun resetDetail() {
         _detailState.value = EvaluationDetailUiState()
     }
+
+    /**
+     * 一键填写:用指定评语文本批量填好整张问卷(只动 state.answers,不提交)。
+     * UI 端在弹窗点「确定」时调用。
+     */
+    fun applyFillPreset(commentText: String) {
+        val q = _detailState.value.questionnaire ?: return
+        val newAnswers = applyFillPreset(
+            questionnaire = q,
+            commentText = commentText,
+            random = java.util.Random(),
+        )
+        _detailState.update {
+            it.copy(
+                answers = newAnswers,
+                submitError = null,
+                missingQuestionIds = emptySet(),
+            )
+        }
+    }
+
+    /** 当前可见的评语选项列表(内置「无」+ 用户自定义)。 */
+    fun currentCommentOptions(): List<EvaluationCommentOption> {
+        val custom = parseCommentOptions(sessionManager.getEvaluationCommentOptionsJson())
+        return mergeCommentOptions(custom)
+    }
+
+    /** 添加一个用户自定义评语选项,立刻写回 SessionManager。 */
+    suspend fun addCustomCommentOption(text: String): EvaluationCommentOption {
+        val option = EvaluationCommentOption(
+            id = UUID.randomUUID().toString(),
+            text = text.trim().take(500),
+        )
+        val current = parseCommentOptions(sessionManager.getEvaluationCommentOptionsJson())
+        sessionManager.saveEvaluationCommentOptionsJson(gson.toJson(current + option))
+        return option
+    }
+
+    /** 删除一个用户自定义评语选项(id 不存在或为内置 id 时静默忽略)。 */
+    suspend fun removeCustomCommentOption(id: String) {
+        if (id == DefaultCommentOption.id) return
+        val current = parseCommentOptions(sessionManager.getEvaluationCommentOptionsJson())
+        val next = current.filterNot { it.id == id }
+        if (next.size == current.size) return
+        sessionManager.saveEvaluationCommentOptionsJson(gson.toJson(next))
+    }
+
+    private fun parseCommentOptions(json: String): List<EvaluationCommentOption> =
+        if (json.isBlank()) emptyList()
+        else runCatching {
+            gson.fromJson(json, Array<EvaluationCommentOption>::class.java).toList()
+                .filter { it.id.isNotBlank() && it.id != DefaultCommentOption.id }
+        }.getOrDefault(emptyList())
 
     /**
      * 提交评教,anonymous=false=实名,=true=匿名。

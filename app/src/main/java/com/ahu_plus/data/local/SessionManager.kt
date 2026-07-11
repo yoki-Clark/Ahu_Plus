@@ -241,6 +241,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     @Volatile private var cachedEvaluationJwt: String? = null
 
+    /** 用户自定义评教一键填写评语选项(JSON 数组)。退登保留。 */
+    @Volatile private var cachedEvaluationCommentOptions: String = ""
+
     /**
      * 开发者公告 Gitee JSON 缓存:
      * 由 [com.ahu_plus.data.repository.AnnouncementRepository]
@@ -657,6 +660,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedExamPredictionsJson = prefs[EXAM_PREDICTIONS_JSON_KEY]
         cachedEvaluationJwt = prefs[EVALUATION_JWT_KEY]
+        cachedEvaluationCommentOptions = prefs[EVALUATION_COMMENT_OPTIONS_KEY] ?: ""
 
         cachedAnnouncementsJson = prefs[ANNOUNCEMENTS_JSON_KEY]
         cachedAnnouncementsFetchedAt = prefs[ANNOUNCEMENTS_FETCHED_AT_KEY] ?: 0L
@@ -2051,6 +2055,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it.remove(EVALUATION_JWT_KEY) }
     }
 
+    /** 用户自定义评教一键填写评语选项(JSON 数组)。空串表示还没有自定义。 */
+    fun getEvaluationCommentOptionsJson(): String = cachedEvaluationCommentOptions
+
+    suspend fun saveEvaluationCommentOptionsJson(json: String) {
+        cachedEvaluationCommentOptions = json
+        appDataStore.dataStore.edit { it[EVALUATION_COMMENT_OPTIONS_KEY] = json }
+    }
+
     // ── 开发者公告 Gitee JSON 缓存 ─────────────────────────
     // 由 AnnouncementRepository 从 Gitee yao-enqi/ahu-plus-update 仓库的
     // announcements/announcements.json 拉取后写入。零登录。
@@ -3154,6 +3166,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val ADWMH_QR_FETCHED_AT_KEY = longPreferencesKey("adwmh_qr_fetched_at")
         val EXAM_PREDICTIONS_JSON_KEY = stringPreferencesKey("exam_predictions_json")
         val EVALUATION_JWT_KEY = stringPreferencesKey("evaluation_jwt")
+        /** 用户自定义评教一键填写评语选项(JSON 数组)。退登保留。 */
+        val EVALUATION_COMMENT_OPTIONS_KEY = stringPreferencesKey("evaluation_comment_options")
 
         // 开发者公告
         val ANNOUNCEMENTS_JSON_KEY = stringPreferencesKey("announcements_json")
