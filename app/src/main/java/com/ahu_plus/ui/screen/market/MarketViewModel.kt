@@ -29,10 +29,17 @@ class MarketViewModel(
 
     private val _uiState = MutableStateFlow(MarketUiState())
     val uiState: StateFlow<MarketUiState> = _uiState.asStateFlow()
+    private var lastTopicsLoadedAt: Long = 0L
 
     init {
         refreshSettingsState()
-        if (_uiState.value.identities.isNotEmpty()) refreshTopics()
+    }
+
+    fun activate() {
+        val stale = System.currentTimeMillis() - lastTopicsLoadedAt >= 2L * 60 * 1000
+        if (_uiState.value.identities.isNotEmpty() && (_uiState.value.topics.isEmpty() || stale)) {
+            refreshTopics()
+        }
     }
 
     fun refreshSettingsState() {
@@ -621,6 +628,7 @@ class MarketViewModel(
                 repository.getTopicsMulti(selectedIdentities, page).getOrThrow()
             }
             val topics = batch.topics
+            lastTopicsLoadedAt = System.currentTimeMillis()
 
             // 客户端过滤
             val nodeIdByName = MarketApi.DEFAULT_NODES.associate { it.name to it.id }

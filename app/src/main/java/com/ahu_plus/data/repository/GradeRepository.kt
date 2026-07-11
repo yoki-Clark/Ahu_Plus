@@ -60,7 +60,9 @@ class GradeRepository(
                 .build()
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
-                if (response.code == 302) {
+                if (JwSessionResponseClassifier.isExpired(
+                        response.code, response.header("Location"), body
+                    )) {
                     throw SessionExpiredException()
                 }
                 if (!response.isSuccessful) {
@@ -97,6 +99,9 @@ class GradeRepository(
             client.newCall(request).execute().use { response ->
                 val location = response.headers["Location"] ?: ""
                 Log.i(TAG, "grade/sheet HTTP ${response.code}, Location=$location")
+                if (JwSessionResponseClassifier.isExpired(response.code, location)) {
+                    return Result.failure(SessionExpiredException())
+                }
                 // Location 形如: /student/for-std/grade/sheet/semester-index/99166
                 val id = parseStudentIdFromLocation(location)
                 if (id != null) {
@@ -264,6 +269,9 @@ class GradeRepository(
                 .build()
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
+                if (JwSessionResponseClassifier.isExpired(
+                        response.code, response.header("Location"), body
+                    )) throw SessionExpiredException()
                 if (!response.isSuccessful) {
                     throw Exception("GPA 页面请求失败: HTTP ${response.code}")
                 }

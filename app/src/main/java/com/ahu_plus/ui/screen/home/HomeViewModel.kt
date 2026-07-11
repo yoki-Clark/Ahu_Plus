@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.ElectricityRoomConfig
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.model.BathroomBalanceData
 import com.ahu_plus.data.model.BillRecord
 import com.ahu_plus.data.model.DormHint
@@ -59,6 +60,8 @@ class HomeViewModel(
     // 级联加载 Job 引用,用于取消过期请求避免竞态
     private var cascadeJobAc: Job? = null
     private var cascadeJobLighting: Job? = null
+    private var qrRefreshJob: Job? = null
+    private var visible = false
 
     init {
         val savedBathroomPhone = sessionManager.getBathroomPhone().orEmpty()
@@ -97,9 +100,19 @@ class HomeViewModel(
             )
         }
         applyStudentInfoPrefill(studentInfoRepository?.readCachedStudentInfo(), loadAfterApply = false)
-        loadBalanceAndBills()
         restoreCachedQr()
-        startQrAutoRefresh()
+    }
+
+    fun setVisible(value: Boolean) {
+        if (visible == value) return
+        visible = value
+        if (value) {
+            loadBalanceAndBills()
+            startQrAutoRefresh()
+        } else {
+            qrRefreshJob?.cancel()
+            qrRefreshJob = null
+        }
     }
 
     /** 从 building value/name 推导 feeitemid。 */
@@ -163,11 +176,11 @@ class HomeViewModel(
         }
     }
 
-    private fun loadBalanceAndBills() {
+    private fun loadBalanceAndBills(forceBills: Boolean = false) {
         viewModelScope.launch {
             coroutineScope {
                 val balanceJob = async { loadBalance() }
-                val billsJob = async { loadBills() }
+                val billsJob = async { loadBills(force = forceBills) }
                 val bathroomJob = async { loadBathroomBalance() }
                 val acJob = async { loadElectricityBalance(ElectricityTarget.AC) }
                 val lightingJob = async { loadElectricityBalance(ElectricityTarget.LIGHTING) }
@@ -243,7 +256,7 @@ class HomeViewModel(
 
     // ── 账单 ────────────────────────────────────────────
 
-    fun loadBills() {
+    fun loadBills(force: Boolean = false) {
         viewModelScope.launch {
             // 先从缓存加载
             val cached = withContext(Dispatchers.IO) { sessionManager.getBillsJson() }
@@ -259,9 +272,13 @@ class HomeViewModel(
             } else {
                 _uiState.update { it.copy(billsLoading = true) }
             }
+            if (!force && !DataRefreshPolicy.isStale(
+                    sessionManager.getBillsUpdatedAt(), 24L * 60 * 60 * 1000
+                )) return@launch
             // 后台刷新
             withContext(Dispatchers.IO) {
-                withYcardRelogin { ycardRepository.getAllBills() }.fold(
+                val knownIds = _uiState.value.bills.mapNotNull { it.orderId.takeIf(String::isNotBlank) }.toSet()
+                withYcardRelogin { ycardRepository.getIncrementalBills(knownIds) }.fold(
                     onSuccess = { records ->
                         // 合并：新数据 + 旧缓存中不重复的记录
                         val oldJson = sessionManager.getBillsJson()
@@ -1198,7 +1215,7 @@ class HomeViewModel(
         exceptionOrNull() is YcardAuthExpiredException
 
     fun onRefresh() {
-        loadBalanceAndBills()
+        loadBalanceAndBills(forceBills = true)
         loadCampusQrCode()
     }
 
@@ -1416,8 +1433,8 @@ class HomeViewModel(
     }
 
     private fun startQrAutoRefresh() {
-        if (adwmhCardRepository == null) return
-        viewModelScope.launch {
+        if (adwmhCardRepository == null || qrRefreshJob?.isActive == true) return
+        qrRefreshJob = viewModelScope.launch {
             val baseInterval = (QR_REFRESH_INTERVAL_MS / 1000).toInt()
             while (true) {
                 loadCampusQrCode()

@@ -230,6 +230,30 @@ class YcardRepository(
         }
     }
 
+    /** Fetch newest pages and stop as soon as a locally known order is encountered. */
+    suspend fun getIncrementalBills(
+        knownOrderIds: Set<String>,
+        pageSize: Int = 50,
+        maxPages: Int = 5,
+    ): Result<List<BillRecord>> = try {
+        val incoming = mutableListOf<BillRecord>()
+        for (page in 1..maxPages) {
+            val data = getBills(current = page, size = pageSize).getOrThrow().data ?: break
+            var reachedKnown = false
+            for (record in data.records) {
+                if (record.orderId.isNotBlank() && record.orderId in knownOrderIds) {
+                    reachedKnown = true
+                    break
+                }
+                incoming += record
+            }
+            if (reachedKnown || data.records.size < pageSize || page >= data.pages) break
+        }
+        Result.success(incoming)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
     /**
      * 查询浴室余额 (ycard.ahu.edu.cn/charge/feeitem/getThirdData)。
      *

@@ -2,6 +2,7 @@ package com.ahu_plus.data.repository
 
 import android.util.Log
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.local.DataRefreshPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -50,34 +51,14 @@ class InitCoordinator(
     suspend fun runSequentially(onProgress: (String) -> Unit) {
         Log.d(tag, "首次登录初始化开始")
 
-        // 第 1 步:我的信息(其它步骤的住宿/手机号预填依赖此项)
-        onProgress("正在初始化我的信息...")
-        runStep { studentInfoRepository.getStudentInfo() }
-        delay(400)
-
-        // 第 2-7 步并行 — 总耗时 ≈ 最慢的一项,而不是 6 项之和
-        onProgress("正在并行加载校园数据...")
-        coroutineScope {
-            val jobs = listOf(
-                async {
-                    runStep {
-                        val phone = sessionManager.getBathroomPhone().orEmpty()
-                        coroutineScope {
-                            val bathroom = async {
-                                if (phone.isNotBlank()) ycardRepository.getBathroomBalance(phone) else null
-                            }
-                            val internet = async { ycardRepository.getInternetBalance() }
-                            bathroom.await(); internet.await()
-                        }
-                    }
-                },
-                async { runStep { gradeRepository.getGrades() } },
-                async { runStep { examRepository.getExams() } },
-                async { runStep { trainingPlanRepository.getTrainingPlan() } },
-                async { runStep { ycardRepository.getAllBills() } },
-                async { runStep { kqAttendanceRepository.getAttendanceList() } },
-            )
-            jobs.awaitAll()
+        val missing = studentInfoRepository.readCachedStudentInfo() == null
+        val stale = DataRefreshPolicy.isStale(
+            sessionManager.getStudentInfoUpdatedAt(),
+            30L * 24 * 60 * 60 * 1000,
+        )
+        if (missing || stale) {
+            onProgress("正在初始化我的信息...")
+            runStep { studentInfoRepository.getStudentInfo() }
         }
 
         Log.d(tag, "首次登录初始化完成")

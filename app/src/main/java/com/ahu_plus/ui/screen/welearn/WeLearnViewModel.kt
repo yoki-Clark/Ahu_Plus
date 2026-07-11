@@ -7,6 +7,8 @@ import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.model.WeLearnCourse
 import com.ahu_plus.data.model.WeLearnStudyUiState
 import com.ahu_plus.data.model.WeLearnUnitScos
+import com.ahu_plus.data.GsonProvider
+import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.repository.WeLearnRepository
 import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +44,15 @@ class WeLearnViewModel(
 
     private val _coursesState = MutableStateFlow(CoursesUiState())
     val coursesState: StateFlow<CoursesUiState> = _coursesState.asStateFlow()
+    private var lastCoursesLoadedAt: Long = app.sessionManager.getWeLearnCoursesUpdatedAt()
+
+    init {
+        app.sessionManager.getWeLearnCoursesJson()?.let { raw ->
+            runCatching {
+                GsonProvider.instance.fromJson(raw, Array<WeLearnCourse>::class.java).toList()
+            }.onSuccess { courses -> _coursesState.value = CoursesUiState(courses = courses) }
+        }
+    }
 
     // 课程详情(单元+章节树)
     data class TreeUiState(
@@ -76,7 +87,11 @@ class WeLearnViewModel(
     /** 保存的账号(手机号),供登录卡预填 */
     val savedUsername: String? get() = app.sessionManager.getWeLearnUsername()
 
-    init {
+    fun activate() {
+        val fresh = _coursesState.value.courses.isNotEmpty() && !DataRefreshPolicy.isStale(
+            lastCoursesLoadedAt, 6L * 60 * 60 * 1000
+        )
+        if (fresh) return
         when {
             isLoggedIn -> refreshCourses()
             // 没登录但有账密 → 静默自动登录(对齐 Chaoxing.checkLogin 自动续期)
@@ -108,7 +123,11 @@ class WeLearnViewModel(
             _coursesState.value = _coursesState.value.copy(loading = true, error = null)
             val res = retryWithRelogin { queryRepo.getCourses() }
             _coursesState.value = res.fold(
-                onSuccess = { CoursesUiState(loading = false, courses = it) },
+                onSuccess = {
+                    lastCoursesLoadedAt = System.currentTimeMillis()
+                    app.sessionManager.saveWeLearnCoursesJson(GsonProvider.instance.toJson(it))
+                    CoursesUiState(loading = false, courses = it)
+                },
                 onFailure = {
                     // session 过期 → 静默重登已失败,引导登录
                     val msg = it.message.orEmpty()

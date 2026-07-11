@@ -137,16 +137,8 @@ fun AppNavigation(
             Log.w("AppNavigation", "attemptSilentReauth: CAS 续期失败 ${casResult?.exceptionOrNull()?.message}")
             return false
         }
-        // Step 2: 强制丢弃 JW 旧会话(否则 authenticate() 会用旧 session 直接返回 success)
-        try {
-            jwAuthRepository.clearCookies()
-            sessionManager.clearJwSession()
-        } catch (e: Exception) {
-            Log.w("AppNavigation", "attemptSilentReauth: 清 JW cookie 异常 ${e.message}")
-        }
-        // Step 3: JW 续期 — authenticate() 在没 session 时会走 trySimplifiedSso 用新 CASTGC 换 SESSION
         return try {
-            val jwResult = jwAuthRepository.authenticate()
+            val jwResult = jwAuthRepository.forceReauthenticate()
             if (!jwResult.isSuccess) {
                 Log.w("AppNavigation", "attemptSilentReauth: JW 续期失败 ${jwResult.exceptionOrNull()?.message}")
             }

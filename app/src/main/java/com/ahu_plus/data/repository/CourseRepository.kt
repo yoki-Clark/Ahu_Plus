@@ -124,7 +124,9 @@ class CourseRepository(
                 val body = response.body?.string() ?: ""
                 Log.d(TAG, "semester list HTML HTTP ${response.code}, bytes=${body.length}")
 
-                if (response.code == 302) {
+                if (JwSessionResponseClassifier.isExpired(
+                        response.code, response.header("Location"), body
+                    )) {
                     return Result.failure(SessionExpiredException())
                 }
                 if (!response.isSuccessful) {
@@ -177,8 +179,8 @@ class CourseRepository(
             val code = response.code
             Log.d(TAG, "print-data HTTP $code, bytes=${body.length}")
 
-            if (code == 302) {
-                val loc = response.headers("Location").joinToString()
+            val loc = response.header("Location")
+            if (JwSessionResponseClassifier.isExpired(code, loc, body)) {
                 Log.w(TAG, "print-data redirect Location: $loc")
                 throw SessionExpiredException()
             }
@@ -204,10 +206,15 @@ class CourseRepository(
 
         val request = Request.Builder().url(url).get().build()
         client.newCall(request).execute().use { response ->
+            val body = response.body?.string() ?: ""
+            if (JwSessionResponseClassifier.isExpired(
+                    response.code, response.header("Location"), body
+                )) {
+                throw SessionExpiredException()
+            }
             if (!response.isSuccessful) {
                 throw Exception("get-data 请求失败: HTTP ${response.code}")
             }
-            val body = response.body?.string() ?: ""
             return gson.fromJson(body, GetDataResponse::class.java)
         }
     }

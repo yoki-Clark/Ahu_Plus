@@ -158,21 +158,29 @@ class EvaluationRepository(
      * 入口靠 jw SESSION 鉴权 → 先确保 SESSION 有效(authenticate 内部探测+复用)。
      */
     private suspend fun bootstrapToken(): String {
-        jwAuthRepository.authenticate().getOrElse {
-            throw EvaluationAuthException("教务处登录失败: ${it.message}")
-        }
-        val request = Request.Builder()
-            .url(EXTRA_SYSTEM_ENTRY)
-            .header("User-Agent", UA)
-            .header("Referer", "$JW_BASE/student/home")
-            .get()
-            .build()
-        return client.newCall(request).execute().use { response ->
-            val location = response.header("Location").orEmpty()
-            extractTokenFromLocation(location)
-                ?: throw EvaluationAuthException(
-                    "SSO 入口未返回 bootstrap token (HTTP ${response.code}),SESSION 可能已失效"
-                )
+        return jwAuthRepository.executeWithSessionRetry {
+            runCatching {
+                val request = Request.Builder()
+                    .url(EXTRA_SYSTEM_ENTRY)
+                    .header("User-Agent", UA)
+                    .header("Referer", "$JW_BASE/student/home")
+                    .get()
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    val location = response.header("Location").orEmpty()
+                    extractTokenFromLocation(location) ?: run {
+                        if (JwSessionResponseClassifier.isExpired(
+                                response.code, location, response.body?.string()
+                            )) throw SessionExpiredException()
+                        throw EvaluationAuthException(
+                            "SSO entry did not return bootstrap token (HTTP ${response.code})"
+                        )
+                    }
+                }
+            }
+        }.getOrElse { e ->
+            throw if (e is EvaluationAuthException) e
+            else EvaluationAuthException("教务处登录失败: ${e.message}")
         }
     }
 

@@ -2,6 +2,7 @@ package com.ahu_plus.ui.screen.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.StudentInfo
 import com.ahu_plus.data.repository.SessionExpiredException
@@ -33,6 +34,13 @@ class StudentInfoViewModel(
         if (cached != null) {
             _uiState.update { it.copy(info = cached) }
         }
+    }
+
+    fun activate() {
+        if (_uiState.value.info != null && !DataRefreshPolicy.isStale(
+                sessionManager.getStudentInfoUpdatedAt(), 30L * 24 * 60 * 60 * 1000
+            )) return
+        refreshStudentInfo()
     }
 
     /**

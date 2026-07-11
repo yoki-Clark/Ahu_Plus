@@ -90,7 +90,9 @@ class EmptyClassroomRepository(
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (response.code == 302) {
+                if (JwSessionResponseClassifier.isExpired(
+                        response.code, response.header("Location")
+                    )) {
                     throw SessionExpiredException()
                 }
                 if (!response.isSuccessful) {
@@ -203,7 +205,9 @@ class EmptyClassroomRepository(
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (response.code == 302) {
+                if (JwSessionResponseClassifier.isExpired(
+                        response.code, response.header("Location")
+                    )) {
                     throw SessionExpiredException()
                 }
                 if (!response.isSuccessful) {

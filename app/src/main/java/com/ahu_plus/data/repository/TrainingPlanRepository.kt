@@ -29,7 +29,9 @@ class TrainingPlanRepository(private val jwAuthRepository: JwAuthRepository) {
             .header("Accept", "application/json, text/javascript, */*; q=0.01").build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string() ?: ""
-            if (response.code == 302) throw SessionExpiredException()
+            if (JwSessionResponseClassifier.isExpired(
+                    response.code, response.header("Location"), body
+                )) throw SessionExpiredException()
             if (!response.isSuccessful) throw Exception("培养方案查询失败: HTTP ${response.code}")
             if (body.isBlank() || body[0] != '{') throw Exception("培养方案接口返回非 JSON: ${body.take(200)}")
             val parsed = gson.fromJson(body, TrainingPlanResponse::class.java)
@@ -50,7 +52,9 @@ class TrainingPlanRepository(private val jwAuthRepository: JwAuthRepository) {
                 .build()
             client.newCall(request).execute().use { response ->
                 val html = response.body?.string() ?: ""
-                if (response.code == 302) throw SessionExpiredException()
+                if (JwSessionResponseClassifier.isExpired(
+                        response.code, response.header("Location"), html
+                    )) throw SessionExpiredException()
                 if (!response.isSuccessful) throw Exception("培养方案上下文请求失败: HTTP ${response.code}")
                 val programId = parseProgramIdFromCompletionHtml(html)
                     ?: throw Exception("无法从培养方案完成概览解析 programId")
