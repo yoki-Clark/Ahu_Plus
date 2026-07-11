@@ -105,7 +105,39 @@ class WeatherManager(
     fun getCachedAgeMillis(): Long = repository.getCachedAgeMillis()
 
     suspend fun refreshIfStale(maxAgeMillis: Long = 30L * 60 * 1000): Boolean {
-        if (getCachedAgeMillis() < maxAgeMillis) return true
+        val plan = planWeatherRefresh(
+            currentFeed = _feed.value,
+            cachedFeed = repository.getCached(),
+            cachedAgeMillis = getCachedAgeMillis(),
+            maxAgeMillis = maxAgeMillis,
+        )
+        if (_feed.value == null && plan.visibleFeed != null) {
+            _feed.value = plan.visibleFeed
+        }
+        if (!plan.shouldRefreshRemote) return true
         return refresh()
     }
+}
+
+internal data class WeatherRefreshPlan(
+    val visibleFeed: WeatherFeed?,
+    val shouldRefreshRemote: Boolean,
+)
+
+/**
+ * SessionManager restores DataStore asynchronously, so WeatherManager may be created before the
+ * cached JSON becomes available. A fresh cache must still hydrate the shared feed; freshness alone
+ * is not enough to skip work when both the in-memory feed and cached payload are absent.
+ */
+internal fun planWeatherRefresh(
+    currentFeed: WeatherFeed?,
+    cachedFeed: WeatherFeed?,
+    cachedAgeMillis: Long,
+    maxAgeMillis: Long,
+): WeatherRefreshPlan {
+    val visibleFeed = currentFeed ?: cachedFeed
+    return WeatherRefreshPlan(
+        visibleFeed = visibleFeed,
+        shouldRefreshRemote = visibleFeed == null || cachedAgeMillis >= maxAgeMillis,
+    )
 }
