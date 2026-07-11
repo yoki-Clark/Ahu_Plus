@@ -121,6 +121,7 @@ class MainScreenViewModelFactory(
             EvaluationViewModel::class.java -> EvaluationViewModel(
                 evaluationRepository = app.evaluationRepository,
                 jwAuthRepository = jwAuthRepository,
+                sessionManager = sessionManager,
             ) as T
             else -> error("Unknown ViewModel class: ${modelClass.name}")
         }

@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.evaluation
 
 import com.ahu_plus.data.model.evaluation.EvaluationAnswer
+import com.ahu_plus.data.model.evaluation.EvaluationCommentOption
 import com.ahu_plus.data.model.evaluation.EvaluationOption
 import com.ahu_plus.data.model.evaluation.EvaluationQuestion
 import com.ahu_plus.data.model.evaluation.EvaluationQuestionnaire
@@ -9,6 +10,7 @@ import com.ahu_plus.data.model.evaluation.TeacherEvaluationTask
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Random
 
 class EvaluationUiLogicTest {
 
@@ -68,6 +70,108 @@ class EvaluationUiLogicTest {
         assertEquals("本问卷单选题至少有一题选项与其他题目不同", result.message)
     }
 
+    @Test
+    fun `applyFillPreset picks 6 excellent and 1 good across 7 radio questions`() {
+        val q = questionnaireOfRadio(radioIds = (1..7).map { it.toString() })
+        val result = applyFillPreset(q, "无", Random(42))
+
+        val optionAnswers = q.questions
+            .map { result[it.questionId] as EvaluationAnswer.Option }
+        val goodCount = optionAnswers.count { it.optionScore == 8.0 }
+        val excellentCount = optionAnswers.count { it.optionScore == 10.0 }
+
+        assertEquals("7 题应选 1 良", 1, goodCount)
+        assertEquals("7 题应选 6 优", 6, excellentCount)
+        assertEquals("共 7 题答案", 7, optionAnswers.size)
+    }
+
+    @Test
+    fun `applyFillPreset randomizes the good position inside the first 7`() {
+        val q = questionnaireOfRadio(radioIds = (1..7).map { it.toString() })
+        val seenIndices = mutableSetOf<Int>()
+        repeat(50) { seed ->
+            val result = applyFillPreset(q, "无", Random(seed.toLong()))
+            val goodIndex = q.questions.indexOfFirst {
+                (result[it.questionId] as EvaluationAnswer.Option).optionScore == 8.0
+            }
+            seenIndices += goodIndex
+        }
+        assertTrue("50 次随机里良应分布在多个题目,实际只看到 $seenIndices", seenIndices.size >= 3)
+    }
+
+    @Test
+    fun `applyFillPreset leaves questions beyond the first 7 all excellent`() {
+        val q = questionnaireOfRadio(radioIds = (1..10).map { it.toString() })
+        val result = applyFillPreset(q, "无", Random(7))
+
+        val goodIndices = q.questions.mapIndexedNotNull { idx, question ->
+            val ans = result[question.questionId] as EvaluationAnswer.Option
+            if (ans.optionScore == 8.0) idx else null
+        }
+        assertEquals("只应该有 1 良", 1, goodIndices.size)
+        assertTrue("良应在前 7 题(索引 0..6),实际 ${goodIndices.first()}", goodIndices.first() < 7)
+        for (idx in 7..9) {
+            val ans = result[q.questions[idx].questionId] as EvaluationAnswer.Option
+            assertEquals("第 ${idx + 1} 题应为优", 10.0, ans.optionScore, 0.0)
+        }
+    }
+
+    @Test
+    fun `applyFillPreset fills text questions with provided commentText`() {
+        val q = EvaluationQuestionnaire(
+            questionnaireId = "qid",
+            questionnaireName = "评教",
+            enable = true,
+            questions = listOf(
+                question("1", type = 4, required = false),
+            ),
+        )
+        val result = applyFillPreset(q, "", Random(1))
+
+        assertEquals("", (result["1"] as EvaluationAnswer.Text).text)
+    }
+
+    @Test
+    fun `applyFillPreset uses non-empty commentText on all text questions`() {
+        val q = EvaluationQuestionnaire(
+            questionnaireId = "qid",
+            questionnaireName = "评教",
+            enable = true,
+            questions = listOf(
+                question("1", type = 4, required = false),
+                question("2", type = 4, required = false),
+            ),
+        )
+        val result = applyFillPreset(q, "老师讲得很认真,收获很大。", Random(0))
+
+        assertEquals("老师讲得很认真,收获很大。", (result["1"] as EvaluationAnswer.Text).text)
+        assertEquals("老师讲得很认真,收获很大。", (result["2"] as EvaluationAnswer.Text).text)
+    }
+
+    @Test
+    fun `applyFillPreset with under 7 radio questions still puts 1 good`() {
+        val q = questionnaireOfRadio(radioIds = listOf("1", "2", "3"))
+        val result = applyFillPreset(q, "无", Random(99))
+
+        val optionAnswers = q.questions.map { result[it.questionId] as EvaluationAnswer.Option }
+        assertEquals("3 题里应该有 1 良", 1, optionAnswers.count { it.optionScore == 8.0 })
+        assertEquals("3 题里应该有 2 优", 2, optionAnswers.count { it.optionScore == 10.0 })
+    }
+
+    @Test
+    fun `mergeCommentOptions puts default first and deduplicates`() {
+        val custom = listOf(
+            DefaultCommentOption, // 同 id,会被去重
+            EvaluationCommentOption("u1", "无评语", builtIn = false),
+            EvaluationCommentOption("u2", "鼓励", builtIn = false),
+        )
+        val merged = mergeCommentOptions(custom)
+        assertEquals(3, merged.size)
+        assertEquals(DefaultCommentOption.id, merged.first().id)
+        // default 只出现一次
+        assertEquals(1, merged.count { it.id == DefaultCommentOption.id })
+    }
+
     private fun questionnaire() = EvaluationQuestionnaire(
         questionnaireId = "qid",
         questionnaireName = "评教",
@@ -108,4 +212,13 @@ class EvaluationUiLogicTest {
         evaluationQuestionnaireName = "评教",
         status = "TO_REVIEW",
     )
+
+    /** 生成「n 道单选」问卷,每题两选项 优秀(10)/ 良好(8),方便断言。 */
+    private fun questionnaireOfRadio(radioIds: List<String>): EvaluationQuestionnaire =
+        EvaluationQuestionnaire(
+            questionnaireId = "qid",
+            questionnaireName = "评教",
+            enable = true,
+            questions = radioIds.map { id -> question(id, type = 1, required = true) },
+        )
 }
