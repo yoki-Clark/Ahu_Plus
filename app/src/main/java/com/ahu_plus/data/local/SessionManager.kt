@@ -24,6 +24,7 @@ import com.ahu_plus.data.model.AiCommentPrompts
 import com.ahu_plus.data.model.AiCommentTemplate
 
 import com.ahu_plus.data.model.defaultAiCommentTemplates
+import com.ahu_plus.data.model.schedule.SchedulePaletteConfig
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -150,6 +151,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedScheduleRowHeight: Float = 56f
 
     @Volatile private var cachedScheduleFontScale: Float = 1.0f
+
+    @Volatile private var cachedSchedulePaletteConfig: SchedulePaletteConfig = SchedulePaletteConfig()
 
     // \u8BFE\u8868\u663E\u793A\u8BBE\u7F6E (2026-06-17 \u8BFE\u8868\u91CD\u6784)
 
@@ -596,6 +599,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedScheduleRowHeight = prefs[SCHEDULE_ROW_HEIGHT_KEY]?.toFloatOrNull() ?: 56f
 
         cachedScheduleFontScale = prefs[SCHEDULE_FONT_SCALE_KEY]?.toFloatOrNull() ?: 1.0f
+
+        cachedSchedulePaletteConfig = prefs[SCHEDULE_PALETTE_CONFIG_KEY]
+            ?.let { raw -> runCatching { gson.fromJson(raw, SchedulePaletteConfig::class.java) }.getOrNull() }
+            ?: SchedulePaletteConfig()
 
         // \u8BFE\u8868\u663E\u793A\u8BBE\u7F6E (2026-06-17)
 
@@ -1721,6 +1728,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     fun getScheduleFontScale(): Float = cachedScheduleFontScale
 
+    fun getSchedulePaletteConfig(): SchedulePaletteConfig = cachedSchedulePaletteConfig
+
     suspend fun saveScheduleColWidth(value: Float) {
 
         cachedScheduleColWidth = value
@@ -1742,6 +1751,14 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedScheduleFontScale = value
 
         appDataStore.dataStore.edit { it[SCHEDULE_FONT_SCALE_KEY] = value.toString() }
+
+    }
+
+    suspend fun saveSchedulePaletteConfig(config: SchedulePaletteConfig) {
+
+        cachedSchedulePaletteConfig = config
+
+        appDataStore.dataStore.edit { it[SCHEDULE_PALETTE_CONFIG_KEY] = gson.toJson(config) }
 
     }
 
@@ -2395,6 +2412,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedScheduleRowHeight = 56f
 
         cachedScheduleFontScale = 1.0f
+
+        cachedSchedulePaletteConfig = SchedulePaletteConfig()
 
         cachedShowSat = true
 
@@ -3199,6 +3218,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         val SCHEDULE_FONT_SCALE_KEY = stringPreferencesKey("schedule_font_scale")
 
+        val SCHEDULE_PALETTE_CONFIG_KEY = stringPreferencesKey("schedule_palette_config")
+
         val KEY_SHOW_SAT = stringPreferencesKey("schedule_show_sat")
 
         val KEY_SHOW_SUN = stringPreferencesKey("schedule_show_sun")
@@ -3530,6 +3551,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
             RECENT_APPS_KEY,
 
             SCHEDULE_COL_WIDTH_KEY, SCHEDULE_ROW_HEIGHT_KEY, SCHEDULE_FONT_SCALE_KEY,
+
+            SCHEDULE_PALETTE_CONFIG_KEY,
 
             KEY_SHOW_SAT, KEY_SHOW_SUN, KEY_PAGER_ENABLED,
 

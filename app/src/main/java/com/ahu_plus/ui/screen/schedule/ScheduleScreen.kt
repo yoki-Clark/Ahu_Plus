@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -76,6 +77,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.alpha
+import com.ahu_plus.ui.theme.CoursePalettes
+import com.ahu_plus.data.model.schedule.backgroundOrDefault
+import coil.compose.AsyncImage
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
@@ -102,6 +109,12 @@ fun ScheduleScreen(
     onNeedsLogin: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val scheduleBackground = CoursePalettes.backgroundVisuals(
+        uiState.paletteConfig,
+        MaterialTheme.colorScheme,
+        MaterialTheme.colorScheme.background.luminance() < 0.5f,
+    )
+    val backgroundConfig = uiState.paletteConfig.backgroundOrDefault()
 
     LaunchedEffect(uiState.needsLogin) {
         if (uiState.needsLogin) onNeedsLogin()
@@ -173,7 +186,12 @@ fun ScheduleScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(scheduleBackground.canvas)
+            .statusBarsPadding()
+    ) {
         // 缓存极值,避免每帧 4 次 O(n) 遍历
         val minWeek = remember(uiState.weekIndices) { uiState.weekIndices.minOrNull() ?: 1 }
         val maxWeek = remember(uiState.weekIndices) { uiState.weekIndices.maxOrNull() ?: 20 }
@@ -222,11 +240,39 @@ fun ScheduleScreen(
         }
 
         // ── 内容区（下拉刷新）────────────────────────
-        PullToRefreshBox(
-            isRefreshing = uiState.isRefreshing,
-            onRefresh = { viewModel.onRefresh() },
-            modifier = Modifier.fillMaxSize()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(scheduleBackground.canvas)
         ) {
+            if (backgroundConfig.backgroundMode == "image" &&
+                backgroundConfig.backgroundImageUri.isNotBlank()
+            ) {
+                AsyncImage(
+                    model = backgroundConfig.backgroundImageUri,
+                    contentDescription = null,
+                    contentScale = if (backgroundConfig.imageScale == "fit") {
+                        ContentScale.Fit
+                    } else ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(backgroundConfig.imageOpacity.coerceIn(0.1f, 1f)),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            MaterialTheme.colorScheme.background.copy(
+                                alpha = backgroundConfig.overlayStrength.coerceIn(0f, 0.9f)
+                            )
+                        )
+                )
+            }
+            PullToRefreshBox(
+                isRefreshing = uiState.isRefreshing,
+                onRefresh = { viewModel.onRefresh() },
+                modifier = Modifier.fillMaxSize()
+            ) {
             when {
                 uiState.isLoading && uiState.allActivities.isEmpty() -> {
                     Column(
@@ -293,6 +339,7 @@ fun ScheduleScreen(
                             rowHeight = uiState.rowHeightDp.dp,
                             fontScale = uiState.fontScale,
                             verScroll = sharedVerScroll,
+                            paletteConfig = uiState.paletteConfig,
                         )
                         com.ahu_plus.ui.screen.schedule.components.WeekPager(
                             maxPage = maxPage,
@@ -319,10 +366,12 @@ fun ScheduleScreen(
                                 showSun = uiState.showSun,
                                 timeTick = timeTick,
                                 sharedVerScroll = sharedVerScroll,
+                                paletteConfig = uiState.paletteConfig,
                             )
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -362,6 +411,11 @@ fun ScheduleScreen(
             onPagerEnabledChanged = viewModel::setPagerEnabled,
             onResetOnEnterChanged = viewModel::setResetOnEnter,
             onShowOtherSemestersChanged = viewModel::setShowOtherSemesters,
+            paletteConfig = uiState.paletteConfig,
+            onPalettePresetChanged = viewModel::setPalettePreset,
+            onCardStyleChanged = viewModel::setCourseCardStyle,
+            onCustomPaletteColorChanged = viewModel::setCustomPaletteColor,
+            onBackgroundConfigChanged = viewModel::setScheduleBackground,
             onReset = viewModel::onResetSettings,
             onDismiss = { viewModel.onToggleSettings() },
             sessionManager = viewModel.reminderPrefs,
