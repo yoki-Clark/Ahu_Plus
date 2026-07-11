@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.schedule
 
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,7 +29,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,9 +42,13 @@ import androidx.compose.ui.zIndex
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.jw.CourseUnit
+import com.ahu_plus.data.model.schedule.SchedulePaletteConfig
+import com.ahu_plus.data.model.schedule.backgroundOrDefault
 import com.ahu_plus.data.model.jw.parseTimeMinutes
 import com.ahu_plus.ui.theme.AhuShapes
-import com.ahu_plus.ui.theme.CourseColors
+import com.ahu_plus.ui.theme.CourseCardStyle
+import com.ahu_plus.ui.theme.CoursePalettes
+import com.ahu_plus.ui.theme.ScheduleBackgroundVisuals
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
@@ -94,7 +101,13 @@ fun WeekGrid(
      * 为 null 时内部自建(向后兼容/预览)。
      */
     sharedVerScroll: ScrollState? = null,
+    paletteConfig: SchedulePaletteConfig = SchedulePaletteConfig(),
 ) {
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val backgroundVisuals = CoursePalettes.backgroundVisuals(
+        paletteConfig, MaterialTheme.colorScheme, darkTheme
+    )
+    val backgroundConfig = paletteConfig.backgroundOrDefault()
     // 可见的星期列表 (用于头部 + 列计算)。1=周一 ... 7=周日。
     val visibleDays: List<Int> = remember(showSat, showSun) {
         buildList {
@@ -125,7 +138,9 @@ fun WeekGrid(
     val dayToColIndex: Map<Int, Int> = remember(visibleDays) {
         visibleDays.withIndex().associate { (i, d) -> d to i }
     }
-    val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
+    val lineColor = if (
+        backgroundConfig.gridStyle == "classic" && backgroundConfig.showGridLines
+    ) backgroundVisuals.gridLine else Color.Transparent
     // I-007: 红线始终显示（不依赖"当前时间在某个节次内"），课前/课间/课后均可定位
     val currentTimeLineY = remember(sortedUnits, isCurrentWeek, rowHeight, minUnit, timeTick) {
         if (!isCurrentWeek) {
@@ -197,7 +212,7 @@ fun WeekGrid(
     // 注意:左侧"时间列"已上移到 ScheduleScreen 作为固定列(切换周次时不随页面滑动 — 2026-06-25)。
     // 本组件只渲染:① 顶部星期头(含日期号) ② 网格体(课程卡片 + 当前时间线)。
     // 网格体与固定时间列共享 [verScroll],垂直滚动同步。
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize().background(backgroundVisuals.canvas)) {
         // ── 顶部星期头(随 Pager 换页,日期号随选中周变化)──
         Box(
             modifier = Modifier
@@ -215,6 +230,7 @@ fun WeekGrid(
                         lineColor = lineColor,
                         colWidth = colWidth,
                         fontScale = fontScale,
+                        backgroundVisuals = backgroundVisuals,
                     )
                 }
             }
@@ -233,19 +249,38 @@ fun WeekGrid(
                     for (d in visibleDays) {
                         val isToday = isCurrentWeek && d == todayDayOfWeek
                         val colIdx = dayToColIndex[d] ?: continue
-                        Box(
-                            modifier = Modifier
-                                .offset(colWidth * colIdx, rowHeight * row)
-                                .size(colWidth, rowHeight)
-                                .background(
-                                    when {
-                                        isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.09f)
-                                        row % 2 == 0 -> MaterialTheme.colorScheme.surface
-                                        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.16f)
-                                    }
-                                )
-                                .border(0.5.dp, lineColor)
-                        )
+                        val highlightToday = isToday && backgroundConfig.highlightToday
+                        val cellColor = when (backgroundConfig.gridStyle) {
+                            "clean" -> when {
+                                highlightToday -> backgroundVisuals.todayCell
+                                backgroundConfig.alternatingRows && row % 2 != 0 ->
+                                    backgroundVisuals.oddCell.copy(alpha = backgroundVisuals.oddCell.alpha * 0.42f)
+                                else -> Color.Transparent
+                            }
+                            else -> when {
+                                highlightToday -> backgroundVisuals.todayCell
+                                !backgroundConfig.alternatingRows || row % 2 == 0 -> backgroundVisuals.evenCell
+                                else -> backgroundVisuals.oddCell
+                            }
+                        }
+                        val inset = if (backgroundConfig.gridStyle == "blocks") {
+                            backgroundConfig.blockGapDp.coerceIn(0f, 6f).dp
+                        } else 0.dp
+                        val shape = if (backgroundConfig.gridStyle == "blocks") {
+                            RoundedCornerShape(backgroundConfig.blockRadiusDp.coerceIn(0f, 18f).dp)
+                        } else RoundedCornerShape(0.dp)
+                        var cellModifier = Modifier
+                            .offset(colWidth * colIdx + inset, rowHeight * row + inset)
+                            .size(
+                                (colWidth - inset * 2).coerceAtLeast(1.dp),
+                                (rowHeight - inset * 2).coerceAtLeast(1.dp),
+                            )
+                            .clip(shape)
+                            .background(cellColor)
+                        if (backgroundConfig.gridStyle == "classic" && backgroundConfig.showGridLines) {
+                            cellModifier = cellModifier.border(0.5.dp, lineColor, shape)
+                        }
+                        Box(modifier = cellModifier)
                     }
                 }
 
@@ -277,6 +312,7 @@ fun WeekGrid(
                             .offset(x, y)
                             .size(w.coerceAtLeast(0.dp), h.coerceAtLeast(0.dp)),
                         fontScale = fontScale,
+                        paletteConfig = paletteConfig,
                     )
                 }
 
@@ -320,7 +356,13 @@ fun FixedTimeColumn(
     fontScale: Float,
     verScroll: ScrollState,
     modifier: Modifier = Modifier,
+    paletteConfig: SchedulePaletteConfig = SchedulePaletteConfig(),
 ) {
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val backgroundVisuals = CoursePalettes.backgroundVisuals(
+        paletteConfig, MaterialTheme.colorScheme, darkTheme
+    )
+    val backgroundConfig = paletteConfig.backgroundOrDefault()
     val sortedUnits = remember(unitTimes) {
         unitTimes.filter { it.indexNo != null }.sortedBy { it.indexNo }
     }
@@ -328,7 +370,9 @@ fun FixedTimeColumn(
     val minUnit = sortedUnits.minOf { it.indexNo ?: 1 }
     val maxUnit = sortedUnits.maxOf { it.indexNo ?: 13 }
     val unitMap = sortedUnits.associateBy { it.indexNo }
-    val lineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
+    val lineColor = if (
+        backgroundConfig.gridStyle == "classic" && backgroundConfig.showGridLines
+    ) backgroundVisuals.gridLine else Color.Transparent
 
     Column(modifier = modifier.width(TIME_COL_WIDTH)) {
         // 角标(与星期头同高)
@@ -336,7 +380,7 @@ fun FixedTimeColumn(
             modifier = Modifier
                 .width(TIME_COL_WIDTH)
                 .height(HEADER_HEIGHT)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                .background(backgroundVisuals.timeColumn)
                 .border(0.5.dp, lineColor),
             contentAlignment = Alignment.Center
         ) {
@@ -353,7 +397,7 @@ fun FixedTimeColumn(
                 .width(TIME_COL_WIDTH)
                 .fillMaxHeight()
                 .verticalScroll(verScroll)
-                .background(MaterialTheme.colorScheme.surface)
+                .background(backgroundVisuals.canvas)
         ) {
             for (u in minUnit..maxUnit) {
                 TimeCell(
@@ -362,6 +406,7 @@ fun FixedTimeColumn(
                     lineColor = lineColor,
                     rowHeight = rowHeight,
                     fontScale = fontScale,
+                    backgroundColor = backgroundVisuals.timeColumn,
                 )
             }
         }
@@ -376,14 +421,14 @@ private fun DayHeaderCell(
     lineColor: Color,
     colWidth: Dp,
     fontScale: Float,
+    backgroundVisuals: ScheduleBackgroundVisuals,
 ) {
     Box(
         modifier = Modifier
             .width(colWidth)
             .height(HEADER_HEIGHT)
             .background(
-                if (isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                else MaterialTheme.colorScheme.surface
+                if (isToday) backgroundVisuals.todayCell else backgroundVisuals.headerCell
             )
             .border(0.5.dp, lineColor),
         contentAlignment = Alignment.Center
@@ -424,12 +469,13 @@ private fun TimeCell(
     lineColor: Color,
     rowHeight: Dp,
     fontScale: Float,
+    backgroundColor: Color,
 ) {
     Box(
         modifier = Modifier
             .width(TIME_COL_WIDTH)
             .height(rowHeight)
-            .background(MaterialTheme.colorScheme.surface)
+            .background(backgroundColor)
             .border(0.5.dp, lineColor)
             .padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center
@@ -473,53 +519,73 @@ private fun CourseCard(
     onClick: () -> Unit,
     modifier: Modifier,
     fontScale: Float = 1.0f,
+    paletteConfig: SchedulePaletteConfig,
 ) {
-    val bg = CourseColors[item.colorIndex % CourseColors.size]
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val courseKey = CoursePalettes.courseKey(item.courseCode, item.lessonId, item.courseName)
+    val base = CoursePalettes.colorFor(paletteConfig, item.colorIndex, courseKey)
+    val style = CourseCardStyle.fromStorage(paletteConfig.cardStyle)
+    val visuals = CoursePalettes.cardVisuals(base, style, MaterialTheme.colorScheme, darkTheme)
 
     Card(
         modifier = modifier.clickable(onClick = onClick),
         shape = AhuShapes.Card,
-        // 单卡单色：取消 alpha 透明 + 删除边框 + 删除 elevation，避免视觉上"嵌套色块"
-        colors = CardDefaults.cardColors(containerColor = bg),
+        colors = CardDefaults.cardColors(containerColor = visuals.container),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = if (style == CourseCardStyle.OUTLINE) BorderStroke(1.dp, visuals.outline) else null,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 4.dp, vertical = 3.dp),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
-        ) {
-            Text(
-                text = item.courseName,
-                fontSize = (10 * fontScale).sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = if (compact) 1 else 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = (12 * fontScale).sp
-            )
-
-            if (!item.room.isNullOrBlank()) {
-                Text(
-                    text = item.room,
-                    fontSize = (9 * fontScale).sp,
-                    color = Color.White.copy(alpha = 0.9f),
-                    softWrap = true,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = (10 * fontScale).sp
+        Box(Modifier.fillMaxSize()) {
+            if (style == CourseCardStyle.OUTLINE) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(4.dp)
+                        .background(visuals.accent)
                 )
             }
-
-            if (!compact && item.teacherNames.isNotBlank()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        start = if (style == CourseCardStyle.OUTLINE) 7.dp else 4.dp,
+                        end = 4.dp,
+                        top = 3.dp,
+                        bottom = 3.dp,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
                 Text(
-                    text = item.teacherNames,
-                    fontSize = (9 * fontScale).sp,
-                    color = Color.White.copy(alpha = 0.82f),
-                    maxLines = 1,
+                    text = item.courseName,
+                    fontSize = (10 * fontScale).sp,
+                    fontWeight = FontWeight.Bold,
+                    color = visuals.content,
+                    maxLines = if (compact) 1 else 2,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = (10 * fontScale).sp
+                    lineHeight = (12 * fontScale).sp
                 )
+
+                if (!item.room.isNullOrBlank()) {
+                    Text(
+                        text = item.room,
+                        fontSize = (9 * fontScale).sp,
+                        color = visuals.secondaryContent,
+                        softWrap = true,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = (10 * fontScale).sp
+                    )
+                }
+
+                if (!compact && item.teacherNames.isNotBlank()) {
+                    Text(
+                        text = item.teacherNames,
+                        fontSize = (9 * fontScale).sp,
+                        color = visuals.secondaryContent.copy(alpha = 0.88f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = (10 * fontScale).sp
+                    )
+                }
             }
         }
     }

@@ -20,6 +20,8 @@ import com.ahu_plus.data.model.jw.UserScheduleItem
 import com.ahu_plus.data.model.task.HomeworkRecord
 import com.ahu_plus.data.model.task.UserTask
 import com.ahu_plus.data.model.KqAttendanceRecord
+import com.ahu_plus.data.model.schedule.SchedulePaletteConfig
+import com.ahu_plus.data.model.schedule.ScheduleBackgroundConfig
 import com.ahu_plus.data.repository.AssessmentRepository
 import com.ahu_plus.data.repository.CourseRepository
 import com.ahu_plus.data.repository.ExamRepository
@@ -142,6 +144,7 @@ class ScheduleViewModel(
                     colWidthDp = sm.getScheduleColWidth(),
                     rowHeightDp = sm.getScheduleRowHeight(),
                     fontScale = sm.getScheduleFontScale(),
+                    paletteConfig = sm.getSchedulePaletteConfig(),
                     showSat = sm.getShowSat(),
                     showSun = sm.getShowSun(),
                     pagerEnabled = sm.getPagerEnabled(),
@@ -569,6 +572,47 @@ class ScheduleViewModel(
         viewModelScope.launch { sessionManager?.saveScheduleFontScale(value) }
     }
 
+    fun setPalettePreset(presetId: String) {
+        updatePaletteConfig { it.copy(presetId = presetId) }
+    }
+
+    fun setCourseCardStyle(style: String) {
+        updatePaletteConfig { it.copy(cardStyle = style) }
+    }
+
+    fun setScheduleBackground(config: ScheduleBackgroundConfig) {
+        updatePaletteConfig { it.copy(version = 2, background = config) }
+    }
+
+    fun setCustomPaletteColor(index: Int, color: String) {
+        updatePaletteConfig { config ->
+            val defaults = com.ahu_plus.ui.theme.CoursePalettes.colors(
+                config.copy(presetId = SchedulePaletteConfig.DEFAULT_PRESET_ID)
+            ).map(com.ahu_plus.ui.theme.CoursePalettes::toStorage)
+            val colors = List(10) { slot -> config.customColors.getOrNull(slot) ?: defaults[slot] }
+                .toMutableList()
+            if (index in colors.indices) colors[index] = color
+            config.copy(presetId = "custom", customColors = colors)
+        }
+    }
+
+    fun setCourseColorOverride(item: CourseDisplayItem, color: String?) {
+        val key = com.ahu_plus.ui.theme.CoursePalettes.courseKey(
+            item.courseCode, item.lessonId, item.courseName
+        )
+        updatePaletteConfig { config ->
+            val overrides = config.courseOverrides.toMutableMap()
+            if (color == null) overrides.remove(key) else overrides[key] = color
+            config.copy(courseOverrides = overrides)
+        }
+    }
+
+    private fun updatePaletteConfig(transform: (SchedulePaletteConfig) -> SchedulePaletteConfig) {
+        val updated = transform(_uiState.value.paletteConfig)
+        _uiState.update { it.copy(paletteConfig = updated) }
+        viewModelScope.launch { sessionManager?.saveSchedulePaletteConfig(updated) }
+    }
+
     fun onResetSettings() {
         _uiState.update {
             it.copy(
@@ -576,6 +620,7 @@ class ScheduleViewModel(
                 showSat = true, showSun = true,
                 pagerEnabled = true, resetOnEnter = true,
                 showOtherSemesters = true,
+                paletteConfig = SchedulePaletteConfig(),
             )
         }
         viewModelScope.launch {
@@ -587,6 +632,7 @@ class ScheduleViewModel(
             sessionManager?.setPagerEnabled(true)
             sessionManager?.setResetOnEnter(true)
             sessionManager?.setShowOtherSemesters(true)
+            sessionManager?.saveSchedulePaletteConfig(SchedulePaletteConfig())
         }
         rebuildDisplayItems()
     }
@@ -983,6 +1029,7 @@ data class ScheduleUiState(
     val colWidthDp: Float = 64f,
     val rowHeightDp: Float = 56f,
     val fontScale: Float = 1.0f,
+    val paletteConfig: SchedulePaletteConfig = SchedulePaletteConfig(),
     val showSettings: Boolean = false,
 
     // ── 课表显示设置 2.0 (2026-06-17) ─────────────────
