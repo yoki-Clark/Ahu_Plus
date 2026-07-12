@@ -54,6 +54,11 @@ class ProgramCompletionRepository(
                 .build()
             client.newCall(request).execute().use { response ->
                 val html = response.body?.string() ?: ""
+                if (JwSessionResponseClassifier.isExpired(
+                        response.code, response.header("Location"), html
+                    )) {
+                    throw SessionExpiredException()
+                }
                 if (!response.isSuccessful) {
                     throw Exception("完成概览请求失败: HTTP ${response.code}")
                 }
@@ -80,6 +85,10 @@ class ProgramCompletionRepository(
             val request = Request.Builder().url(url).get().build()
             client.newCall(request).execute().use { response ->
                 val location = response.headers["Location"] ?: ""
+                val body = response.body?.string().orEmpty()
+                if (JwSessionResponseClassifier.isExpired(response.code, location, body)) {
+                    throw SessionExpiredException()
+                }
                 val id = GradeRepository.parseStudentIdFromLocation(location)
                 if (id != null) {
                     cachedStudentId = id

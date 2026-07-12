@@ -77,8 +77,12 @@ class TrainingPlanRepository(private val jwAuthRepository: JwAuthRepository) {
                 .build()
             client.newCall(request).execute().use { response ->
                 val location = response.headers["Location"].orEmpty()
+                val body = response.body?.string().orEmpty()
+                if (JwSessionResponseClassifier.isExpired(response.code, location, body)) {
+                    throw SessionExpiredException()
+                }
                 val id = GradeRepository.parseStudentIdFromLocation(location)
-                    ?: parseStudentIdFromCompletionHtml(response.body?.string().orEmpty())
+                    ?: parseStudentIdFromCompletionHtml(body)
                 if (id != null) Result.success(id)
                 else Result.failure(Exception("无法从完成概览入口解析 studentId: $location"))
             }
