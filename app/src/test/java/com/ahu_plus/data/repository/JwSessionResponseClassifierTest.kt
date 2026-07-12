@@ -9,6 +9,15 @@ class JwSessionResponseClassifierTest {
         assertTrue(JwSessionResponseClassifier.isExpired(302, "/cas/login?service=jw"))
     }
 
+    @Test fun jwLoginRedirectWithReferIsExpired() {
+        assertTrue(
+            JwSessionResponseClassifier.isExpired(
+                302,
+                "https://jw.ahu.edu.cn/student/login?refer=https://jw.ahu.edu.cn/student/for-std/program-completion-preview",
+            )
+        )
+    }
+
     @Test fun unrelatedRedirectIsNotExpired() {
         assertFalse(JwSessionResponseClassifier.isExpired(302, "/student/home"))
     }

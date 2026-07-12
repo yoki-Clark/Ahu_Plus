@@ -92,7 +92,11 @@ class TrainingPlanViewModel(
                 val planResult = jwAuthRepository.executeWithSessionRetry {
                     trainingPlanRepository.getTrainingPlan()
                 }
-                val compResult = completionRepository?.getCompletionData()
+                val compResult = completionRepository?.let { repository ->
+                    jwAuthRepository.executeWithSessionRetry {
+                        repository.getCompletionData()
+                    }
+                }
 
                 planResult.fold(
                     onSuccess = { resp ->
