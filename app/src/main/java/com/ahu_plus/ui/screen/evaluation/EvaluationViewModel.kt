@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.evaluation.EvaluationAnswer
+import com.ahu_plus.data.model.evaluation.EvaluationCacheSnapshot
 import com.ahu_plus.data.model.evaluation.EvaluationCommentOption
 import com.ahu_plus.data.model.evaluation.EvaluationQuestionnaire
 import com.ahu_plus.data.model.evaluation.EvaluationSemester
@@ -391,14 +392,6 @@ class EvaluationViewModel(
         sessionManager.saveEvaluationDataJson(gson.toJson(cache))
     }
 }
-
-private data class EvaluationCacheSnapshot(
-    val semesters: List<EvaluationSemester> = emptyList(),
-    val semestersUpdatedAt: Long = 0L,
-    val tasks: Map<String, List<TeacherEvaluationTask>> = emptyMap(),
-    val taskUpdatedAt: Map<String, Long> = emptyMap(),
-    val questionnaires: Map<String, EvaluationQuestionnaire> = emptyMap(),
-)
 
 // ──────────────────────────────────────────────────────────
 // UI State
