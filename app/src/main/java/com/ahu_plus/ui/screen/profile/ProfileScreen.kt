@@ -119,6 +119,7 @@ import com.ahu_plus.ui.components.AhuStatusCard
 import com.ahu_plus.data.local.ElectricityRoomConfig
 import com.ahu_plus.data.model.ElectricityDailyRecord
 import com.ahu_plus.data.model.ElectricityUiData
+import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.ui.screen.home.BathroomBalanceCard
 import com.ahu_plus.data.model.InternetBalanceData
 import com.ahu_plus.data.model.InternetBillRecord
@@ -197,7 +198,12 @@ fun ProfileScreen(
     val app = appContext.applicationContext as AhuPlusApplication
     val sessionManager = app.sessionManager
     var betaEnabled by remember { mutableStateOf(sessionManager.isBetaEnabled()) }
+    var developerEnabled by remember { mutableStateOf(sessionManager.isDeveloperEnabled()) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(developerEnabled) {
+        DeveloperRuntime.setDeveloperEnabled(developerEnabled)
+    }
 
     fun openUtility(target: String) {
         utilityTarget = target
@@ -418,7 +424,12 @@ fun ProfileScreen(
                     app.updateManager.changeChannel(newValue)
                     betaEnabled = newValue
                 }
-            }
+            },
+            developerEnabled = developerEnabled,
+            onDeveloperEnabledChange = { newValue ->
+                developerEnabled = newValue
+                scope.launch { sessionManager.setDeveloperEnabled(newValue) }
+            },
         )
     } else {
         val studentInfo = studentInfoUiState.info

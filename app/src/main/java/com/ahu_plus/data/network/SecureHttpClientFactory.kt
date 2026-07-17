@@ -1,5 +1,7 @@
 package com.ahu_plus.data.network
 
+import com.ahu_plus.data.developer.DeveloperAuthenticationFaultInterceptor
+import com.ahu_plus.data.developer.DeveloperNetworkInterceptor
 import okhttp3.Authenticator
 import okhttp3.ConnectionPool
 import okhttp3.ConnectionSpec
@@ -140,6 +142,10 @@ object SecureHttpClientFactory {
             builder.addInterceptor(sessionExpiredInterceptor)
         }
 
+        // 开发者诊断默认完全旁路。放在 session 嗅探器内层，使模拟 CAS HTML
+        // 能经过真实的会话过期恢复链。
+        builder.addInterceptor(DeveloperNetworkInterceptor())
+
         // 应用拦截器:可以修改请求/响应
         extraInterceptors.forEach { builder.addInterceptor(it) }
 
@@ -157,6 +163,9 @@ object SecureHttpClientFactory {
                 chain.proceed(req)
             }
         }
+
+        // GET/HEAD 的模拟 401 位于 OkHttp retry/follow-up 层内，能够触发真实 Authenticator。
+        builder.addNetworkInterceptor(DeveloperAuthenticationFaultInterceptor())
 
         return builder.build()
     }

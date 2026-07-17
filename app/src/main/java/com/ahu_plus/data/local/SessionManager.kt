@@ -299,6 +299,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
     /** 用户是否加入内测计划。退登保留,默认 false。 */
     @Volatile private var cachedBetaEnabled: Boolean = false
 
+    /** 开发者选项是否启用。退登保留,只能通过关于页隐藏入口开启。 */
+    @Volatile private var cachedDeveloperEnabled: Boolean = false
+
     @Volatile private var cachedQrBrightnessBoost: Boolean = false
 
     @Volatile private var cachedAdwmhConcurrentRetry: Boolean = true
@@ -733,6 +736,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedGuideIntroSeen = (prefs[GUIDE_INTRO_SEEN_KEY] ?: "false") == "true"
 
         cachedBetaEnabled = prefs[BETA_ENABLED_KEY] ?: false
+
+        cachedDeveloperEnabled = prefs[DEVELOPER_ENABLED_KEY] ?: false
 
         cachedQrBrightnessBoost = prefs[QR_BRIGHTNESS_BOOST_KEY] ?: false
 
@@ -2138,6 +2143,15 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     }
 
+    // ── 开发者选项(退登保留) ──
+
+    fun isDeveloperEnabled(): Boolean = cachedDeveloperEnabled
+
+    suspend fun setDeveloperEnabled(enabled: Boolean) {
+        cachedDeveloperEnabled = enabled
+        appDataStore.dataStore.edit { it[DEVELOPER_ENABLED_KEY] = enabled }
+    }
+
     // \u2500\u2500 \u57F9\u517B\u65B9\u6848\u5B8C\u6210\u8FDB\u5EA6\u7F13\u5B58 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     // ── 排考预测 Gitee JSON 缓存 ─────────────────────────
@@ -3337,6 +3351,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val GUIDE_INTRO_SEEN_KEY = stringPreferencesKey("guide_intro_seen")
 
         val BETA_ENABLED_KEY = booleanPreferencesKey("beta_enabled")
+
+        val DEVELOPER_ENABLED_KEY = booleanPreferencesKey("developer_enabled")
 
     private val QR_BRIGHTNESS_BOOST_KEY = booleanPreferencesKey("qr_brightness_boost")
 

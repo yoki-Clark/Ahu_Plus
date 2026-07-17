@@ -16,4 +16,8 @@
     <cache-path
         name="apk_share"
         path="apk_share/" />
+    <!-- 开发者中心生成的脱敏诊断报告 -->
+    <cache-path
+        name="developer_reports"
+        path="developer_reports/" />
 </paths>

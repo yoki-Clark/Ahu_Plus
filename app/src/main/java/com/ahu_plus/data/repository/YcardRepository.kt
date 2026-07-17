@@ -116,6 +116,9 @@ class YcardRepository(
         lastLoginSuccessMs = 0L
     }
 
+    /** Developer/status diagnostics only; never exposes the JWT value. */
+    fun hasSession(): Boolean = !cachedJwt.isNullOrBlank()
+
     // ══════════════════════════════════════════════════════
     // 公开 API
     // ══════════════════════════════════════════════════════
