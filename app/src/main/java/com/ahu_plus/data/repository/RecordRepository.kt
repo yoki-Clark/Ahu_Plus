@@ -37,12 +37,14 @@ class RecordRepository(private val sessionManager: SessionManager) {
     private val mutex = Mutex()
 
     init {
-        // 首次构造时从 SessionManager 还原
-        runCatching {
-            val json = sessionManager.getRecordIndexJson() ?: return@runCatching
-            val map: Map<String, List<RecordEntry>> = gson.fromJson(json, type) ?: emptyMap()
-            indexFlow.value = map
-        }
+        reloadFromSession()
+    }
+
+    fun reloadFromSession() {
+        indexFlow.value = runCatching {
+            val json = sessionManager.getRecordIndexJson() ?: return@runCatching emptyMap()
+            gson.fromJson<Map<String, List<RecordEntry>>>(json, type) ?: emptyMap()
+        }.getOrDefault(emptyMap())
     }
 
     /** 观察某门课 (按 courseCode) 下的所有记录 */

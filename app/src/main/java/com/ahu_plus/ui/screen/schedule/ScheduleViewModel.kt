@@ -71,6 +71,19 @@ class ScheduleViewModel(
     private val _uiState = MutableStateFlow(ScheduleUiState())
     val uiState: StateFlow<ScheduleUiState> = _uiState.asStateFlow()
 
+    private var scheduleRequestGeneration = 0L
+    private var scheduleRequestJob: Job? = null
+
+    private fun beginScheduleRequest(): Long {
+        scheduleRequestJob?.cancel()
+        return ++scheduleRequestGeneration
+    }
+
+    private fun isCurrentScheduleRequest(requestId: Long, semesterId: Int): Boolean {
+        return requestId == scheduleRequestGeneration &&
+            _uiState.value.selectedSemesterId == semesterId
+    }
+
     // ── 课程详情 sheet 内联状态 (按 lessonId+week 跟踪) ─────
     private val _courseNote = MutableStateFlow("")
     private val _slotNote = MutableStateFlow("")
@@ -154,11 +167,12 @@ class ScheduleViewModel(
             }
         }
         // 优先加载本地缓存，再尝试静默网络刷新
-        viewModelScope.launch {
+        val requestId = beginScheduleRequest()
+        scheduleRequestJob = viewModelScope.launch {
             // 先加载用户自定义课表
             loadUserItems()
             loadSemesterListFromCache()
-            val cached = loadFromCache()
+            val cached = loadFromCache(requestId)
             val updatedToday = sessionManager?.let {
                 DataRefreshPolicy.wasUpdatedToday(it.getScheduleUpdatedAt())
             } == true
@@ -168,10 +182,10 @@ class ScheduleViewModel(
             } else if (cached) {
                 // 每个自然日首次打开时同步一次学期列表和当前课表。
                 loadSemesterList()
-                loadScheduleData(isRefresh = true)
+                loadScheduleData(isRefresh = true, requestId = requestId)
             } else {
                 loadSemesterList()
-                loadScheduleData(isRefresh = false)
+                loadScheduleData(isRefresh = false, requestId = requestId)
             }
         }
     }
@@ -250,20 +264,28 @@ class ScheduleViewModel(
     }
 
     /** 从 SessionManager 恢复已缓存的课表 JSON */
-    private suspend fun loadFromCache(): Boolean {
+    private suspend fun loadFromCache(requestId: Long): Boolean {
         val sm = sessionManager ?: return false
         val json = sm.getScheduleJson() ?: return false
         return try {
-            withContext(Dispatchers.IO) {
-                val data = gson
-                    .fromJson(json, com.ahu_plus.data.model.jw.ScheduleData::class.java)
+            val data = withContext(Dispatchers.IO) {
+                gson.fromJson(json, com.ahu_plus.data.model.jw.ScheduleData::class.java)
+            }
+            if (!isCurrentScheduleRequest(requestId, CourseRepository.DEFAULT_SEMESTER_ID)) {
+                false
+            } else {
                 val displayItems = buildDisplayItems(
                     activities = data.activities,
                     selectedWeek = data.currentWeek,
                     lessons = data.lessons
                 )
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    if (!isCurrentScheduleRequest(
+                            requestId,
+                            CourseRepository.DEFAULT_SEMESTER_ID,
+                        )
+                    ) return@update state
+                    state.copy(
                         isLoading = false,
                         error = null,
                         studentName = data.studentName,
@@ -282,8 +304,8 @@ class ScheduleViewModel(
                         currentSemesterCurrentWeek = data.currentWeek,
                     )
                 }
+                true
             }
-            true
         } catch (_: Exception) {
             false
         }
@@ -372,7 +394,9 @@ class ScheduleViewModel(
     private suspend fun loadScheduleData(
         isRefresh: Boolean = false,
         semesterId: Int = _uiState.value.selectedSemesterId,
+        requestId: Long,
     ) {
+        if (!isCurrentScheduleRequest(requestId, semesterId)) return
         val isCurrentSemester = semesterId == CourseRepository.DEFAULT_SEMESTER_ID
         if (!isRefresh) {
             _uiState.update {
@@ -388,78 +412,91 @@ class ScheduleViewModel(
         }
         val wasLoaded = _uiState.value.allActivities.isNotEmpty()
         try {
-            withContext(Dispatchers.IO) {
-                val result = jwAuthRepository.executeWithSessionRetry {
+            val result = withContext(Dispatchers.IO) {
+                jwAuthRepository.executeWithSessionRetry {
                     courseRepository.getSchedule(semesterId)
                 }
-                result.fold(
-                    onSuccess = { data ->
-                        // ★ 仅本学期写入本地缓存(其他学期按需加载)
-                        if (isCurrentSemester) {
-                            val sm = sessionManager
-                            if (sm != null) {
-                                try {
-                                    val json = com.ahu_plus.data.GsonProvider.instance.toJson(data)
-                                    sm.saveScheduleJson(json)
-                                    TodayScheduleWidgetUpdater.updateAll(getApplication())
-                                } catch (e: Exception) { Log.w(TAG, "Failed to cache schedule JSON: ${e.message}") }
-                            }
-                        } else {
-                            saveHistoricalSchedule(semesterId, data)
-                        }
-
-                        val displayItems = buildDisplayItems(
-                            activities = data.activities,
-                            selectedWeek = data.currentWeek,
-                            lessons = data.lessons
-                        )
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                isLoadingSemester = false,
-                                error = null,
-                                needsLogin = false,
-                                studentName = data.studentName,
-                                className = data.className,
-                                department = data.department,
-                                credits = data.credits,
-                                allActivities = data.activities,
-                                displayItems = displayItems,
-                                unitTimes = data.unitTimes,
-                                semester = data.semester,
-                                currentWeek = data.currentWeek,
-                                selectedWeek = data.currentWeek,
-                                weekIndices = data.weekIndices,
-                                lessons = data.lessons,
-                                // 仅本学期的"当前周"会持久化,其他学期不影响
-                                currentSemesterCurrentWeek = if (isCurrentSemester)
-                                    data.currentWeek
-                                else it.currentSemesterCurrentWeek,
-                            )
-                        }
-                    },
-                    onFailure = { e ->
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                isLoadingSemester = false,
-                                error = if (!wasLoaded) "课表加载失败: ${e.message}" else it.error,
-                                needsLogin = !wasLoaded && (e is SessionExpiredException || e is JwAuthException),
-                            )
-                        }
-                    }
-                )
             }
+            result.fold(
+                onSuccess = { data ->
+                    if (!isCurrentScheduleRequest(requestId, semesterId)) return@fold
+                    // ★ 仅本学期写入本地缓存(其他学期按需加载)
+                    if (isCurrentSemester) {
+                        val sm = sessionManager
+                        if (sm != null) {
+                            try {
+                                val json = com.ahu_plus.data.GsonProvider.instance.toJson(data)
+                                sm.saveScheduleJson(json)
+                                if (isCurrentScheduleRequest(requestId, semesterId)) {
+                                    TodayScheduleWidgetUpdater.updateAll(getApplication())
+                                }
+                            } catch (e: Exception) { Log.w(TAG, "Failed to cache schedule JSON: ${e.message}") }
+                        }
+                    } else {
+                        saveHistoricalSchedule(semesterId, data)
+                    }
+
+                    if (!isCurrentScheduleRequest(requestId, semesterId)) return@fold
+                    val displayItems = buildDisplayItems(
+                        activities = data.activities,
+                        selectedWeek = data.currentWeek,
+                        lessons = data.lessons
+                    )
+                    _uiState.update { state ->
+                        if (!isCurrentScheduleRequest(requestId, semesterId)) return@update state
+                        state.copy(
+                            isLoading = false,
+                            isLoadingSemester = false,
+                            error = null,
+                            needsLogin = false,
+                            studentName = data.studentName,
+                            className = data.className,
+                            department = data.department,
+                            credits = data.credits,
+                            allActivities = data.activities,
+                            displayItems = displayItems,
+                            unitTimes = data.unitTimes,
+                            semester = data.semester,
+                            currentWeek = data.currentWeek,
+                            selectedWeek = data.currentWeek,
+                            weekIndices = data.weekIndices,
+                            lessons = data.lessons,
+                            // 仅本学期的"当前周"会持久化,其他学期不影响
+                            currentSemesterCurrentWeek = if (isCurrentSemester)
+                                data.currentWeek
+                            else state.currentSemesterCurrentWeek,
+                        )
+                    }
+                },
+                onFailure = { e ->
+                    _uiState.update { state ->
+                        if (!isCurrentScheduleRequest(requestId, semesterId)) return@update state
+                        state.copy(
+                            isLoading = false,
+                            isLoadingSemester = false,
+                            error = if (!wasLoaded) "课表加载失败: ${e.message}" else state.error,
+                            needsLogin = !wasLoaded && (e is SessionExpiredException || e is JwAuthException),
+                        )
+                    }
+                }
+            )
         } catch (e: Exception) {
-            _uiState.update {
-                it.copy(
+            _uiState.update { state ->
+                if (!isCurrentScheduleRequest(requestId, semesterId)) return@update state
+                state.copy(
                     isLoading = false,
                     isLoadingSemester = false,
-                    error = if (!wasLoaded) "未知错误: ${e.message}" else it.error
+                    error = if (!wasLoaded) "未知错误: ${e.message}" else state.error
                 )
             }
         } finally {
-            _uiState.update { it.copy(isRefreshing = false) }
+            _uiState.update { state ->
+                if (isCurrentScheduleRequest(requestId, semesterId)) {
+                    state.copy(isRefreshing = false)
+                } else {
+                    state
+                }
+            }
         }
     }
 
@@ -476,6 +513,8 @@ class ScheduleViewModel(
         val current = _uiState.value.selectedSemesterId
         if (semesterId == current) return
         Log.d(TAG, "切换学期: $current → $semesterId")
+
+        val requestId = beginScheduleRequest()
 
         // 重置跨学期状态
         colorMap = emptyMap()
@@ -505,21 +544,34 @@ class ScheduleViewModel(
 
         if (semesterId == CourseRepository.DEFAULT_SEMESTER_ID) {
             // 切回本学期 → 优先用本地缓存
-            viewModelScope.launch {
-                val cached = loadFromCache()
+            scheduleRequestJob = viewModelScope.launch {
+                val cached = loadFromCache(requestId)
                 if (cached) {
-                    launch { loadScheduleData(isRefresh = true, semesterId = semesterId) }
+                    loadScheduleData(isRefresh = true, semesterId = semesterId, requestId = requestId)
                 } else {
-                    loadScheduleData(isRefresh = false, semesterId = semesterId)
+                    loadScheduleData(isRefresh = false, semesterId = semesterId, requestId = requestId)
                 }
             }
         } else {
             // 历史学期永久缓存：命中时直接显示，只有用户主动刷新才重新请求。
             val cached = loadHistoricalSchedule(semesterId)
             if (cached != null) {
-                viewModelScope.launch { applyScheduleData(cached, isCurrentSemester = false, wasLoaded = false) }
+                scheduleRequestJob = viewModelScope.launch {
+                    applyScheduleData(
+                        data = cached,
+                        isCurrentSemester = false,
+                        requestId = requestId,
+                        semesterId = semesterId,
+                    )
+                }
             } else {
-                viewModelScope.launch { loadScheduleData(isRefresh = false, semesterId = semesterId) }
+                scheduleRequestJob = viewModelScope.launch {
+                    loadScheduleData(
+                        isRefresh = false,
+                        semesterId = semesterId,
+                        requestId = requestId,
+                    )
+                }
             }
         }
     }
@@ -543,11 +595,17 @@ class ScheduleViewModel(
     }
 
     fun onRefresh() {
-        viewModelScope.launch {
+        val semesterId = _uiState.value.selectedSemesterId
+        val requestId = beginScheduleRequest()
+        scheduleRequestJob = viewModelScope.launch {
             // 跨 Repository 缓存(考勤 / 考试)可能在外部刷新过 — 重读一次让首页今日卡片同步
             reloadCrossRepoCaches()
             loadSemesterList()
-            loadScheduleData(isRefresh = true)
+            loadScheduleData(
+                isRefresh = true,
+                semesterId = semesterId,
+                requestId = requestId,
+            )
         }
     }
 
@@ -943,8 +1001,10 @@ class ScheduleViewModel(
     private suspend fun applyScheduleData(
         data: com.ahu_plus.data.model.jw.ScheduleData,
         isCurrentSemester: Boolean,
-        @Suppress("UNUSED_PARAMETER") wasLoaded: Boolean
+        requestId: Long,
+        semesterId: Int,
     ) {
+        if (!isCurrentScheduleRequest(requestId, semesterId)) return
         if (isCurrentSemester) {
             val sm = sessionManager
             if (sm != null) {
@@ -957,13 +1017,15 @@ class ScheduleViewModel(
                 } catch (e: Exception) { Log.w(TAG, "Failed to cache schedule JSON: ${e.message}") }
             }
         }
+        if (!isCurrentScheduleRequest(requestId, semesterId)) return
         val displayItems = buildDisplayItems(
             activities = data.activities,
             selectedWeek = data.currentWeek,
             lessons = data.lessons
         )
-        _uiState.update {
-            it.copy(
+        _uiState.update { state ->
+            if (!isCurrentScheduleRequest(requestId, semesterId)) return@update state
+            state.copy(
                 isLoading = false,
                 isLoadingSemester = false,
                 error = null,
@@ -980,7 +1042,7 @@ class ScheduleViewModel(
                 selectedWeek = data.currentWeek,
                 weekIndices = data.weekIndices,
                 lessons = data.lessons,
-                currentSemesterCurrentWeek = if (isCurrentSemester) data.currentWeek else it.currentSemesterCurrentWeek,
+                currentSemesterCurrentWeek = if (isCurrentSemester) data.currentWeek else state.currentSemesterCurrentWeek,
             )
         }
     }

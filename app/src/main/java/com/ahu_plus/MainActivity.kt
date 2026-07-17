@@ -100,6 +100,8 @@ class MainActivity : ComponentActivity() {
                     initMessageFlow = app.initMessageFlow,
                     deepLink = deepLink,
                     onDeepLinkConsumed = { deepLink = null },
+                    onSessionInitialized = app::restorePersistedRepositoryState,
+                    onAccountDataCleared = app::clearAccountScopedRepositoryState,
                 )
 
                 UpdateDialog(

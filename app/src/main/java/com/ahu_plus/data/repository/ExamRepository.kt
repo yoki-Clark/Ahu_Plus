@@ -46,6 +46,10 @@ class ExamRepository(
 ) {
     @Volatile private var cachedStudentId: Long? = null
 
+    fun clearAccountState() {
+        cachedStudentId = null
+    }
+
     private val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = jwAuthRepository.jwCookieJar,
         followRedirects = false,

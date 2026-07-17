@@ -24,7 +24,9 @@ import com.ahu_plus.data.model.CxWorkData
 import com.ahu_plus.data.repository.ChaoxingRepository
 import com.ahu_plus.data.repository.ChaoxingStudyRepository
 import com.ahu_plus.data.repository.ChaoxingTikuRepository
+import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -84,6 +86,26 @@ class ChaoxingViewModel(
 
     private val _homeworkDetailState = MutableStateFlow(CxHomeworkDetailState())
     val homeworkDetailState: StateFlow<CxHomeworkDetailState> = _homeworkDetailState.asStateFlow()
+    private var homeworkDetailJob: Job? = null
+    private var homeworkDetailRequestId = 0L
+    private var homeworkDetailWorkId: String? = null
+
+    private fun beginHomeworkDetailRequest(workId: String): Long {
+        homeworkDetailJob?.cancel()
+        homeworkDetailWorkId = workId
+        return ++homeworkDetailRequestId
+    }
+
+    private fun invalidateHomeworkDetailRequests() {
+        homeworkDetailJob?.cancel()
+        homeworkDetailJob = null
+        homeworkDetailWorkId = null
+        homeworkDetailRequestId++
+    }
+
+    private fun isCurrentHomeworkDetailRequest(requestId: Long, workId: String): Boolean {
+        return requestId == homeworkDetailRequestId && homeworkDetailWorkId == workId
+    }
 
     init {
         cxRepo.loadPersistedCookies()
@@ -360,10 +382,12 @@ class ChaoxingViewModel(
     }
 
     fun logout() {
+        invalidateHomeworkDetailRequests()
         viewModelScope.launch {
             cxRepo.clearCookies()
             sessionManager.clearCxCredentials()
             sessionManager.saveCxHomeworkJson("")  // 清除作业缓存
+            sessionManager.saveCxHomeworkDetailJson("")
             _loginState.value = CxLoginState()
             _coursesState.value = CxCoursesState()
             _detailState.value = CxDetailState()
@@ -1027,25 +1051,25 @@ class ChaoxingViewModel(
     }
 
     fun refreshHomework() {
-        _homeworkState.value = _homeworkState.value.copy(isLoading = true, error = null)
         loadHomework()
     }
 
     fun loadHomeworkDetail(work: CxHomeworkItem) {
+        val requestId = beginHomeworkDetailRequest(work.workId)
         _homeworkDetailState.value = CxHomeworkDetailState(isLoading = true, error = null)
 
         // 1. 优先显示缓存
-        viewModelScope.launch {
+        homeworkDetailJob = viewModelScope.launch {
             val cachedJson = sessionManager.getCxHomeworkDetailJson()
             if (!cachedJson.isNullOrBlank()) {
-                try {
-                    val cachedWorkData = gson.fromJson(cachedJson, CxWorkData::class.java)
-                    if (cachedWorkData.questions.isNotEmpty()) {
+                val cachedWorkData = decodeCxHomeworkDetailCache(cachedJson, work.workId)
+                if (cachedWorkData != null && cachedWorkData.questions.isNotEmpty()) {
+                    if (isCurrentHomeworkDetailRequest(requestId, work.workId)) {
                         _homeworkDetailState.value = CxHomeworkDetailState(
                             isLoading = true, workData = cachedWorkData,
                         )
                     }
-                } catch (_: Exception) { /* 缓存不兼容 */ }
+                }
             }
 
             // 2. 后台网络刷新
@@ -1056,10 +1080,12 @@ class ChaoxingViewModel(
                 cpi = work.cpi,
             )
             result.onSuccess { workData ->
+                if (!isCurrentHomeworkDetailRequest(requestId, work.workId)) return@onSuccess
                 _homeworkDetailState.value = CxHomeworkDetailState(workData = workData)
-                sessionManager.saveCxHomeworkDetailJson(gson.toJson(workData))
+                sessionManager.saveCxHomeworkDetailJson(encodeCxHomeworkDetailCache(work.workId, workData))
             }
             result.onFailure { e ->
+                if (!isCurrentHomeworkDetailRequest(requestId, work.workId)) return@onFailure
                 if (_homeworkDetailState.value.workData == null) {
                     _homeworkDetailState.value = CxHomeworkDetailState(
                         error = e.message ?: "加载作业详情失败",
@@ -1073,8 +1099,14 @@ class ChaoxingViewModel(
     }
 
     fun refreshHomeworkDetail(work: CxHomeworkItem) {
-        _homeworkDetailState.value = _homeworkDetailState.value.copy(isLoading = true)
-        viewModelScope.launch {
+        val canReuseCurrentData = homeworkDetailWorkId == work.workId
+        val requestId = beginHomeworkDetailRequest(work.workId)
+        _homeworkDetailState.value = if (canReuseCurrentData) {
+            _homeworkDetailState.value.copy(isLoading = true, error = null)
+        } else {
+            CxHomeworkDetailState(isLoading = true)
+        }
+        homeworkDetailJob = viewModelScope.launch {
             val result = cxRepo.getHomeworkPage(
                 workUrl = work.workUrl,
                 courseId = work.courseId,
@@ -1082,12 +1114,14 @@ class ChaoxingViewModel(
                 cpi = work.cpi,
             )
             result.onSuccess { workData ->
+                if (!isCurrentHomeworkDetailRequest(requestId, work.workId)) return@onSuccess
                 _homeworkDetailState.value = _homeworkDetailState.value.copy(
                     isLoading = false, workData = workData, error = null,
                 )
-                sessionManager.saveCxHomeworkDetailJson(gson.toJson(workData))
+                sessionManager.saveCxHomeworkDetailJson(encodeCxHomeworkDetailCache(work.workId, workData))
             }
             result.onFailure { e ->
+                if (!isCurrentHomeworkDetailRequest(requestId, work.workId)) return@onFailure
                 _homeworkDetailState.value = _homeworkDetailState.value.copy(
                     isLoading = false,
                     error = e.message ?: "刷新失败",
@@ -1097,6 +1131,7 @@ class ChaoxingViewModel(
     }
 
     fun clearHomeworkDetail() {
+        invalidateHomeworkDetailRequests()
         _homeworkDetailState.value = CxHomeworkDetailState()
     }
 
@@ -1328,3 +1363,22 @@ data class CxMessagesState(
     /** 用户在 app 内点开过的消息 ID（本地已读追踪） */
     val readMessageIds: Set<String> = emptySet(),
 )
+
+internal data class CxHomeworkDetailCache(
+    val workId: String,
+    val workData: CxWorkData,
+)
+
+internal fun encodeCxHomeworkDetailCache(workId: String, workData: CxWorkData): String {
+    return GsonProvider.instance.toJson(CxHomeworkDetailCache(workId, workData))
+}
+
+internal fun decodeCxHomeworkDetailCache(json: String, expectedWorkId: String): CxWorkData? {
+    return runCatching {
+        val root = JsonParser.parseString(json).asJsonObject
+        val cachedWorkId = root.get("workId")?.asString ?: return@runCatching null
+        if (cachedWorkId != expectedWorkId) return@runCatching null
+        val workData = root.get("workData") ?: return@runCatching null
+        GsonProvider.instance.fromJson(workData, CxWorkData::class.java)
+    }.getOrNull()
+}

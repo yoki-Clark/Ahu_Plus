@@ -21,6 +21,10 @@ class TrainingPlanRepository(private val jwAuthRepository: JwAuthRepository) {
 
     @Volatile private var cachedProgramId: Long? = null
 
+    fun clearAccountState() {
+        cachedProgramId = null
+    }
+
     suspend fun getTrainingPlan(): Result<TrainingPlanResponse> = try {
         val programId = resolveProgramId().getOrElse { return Result.failure(it) }
         val url = "$JW_BASE/student/for-std/credit-certification-apply/other_apply/get-all-course-module?programId=$programId"

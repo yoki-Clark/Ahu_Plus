@@ -38,6 +38,10 @@ class ProgramCompletionRepository(
 
     @Volatile private var cachedStudentId: Long? = null
 
+    fun clearAccountState() {
+        cachedStudentId = null
+    }
+
     /**
      * 获取培养方案完成数据（含每门课修读状态 + 学分汇总）。
      */

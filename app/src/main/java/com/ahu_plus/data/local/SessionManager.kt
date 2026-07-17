@@ -2464,6 +2464,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedSemesterListJson = null
 
         cachedEvaluationDataJson = null
+        cachedEvaluationJwt = null
 
         cachedJwcNoticeJson = null
         cachedJwcNoticeUpdatedAt = 0L
@@ -2515,6 +2516,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedBathroomPhone = null
 
+        cachedBillsJson = null
+        cachedBillsUpdatedAt = 0L
+
         cachedAcConfig = ElectricityRoomConfig()
 
         cachedLightingConfig = ElectricityRoomConfig()
@@ -2538,6 +2542,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedEmptyClassroomKey = null
 
         cachedEmptyClassroomUpdatedAt = 0L
+
+        cachedCProgJwt = null
+        cachedCProgJsessionid = null
+        cachedCProgUserId = null
 
     }
 
@@ -3527,6 +3535,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
             CX_PHONE_KEY, CX_PASSWORD_KEY,
 
             WELEARN_USERNAME_KEY, WELEARN_PASSWORD_KEY,
+
+            CPROG_JWT_KEY, CPROG_JSESSIONID_KEY, CPROG_USER_ID_KEY,
 
         )
 

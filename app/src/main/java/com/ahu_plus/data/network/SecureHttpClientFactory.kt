@@ -18,7 +18,7 @@ import javax.net.ssl.X509TrustManager
 /**
  * 统一的 OkHttp 客户端工厂。
  *
- * 把 trust-all SSL、超时、UA/Accept-Encoding 处理等横切关注点集中起来,
+ * 把安大自签名证书兼容、超时、UA/Accept-Encoding 处理等横切关注点集中起来,
  * 避免每个 Repository 重复实现相同样板代码。
  *
  * 使用方式:
@@ -29,6 +29,11 @@ import javax.net.ssl.X509TrustManager
 object SecureHttpClientFactory {
 
     private const val DEFAULT_TIMEOUT_SEC = 15L
+
+    internal fun isAhuHost(host: String): Boolean {
+        val normalized = host.trim().lowercase()
+        return normalized == "ahu.edu.cn" || normalized.endsWith(".ahu.edu.cn")
+    }
 
     // ── 共享连接池与调度器 (2026-06-24 性能优化) ──────────────
     //
@@ -41,24 +46,24 @@ object SecureHttpClientFactory {
     //
     // 注: 不同 SSL/Cookie/Authenticator 的 client 仍是独立实例,但底层连接池是共享的 ——
     // OkHttp 用 (host, port, sslSocketFactory, hostnameVerifier, ...) 作为连接复用 key,
-    // trustAll client 与默认 client 各自走自己的连接,正确隔离。
+    // 安大自签名兼容 client 与默认 client 各自走自己的连接,正确隔离。
     private val sharedPool = ConnectionPool(16, 5, TimeUnit.MINUTES)
     private val sharedDispatcher = Dispatcher().apply {
         maxRequests = 24
         maxRequestsPerHost = 6
     }
 
-    // ── 共享的 trust-all SSL(仅用于 *.ahu.edu.cn 自签名证书)────
+    // ── 共享的 AHU 自签名兼容 SSL(仅用于 *.ahu.edu.cn)────────
 
-    private val trustAllManager: X509TrustManager = object : X509TrustManager {
+    private val ahuCompatibleTrustManager: X509TrustManager = object : X509TrustManager {
         override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
         override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
         override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
     }
 
-    private val trustAllSslContext: SSLContext = run {
+    private val ahuCompatibleSslContext: SSLContext = run {
         val ctx = SSLContext.getInstance("TLS")
-        ctx.init(null, arrayOf<TrustManager>(trustAllManager), SecureRandom())
+        ctx.init(null, arrayOf<TrustManager>(ahuCompatibleTrustManager), SecureRandom())
         ctx
     }
 
@@ -84,8 +89,8 @@ object SecureHttpClientFactory {
      *                    其他业务 API 应该让 OkHttp 自动 gzip 解压以节省带宽。
      * @param extraInterceptors 额外的应用拦截器(在 network 拦截器之前)
      * @param connectTimeoutSec / readTimeoutSec 超时秒数
-     * @param trustAll 是否禁用证书验证。**默认 false**,仅对 *.ahu.edu.cn 自签名证书
-     *                 调用点显式声明 trustAll = true;标准 HTTPS 域名(如 api.zxs-bbs.cn /
+     * @param trustAll 历史参数名。true 表示仅对 *.ahu.edu.cn 启用自签名证书兼容模式,
+     *                 兼容安大自签名证书；标准 HTTPS 域名(如 api.zxs-bbs.cn /
      *                 openahu.org / 集市头像 CDN)必须保持默认值,否则一旦 MITM 接管
      *                 流量,本工厂创建的所有客户端都会变成开放代理。
      *                 历史背景:本参数曾默认 true,见 2026-06-24 安全审查改为 false。
@@ -112,8 +117,8 @@ object SecureHttpClientFactory {
             .connectionPool(sharedPool)
             .dispatcher(sharedDispatcher)
         if (trustAll) {
-            builder.sslSocketFactory(trustAllSslContext.socketFactory, trustAllManager)
-            builder.hostnameVerifier { _, _ -> true }
+            builder.sslSocketFactory(ahuCompatibleSslContext.socketFactory, ahuCompatibleTrustManager)
+            builder.hostnameVerifier { hostname, _ -> isAhuHost(hostname) }
         }
         if (tls12Only) {
             // 关键:必须保留 ConnectionSpec.CLEARTEXT,否则 OkHttp 在遇到

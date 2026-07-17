@@ -75,6 +75,8 @@ fun AppNavigation(
     deepLink: String? = null,
     /** MainScreen 完成 deep-link 跳转后回调,清空 deepLink 避免重复触发 */
     onDeepLinkConsumed: () -> Unit = {},
+    onSessionInitialized: () -> Unit = {},
+    onAccountDataCleared: suspend () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val coroutineScope = rememberCoroutineScope()
@@ -86,6 +88,7 @@ fun AppNavigation(
     //  - 无凭据 → 进入 login
     LaunchedEffect(Unit) {
         sessionManager.init()
+        onSessionInitialized()
         startRoute = if (sessionManager.hasCredentials()) "autologin" else "login"
     }
 
@@ -111,6 +114,7 @@ fun AppNavigation(
         jwAuthRepository.clearCookies()
         ycardRepository.clearCookies()
         adwmhCardRepository.clearCookies()
+        attendanceRepository.clearCookies()
     }
 
     /**
@@ -245,6 +249,7 @@ fun AppNavigation(
                     coroutineScope.launch {
                         clearAllCookies()
                         sessionManager.clearAuthData()
+                        onAccountDataCleared()
                         navigateToLogin()
                     }
                 }

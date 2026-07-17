@@ -35,11 +35,14 @@ class HomeworkRepository(private val sessionManager: SessionManager) {
     private val mutex = Mutex()
 
     init {
-        runCatching {
-            val json = sessionManager.getHomeworkJson() ?: return@runCatching
-            val list: List<HomeworkRecord> = gson.fromJson(json, type) ?: emptyList()
-            flow.value = list
-        }
+        reloadFromSession()
+    }
+
+    fun reloadFromSession() {
+        flow.value = runCatching {
+            val json = sessionManager.getHomeworkJson() ?: return@runCatching emptyList()
+            gson.fromJson<List<HomeworkRecord>>(json, type) ?: emptyList()
+        }.getOrDefault(emptyList())
     }
 
     suspend fun upsert(record: HomeworkRecord) = mutex.withLock {

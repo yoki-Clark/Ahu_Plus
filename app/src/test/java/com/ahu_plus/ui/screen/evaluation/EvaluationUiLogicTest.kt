@@ -43,6 +43,15 @@ class EvaluationUiLogicTest {
     }
 
     @Test
+    fun `questionnaire response only belongs to the task that requested it`() {
+        val taskA = task("task-a", "COURSE-1", "课程一", "教师甲")
+        val taskB = task("task-b", "COURSE-1", "课程一", "教师乙")
+
+        assertTrue(isSameEvaluationTask(taskA, taskA))
+        assertEquals(false, isSameEvaluationTask(taskB, taskA))
+    }
+
+    @Test
     fun `blank comment blocks submission even when backend marks it optional`() {
         val questionnaire = questionnaire()
         val answers = mapOf<String, EvaluationAnswer>(

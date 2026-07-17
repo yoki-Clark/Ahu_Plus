@@ -44,6 +44,7 @@ import org.jsoup.Jsoup
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * 超星学习通 Repository。
@@ -81,17 +82,20 @@ class ChaoxingRepository(
     }
 
     // ── Cookie 存储 ──────────────────────────────────────────────
-    private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+    private val cookieStore = ConcurrentHashMap<String, CopyOnWriteArrayList<Cookie>>()
     private val cxHost = "chaoxing.com"
 
     val cookieJar = object : CookieJar {
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
             // 超星所有子域名共享 Cookie（passport2 / mooc1 / mooc2 / mobilelearn 等）
             val domain = normalizeDomain(url.host)
-            val list = cookieStore.getOrPut(domain) { mutableListOf() }
-            for (c in cookies) {
-                list.removeAll { it.name == c.name }
-                list.add(c)
+            cookieStore.compute(domain) { _, existing ->
+                val merged = existing?.toMutableList() ?: mutableListOf()
+                for (cookie in cookies) {
+                    merged.removeAll { it.name == cookie.name }
+                    merged.add(cookie)
+                }
+                CopyOnWriteArrayList(merged)
             }
             persistCookies()
         }
@@ -140,7 +144,7 @@ class ChaoxingRepository(
     suspend fun flushCookies() {
         if (!cookiesDirty) return
         cookiesDirty = false
-        val all = cookieStore.values.flatten()
+        val all = cookieStore.values.flatMap { it.toList() }
         val str = all.joinToString(";") { "${it.name}=${it.value}" }
         sessionManager.saveCxCookies(str)
     }
@@ -158,7 +162,7 @@ class ChaoxingRepository(
                 .value(part.substring(eq + 1).trim())
                 .build()
         }
-        cookieStore[cxHost] = cookies.toMutableList()
+        cookieStore[cxHost] = CopyOnWriteArrayList(cookies)
     }
 
     suspend fun clearCookies() {
