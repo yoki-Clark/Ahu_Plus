@@ -5,6 +5,7 @@ import android.util.Log
 import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.local.XzxxWafCookieStore
 import com.ahu_plus.data.repository.AdwmhCardRepository
 import com.ahu_plus.data.repository.AiCommentRepository
 import com.ahu_plus.data.repository.AssessmentRepository
@@ -42,6 +43,7 @@ import com.ahu_plus.data.repository.RecordRepository
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.UserTaskRepository
 import com.ahu_plus.data.repository.YcardRepository
+import com.ahu_plus.data.repository.XzxxRepository
 import com.ahu_plus.notification.WidgetUpdateScheduler
 import com.ahu_plus.util.CxFontDecoder
 import kotlinx.coroutines.CoroutineScope
@@ -74,6 +76,8 @@ class AhuPlusApplication : Application() {
     lateinit var aiCommentRepository: AiCommentRepository
         private set
     lateinit var jwcNoticeRepository: JwcNoticeRepository
+        private set
+    lateinit var xzxxRepository: XzxxRepository
         private set
     lateinit var studentInfoRepository: StudentInfoRepository
         private set
@@ -201,6 +205,7 @@ class AhuPlusApplication : Application() {
         marketRepository = MarketRepository(sessionManager)
         aiCommentRepository = AiCommentRepository(this, sessionManager)
         jwcNoticeRepository = JwcNoticeRepository()
+        xzxxRepository = XzxxRepository(XzxxWafCookieStore(appDataStore))
         studentInfoRepository = StudentInfoRepository(sessionManager, casAuthRepository)
         // 成绩 / 考试 复用 JwAuthRepository 的 CookieJar
         gradeRepository = GradeRepository(jwAuthRepository)

@@ -64,7 +64,7 @@ AHU_RELEASE_KEY_PASSWORD=...
 | 学习通 | `passport2.chaoxing.com` + mooc1 + mooc2 | 手机号 + 密码 AES |
 | 排考 / 公告 / 升级 / 天气 / WeLearn 答案 | `gitee.com` / `open-meteo.com` / `sflep.com` | 无 |
 
-CAS 流程见 [CasAuthRepository.kt](app/src/main/java/com/yourname/ahu_plus/data/repository/CasAuthRepository.kt#L19-L27);续期走 `SessionAuthenticator` 被动嗅探。`*.ahu.edu.cn` 自签名证书,`SecureHttpClientFactory.create(trustAll, tls12Only)` 显式声明防误用扩散;`passport2` / `api.zxs-bbs.cn` / `open-meteo` 都是标准证书,`trustAll=false`。校长信箱走隐藏 WebView。
+CAS 流程见 [CasAuthRepository.kt](app/src/main/java/com/yourname/ahu_plus/data/repository/CasAuthRepository.kt#L19-L27);续期走 `SessionAuthenticator` 被动嗅探。`*.ahu.edu.cn` 自签名证书,`SecureHttpClientFactory.create(trustAll, tls12Only)` 显式声明防误用扩散;`passport2` / `api.zxs-bbs.cn` / `open-meteo` 都是标准证书,`trustAll=false`。校长信箱仅在 WAF 凭证缺失或过期时短暂使用隐藏 WebView,列表/详情/验证码/提交均走 OkHttp。
 
 ## 项目结构
 

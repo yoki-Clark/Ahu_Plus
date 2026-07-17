@@ -7,12 +7,8 @@ data class XzxxLetter(
     val writeDate: String,
     val replyDate: String,
     val url: String,
-    val detail: XzxxLetterDetail? = null,
-    val detailError: String? = null
 ) {
     val isReplied: Boolean get() = replyDate.isNotBlank()
-    val isDetailLoading: Boolean get() = detail == null && detailError == null
-    val isExpanded: Boolean get() = detail != null || detailError != null
 }
 
 /**
@@ -33,4 +29,21 @@ data class XzxxLetterDetail(
 data class XzxxSubmitResult(
     val success: Boolean,
     val message: String
+)
+
+data class XzxxPage(
+    val letters: List<XzxxLetter>,
+    val hasMore: Boolean,
+)
+
+data class XzxxCaptcha(
+    val bytes: ByteArray,
+)
+
+data class XzxxSubmitRequest(
+    val uname: String,
+    val checkcode: String,
+    val telnum: String,
+    val title: String,
+    val content: String,
 )
