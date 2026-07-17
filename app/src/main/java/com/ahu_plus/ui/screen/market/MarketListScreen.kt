@@ -47,7 +47,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -207,7 +207,7 @@ internal fun MarketListScreen(
                     .padding(innerPadding)
             )
         } else {
-            PullToRefreshBox(
+            AhuPullToRefreshBox(
                 isRefreshing = uiState.isLoading,
                 onRefresh = onRefresh,
                 modifier = Modifier

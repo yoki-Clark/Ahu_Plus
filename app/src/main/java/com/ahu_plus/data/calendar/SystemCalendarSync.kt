@@ -8,6 +8,18 @@ import android.provider.CalendarContract
 import com.ahu_plus.data.model.agenda.AgendaEvent
 import com.ahu_plus.data.model.agenda.AgendaSource
 import java.time.ZoneId
+import java.time.ZoneOffset
+
+data class SystemCalendarEvent(
+    val eventId: Long,
+    val calendarName: String,
+    val title: String,
+    val description: String,
+    val location: String,
+    val beginMillis: Long,
+    val endMillis: Long,
+    val allDay: Boolean,
+)
 
 data class CalendarSyncResult(
     val calendarName: String,
@@ -20,12 +32,16 @@ class SystemCalendarSync(private val context: Context) {
     private val resolver = context.contentResolver
     private val zone = ZoneId.systemDefault()
 
-    fun sync(events: List<AgendaEvent>): CalendarSyncResult {
+    fun sync(
+        events: List<AgendaEvent>,
+        selectedSources: Set<AgendaSource> = setOf(AgendaSource.COURSE, AgendaSource.EXAM),
+    ): CalendarSyncResult {
         val calendar = findWritableCalendar()
             ?: error("未找到可写入的系统日历")
-        val managedEvents = readManagedEvents(calendar.id)
+        val managedEvents = readManagedEvents()
         val desired = events
-            .filter { it.source == AgendaSource.COURSE || it.source == AgendaSource.EXAM }
+            .filter { it.source in selectedSources }
+            .filterNot { it.source == AgendaSource.CUSTOM && it.sourceId?.startsWith(SYSTEM_IMPORT_PREFIX) == true }
             .distinctBy { it.id }
             .associateBy { it.id }
 
@@ -37,20 +53,20 @@ class SystemCalendarSync(private val context: Context) {
         desired.forEach { (managedId, event) ->
             val existingIds = managedEvents[managedId].orEmpty()
             val values = eventValues(calendar.id, event)
-            val existingId = existingIds.firstOrNull()
-            if (existingId == null) {
+            val existing = existingIds.firstOrNull { it.calendarId == calendar.id } ?: existingIds.firstOrNull()
+            if (existing == null) {
                 operations += ContentProviderOperation.newInsert(CalendarContract.Events.CONTENT_URI)
                     .withValues(values)
                     .build()
                 inserted++
             } else {
                 operations += ContentProviderOperation.newUpdate(
-                    ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, existingId)
+                    ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, existing.eventId)
                 ).withValues(values).build()
                 updated++
-                existingIds.drop(1).forEach { duplicateId ->
+                existingIds.filterNot { it.eventId == existing.eventId }.forEach { duplicate ->
                     operations += ContentProviderOperation.newDelete(
-                        ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, duplicateId)
+                        ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, duplicate.eventId)
                     ).build()
                     removed++
                 }
@@ -58,12 +74,12 @@ class SystemCalendarSync(private val context: Context) {
         }
 
         managedEvents
-            .filterKeys { it !in desired }
+            .filterKeys { managedId -> managedId !in desired && sourceForManagedId(managedId) in selectedSources }
             .values
             .flatten()
-            .forEach { staleId ->
+            .forEach { stale ->
                 operations += ContentProviderOperation.newDelete(
-                    ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, staleId)
+                    ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, stale.eventId)
                 ).build()
                 removed++
             }
@@ -72,6 +88,58 @@ class SystemCalendarSync(private val context: Context) {
             resolver.applyBatch(CalendarContract.AUTHORITY, ArrayList(batch))
         }
         return CalendarSyncResult(calendar.name, inserted, updated, removed)
+    }
+
+    fun removeAllManaged(): Int {
+        val operations = readManagedEvents().values.flatten().map { managed ->
+            ContentProviderOperation.newDelete(
+                ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, managed.eventId)
+            ).build()
+        }
+        operations.chunked(BATCH_SIZE).forEach { batch ->
+            resolver.applyBatch(CalendarContract.AUTHORITY, ArrayList(batch))
+        }
+        return operations.size
+    }
+
+    fun readExternalEvents(fromMillis: Long, toMillis: Long): List<SystemCalendarEvent> {
+        val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().also { builder ->
+            ContentUris.appendId(builder, fromMillis)
+            ContentUris.appendId(builder, toMillis)
+        }.build()
+        val projection = arrayOf(
+            CalendarContract.Instances.EVENT_ID,
+            CalendarContract.Instances.CALENDAR_DISPLAY_NAME,
+            CalendarContract.Instances.TITLE,
+            CalendarContract.Instances.DESCRIPTION,
+            CalendarContract.Instances.EVENT_LOCATION,
+            CalendarContract.Instances.BEGIN,
+            CalendarContract.Instances.END,
+            CalendarContract.Instances.ALL_DAY,
+        )
+        return resolver.query(uri, projection, null, null, CalendarContract.Instances.BEGIN + " ASC")
+            ?.use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) {
+                        val description = cursor.getString(3).orEmpty()
+                        if (MARKER_PREFIX in description) continue
+                        val title = cursor.getString(2).orEmpty().trim()
+                        if (title.isBlank()) continue
+                        add(
+                            SystemCalendarEvent(
+                                eventId = cursor.getLong(0),
+                                calendarName = cursor.getString(1).orEmpty().ifBlank { "系统日历" },
+                                title = title,
+                                description = description,
+                                location = cursor.getString(4).orEmpty(),
+                                beginMillis = cursor.getLong(5),
+                                endMillis = cursor.getLong(6),
+                                allDay = cursor.getInt(7) == 1,
+                            )
+                        )
+                    }
+                }
+            }.orEmpty().distinctBy { it.eventId to it.beginMillis }
     }
 
     private fun findWritableCalendar(): WritableCalendar? {
@@ -107,21 +175,29 @@ class SystemCalendarSync(private val context: Context) {
         }
     }
 
-    private fun readManagedEvents(calendarId: Long): Map<String, List<Long>> {
-        val result = linkedMapOf<String, MutableList<Long>>()
+    private fun readManagedEvents(): Map<String, List<ManagedEvent>> {
+        val result = linkedMapOf<String, MutableList<ManagedEvent>>()
         resolver.query(
             CalendarContract.Events.CONTENT_URI,
-            arrayOf(CalendarContract.Events._ID, CalendarContract.Events.DESCRIPTION),
-            "${CalendarContract.Events.CALENDAR_ID}=? AND ${CalendarContract.Events.DESCRIPTION} LIKE ?",
-            arrayOf(calendarId.toString(), "%$MARKER_PREFIX%"),
+            arrayOf(
+                CalendarContract.Events._ID,
+                CalendarContract.Events.CALENDAR_ID,
+                CalendarContract.Events.DESCRIPTION,
+            ),
+            "${CalendarContract.Events.DESCRIPTION} LIKE ?",
+            arrayOf("%$MARKER_PREFIX%"),
             null,
         )?.use { cursor ->
             val idIndex = cursor.getColumnIndexOrThrow(CalendarContract.Events._ID)
+            val calendarIdIndex = cursor.getColumnIndexOrThrow(CalendarContract.Events.CALENDAR_ID)
             val descriptionIndex = cursor.getColumnIndexOrThrow(CalendarContract.Events.DESCRIPTION)
             while (cursor.moveToNext()) {
                 val description = cursor.getString(descriptionIndex).orEmpty()
                 val managedId = MARKER_REGEX.find(description)?.groupValues?.getOrNull(1) ?: continue
-                result.getOrPut(managedId) { mutableListOf() } += cursor.getLong(idIndex)
+                result.getOrPut(managedId) { mutableListOf() } += ManagedEvent(
+                    eventId = cursor.getLong(idIndex),
+                    calendarId = cursor.getLong(calendarIdIndex),
+                )
             }
         }
         return result
@@ -130,12 +206,12 @@ class SystemCalendarSync(private val context: Context) {
     private fun eventValues(calendarId: Long, event: AgendaEvent): ContentValues {
         val allDay = event.startMinutes == null
         val start = if (allDay) {
-            event.date.atStartOfDay(zone)
+            event.date.atStartOfDay(ZoneOffset.UTC)
         } else {
             event.date.atStartOfDay(zone).plusMinutes(event.startMinutes!!.toLong())
         }
         val end = if (allDay) {
-            event.date.plusDays(1).atStartOfDay(zone)
+            event.date.plusDays(1).atStartOfDay(ZoneOffset.UTC)
         } else {
             event.date.atStartOfDay(zone).plusMinutes(
                 (event.endMinutes ?: (event.startMinutes + DEFAULT_DURATION_MINUTES)).toLong()
@@ -148,7 +224,7 @@ class SystemCalendarSync(private val context: Context) {
             put(CalendarContract.Events.DESCRIPTION, "${sourceLabel(event.source)}\n$MARKER_PREFIX${event.id}]")
             put(CalendarContract.Events.DTSTART, start.toInstant().toEpochMilli())
             put(CalendarContract.Events.DTEND, end.toInstant().toEpochMilli())
-            put(CalendarContract.Events.EVENT_TIMEZONE, zone.id)
+            put(CalendarContract.Events.EVENT_TIMEZONE, if (allDay) "UTC" else zone.id)
             put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
             put(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY)
         }
@@ -161,11 +237,21 @@ class SystemCalendarSync(private val context: Context) {
     }
 
     private data class WritableCalendar(val id: Long, val name: String)
+    private data class ManagedEvent(val eventId: Long, val calendarId: Long)
 
-    private companion object {
-        const val BATCH_SIZE = 100
-        const val DEFAULT_DURATION_MINUTES = 60
-        const val MARKER_PREFIX = "[Ahu Plus:"
-        val MARKER_REGEX = Regex("\\[Ahu Plus:(.+)]")
+    private fun sourceForManagedId(id: String): AgendaSource? = when {
+        id.startsWith("course:") -> AgendaSource.COURSE
+        id.startsWith("exam:") -> AgendaSource.EXAM
+        id.startsWith("hw:") -> AgendaSource.HOMEWORK
+        id.startsWith("task:") -> AgendaSource.CUSTOM
+        else -> null
+    }
+
+    companion object {
+        private const val BATCH_SIZE = 100
+        private const val DEFAULT_DURATION_MINUTES = 60
+        private const val MARKER_PREFIX = "[Ahu Plus:"
+        const val SYSTEM_IMPORT_PREFIX = "system-calendar:"
+        private val MARKER_REGEX = Regex("\\[Ahu Plus:(.+)]")
     }
 }

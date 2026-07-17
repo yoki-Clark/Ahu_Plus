@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 /**
  * 日程页 ViewModel。合并四源事件 → 按 [LocalDate] 分组:
@@ -175,14 +176,18 @@ class AgendaViewModel(
         refreshTrigger.value += 1
     }
 
-    fun syncSystemCalendar() {
+    fun syncSystemCalendar(selectedSources: Set<AgendaSource>) {
         if (_calendarSyncState.value.isSyncing) return
+        if (selectedSources.isEmpty()) {
+            _calendarSyncState.value = CalendarSyncUiState(message = "请至少选择一类日程", isError = true)
+            return
+        }
         viewModelScope.launch {
             _calendarSyncState.value = CalendarSyncUiState(isSyncing = true)
             runCatching {
-                val events = buildSystemCalendarEvents(_showCourses.value, _showExams.value)
+                val events = buildSystemCalendarEvents(selectedSources)
                 withContext(Dispatchers.IO) {
-                    SystemCalendarSync(getApplication()).sync(events)
+                    SystemCalendarSync(getApplication()).sync(events, selectedSources)
                 }
             }.onSuccess { result ->
                 _calendarSyncState.value = CalendarSyncUiState(
@@ -197,17 +202,88 @@ class AgendaViewModel(
         }
     }
 
-    private fun buildSystemCalendarEvents(
-        includeCourses: Boolean,
-        includeExams: Boolean,
-    ): List<AgendaEvent> {
+    fun removeSystemCalendarEvents() {
+        if (_calendarSyncState.value.isSyncing) return
+        viewModelScope.launch {
+            _calendarSyncState.value = CalendarSyncUiState(isSyncing = true)
+            runCatching {
+                withContext(Dispatchers.IO) { SystemCalendarSync(getApplication()).removeAllManaged() }
+            }.onSuccess { removed ->
+                _calendarSyncState.value = CalendarSyncUiState(message = "已撤销 $removed 条由 Ahu Plus 写入的系统日历")
+            }.onFailure { error ->
+                _calendarSyncState.value = CalendarSyncUiState(
+                    message = error.message ?: "撤销系统日历失败",
+                    isError = true,
+                )
+            }
+        }
+    }
+
+    fun importSystemCalendar() {
+        if (_calendarSyncState.value.isSyncing) return
+        viewModelScope.launch {
+            _calendarSyncState.value = CalendarSyncUiState(isSyncing = true)
+            runCatching {
+                val from = today.minusDays(PAST_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
+                val to = today.plusDays(RANGE_DAYS + 1).atStartOfDay(zone).toInstant().toEpochMilli()
+                val external = withContext(Dispatchers.IO) {
+                    SystemCalendarSync(getApplication()).readExternalEvents(from, to)
+                }
+                val importedTasks = external.map { event ->
+                    val start = if (event.allDay) {
+                        Instant.ofEpochMilli(event.beginMillis).atZone(ZoneOffset.UTC).toLocalDate()
+                            .atStartOfDay(zone).toInstant().toEpochMilli()
+                    } else event.beginMillis
+                    val end = if (event.allDay) {
+                        if (event.endMillis > event.beginMillis) {
+                            Instant.ofEpochMilli(event.endMillis).atZone(ZoneOffset.UTC).toLocalDate()
+                                .atStartOfDay(zone).toInstant().toEpochMilli()
+                        } else {
+                            Instant.ofEpochMilli(start).atZone(zone).toLocalDate().plusDays(1)
+                                .atStartOfDay(zone).toInstant().toEpochMilli()
+                        }
+                    } else event.endMillis.takeIf { it > event.beginMillis }
+                    UserTask(
+                        id = "${SystemCalendarSync.SYSTEM_IMPORT_PREFIX}${event.eventId}:${event.beginMillis}",
+                        title = event.title,
+                        subtitle = buildString {
+                            append("来自系统日历 · ${event.calendarName}")
+                            event.description.takeIf { it.isNotBlank() }?.let { append("\n$it") }
+                        },
+                        dueAt = start,
+                        endAt = end,
+                        allDay = event.allDay,
+                        location = event.location.takeIf { it.isNotBlank() },
+                    )
+                }
+                userTaskRepository.replaceImported(SystemCalendarSync.SYSTEM_IMPORT_PREFIX, importedTasks)
+                external.size
+            }.onSuccess { imported ->
+                AgendaReminderScheduler.scheduleAll(getApplication())
+                _calendarSyncState.value = CalendarSyncUiState(message = "已从系统日历导入 $imported 条日程")
+            }.onFailure { error ->
+                _calendarSyncState.value = CalendarSyncUiState(
+                    message = error.message ?: "导入系统日历失败",
+                    isError = true,
+                )
+            }
+        }
+    }
+
+    private fun buildSystemCalendarEvents(selectedSources: Set<AgendaSource>): List<AgendaEvent> {
         val from = today.minusDays(PAST_DAYS)
         val to = today.plusDays(RANGE_DAYS)
         return buildList {
-            if (includeCourses) {
+            if (AgendaSource.COURSE in selectedSources) {
                 loadScheduleData()?.let { addAll(AgendaBuilder.expandCourses(it, today, from, to)) }
             }
-            if (includeExams) addAll(AgendaBuilder.expandExams(loadExams(), from, to))
+            if (AgendaSource.EXAM in selectedSources) addAll(AgendaBuilder.expandExams(loadExams(), from, to))
+            if (AgendaSource.HOMEWORK in selectedSources) {
+                homeworkRepository.homeworkSnapshot().forEach { homeworkEvent(it, from, to)?.let(::add) }
+            }
+            if (AgendaSource.CUSTOM in selectedSources) {
+                userTaskRepository.tasksSnapshot().forEach { customEvent(it, from, to)?.let(::add) }
+            }
         }
     }
 

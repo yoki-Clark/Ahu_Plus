@@ -36,7 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,7 +78,7 @@ fun HomeworkTabContent(
         if (!homeworkState.isLoading) isRefreshing = false
     }
 
-    PullToRefreshBox(
+    AhuPullToRefreshBox(
         isRefreshing = isRefreshing || homeworkState.isLoading,
         onRefresh = {
             isRefreshing = true
@@ -221,7 +221,7 @@ fun HomeworkDetailScreen(
             )
         },
     ) { padding ->
-        PullToRefreshBox(
+        AhuPullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
                 isRefreshing = true

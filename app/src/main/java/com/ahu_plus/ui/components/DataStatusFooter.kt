@@ -84,9 +84,48 @@ fun DataStatusFooter(
     }
 }
 
-internal fun formatDataTime(epochMillis: Long): String =
-    Instant.ofEpochMilli(epochMillis)
-        .atZone(ZoneId.systemDefault())
-        .format(DATA_TIME_FORMAT)
+@Composable
+fun CompactDataStatusFooter(
+    status: DataSnapshotStatus,
+    modifier: Modifier = Modifier,
+) {
+    val isCache = status.origin == DataSnapshotOrigin.CACHE
+    val label = buildString {
+        append(if (isCache) "本地缓存" else "网络数据")
+        if (status.updatedAt > 0L) append(" · ${formatDataTime(status.updatedAt)}")
+        status.lastFailedRefreshAt?.let { append(" · 最近刷新失败") }
+    }
+    Text(
+        text = label,
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = if (status.lastFailedRefreshAt != null) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    )
+}
+
+internal fun formatDataTime(
+    epochMillis: Long,
+    nowMillis: Long = System.currentTimeMillis(),
+): String {
+    val zone = ZoneId.systemDefault()
+    val value = Instant.ofEpochMilli(epochMillis).atZone(zone)
+    val today = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
+    val dayLabel = when (value.toLocalDate()) {
+        today -> "今天"
+        today.minusDays(1) -> "昨天"
+        today.minusDays(2) -> "前天"
+        else -> null
+    }
+    return if (dayLabel != null) {
+        "$dayLabel ${value.format(TIME_ONLY_FORMAT)}"
+    } else {
+        value.format(DATA_TIME_FORMAT)
+    }
+}
 
 private val DATA_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+private val TIME_ONLY_FORMAT = DateTimeFormatter.ofPattern("HH:mm")

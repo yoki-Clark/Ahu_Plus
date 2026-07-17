@@ -236,7 +236,7 @@ class HomeViewModel(
                             error = null,
                         )
                     }
-                    CampusCardAlertNotifier.evaluate(application, balance, sessionManager)
+                    CampusCardAlertNotifier.evaluate(application, balance, sessionManager, _uiState.value.bills)
                     return@withContext
                 }
 
@@ -257,7 +257,7 @@ class HomeViewModel(
                         _uiState.update {
                             it.copy(balance = portal.balance, timestamp = portal.timestamp, isLoading = false)
                         }
-                        CampusCardAlertNotifier.evaluate(application, portal.balance, sessionManager)
+                        CampusCardAlertNotifier.evaluate(application, portal.balance, sessionManager, _uiState.value.bills)
                     },
                     onFailure = { e ->
                         _uiState.update { it.copy(isLoading = false, error = e.message ?: "查询失败") }
@@ -310,6 +310,9 @@ class HomeViewModel(
                         val json = com.ahu_plus.data.GsonProvider.instance.toJson(merged)
                         sessionManager.saveBillsJson(json)
                         _uiState.update { it.copy(bills = merged, billsLoading = false, billsError = null) }
+                        _uiState.value.balance.takeIf { it > 0.0 }?.let { balance ->
+                            CampusCardAlertNotifier.evaluate(application, balance, sessionManager, merged)
+                        }
                     },
                     onFailure = { e ->
                         // 缓存已有数据时不显示错误
@@ -1306,6 +1309,8 @@ class HomeViewModel(
     fun getAdwmhConcurrentRetry(): Boolean = sessionManager.getAdwmhConcurrentRetry()
     fun getCardBalanceAlertEnabled(): Boolean = sessionManager.getCardBalanceAlertEnabled()
     fun getCardBalanceAlertThreshold(): Double = sessionManager.getCardBalanceAlertThreshold()
+    fun getCardBalanceAlertMode(): String = sessionManager.getCardBalanceAlertMode()
+    fun getCardBalanceAlertLookbackDays(): Int = sessionManager.getCardBalanceAlertLookbackDays()
 
     fun setQrBrightnessBoost(enabled: Boolean) { viewModelScope.launch { sessionManager.setQrBrightnessBoost(enabled) } }
     fun setAdwmhConcurrentRetry(enabled: Boolean) { viewModelScope.launch { sessionManager.setAdwmhConcurrentRetry(enabled) } }
@@ -1314,6 +1319,12 @@ class HomeViewModel(
     }
     fun setCardBalanceAlertThreshold(value: Double) {
         viewModelScope.launch { sessionManager.setCardBalanceAlertThreshold(value) }
+    }
+    fun setCardBalanceAlertMode(value: String) {
+        viewModelScope.launch { sessionManager.setCardBalanceAlertMode(value) }
+    }
+    fun setCardBalanceAlertLookbackDays(value: Int) {
+        viewModelScope.launch { sessionManager.setCardBalanceAlertLookbackDays(value) }
     }
 
     /** @deprecated 保留兼容 — 手动导入 session 的旧入口。 */

@@ -56,6 +56,7 @@ import com.ahu_plus.MainActivity
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.local.BottomNavService
+import com.ahu_plus.data.local.reconcileBottomNavServices
 import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.repository.AdwmhCardRepository
@@ -240,6 +241,14 @@ fun MainScreen(
     // 首页"我的收藏"应用列表 (mutableStateOf 保证 onFavoriteIdsChange 后 UI 立即刷新)
     var favoriteIds by remember { mutableStateOf(sessionManager.getFavoriteAppIds()) }
     var bottomNavServices by remember { mutableStateOf(sessionManager.getBottomNavServices()) }
+    var previousEnabledServices by remember {
+        mutableStateOf(buildSet {
+            if (sessionManager.getThirdPartyServicesEnabled() && sessionManager.getMarketChildEnabled()) add(BottomNavService.MARKET)
+            if (sessionManager.getThirdPartyServicesEnabled() && sessionManager.getChaoxingChildEnabled()) add(BottomNavService.CHAOXING)
+            if (sessionManager.getThirdPartyServicesEnabled() && sessionManager.getWelearnChildEnabled()) add(BottomNavService.WELEARN)
+        })
+    }
+    var returnToAggregateSettings by rememberSaveable { mutableStateOf(false) }
     var requestedChaoxingSubTab by remember { mutableStateOf<ChaoxingSubTab?>(null) }
     // 使用帮助首开弹窗：本会话内只弹一次，标记后即时生效（避免同会话二次进入重弹）
     var guideIntroSeen by remember { mutableStateOf(sessionManager.getGuideIntroSeen()) }
@@ -378,10 +387,15 @@ fun MainScreen(
             if (chaoxingVisible) add(BottomNavService.CHAOXING)
             if (welearnVisible) add(BottomNavService.WELEARN)
         }
-        val normalized = bottomNavServices.filter { it in enabled }.distinct().take(2)
-        if (normalized != bottomNavServices) {
-            bottomNavServices = normalized
-            sessionManager.setBottomNavServices(normalized)
+        val reconciled = reconcileBottomNavServices(
+            selected = bottomNavServices,
+            previouslyEnabled = previousEnabledServices,
+            currentlyEnabled = enabled,
+        )
+        previousEnabledServices = enabled
+        if (reconciled != bottomNavServices) {
+            bottomNavServices = reconciled
+            sessionManager.setBottomNavServices(reconciled)
         }
     }
 
@@ -478,6 +492,7 @@ fun MainScreen(
         add(TopLevelDestination(TAB_PROFILE, "我的", Icons.Filled.Person, Icons.Outlined.Person))
     }
     val onSelectTopLevelDestination: (Int) -> Unit = { tab ->
+        returnToAggregateSettings = false
         when (tab) {
             TAB_HOME -> {
                 selectedTab = TAB_HOME
@@ -581,7 +596,14 @@ fun MainScreen(
                             viewModel = scheduleViewModel,
                             assessmentRepository = app.assessmentRepository,
                             onBack = { homePage = HOME_DASHBOARD },
-                            onNeedsLogin = onReauth
+                            onNeedsLogin = onReauth,
+                            onSettingsDismissed = if (returnToAggregateSettings) {
+                                {
+                                    returnToAggregateSettings = false
+                                    profileSubPage = "settings"
+                                    selectedTab = TAB_PROFILE
+                                }
+                            } else null,
                         )
                         HOME_NOTICE_LIST -> JwcNoticeListScreen(
                             viewModel = jwcNoticeListViewModel,
@@ -702,12 +724,29 @@ fun MainScreen(
                         )
                     }
                 }
-                selectedTab == TAB_MARKET -> MarketScreen(viewModel = marketViewModel)
+                selectedTab == TAB_MARKET -> MarketScreen(
+                    viewModel = marketViewModel,
+                    onSettingsBack = if (returnToAggregateSettings) {
+                        {
+                            marketViewModel.closeSettings()
+                            returnToAggregateSettings = false
+                            profileSubPage = "settings"
+                            selectedTab = TAB_PROFILE
+                        }
+                    } else null,
+                )
                 selectedTab == TAB_CHAOXING -> ChaoxingTabScreen(
                     viewModel = chaoxingViewModel,
                     onSwitchToAppsTab = { selectedTab = TAB_APPS },
                     requestedSubTab = requestedChaoxingSubTab,
                     onRequestedSubTabConsumed = { requestedChaoxingSubTab = null },
+                    onSettingsBack = if (returnToAggregateSettings) {
+                        {
+                            returnToAggregateSettings = false
+                            profileSubPage = "settings"
+                            selectedTab = TAB_PROFILE
+                        }
+                    } else null,
                 )
                 selectedTab == TAB_WELEARN -> {
                     // WeLearn 内部三段式:课程列表 → 课程详情(单元+章节) → 刷课控制
@@ -777,6 +816,9 @@ fun MainScreen(
                     marketEnabled = marketVisible,
                     chaoxingEnabled = chaoxingVisible,
                     welearnEnabled = welearnVisible,
+                    marketInAppHub = marketVisible && !marketPinned,
+                    chaoxingInAppHub = chaoxingVisible && !chaoxingPinned,
+                    welearnInAppHub = welearnVisible && !welearnPinned,
                     onOpenMarket = {
                         previousTab = TAB_APPS
                         selectedTab = TAB_MARKET
@@ -822,15 +864,18 @@ fun MainScreen(
                     bottomNavServices = bottomNavServices,
                     onBottomNavServicesChanged = onBottomNavServicesChange,
                     onOpenScheduleSettings = {
+                        returnToAggregateSettings = true
                         scheduleViewModel.onToggleSettings()
                         selectedTab = TAB_HOME
                         homePage = HOME_SCHEDULE
                     },
                     onOpenMarketSettings = {
+                        returnToAggregateSettings = true
                         marketViewModel.openSettings()
                         selectedTab = TAB_MARKET
                     },
                     onOpenChaoxingSettings = {
+                        returnToAggregateSettings = true
                         requestedChaoxingSubTab = ChaoxingSubTab.SETTINGS
                         selectedTab = TAB_CHAOXING
                     },
