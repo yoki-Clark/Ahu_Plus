@@ -77,9 +77,9 @@ fun AboutScreen(
     if (showBetaPlanDialog) {
         BetaPlanEnableDialog(
             onDecline = {
-                onBetaEnabledChange(false)
                 showBetaPlanDialog = false
             },
+            onConfirm = { onBetaEnabledChange(true) },
             onClose = {
                 showBetaPlanDialog = false
             }
@@ -210,9 +210,10 @@ fun AboutScreen(
                             description = if (betaEnabled) "已加入,正在接收内测版本" else "加入内测计划,体验未发布功能",
                             checked = betaEnabled,
                             onCheckedChange = { wantOn ->
-                                onBetaEnabledChange(wantOn)
                                 if (wantOn) {
                                     showBetaPlanDialog = true
+                                } else {
+                                    onBetaEnabledChange(false)
                                 }
                             }
                         )

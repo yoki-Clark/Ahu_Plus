@@ -8,6 +8,10 @@
     <external-files-path
         name="app_downloads"
         path="Download/" />
+    <!-- 外部应用私有存储不可用时，UpdateManager 回退到 files/downloads。 -->
+    <files-path
+        name="internal_updates"
+        path="downloads/" />
     <!-- 2026-06-22: 分享安装包缓存目录 -->
     <cache-path
         name="apk_share"

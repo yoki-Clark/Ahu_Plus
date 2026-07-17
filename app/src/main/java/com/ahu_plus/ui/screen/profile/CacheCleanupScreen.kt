@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.profile
 
 import android.content.Context
+import android.os.Environment
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -264,14 +265,8 @@ internal fun formatSize(bytes: Long): String {
 fun calculateDownloadApkSize(context: Context): Pair<Long, Int> {
     var totalSize = 0L
     var count = 0
-    val internalDir = File(context.filesDir, "download")
-    internalDir.listFiles()?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }?.forEach {
-        totalSize += it.length()
-        count++
-    }
-    context.getExternalFilesDir(null)?.let { extDir ->
-        val extDownload = File(extDir, "download")
-        extDownload.listFiles()?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }?.forEach {
+    for (root in updateApkRoots(context)) {
+        root.listFiles()?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }?.forEach {
             totalSize += it.length()
             count++
         }
@@ -281,14 +276,17 @@ fun calculateDownloadApkSize(context: Context): Pair<Long, Int> {
 
 /** 删除 download 目录中的 APK 文件 */
 fun deleteDownloadApks(context: Context) {
-    val internalDir = File(context.filesDir, "download")
-    internalDir.listFiles()?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }?.forEach {
-        it.delete()
-    }
-    context.getExternalFilesDir(null)?.let { extDir ->
-        val extDownload = File(extDir, "download")
-        extDownload.listFiles()?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }?.forEach {
+    for (root in updateApkRoots(context)) {
+        root.listFiles()?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }?.forEach {
             it.delete()
         }
     }
 }
+
+private fun updateApkRoots(context: Context): List<File> = buildList {
+    add(File(context.filesDir, "download"))
+    context.getExternalFilesDir(null)?.let { add(File(it, "download")) }
+    add(File(context.filesDir, "downloads/updates"))
+    context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        ?.let { add(File(it, "updates")) }
+}.distinctBy(File::getAbsolutePath)

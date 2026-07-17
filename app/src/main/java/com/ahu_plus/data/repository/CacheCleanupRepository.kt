@@ -1,6 +1,7 @@
 package com.ahu_plus.data.repository
 
 import android.content.Context
+import android.os.Environment
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import com.ahu_plus.data.local.AppDataStore
@@ -133,9 +134,14 @@ class CacheCleanupRepository(
     }
 
     private fun apkRoots(): List<File> = buildList {
+        // 历史版本目录。
         add(File(appContext.filesDir, "download"))
         appContext.getExternalFilesDir(null)?.let { add(File(it, "download")) }
-    }
+        // UpdateManager 当前外部目录及外部存储不可用时的内部回退目录。
+        add(File(appContext.filesDir, "downloads/updates"))
+        appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            ?.let { add(File(it, "updates")) }
+    }.distinctBy(File::getAbsolutePath)
 
     private fun deleteDownloadApks() {
         for (root in apkRoots()) {
