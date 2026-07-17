@@ -225,6 +225,64 @@ internal fun MarketListScreen(
                         verticalItemSpacing = 10.dp,
                         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
                     ) {
+                        if (!uiState.hasSavedIdentity) {
+                            item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                IdentityCard(
+                                    uiState = uiState,
+                                    onIdentityChanged = onIdentityChanged,
+                                    onSave = onSaveIdentity,
+                                    onClear = onClearIdentity,
+                                )
+                            }
+                        } else {
+                            if (uiState.identities.size > 1) {
+                                item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                    SchoolSwitcherRow(
+                                        identities = uiState.identities,
+                                        selectedIds = uiState.selectedIdentityIds,
+                                        onToggle = onToggleSchool,
+                                        onSelectAll = onSelectAllSchools,
+                                    )
+                                }
+                            }
+                            if (isSingleSchool) {
+                                item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                    HotEntryCard(onClick = onOpenHot)
+                                }
+                            }
+                        }
+
+                        if (uiState.isLoading) {
+                            item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                LoadingRow("正在加载集市...")
+                            }
+                        }
+
+                        uiState.error?.let { error ->
+                            item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
+                                    TextButton(onClick = onRefresh) { Text("重试") }
+                                }
+                            }
+                        }
+
+                        uiState.saveMessage?.let { message ->
+                            item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                StatusCard(text = message, color = MarketColors.Success)
+                            }
+                        }
+
+                        if (uiState.hasSavedIdentity && !uiState.isLoading && uiState.error == null &&
+                            uiState.topics.isEmpty()
+                        ) {
+                            item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                StatusCard(
+                                    text = "暂时没有加载到集市内容",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+
                         staggerItems(uiState.topics, key = { it.id }) { topic ->
                             StaggerMarketTopicCard(
                                 topic = topic,

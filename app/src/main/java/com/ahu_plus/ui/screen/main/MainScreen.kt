@@ -207,6 +207,7 @@ fun MainScreen(
     var profileScrollTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var profileSubPage by rememberSaveable { mutableStateOf<String?>(null) }
     var openCardAnalytics by rememberSaveable { mutableStateOf(false) }
+    var appHubTarget by rememberSaveable { mutableStateOf<String?>(null) }
     // B-001: 跨 Tab 跳转时记录"上一页 Tab"，按返回键可回到原 Tab
     var previousTab by rememberSaveable { mutableStateOf<Int?>(null) }
     // B-002: 双击返回键退出
@@ -246,8 +247,26 @@ fun MainScreen(
                 selectedTab = TAB_HOME
                 homePage = HOME_AGENDA
             }
-            MainActivity.DEEP_LINK_CHAOXING -> selectedTab = TAB_CHAOXING
-            MainActivity.DEEP_LINK_WELEARN -> selectedTab = TAB_WELEARN
+            MainActivity.DEEP_LINK_CHAOXING -> {
+                if (sessionManager.getThirdPartyServicesEnabled() &&
+                    sessionManager.getChaoxingChildEnabled()
+                ) {
+                    selectedTab = TAB_CHAOXING
+                } else {
+                    selectedTab = TAB_HOME
+                    homePage = HOME_DASHBOARD
+                }
+            }
+            MainActivity.DEEP_LINK_WELEARN -> {
+                if (sessionManager.getThirdPartyServicesEnabled() &&
+                    sessionManager.getWelearnChildEnabled()
+                ) {
+                    selectedTab = TAB_WELEARN
+                } else {
+                    selectedTab = TAB_HOME
+                    homePage = HOME_DASHBOARD
+                }
+            }
             else -> return@LaunchedEffect
         }
         onDeepLinkConsumed()
@@ -257,11 +276,11 @@ fun MainScreen(
     BackHandler {
         when {
             // 1. 我的 Tab 子页面 → 我的主页 (ProfileScreen 内部 BackHandler 先拦截,这里兜底)
-            profileSubPage != null -> profileSubPage = null
+            selectedTab == TAB_PROFILE && profileSubPage != null -> profileSubPage = null
             // 2. 预测页 → 考试页（精确回退，不回 Dashboard）
-            homePage == HOME_EXAM_PREDICTION -> homePage = HOME_EXAM
+            selectedTab == TAB_HOME && homePage == HOME_EXAM_PREDICTION -> homePage = HOME_EXAM
             // 3. 首页其他子页面 → Dashboard
-            homePage != HOME_DASHBOARD -> homePage = HOME_DASHBOARD
+            selectedTab == TAB_HOME && homePage != HOME_DASHBOARD -> homePage = HOME_DASHBOARD
             // 3. 跨 Tab 跳转过来的 → 回到上一页 Tab
             previousTab != null -> {
                 selectedTab = previousTab!!
@@ -310,12 +329,24 @@ fun MainScreen(
         viewModel(factory = factory)
     val marketViewModel: MarketViewModel = viewModel(factory = factory)
     val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
-    // 第三方服务聚合 (集市 + 学习通):每个 Tab 可见 = parent 总开关 && 对应子开关
+    // 第三方服务聚合 (集市 + 学习通 + WeLearn):每个 Tab 可见 = parent 总开关 && 对应子开关
     // parent 总开关需 5s 弹窗确认;子开关可独立切换;关闭 parent 后即使 selectedTab 残留也降级到首页
     val thirdPartyEnabled = marketUiState.thirdPartyServicesEnabled
     val marketVisible = thirdPartyEnabled && marketUiState.marketChildEnabled
     val chaoxingVisible = thirdPartyEnabled && marketUiState.chaoxingChildEnabled
     val welearnVisible = thirdPartyEnabled && marketUiState.welearnChildEnabled
+
+    LaunchedEffect(selectedTab, marketVisible, chaoxingVisible, welearnVisible) {
+        val hiddenThirdPartyTab =
+            (selectedTab == TAB_MARKET && !marketVisible) ||
+                (selectedTab == TAB_CHAOXING && !chaoxingVisible) ||
+                (selectedTab == TAB_WELEARN && !welearnVisible)
+        if (hiddenThirdPartyTab) {
+            selectedTab = TAB_HOME
+            homePage = HOME_DASHBOARD
+            previousTab = null
+        }
+    }
     val jwcNoticeViewModel: com.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel =
         viewModel(factory = factory)
     val jwcNoticeListViewModel: com.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel =
@@ -483,7 +514,10 @@ fun MainScreen(
                 }
                 NavigationBarItem(
                     selected = selectedTab == TAB_APPS,
-                    onClick = { selectedTab = TAB_APPS },
+                    onClick = {
+                        appHubTarget = null
+                        selectedTab = TAB_APPS
+                    },
                     icon = {
                         Icon(
                             imageVector = if (selectedTab == TAB_APPS) Icons.Filled.Apps
@@ -575,6 +609,12 @@ fun MainScreen(
                         },
                         onOpenAppHub = {
                             previousTab = selectedTab
+                            appHubTarget = null
+                            selectedTab = TAB_APPS
+                        },
+                        onOpenRegisteredApp = { appKey ->
+                            previousTab = selectedTab
+                            appHubTarget = appKey
                             selectedTab = TAB_APPS
                         },
                         recentApps = recentApps,
@@ -693,6 +733,12 @@ fun MainScreen(
                             },
                             onOpenAppHub = {
                                 previousTab = selectedTab
+                                appHubTarget = null
+                                selectedTab = TAB_APPS
+                            },
+                            onOpenRegisteredApp = { appKey ->
+                                previousTab = selectedTab
+                                appHubTarget = appKey
                                 selectedTab = TAB_APPS
                             },
                             recentApps = recentApps,
@@ -768,6 +814,9 @@ fun MainScreen(
                     weatherViewModel = weatherViewModel,
                     agendaViewModel = agendaViewModel,
                     evaluationViewModel = evaluationViewModel,
+                    requestedAppKey = appHubTarget,
+                    onRequestedAppConsumed = { appHubTarget = null },
+                    onRecordApp = recordApp,
                     onNeedsLogin = onReauth
                 )
                 selectedTab == TAB_PROFILE -> ProfileScreen(
@@ -826,6 +875,12 @@ fun MainScreen(
                     },
                     onOpenAppHub = {
                         previousTab = selectedTab
+                        appHubTarget = null
+                        selectedTab = TAB_APPS
+                    },
+                    onOpenRegisteredApp = { appKey ->
+                        previousTab = selectedTab
+                        appHubTarget = appKey
                         selectedTab = TAB_APPS
                     },
                     recentApps = recentApps,

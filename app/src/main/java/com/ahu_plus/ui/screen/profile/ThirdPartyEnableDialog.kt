@@ -26,7 +26,7 @@ import kotlinx.coroutines.delay
 /**
  * 「启用第三方服务」风险声明确认弹窗。
  *
- * - 列出本次将启用的两个第三方服务 (校园集市 / 超星学习通)
+ * - 列出本次将启用的三个第三方服务 (校园集市 / 超星学习通 / WeLearn)
  * - 明示风险:账号封禁、信息真伪争议、交易纠纷、数据泄露等均由用户承担
  * - 确认按钮带 5 秒倒计时,倒计时归零前 disabled,
  *   强制用户停留 5 秒阅读风险声明,这是设计意图而非 bug
@@ -74,6 +74,12 @@ fun ThirdPartyEnableDialog(
                     "  课程作业查看与自动学习引擎",
                     style = MaterialTheme.typography.bodySmall
                 )
+                Spacer(Modifier.height(4.dp))
+                Text("• WeLearn 随行课堂（welearn.sflep.com）", fontWeight = FontWeight.Medium)
+                Text(
+                    "  外语课程学习、作业查看与学习进度同步",
+                    style = MaterialTheme.typography.bodySmall
+                )
                 Spacer(Modifier.height(16.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
@@ -85,7 +91,7 @@ fun ThirdPartyEnableDialog(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "上述两个平台均非安徽大学官方系统。" +
+                    "上述三个平台均非安徽大学官方系统。" +
                         "本应用仅提供技术接入，与第三方平台无任何合作关系。" +
                         "使用过程中可能产生的账号封禁、信息真伪争议、交易纠纷、" +
                         "数据泄露等一切后果均由您本人承担，与应用开发者无关。",

@@ -538,23 +538,36 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         // \u96C6\u5E02\u529F\u80FD\u603B\u5F00\u5173: \u7F3A\u7701 true,\u4FDD\u6301\u5411\u540E\u517C\u5BB9 (\u8001\u7528\u6237\u9ED8\u8BA4\u542F\u7528)
 
-        // 第三方服务聚合开关 (集市 + 学习通): 老用户从 MARKET_ENABLED_KEY 一次性迁移
-        val migratedThirdParty = prefs[THIRD_PARTY_SERVICES_ENABLED_KEY]
-            ?: prefs[MARKET_ENABLED_KEY]
-            ?: "false"
-        cachedThirdPartyServicesEnabled = migratedThirdParty == "true"
-        cachedMarketEnabled = cachedThirdPartyServicesEnabled
-        if (prefs[THIRD_PARTY_SERVICES_ENABLED_KEY] == null && migratedThirdParty == "true") {
-            appDataStore.dataStore.edit { it[THIRD_PARTY_SERVICES_ENABLED_KEY] = "true" }
+        // 第三方服务开关迁移:保留老用户已经使用过的服务,显式设置始终优先。
+        val thirdPartyFlags = resolveThirdPartyServiceFlags(
+            parent = prefs[THIRD_PARTY_SERVICES_ENABLED_KEY],
+            marketChild = prefs[MARKET_CHILD_ENABLED_KEY],
+            chaoxingChild = prefs[CHAOXING_CHILD_ENABLED_KEY],
+            welearnChild = prefs[WELEARN_CHILD_ENABLED_KEY],
+            legacyMarketEnabled = prefs[MARKET_ENABLED_KEY] == "true",
+            hasChaoxingAccount = !prefs[CX_COOKIES_KEY].isNullOrBlank() ||
+                !prefs[CX_PHONE_KEY].isNullOrBlank(),
+            hasWelearnAccount = !prefs[WELEARN_COOKIES_KEY].isNullOrBlank() ||
+                !prefs[WELEARN_USERNAME_KEY].isNullOrBlank(),
+        )
+        cachedThirdPartyServicesEnabled = thirdPartyFlags.parentEnabled
+        cachedMarketEnabled = thirdPartyFlags.parentEnabled
+        cachedMarketChildEnabled = thirdPartyFlags.marketEnabled
+        cachedChaoxingChildEnabled = thirdPartyFlags.chaoxingEnabled
+        cachedWelearnChildEnabled = thirdPartyFlags.welearnEnabled
+
+        if (prefs[THIRD_PARTY_SERVICES_ENABLED_KEY] == null ||
+            prefs[MARKET_CHILD_ENABLED_KEY] == null ||
+            prefs[CHAOXING_CHILD_ENABLED_KEY] == null ||
+            prefs[WELEARN_CHILD_ENABLED_KEY] == null
+        ) {
+            appDataStore.dataStore.edit {
+                it[THIRD_PARTY_SERVICES_ENABLED_KEY] = thirdPartyFlags.parentEnabled.toString()
+                it[MARKET_CHILD_ENABLED_KEY] = thirdPartyFlags.marketEnabled.toString()
+                it[CHAOXING_CHILD_ENABLED_KEY] = thirdPartyFlags.chaoxingEnabled.toString()
+                it[WELEARN_CHILD_ENABLED_KEY] = thirdPartyFlags.welearnEnabled.toString()
+            }
         }
-        // 子开关: 默认 false (parent 开启后用户需手动开启每个子开关,默认全部关闭)
-        cachedMarketChildEnabled = (prefs[MARKET_CHILD_ENABLED_KEY] ?: "false") == "true"
-        cachedChaoxingChildEnabled = (prefs[CHAOXING_CHILD_ENABLED_KEY] ?: "false") == "true"
-        // WeLearn 子开关:老用户(已存账密)自动迁移为 ON,避免升级后 WeLearn Tab 突然消失
-        if (prefs[WELEARN_CHILD_ENABLED_KEY] == null && !prefs[WELEARN_USERNAME_KEY].isNullOrBlank()) {
-            appDataStore.dataStore.edit { it[WELEARN_CHILD_ENABLED_KEY] = "true" }
-        }
-        cachedWelearnChildEnabled = (prefs[WELEARN_CHILD_ENABLED_KEY] ?: "false") == "true"
 
         // \u5217\u8868\u5E03\u5C40\u6A21\u5F0F: \u7F3A\u7701 "list" (\u5355\u5217)
 
@@ -1102,22 +1115,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedThirdPartyServicesEnabled = enabled
         cachedMarketEnabled = enabled
 
-        // parent 重新开启时重置两个子开关为 false,确保 "parent ON 后 children 默认关闭" 的语义
-        // 即使用户之前手动开启过某个子开关,关闭 parent 后再开启也会重置
-        if (enabled) {
-            cachedMarketChildEnabled = false
-            cachedChaoxingChildEnabled = false
-            cachedWelearnChildEnabled = false
-        }
-
         appDataStore.dataStore.edit {
 
             it[THIRD_PARTY_SERVICES_ENABLED_KEY] = if (enabled) "true" else "false"
-            if (enabled) {
-                it[MARKET_CHILD_ENABLED_KEY] = "false"
-                it[CHAOXING_CHILD_ENABLED_KEY] = "false"
-                it[WELEARN_CHILD_ENABLED_KEY] = "false"
-            }
 
         }
 
@@ -3190,7 +3190,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         val MARKET_ENABLED_KEY = stringPreferencesKey("market_enabled")
 
-        // 第三方服务聚合开关 (集市 + 学习通),v1.3.6 引入
+        // 第三方服务聚合开关 (集市 + 学习通 + WeLearn),v1.3.6 引入
         val THIRD_PARTY_SERVICES_ENABLED_KEY = stringPreferencesKey("third_party_services_enabled")
 
         // 第三方服务子开关:parent 开启后控制单个服务的可见性
@@ -3598,6 +3598,35 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     }
 
+}
+
+internal data class ThirdPartyServiceFlags(
+    val parentEnabled: Boolean,
+    val marketEnabled: Boolean,
+    val chaoxingEnabled: Boolean,
+    val welearnEnabled: Boolean,
+)
+
+internal fun resolveThirdPartyServiceFlags(
+    parent: String?,
+    marketChild: String?,
+    chaoxingChild: String?,
+    welearnChild: String?,
+    legacyMarketEnabled: Boolean,
+    hasChaoxingAccount: Boolean,
+    hasWelearnAccount: Boolean,
+): ThirdPartyServiceFlags {
+    val marketEnabled = marketChild?.toBooleanStrictOrNull() ?: legacyMarketEnabled
+    val chaoxingEnabled = chaoxingChild?.toBooleanStrictOrNull() ?: hasChaoxingAccount
+    val welearnEnabled = welearnChild?.toBooleanStrictOrNull() ?: hasWelearnAccount
+    val parentEnabled = parent?.toBooleanStrictOrNull()
+        ?: (legacyMarketEnabled || hasChaoxingAccount || hasWelearnAccount)
+    return ThirdPartyServiceFlags(
+        parentEnabled = parentEnabled,
+        marketEnabled = marketEnabled,
+        chaoxingEnabled = chaoxingEnabled,
+        welearnEnabled = welearnEnabled,
+    )
 }
 
 /**

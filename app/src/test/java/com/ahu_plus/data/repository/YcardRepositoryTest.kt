@@ -2,6 +2,7 @@ package com.ahu_plus.data.repository
 
 import com.google.gson.GsonBuilder
 import com.google.gson.Strictness
+import com.ahu_plus.data.model.InternetBillResponse
 import com.ahu_plus.data.model.BillRecord
 import com.ahu_plus.data.model.BillResponse
 import org.junit.Assert.assertEquals
@@ -18,6 +19,16 @@ import org.junit.Test
 class YcardRepositoryTest {
 
     private val gson = GsonBuilder().setStrictness(Strictness.LENIENT).create()
+
+    @Test
+    fun `internet bill amount accepts decimal yuan values`() {
+        val response = gson.fromJson(
+            """{"code":200,"accountList":[{"TRANAMT":0.01,"SUCCESSDATE":"2026-07-17"}]}""",
+            InternetBillResponse::class.java,
+        )
+
+        assertEquals(0.01, response.accountList.single().tranAmt, 0.0)
+    }
 
     @Test
     fun `BillResponse parses typical 200 response`() {

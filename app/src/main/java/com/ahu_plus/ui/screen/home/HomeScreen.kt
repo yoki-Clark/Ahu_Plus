@@ -158,25 +158,14 @@ fun HomeScreen(
                     label = "空调余额",
                     state = uiState.ac,
                     target = ElectricityTarget.AC,
-                    onLoadBuildings = { viewModel.loadBuildings(ElectricityTarget.AC) },
+                    onLoadBuildings = { viewModel.reloadBuildings(ElectricityTarget.AC) },
                     onSelectBuilding = { viewModel.selectBuilding(ElectricityTarget.AC, it) },
                     onSelectFloor = { viewModel.selectFloor(ElectricityTarget.AC, it) },
                     onSelectRoom = { viewModel.selectRoom(ElectricityTarget.AC, it) },
+                    onConfirmRoom = { viewModel.confirmRoomSelection(ElectricityTarget.AC) },
+                    onCancelRoom = { viewModel.discardRoomSelection(ElectricityTarget.AC) },
                     onRetry = { viewModel.loadElectricityBalance(ElectricityTarget.AC) },
-                    onPay = {
-                        val ac = uiState.ac
-                        val data = ac.data ?: return@ElectricityBalanceCard
-                        viewModel.openDepositSheet(DepositTarget.Electricity(
-                            feeitemid = "408",
-                            room = data,
-                            buildingName = data.buildingName,
-                            areaName = ac.config.campus.substringAfter("&", ""),
-                            buildingValue = ac.config.building,
-                            floorValue = ac.config.floor,
-                            roomValue = ac.config.room,
-                            floorName = data.floorName,
-                        ))
-                    },
+                    onPay = { viewModel.openElectricityDeposit(ElectricityTarget.AC) },
                 )
             }
             item {
@@ -184,25 +173,14 @@ fun HomeScreen(
                     label = "照明余额",
                     state = uiState.lighting,
                     target = ElectricityTarget.LIGHTING,
-                    onLoadBuildings = { viewModel.loadBuildings(ElectricityTarget.LIGHTING) },
+                    onLoadBuildings = { viewModel.reloadBuildings(ElectricityTarget.LIGHTING) },
                     onSelectBuilding = { viewModel.selectBuilding(ElectricityTarget.LIGHTING, it) },
                     onSelectFloor = { viewModel.selectFloor(ElectricityTarget.LIGHTING, it) },
                     onSelectRoom = { viewModel.selectRoom(ElectricityTarget.LIGHTING, it) },
+                    onConfirmRoom = { viewModel.confirmRoomSelection(ElectricityTarget.LIGHTING) },
+                    onCancelRoom = { viewModel.discardRoomSelection(ElectricityTarget.LIGHTING) },
                     onRetry = { viewModel.loadElectricityBalance(ElectricityTarget.LIGHTING) },
-                    onPay = {
-                        val light = uiState.lighting
-                        val data = light.data ?: return@ElectricityBalanceCard
-                        viewModel.openDepositSheet(DepositTarget.Electricity(
-                            feeitemid = "428",
-                            room = data,
-                            buildingName = data.buildingName,
-                            areaName = light.config.campus.substringAfter("&", ""),
-                            buildingValue = light.config.building,
-                            floorValue = light.config.floor,
-                            roomValue = light.config.room,
-                            floorName = data.floorName,
-                        ))
-                    },
+                    onPay = { viewModel.openElectricityDeposit(ElectricityTarget.LIGHTING) },
                 )
             }
             item {
@@ -314,4 +292,3 @@ private fun BalanceSummaryCard(
         }
     }
 }
-

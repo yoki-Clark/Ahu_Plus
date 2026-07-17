@@ -259,9 +259,11 @@ data class DepositSheetState(
     val inProgress: Boolean = false,
     val error: String? = null,
 ) {
-    /** 照明(428)最低 1 元,空调/浴室 0.01 元起 */
+    /** 照明最低 1 元,空调/浴室 0.01 元起。新区同样按实际目标判断。 */
     val minAmount: Double
-        get() = if ((target as? DepositTarget.Electricity)?.feeitemid == "428") 1.0 else 0.01
+        get() = if (
+            (target as? DepositTarget.Electricity)?.electricityTarget == ElectricityTarget.LIGHTING
+        ) 1.0 else 0.01
 
     val canConfirm: Boolean
         get() {
@@ -277,6 +279,7 @@ sealed class DepositTarget {
     /** 电费充值,需要 [room] (UI 响应) + [building/floor/room code&name] + [feeitemid] */
     data class Electricity(
         val feeitemid: String,
+        val electricityTarget: ElectricityTarget,
         val room: com.ahu_plus.data.model.ElectricityUiData,
         val buildingName: String,
         val areaName: String,

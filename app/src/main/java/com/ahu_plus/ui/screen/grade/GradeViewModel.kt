@@ -45,7 +45,7 @@ class GradeViewModel(
     }
 
     fun selectSemester(semesterId: Int) {
-        _uiState.update { it.copy(selectedSemesterId = semesterId) }
+        _uiState.update { it.withSelectedSemester(semesterId) }
     }
 
     fun onGradeClicked(grade: Grade) {
@@ -236,3 +236,10 @@ data class GradeUiState(
             .orEmpty()
             .sortedBy { it.courseName.orEmpty() }
 }
+
+internal fun GradeUiState.withSelectedSemester(semesterId: Int): GradeUiState = copy(
+    selectedSemesterId = semesterId,
+    semesterName = gradesBySemester[semesterId.toString()]
+        ?.firstNotNullOfOrNull { it.semesterName?.takeIf(String::isNotBlank) }
+        ?: "学期 $semesterId",
+)

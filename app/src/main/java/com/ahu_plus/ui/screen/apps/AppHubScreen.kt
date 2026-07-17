@@ -11,27 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.EventNote
-import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.AcUnit
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Campaign
-import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.RateReview
-import androidx.compose.material.icons.filled.EditCalendar
-import androidx.compose.material.icons.filled.EventBusy
-import androidx.compose.material.icons.filled.Grade
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.Room
-import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.WaterDrop
-import androidx.compose.material.icons.filled.WbSunny
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -53,13 +36,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.AhuPlusApplication
+import com.ahu_plus.data.home.AppRegistry
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.ui.components.AhuIconBox
 import com.ahu_plus.ui.theme.AhuShapes
-import com.ahu_plus.ui.theme.AhuGradient
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import com.ahu_plus.ui.components.AhuSectionTitle
@@ -67,8 +48,6 @@ import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.CenteredMessage
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeListScreen
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
-import com.ahu_plus.ui.screen.chaoxing.ChaoxingScreen
-import com.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomScreen
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
 import com.ahu_plus.ui.screen.evaluation.EvaluationDetailScreen
@@ -84,8 +63,6 @@ import com.ahu_plus.ui.screen.grade.GradeScreen
 import com.ahu_plus.ui.screen.grade.GradeViewModel
 import com.ahu_plus.ui.screen.home.HomeViewModel
 import com.ahu_plus.ui.screen.home.ElectricityTarget
-import com.ahu_plus.ui.screen.home.ElectricityBillRange
-import com.ahu_plus.ui.screen.home.ElectricityState
 import com.ahu_plus.ui.screen.attendance.AttendanceScreen
 import com.ahu_plus.ui.screen.profile.AttendanceViewModel
 import com.ahu_plus.ui.screen.profile.BathroomUtilityDetailScreen
@@ -104,13 +81,6 @@ import com.ahu_plus.ui.screen.trainingplan.TrainingPlanScreen
 import com.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
 import com.ahu_plus.ui.screen.agenda.AgendaScreen
 import com.ahu_plus.ui.screen.agenda.AgendaViewModel
-import com.ahu_plus.ui.theme.AhuBlue
-import com.ahu_plus.ui.theme.AhuGreen
-import com.ahu_plus.ui.theme.AhuIndigo
-import com.ahu_plus.ui.theme.AhuOrange
-import com.ahu_plus.ui.theme.AhuRed
-import com.ahu_plus.ui.theme.AhuTeal
-import com.ahu_plus.ui.theme.AhuViolet
 
 // ── internal page keys ─────────────────────────────────────────────
 private const val PAGE_AGENDA = "agenda"
@@ -138,6 +108,29 @@ private const val PAGE_CPROG = "cprog"
 private const val PAGE_EVALUATION = "evaluation"
 private const val PAGE_EVALUATION_DETAIL = "evaluationDetail"
 
+internal fun appHubPageForAppKey(appKey: String): String? = when (appKey) {
+    AppRegistry.KEY_AGENDA -> PAGE_AGENDA
+    AppRegistry.KEY_SCHEDULE -> PAGE_SCHEDULE
+    AppRegistry.KEY_GRADE -> PAGE_GRADE
+    AppRegistry.KEY_EXAM -> PAGE_EXAM
+    AppRegistry.KEY_TRAINING_PLAN -> PAGE_TRAINING_PLAN
+    AppRegistry.KEY_EMPTY_CLASSROOM -> PAGE_EMPTY_CLASSROOM
+    AppRegistry.KEY_CPROG -> PAGE_CPROG
+    AppRegistry.KEY_EVALUATION -> PAGE_EVALUATION
+    AppRegistry.KEY_NOTICE_LIST -> PAGE_NOTICES
+    AppRegistry.KEY_CARD -> PAGE_BILLS
+    AppRegistry.KEY_CARD_ANALYTICS -> PAGE_ANALYTICS
+    AppRegistry.KEY_BATHROOM -> PAGE_BATHROOM
+    AppRegistry.KEY_AC -> PAGE_AC
+    AppRegistry.KEY_LIGHTING -> PAGE_LIGHTING
+    AppRegistry.KEY_INTERNET -> PAGE_INTERNET
+    AppRegistry.KEY_WEATHER -> PAGE_WEATHER
+    AppRegistry.KEY_STUDENT_INFO -> PAGE_MY_INFO_HUB
+    AppRegistry.KEY_FINANCE -> PAGE_FINANCE
+    AppRegistry.KEY_ATTENDANCE -> PAGE_ATTENDANCE
+    else -> null
+}
+
 @Composable
 fun AppHubScreen(
     scheduleViewModel: ScheduleViewModel,
@@ -153,6 +146,9 @@ fun AppHubScreen(
     weatherViewModel: WeatherViewModel,
     agendaViewModel: AgendaViewModel,
     evaluationViewModel: EvaluationViewModel,
+    requestedAppKey: String? = null,
+    onRequestedAppConsumed: () -> Unit = {},
+    onRecordApp: (String) -> Unit = {},
     onNeedsLogin: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as AhuPlusApplication
@@ -164,7 +160,16 @@ fun AppHubScreen(
     val attendanceUiState by attendanceViewModel.uiState.collectAsStateWithLifecycle()
 
     var currentPage by rememberSaveable { mutableStateOf<String?>(null) }
+    var analyticsFromBills by rememberSaveable { mutableStateOf(false) }
     val hubListState = rememberLazyListState()
+
+    LaunchedEffect(requestedAppKey) {
+        val appKey = requestedAppKey ?: return@LaunchedEffect
+        currentPage = appHubPageForAppKey(appKey)
+        analyticsFromBills = false
+        if (currentPage != null) onRecordApp(appKey)
+        onRequestedAppConsumed()
+    }
 
     // 评教详情子页的当前任务(由列表点击进入,不序列化以避免 stdSumTaskId 序列化要求)
     var selectedEvaluationTask by remember {
@@ -178,8 +183,10 @@ fun AppHubScreen(
             PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO, PAGE_ACADEMIC_WARNING -> PAGE_MY_INFO_HUB
             PAGE_EXAM_PREDICTION -> PAGE_EXAM
             PAGE_EVALUATION_DETAIL -> PAGE_EVALUATION
+            PAGE_ANALYTICS -> if (analyticsFromBills) PAGE_BILLS else null
             else -> null
         }
+        if (currentPage != PAGE_ANALYTICS) analyticsFromBills = false
     }
 
     LaunchedEffect(currentPage) {
@@ -194,6 +201,10 @@ fun AppHubScreen(
             PAGE_FINANCE -> financeViewModel.activate()
             PAGE_ATTENDANCE -> attendanceViewModel.activate()
             PAGE_WEATHER -> weatherViewModel.activate()
+            PAGE_BATHROOM -> cardViewModel.loadBathroomBalance()
+            PAGE_AC -> cardViewModel.loadElectricityBalance(ElectricityTarget.AC)
+            PAGE_LIGHTING -> cardViewModel.loadElectricityBalance(ElectricityTarget.LIGHTING)
+            PAGE_INTERNET -> cardViewModel.loadInternetBalance()
         }
     }
 
@@ -290,13 +301,19 @@ fun AppHubScreen(
             error = cardUiState.billsError,
             onBack = { currentPage = null },
             onRefresh = cardViewModel::onRefresh,
-            onOpenAnalytics = { currentPage = PAGE_ANALYTICS }
+            onOpenAnalytics = {
+                analyticsFromBills = true
+                currentPage = PAGE_ANALYTICS
+            }
         )
         PAGE_ANALYTICS -> CardAnalyticsScreen(
             bills = cardUiState.bills,
             isLoading = cardUiState.billsLoading,
             error = cardUiState.billsError,
-            onBack = { currentPage = null },
+            onBack = {
+                currentPage = if (analyticsFromBills) PAGE_BILLS else null
+                analyticsFromBills = false
+            },
             onRefresh = cardViewModel::onRefresh
         )
         PAGE_BATHROOM -> BathroomUtilityDetailScreen(
@@ -402,7 +419,13 @@ fun AppHubScreen(
         )
         else -> AppHubPage(
             listState = hubListState,
-            onNavigate = { currentPage = it }
+            onNavigate = { appKey ->
+                appHubPageForAppKey(appKey)?.let { page ->
+                    analyticsFromBills = false
+                    currentPage = page
+                    onRecordApp(appKey)
+                }
+            }
         )
     }
 }
@@ -426,133 +449,20 @@ private fun AppHubPage(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
-            // ── 学习 ──────────────────────────────────
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                AhuSectionTitle(text = "学习")
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-            item {
-                AppHubItem("课表", Icons.Filled.CalendarMonth, AhuBlue, gradient = AhuGradient.Blue.brush) {
-                    onNavigate(PAGE_SCHEDULE)
+            AppRegistry.grouped().forEach { (group, specs) ->
+                item(key = "header:$group") {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AhuSectionTitle(text = group)
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
-            }
-            item {
-                AppHubItem("日程", Icons.Filled.EditCalendar, AhuTeal, gradient = AhuGradient.Blue.brush) {
-                    onNavigate(PAGE_AGENDA)
-                }
-            }
-            item {
-                AppHubItem("成绩", Icons.Filled.Grade, AhuRed, gradient = AhuGradient.Violet.brush) {
-                    onNavigate(PAGE_GRADE)
-                }
-            }
-            item {
-                AppHubItem("考试", Icons.AutoMirrored.Filled.EventNote, AhuOrange, gradient = AhuGradient.Orange.brush) {
-                    onNavigate(PAGE_EXAM)
-                }
-            }
-            item {
-                AppHubItem("培养方案进度", Icons.Filled.School, Color(0xFF6C63FF), gradient = AhuGradient.Violet.brush) {
-                    onNavigate(PAGE_TRAINING_PLAN)
-                }
-            }
-            item {
-                AppHubItem("空教室查询", Icons.Filled.Room, AhuGreen) {
-                    onNavigate(PAGE_EMPTY_CLASSROOM)
-                }
-            }
-            item {
-                AppHubItem("大学计算机平台", Icons.Filled.Computer, AhuTeal) {
-                    onNavigate(PAGE_CPROG)
-                }
-            }
-            item {
-                AppHubItem("评教", Icons.Filled.RateReview, AhuIndigo, gradient = AhuGradient.Blue.brush) {
-                    onNavigate(PAGE_EVALUATION)
-                }
-            }
-
-            // ── 通知 ──────────────────────────────────
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                AhuSectionTitle(text = "通知")
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-            item {
-                AppHubItem("教务通知", Icons.Filled.Campaign, AhuViolet) {
-                    onNavigate(PAGE_NOTICES)
-                }
-            }
-
-            // ── 校园卡 ────────────────────────────────
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                AhuSectionTitle(text = "校园卡")
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-            item {
-                AppHubItem("消费账单", Icons.Filled.AccountBalanceWallet, AhuGreen) {
-                    onNavigate(PAGE_BILLS)
-                }
-            }
-            item {
-                AppHubItem("消费分析", Icons.Filled.Assessment, AhuViolet) {
-                    onNavigate(PAGE_ANALYTICS)
-                }
-            }
-
-            // ── 生活 ──────────────────────────────────
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                AhuSectionTitle(text = "生活")
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-            item {
-                AppHubItem("浴室", Icons.Filled.WaterDrop, AhuTeal) {
-                    onNavigate(PAGE_BATHROOM)
-                }
-            }
-            item {
-                AppHubItem("空调", Icons.Filled.AcUnit, AhuBlue) {
-                    onNavigate(PAGE_AC)
-                }
-            }
-            item {
-                AppHubItem("照明", Icons.Filled.Lightbulb, AhuOrange) {
-                    onNavigate(PAGE_LIGHTING)
-                }
-            }
-            item {
-                AppHubItem("网费", Icons.Filled.Wifi, AhuIndigo) {
-                    onNavigate(PAGE_INTERNET)
-                }
-            }
-            item {
-                AppHubItem("天气", Icons.Filled.WbSunny, AhuBlue, gradient = AhuGradient.Blue.brush) {
-                    onNavigate(PAGE_WEATHER)
-                }
-            }
-
-            // ── 个人信息 ──────────────────────────────
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                AhuSectionTitle(text = "个人信息")
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-            item {
-                AppHubItem("学生信息", Icons.Filled.Info, AhuBlue) {
-                    onNavigate(PAGE_MY_INFO_HUB)
-                }
-            }
-            item {
-                AppHubItem("财务汇总", Icons.Filled.AccountBalanceWallet, AhuGreen) {
-                    onNavigate(PAGE_FINANCE)
-                }
-            }
-            item {
-                AppHubItem("考勤记录", Icons.Filled.EventBusy, AhuRed) {
-                    onNavigate(PAGE_ATTENDANCE)
+                items(items = specs, key = { it.key }) { spec ->
+                    AppHubItem(
+                        title = spec.title,
+                        icon = spec.icon,
+                        iconColor = spec.tint,
+                        gradient = spec.gradient,
+                        onClick = { onNavigate(spec.key) },
+                    )
                 }
             }
 

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -239,6 +240,8 @@ fun ElectricityBalanceCard(
     onSelectBuilding: (FeeItemOption) -> Unit,
     onSelectFloor: (FeeItemOption) -> Unit,
     onSelectRoom: (FeeItemOption) -> Unit,
+    onConfirmRoom: () -> Unit,
+    onCancelRoom: () -> Unit,
     onRetry: () -> Unit,
     onPay: () -> Unit = {},  // 2026-06-29 充值入口
 ) {
@@ -252,7 +255,11 @@ fun ElectricityBalanceCard(
             onSelectBuilding = onSelectBuilding,
             onSelectFloor = onSelectFloor,
             onSelectRoom = onSelectRoom,
-            onDismiss = { showConfigDialog = false }
+            onConfirm = onConfirmRoom,
+            onDismiss = {
+                onCancelRoom()
+                showConfigDialog = false
+            }
         )
     }
 
@@ -270,11 +277,15 @@ fun ElectricityBalanceCard(
             when {
                 !state.config.isComplete -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Filled.AccountBalanceWallet,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
+                        if (state.cascade.autoMatching) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.Filled.AccountBalanceWallet,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = label,
@@ -283,13 +294,19 @@ fun ElectricityBalanceCard(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "点击设置房间信息以查询",
+                            text = when {
+                                state.cascade.autoMatching -> "正在根据学生住宿信息自动匹配"
+                                state.cascade.dormHint != null -> "自动匹配未完成，请手动修改房间"
+                                else -> "未找到住宿信息，请手动设置房间"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        TextButton(onClick = { showConfigDialog = true }) {
-                            Text("设置房间")
+                        if (!state.cascade.autoMatching) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TextButton(onClick = { showConfigDialog = true }) {
+                                Text(if (state.cascade.dormHint == null) "设置房间" else "修改房间")
+                            }
                         }
                     }
                 }
@@ -377,10 +394,15 @@ private fun RoomConfigCascadeDialog(
     onSelectBuilding: (FeeItemOption) -> Unit,
     onSelectFloor: (FeeItemOption) -> Unit,
     onSelectRoom: (FeeItemOption) -> Unit,
+    onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     LaunchedEffect(Unit) {
-        if (state.cascade.buildings.isEmpty() && !state.cascade.loadingBuildings) {
+        val needsBuildings = state.cascade.buildings.isEmpty()
+        val needsSavedSelectionOptions = state.config.isComplete &&
+            state.cascade.selectedBuilding != null &&
+            state.cascade.floors.isEmpty()
+        if ((needsBuildings || needsSavedSelectionOptions) && !state.cascade.loadingBuildings) {
             onLoadBuildings()
         }
     }
@@ -392,7 +414,14 @@ private fun RoomConfigCascadeDialog(
             Column {
                 state.cascade.dormHint?.let { hint ->
                     Text(
-                        "宿舍: ${hint.buildingName} ${hint.roomNumber} (自动匹配中)",
+                        when {
+                            state.cascade.autoMatching ->
+                                "住宿信息：${hint.buildingName} ${hint.roomNumber}，正在自动匹配"
+                            state.config.isComplete ->
+                                "住宿信息：${hint.buildingName} ${hint.roomNumber}，可在下方修改"
+                            else ->
+                                "住宿信息：${hint.buildingName} ${hint.roomNumber}，未能自动匹配，请手动选择"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -411,9 +440,23 @@ private fun RoomConfigCascadeDialog(
                     selected = state.cascade.selectedBuilding,
                     isLoading = state.cascade.loadingBuildings,
                     error = state.cascade.buildingsError,
+                    warning = state.cascade.buildingsWarning,
+                    helperText = state.cascade.buildings.takeIf { it.isNotEmpty() }?.let {
+                        "已加载 ${it.size} 栋，可上下滚动查看全部"
+                    },
                     enabled = !state.cascade.loadingBuildings,
                     onSelect = onSelectBuilding
                 )
+                if (state.cascade.buildingsError != null || state.cascade.buildingsWarning != null) {
+                    TextButton(
+                        onClick = onLoadBuildings,
+                        enabled = !state.cascade.loadingBuildings,
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("重新加载全部楼栋")
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 CascadeDropdown(
                     label = "楼层",
@@ -421,6 +464,8 @@ private fun RoomConfigCascadeDialog(
                     selected = state.cascade.selectedFloor,
                     isLoading = state.cascade.loadingFloors,
                     error = state.cascade.floorsError,
+                    warning = null,
+                    helperText = null,
                     enabled = state.cascade.selectedBuilding != null && !state.cascade.loadingFloors,
                     onSelect = onSelectFloor
                 )
@@ -431,6 +476,8 @@ private fun RoomConfigCascadeDialog(
                     selected = state.cascade.selectedRoom,
                     isLoading = state.cascade.loadingRooms,
                     error = state.cascade.roomsError,
+                    warning = null,
+                    helperText = null,
                     enabled = state.cascade.selectedFloor != null && !state.cascade.loadingRooms,
                     onSelect = onSelectRoom
                 )
@@ -440,7 +487,7 @@ private fun RoomConfigCascadeDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    state.cascade.selectedRoom?.let { onSelectRoom(it) }
+                    onConfirm()
                     onDismiss()
                 },
                 enabled = state.cascade.selectedBuilding != null &&
@@ -470,6 +517,8 @@ private fun CascadeDropdown(
     selected: FeeItemOption?,
     isLoading: Boolean,
     error: String?,
+    warning: String?,
+    helperText: String?,
     enabled: Boolean,
     onSelect: (FeeItemOption) -> Unit
 ) {
@@ -501,7 +550,14 @@ private fun CascadeDropdown(
                 }
             },
             isError = error != null,
-            supportingText = error?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
+            supportingText = when {
+                error != null -> { { Text(error, color = MaterialTheme.colorScheme.error) } }
+                warning != null -> { { Text(warning, color = MaterialTheme.colorScheme.tertiary) } }
+                helperText != null -> { {
+                    Text(helperText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } }
+                else -> null
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .menuAnchor(
