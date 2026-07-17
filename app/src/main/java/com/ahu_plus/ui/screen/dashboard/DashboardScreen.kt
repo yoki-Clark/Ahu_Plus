@@ -144,6 +144,7 @@ fun DashboardScreen(
     onOpenTrainingPlan: () -> Unit = {},
     onOpenEmptyClassroom: () -> Unit = {},
     onOpenAppHub: () -> Unit = {},
+    onOpenRegisteredApp: (String) -> Unit = {},
     onOpenWeather: () -> Unit = {},
     recentApps: List<String> = emptyList(),
     onRecordApp: (String) -> Unit = {},
@@ -253,6 +254,10 @@ fun DashboardScreen(
                         onOpenTrainingPlan = { onRecordApp("trainingPlan"); onOpenTrainingPlan() },
                         onOpenEmptyClassroom = { onRecordApp("emptyClassroom"); onOpenEmptyClassroom() },
                         onOpenAppHub = onOpenAppHub,
+                        onOpenRegisteredApp = { appKey ->
+                            onRecordApp(appKey)
+                            onOpenRegisteredApp(appKey)
+                        },
                     )
                 }
 
@@ -943,6 +948,7 @@ private fun FavoritesDock(
     onOpenCardAnalytics: () -> Unit,
     onOpenTrainingPlan: () -> Unit,
     onOpenEmptyClassroom: () -> Unit,
+    onOpenRegisteredApp: (String) -> Unit,
 ) {
     var isEditing by rememberSaveable { mutableStateOf(false) }
     var pickerVisible by remember { mutableStateOf(false) }
@@ -992,7 +998,7 @@ private fun FavoritesDock(
                 onEnterEditing = { isEditing = true },
                 onReorder = onFavoriteIdsChange,
                 onRemove = { id -> onFavoriteIdsChange(favoriteIds - id) },
-                onOpen = { id -> clickMap[id]?.invoke() },
+                onOpen = { id -> clickMap[id]?.invoke() ?: onOpenRegisteredApp(id) },
                 onAddTap = { pickerVisible = true },
             )
         }

@@ -53,7 +53,7 @@ data class InternetBillResponse(
 data class InternetBillRecord(
     @SerializedName("SUCCESSDATE") val successDate: String = "",
     @SerializedName("TYPENAME") val typeName: String = "",
-    @SerializedName("TRANAMT") val tranAmt: Int = 0,       // 充值金额(元)
+    @SerializedName("TRANAMT") val tranAmt: Double = 0.0,  // 充值金额(元),接口会返回 0.01 等小数
     @SerializedName("ABSTRACTS") val abstracts: String = "",
     @SerializedName("ITEMNAME") val itemName: String = "",
     @SerializedName("TURNOVERID") val turnoverId: Int = 0

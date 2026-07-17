@@ -36,6 +36,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Collections
 
+internal fun providerChainForTikuType(tikuType: String): String =
+    if (tikuType == "DISABLED") "DISABLED" else "CACHE,$tikuType"
+
 class ChaoxingViewModel(
     val cxRepo: ChaoxingRepository,
     private val studyRepo: ChaoxingStudyRepository,
@@ -283,7 +286,7 @@ class ChaoxingViewModel(
         viewModelScope.launch {
             val s = _settingsState.value
             // ★ 关键修复: 从 tikuType 派生 providerChain,不再读 sessionManager 的旧缓存
-            val chainStr = if (s.tikuType == "DISABLED") "CACHE" else "CACHE,${s.tikuType}"
+            val chainStr = providerChainForTikuType(s.tikuType)
             Log.d("CxVM", "applyTikuConfig: tikuType=${s.tikuType}, chain=$chainStr, aiKey=${s.aiApiKey.take(8)}...")
             tikuRepo.configure(
                 providerChainStr = chainStr,

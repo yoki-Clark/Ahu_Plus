@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
@@ -60,6 +61,12 @@ class HomeViewModel(
     // 级联加载 Job 引用,用于取消过期请求避免竞态
     private var cascadeJobAc: Job? = null
     private var cascadeJobLighting: Job? = null
+    private var cascadeFloorJobAc: Job? = null
+    private var cascadeFloorJobLighting: Job? = null
+    private var cascadeRoomJobAc: Job? = null
+    private var cascadeRoomJobLighting: Job? = null
+    private val buildingCatalogMutex = Mutex()
+    private var buildingCatalog: FeeItemBuildingCatalog? = null
     private var qrRefreshJob: Job? = null
     private var visible = false
 
@@ -99,7 +106,7 @@ class HomeViewModel(
                 )
             )
         }
-        applyStudentInfoPrefill(studentInfoRepository?.readCachedStudentInfo(), loadAfterApply = false)
+        applyStudentInfoPrefill(studentInfoRepository?.readCachedStudentInfo())
         restoreCachedQr()
     }
 
@@ -121,7 +128,7 @@ class HomeViewModel(
         if (buildingValue.startsWith("ul")) return "488"
         // 老区:按 name 后缀判断 (name 可从 value 的 "code&name" 格式中提取)
         val name = buildingName ?: buildingValue.substringAfter("&", "")
-        if (name.endsWith("照明")) return "428"
+        if ("照明" in name) return "428"
         return "408" // 默认空调
     }
 
@@ -167,11 +174,11 @@ class HomeViewModel(
         if (loadAfterApply && dormHint != null) {
             // 仅当本地 config 不完整时才触发级联匹配,避免重复请求
             val currentState = _uiState.value
-            if (!currentState.ac.config.isComplete) {
-                loadBuildings(ElectricityTarget.AC)
+            if (!currentState.ac.config.isComplete && !currentState.ac.cascade.autoMatching) {
+                loadBuildingsForAutoMatch(ElectricityTarget.AC)
             }
-            if (!currentState.lighting.config.isComplete) {
-                loadBuildings(ElectricityTarget.LIGHTING)
+            if (!currentState.lighting.config.isComplete && !currentState.lighting.cascade.autoMatching) {
+                loadBuildingsForAutoMatch(ElectricityTarget.LIGHTING)
             }
         }
     }
@@ -368,12 +375,12 @@ class HomeViewModel(
     }
 
     fun saveElectricityConfig(config: ElectricityRoomConfig, target: ElectricityTarget) {
+        _uiState.update { it.updateConfigFor(target, config) }
         viewModelScope.launch {
             when (target) {
                 ElectricityTarget.AC -> sessionManager.saveAcConfig(config)
                 ElectricityTarget.LIGHTING -> sessionManager.saveLightingConfig(config)
             }
-            _uiState.update { it.updateConfigFor(target, config) }
             loadElectricityBalance(target)
             loadElectricityBills(target)
         }
@@ -431,103 +438,93 @@ class HomeViewModel(
 
     // ── 电费房间级联元数据 (老区+新区合并) ─────────────────────
 
-    /**
-     * 合并加载三合一楼栋列表: 408 空调 + 428 照明 + 488 新区(空调+照明)。
-     */
+    /** 手动编辑入口优先复用已加载目录，不会自动保存任何选择。 */
     fun loadBuildings(target: ElectricityTarget) {
+        loadBuildingsInternal(target, autoSubmit = false, forceRefresh = false)
+    }
+
+    /** 用户明确重试时绕过缓存，重新请求全部楼栋来源。 */
+    fun reloadBuildings(target: ElectricityTarget) {
+        loadBuildingsInternal(target, autoSubmit = false, forceRefresh = true)
+    }
+
+    private fun loadBuildingsForAutoMatch(target: ElectricityTarget) {
+        loadBuildingsInternal(target, autoSubmit = true, forceRefresh = false)
+    }
+
+    /**
+     * 一次加载 408 空调、428 照明和 488 新区目录，再按卡片类型筛选。
+     * 自动链匹配成功会继续提交；手动链只维护待确认选择。
+     */
+    private fun loadBuildingsInternal(
+        target: ElectricityTarget,
+        autoSubmit: Boolean,
+        forceRefresh: Boolean,
+    ) {
         // 取消该 target 的旧级联请求,避免竞态覆盖
         when (target) {
             ElectricityTarget.AC -> cascadeJobAc?.cancel()
             ElectricityTarget.LIGHTING -> cascadeJobLighting?.cancel()
         }
+        cancelFloorAndRoomJobs(target)
         val job = viewModelScope.launch {
-            updateCascade(target) { it.copy(loadingBuildings = true, buildingsError = null) }
+            updateCascade(target) {
+                it.copy(
+                    loadingBuildings = true,
+                    buildingsError = null,
+                    buildingsWarning = null,
+                    autoMatching = autoSubmit,
+                )
+            }
             withContext(Dispatchers.IO) {
-                // 并行拉老区空调 + 老区照明 + 新区校区
-                val ac408Deferred = async {
-                    withYcardRelogin { ycardRepository.getFeeItemBuildings("408", null) }
-                }
-                val light428Deferred = async {
-                    withYcardRelogin { ycardRepository.getFeeItemBuildings("428", null) }
-                }
-                val campusDeferred = async {
-                    withYcardRelogin { ycardRepository.getFeeItemCampuses("488") }
-                }
-
-                val ac408List = ac408Deferred.await().getOrDefault(emptyList())
-                val light428List = light428Deferred.await().getOrDefault(emptyList())
-                val campusResult = campusDeferred.await()
+                val catalog = getBuildingCatalog(forceRefresh)
+                val targetCatalog = catalog.forTarget(target)
+                val mergedBuildings = mergeBuildingOptions(
+                    targetCatalog.oldBuildings,
+                    catalog.newBuildings,
+                    target,
+                )
+                val availability = buildingLoadAvailability(
+                    buildingCount = mergedBuildings.size,
+                    failedSources = targetCatalog.failedSources,
+                )
                 val targetSuffix = target.suffix
-
-                // 遍历所有新区校区拉 488 楼栋(空调+照明都收) — 并行
-                val new488Buildings = mutableListOf<FeeItemOption>()
-                val campusMap = mutableMapOf<String, String>()
-                campusResult.onSuccess { campuses ->
-                    // 先填充 campusMap 的校区条目
-                    for (campus in campuses) {
-                        val campusCode = campus.value.substringBefore("&")
-                        campusMap[campusCode] = campus.value
-                    }
-                    // 并行拉取每个校区的楼栋,限制并发 3 避免一瞬间打爆 ycard
-                    val campusSem = Semaphore(3)
-                    val campusJobs = campuses.map { campus ->
-                        async {
-                            campusSem.withPermit {
-                                withYcardRelogin {
-                                    ycardRepository.getFeeItemBuildings("488", campus.value)
-                                }.getOrDefault(emptyList()) to campus.value
-                            }
-                        }
-                    }
-                    for (deferred in campusJobs) {
-                        val (raw, campusValue) = deferred.await()
-                        for (b in raw) {
-                            val bCode = b.value.substringBefore("&").take(11)
-                            if (bCode !in campusMap) campusMap[bCode] = campusValue
-                        }
-                        new488Buildings.addAll(raw.filterFor(target))
-                    }
-                }
-
-                val targetBuildings = when (target) {
-                    ElectricityTarget.AC -> ac408List
-                    ElectricityTarget.LIGHTING -> light428List
-                }
-                val mergedBuildings = targetBuildings + new488Buildings
 
                 // 自动填充: 按当前卡片类型匹配,避免照明卡选到空调楼栋。
                 val dormHint = _uiState.value.cascadeFor(target).dormHint
-                val autoMatched = if (dormHint != null) {
+                val autoMatched = if (autoSubmit && dormHint != null) {
                     matchBuilding(mergedBuildings, dormHint, targetSuffix)
                 } else null
 
-                val autoFeeitemid = autoMatched?.let {
-                    if (it.value.startsWith("ul")) "488"
-                    else if (it.name.endsWith("照明")) "428"
-                    else "408"
+                val previousCascade = _uiState.value.cascadeFor(target)
+                val previousSelected = previousCascade.selectedBuilding
+                val retainedSelected = previousSelected?.let { saved ->
+                    mergedBuildings.firstOrNull { it.value == saved.value } ?: saved
                 }
-
-                val oldSelected = _uiState.value.cascadeFor(target).selectedBuilding
+                val selectedBuilding = autoMatched ?: retainedSelected
                 _uiState.update { state ->
                     val cascade = state.cascadeFor(target).copy(
                         buildings = mergedBuildings, loadingBuildings = false,
                         floors = emptyList(), rooms = emptyList(),
                         floorsError = null, roomsError = null,
-                        campusMap = campusMap
+                        buildingsError = availability.error,
+                        buildingsWarning = availability.warning,
+                        campusMap = catalog.campusMap,
+                        selectedBuilding = selectedBuilding,
+                        selectedFeeitemid = selectedBuilding?.let {
+                            deriveFeeitemid(it.value, it.name)
+                        },
+                        autoMatching = autoSubmit && autoMatched != null,
                     )
-                    // API 匹配结果优先覆盖旧 config
-                    val finalCascade = if (autoMatched != null) {
-                        cascade.copy(selectedBuilding = autoMatched, selectedFeeitemid = autoFeeitemid)
-                    } else cascade
-                    state.applyCascade(target, finalCascade)
+                    state.applyCascade(target, cascade)
                 }
 
-                val selected = _uiState.value.cascadeFor(target).selectedBuilding
-                if (selected != null && autoMatched != null) {
-                    // 仅当楼栋变化或首次匹配时才继续拉楼层,避免重复请求
-                    if (oldSelected == null || oldSelected.value != selected.value) {
-                        loadFloorsInternal(target, selected)
-                    }
+                val shouldLoadFloors = selectedBuilding != null && when {
+                    autoSubmit -> autoMatched != null
+                    else -> previousCascade.floors.isEmpty()
+                }
+                if (shouldLoadFloors) {
+                    loadFloorsInternal(target, selectedBuilding, autoSubmit)
                 }
             }
         }
@@ -535,6 +532,110 @@ class HomeViewModel(
             ElectricityTarget.AC -> cascadeJobAc = job
             ElectricityTarget.LIGHTING -> cascadeJobLighting = job
         }
+    }
+
+    private suspend fun getBuildingCatalog(forceRefresh: Boolean): FeeItemBuildingCatalog {
+        buildingCatalogMutex.lock()
+        return try {
+            if (!forceRefresh) buildingCatalog?.let { return it }
+            fetchBuildingCatalog().also { buildingCatalog = it }
+        } finally {
+            buildingCatalogMutex.unlock()
+        }
+    }
+
+    private suspend fun fetchBuildingCatalog(): FeeItemBuildingCatalog = coroutineScope {
+        val ac408Deferred = async {
+            withYcardRelogin { ycardRepository.getFeeItemBuildings("408", null) }
+        }
+        val light428Deferred = async {
+            withYcardRelogin { ycardRepository.getFeeItemBuildings("428", null) }
+        }
+        val campusDeferred = async {
+            withYcardRelogin { ycardRepository.getFeeItemCampuses("488") }
+        }
+
+        val acFailures = mutableListOf<String>()
+        val lightingFailures = mutableListOf<String>()
+        val acBuildings = ac408Deferred.await().fold(
+            onSuccess = {
+                if (it.isEmpty()) acFailures += "老校区空调"
+                it
+            },
+            onFailure = {
+                acFailures += "老校区空调"
+                emptyList()
+            },
+        )
+        val lightingBuildings = light428Deferred.await().fold(
+            onSuccess = {
+                if (it.isEmpty()) lightingFailures += "老校区照明"
+                it
+            },
+            onFailure = {
+                lightingFailures += "老校区照明"
+                emptyList()
+            },
+        )
+
+        val newBuildings = mutableListOf<FeeItemOption>()
+        val campusMap = mutableMapOf<String, String>()
+        campusDeferred.await().fold(
+            onSuccess = { campuses ->
+                if (campuses.isEmpty()) {
+                    acFailures += "新区校区"
+                    lightingFailures += "新区校区"
+                }
+                campuses.forEach { campus ->
+                    campusMap[campus.value.substringBefore("&")] = campus.value
+                }
+                val campusSem = Semaphore(3)
+                val campusJobs = campuses.map { campus ->
+                    async {
+                        campus to campusSem.withPermit {
+                            withYcardRelogin {
+                                ycardRepository.getFeeItemBuildings("488", campus.value)
+                            }
+                        }
+                    }
+                }
+                campusJobs.forEach { deferred ->
+                    val (campus, result) = deferred.await()
+                    result.fold(
+                        onSuccess = { raw ->
+                            if (raw.isEmpty()) {
+                                val source = campus.name.ifBlank { "新区" }
+                                acFailures += source
+                                lightingFailures += source
+                            }
+                            raw.forEach { building ->
+                                val buildingCode = building.value.substringBefore("&").take(11)
+                                campusMap.putIfAbsent(buildingCode, campus.value)
+                            }
+                            newBuildings += raw
+                        },
+                        onFailure = {
+                            val source = campus.name.ifBlank { "新区" }
+                            acFailures += source
+                            lightingFailures += source
+                        },
+                    )
+                }
+            },
+            onFailure = {
+                acFailures += "新区校区"
+                lightingFailures += "新区校区"
+            },
+        )
+
+        FeeItemBuildingCatalog(
+            acBuildings = acBuildings,
+            lightingBuildings = lightingBuildings,
+            newBuildings = newBuildings,
+            campusMap = campusMap,
+            acFailures = acFailures.distinct(),
+            lightingFailures = lightingFailures.distinct(),
+        )
     }
 
     /**
@@ -550,44 +651,27 @@ class HomeViewModel(
         buildings: List<FeeItemOption>,
         hint: DormHint,
         suffix: String
-    ): FeeItemOption? {
-        val cnDigits = mapOf(1 to "一", 2 to "二", 3 to "三", 4 to "四", 5 to "五", 6 to "六", 7 to "七", 8 to "八", 9 to "九")
-        val digitCn = cnDigits[hint.buildingDigit] ?: hint.buildingDigit.toString()
-        val digitAr = hint.buildingDigit.toString()
-        val base = hint.buildingName.trim()
-
-        val candidates = listOf(
-            "${base}${digitCn}号楼${suffix}",
-            "${base}${digitAr}号楼${suffix}"
-        )
-
-        // 策略 1: 精确匹配
-        for (c in candidates) {
-            buildings.firstOrNull { it.name == c }?.let { return it }
-        }
-        // 策略 2: 候选名包含匹配
-        for (c in candidates) {
-            buildings.firstOrNull { c in it.name && it.name.endsWith(suffix) }?.let { return it }
-        }
-        // 策略 3: 前缀+后缀匹配 (新区)
-        buildings.firstOrNull {
-            it.name.startsWith(base) && it.name.endsWith(suffix)
-        }?.let { return it }
-
-        return null
-    }
+    ): FeeItemOption? = matchBuildingOption(buildings, hint, suffix)
 
     fun selectBuilding(target: ElectricityTarget, building: FeeItemOption) {
-        loadFloorsInternal(target, building)
+        loadFloorsInternal(target, building, autoSubmit = false)
     }
 
     /**
      * 自动填充:从 dormHint 匹配楼层,匹配到则自动拉房间→匹配房间→落盘。
      * 是自动填充链条的第2步(第1步楼栋匹配在 loadBuildings 中完成)。
      */
-    private fun loadFloorsInternal(target: ElectricityTarget, building: FeeItemOption) {
-        viewModelScope.launch {
+    private fun loadFloorsInternal(
+        target: ElectricityTarget,
+        building: FeeItemOption,
+        autoSubmit: Boolean,
+    ) {
+        cancelFloorAndRoomJobs(target)
+        val job = viewModelScope.launch {
             val cascade = _uiState.value.cascadeFor(target)
+            val sameBuilding = cascade.selectedBuilding?.value == building.value
+            val preferredFloor = cascade.selectedFloor.takeIf { sameBuilding }
+            val preferredRoom = cascade.selectedRoom.takeIf { sameBuilding }
             val feeitemid = deriveFeeitemid(building.value, building.name) ?: "408"
             val campus = if (feeitemid == "488") resolveCampus(cascade.campusMap, building.value) else null
 
@@ -612,7 +696,7 @@ class HomeViewModel(
                     onSuccess = { floors ->
                         val dormHint = _uiState.value.cascadeFor(target).dormHint
                         // 自动匹配楼层: 同时尝试中文(五层)和阿拉伯(5层)
-                        val floorMatch = if (dormHint != null) {
+                        val hintFloor = if (dormHint != null) {
                             val cnDigits = mapOf(1 to "一", 2 to "二", 3 to "三", 4 to "四", 5 to "五", 6 to "六", 7 to "七", 8 to "八", 9 to "九")
                             val fd = dormHint.floorDigit
                             val cnName = "${cnDigits[fd] ?: fd}层"
@@ -620,42 +704,73 @@ class HomeViewModel(
                             floors.firstOrNull { it.name == cnName }
                                 ?: floors.firstOrNull { it.name == arName }
                         } else null
+                        val retainedFloor = preferredFloor?.let { preferred ->
+                            floors.firstOrNull { it.value == preferred.value }
+                        }
+                        val floorMatch = if (autoSubmit) {
+                            hintFloor ?: retainedFloor
+                        } else {
+                            retainedFloor ?: hintFloor
+                        }
 
                         _uiState.update { state ->
                             val cascade = state.cascadeFor(target).copy(
                                 floors = floors,
                                 loadingFloors = false,
-                                selectedFloor = floorMatch
+                                selectedFloor = floorMatch,
+                                autoMatching = autoSubmit && floorMatch != null,
                             )
                             state.applyCascade(target, cascade)
                         }
 
                         // 匹配到楼层 → 自动拉房间
                         if (floorMatch != null) {
-                            loadRoomsInternal(target, building, feeitemid, campus, floorMatch)
+                            loadRoomsInternal(
+                                target = target,
+                                building = building,
+                                feeitemid = feeitemid,
+                                campus = campus,
+                                floor = floorMatch,
+                                autoSubmit = autoSubmit,
+                                preferredRoom = preferredRoom,
+                            )
                         }
                     },
                     onFailure = { e ->
                         updateCascade(target) {
-                            it.copy(loadingFloors = false, floorsError = e.message ?: "楼层列表加载失败")
+                            it.copy(
+                                loadingFloors = false,
+                                floorsError = e.message ?: "楼层列表加载失败",
+                                autoMatching = false,
+                            )
                         }
                     }
                 )
             }
         }
+        when (target) {
+            ElectricityTarget.AC -> cascadeFloorJobAc = job
+            ElectricityTarget.LIGHTING -> cascadeFloorJobLighting = job
+        }
     }
 
     /**
-     * 自动填充链条第3步:拉房间→匹配房间→落盘+查余额。
+     * 自动填充链匹配成功后直接保存；手动链只预选，等待用户确认。
      */
     private fun loadRoomsInternal(
         target: ElectricityTarget,
         building: FeeItemOption,
         feeitemid: String,
         campus: String?,
-        floor: FeeItemOption
+        floor: FeeItemOption,
+        autoSubmit: Boolean,
+        preferredRoom: FeeItemOption? = null,
     ) {
-        viewModelScope.launch {
+        when (target) {
+            ElectricityTarget.AC -> cascadeRoomJobAc?.cancel()
+            ElectricityTarget.LIGHTING -> cascadeRoomJobLighting?.cancel()
+        }
+        val job = viewModelScope.launch {
             updateCascade(target) { it.copy(loadingRooms = true, roomsError = null) }
             withContext(Dispatchers.IO) {
                 withYcardRelogin {
@@ -663,45 +778,55 @@ class HomeViewModel(
                 }.fold(
                     onSuccess = { rooms ->
                         val dormHint = _uiState.value.cascadeFor(target).dormHint
-                        val roomMatch = if (dormHint != null) {
+                        val hintRoom = if (dormHint != null) {
                             matchRoomFlexible(rooms, dormHint.roomNumber)
                         } else null
+                        val retainedRoom = preferredRoom?.let { preferred ->
+                            rooms.firstOrNull { it.value == preferred.value }
+                        }
+                        val roomMatch = if (autoSubmit) {
+                            hintRoom ?: retainedRoom
+                        } else {
+                            retainedRoom ?: hintRoom
+                        }
 
                         _uiState.update { state ->
                             val cascade = state.cascadeFor(target).copy(
                                 rooms = rooms,
                                 loadingRooms = false,
-                                selectedRoom = roomMatch
+                                selectedRoom = roomMatch,
+                                autoMatching = false,
                             )
                             state.applyCascade(target, cascade)
                         }
 
-                        // 匹配到房间 → 自动落盘 + 查余额 (按 feeitemid 分发到 AC/Lighting)
-                        if (roomMatch != null) {
-                            val cascade = _uiState.value.cascadeFor(target)
-                            val campus = if (feeitemid == "488") resolveCampus(cascade.campusMap, building.value) else null
-                            val config = ElectricityRoomConfig(
-                                building = building.value,
-                                floor = floor.value,
-                                room = roomMatch.value,
-                                campus = campus ?: ""
+                        if (shouldPersistMatchedRoom(autoSubmit, roomMatch)) {
+                            saveElectricityConfig(
+                                ElectricityRoomConfig(
+                                    building = building.value,
+                                    floor = floor.value,
+                                    room = roomMatch!!.value,
+                                    campus = campus.orEmpty(),
+                                ),
+                                target,
                             )
-                            when (target) {
-                                ElectricityTarget.AC -> sessionManager.saveAcConfig(config)
-                                ElectricityTarget.LIGHTING -> sessionManager.saveLightingConfig(config)
-                            }
-                            _uiState.update { it.updateConfigFor(target, config) }
-                            loadElectricityBalance(target)
-                            loadElectricityBills(target)
                         }
                     },
                     onFailure = { e ->
                         updateCascade(target) {
-                            it.copy(loadingRooms = false, roomsError = e.message ?: "房间列表加载失败")
+                            it.copy(
+                                loadingRooms = false,
+                                roomsError = e.message ?: "房间列表加载失败",
+                                autoMatching = false,
+                            )
                         }
                     }
                 )
             }
+        }
+        when (target) {
+            ElectricityTarget.AC -> cascadeRoomJobAc = job
+            ElectricityTarget.LIGHTING -> cascadeRoomJobLighting = job
         }
     }
 
@@ -717,24 +842,66 @@ class HomeViewModel(
             )
             state.applyCascade(target, updated)
         }
-        loadRoomsInternal(target, building, fid, campus, floor)
+        loadRoomsInternal(
+            target = target,
+            building = building,
+            feeitemid = fid,
+            campus = campus,
+            floor = floor,
+            autoSubmit = false,
+        )
     }
 
 
     fun selectRoom(target: ElectricityTarget, room: FeeItemOption) {
-        viewModelScope.launch {
-            val cascade = _uiState.value.cascadeFor(target)
-            val building = cascade.selectedBuilding ?: return@launch
-            val floor = cascade.selectedFloor ?: return@launch
-            val feeitemid = cascade.selectedFeeitemid ?: defaultFeeitemidFor(target)
-            val campus = if (feeitemid == "488") resolveCampus(cascade.campusMap, building.value) else null
-            val config = ElectricityRoomConfig(
+        _uiState.update { state ->
+            state.applyCascade(
+                target,
+                state.cascadeFor(target).copy(selectedRoom = room),
+            )
+        }
+    }
+
+    fun confirmRoomSelection(target: ElectricityTarget) {
+        val cascade = _uiState.value.cascadeFor(target)
+        val building = cascade.selectedBuilding ?: return
+        val floor = cascade.selectedFloor ?: return
+        val room = cascade.selectedRoom ?: return
+        val feeitemid = cascade.selectedFeeitemid ?: defaultFeeitemidFor(target)
+        val campus = if (feeitemid == "488") resolveCampus(cascade.campusMap, building.value) else null
+        saveElectricityConfig(
+            ElectricityRoomConfig(
                 building = building.value,
                 floor = floor.value,
                 room = room.value,
-                campus = campus ?: ""
+                campus = campus.orEmpty(),
+            ),
+            target,
+        )
+    }
+
+    fun discardRoomSelection(target: ElectricityTarget) {
+        val state = _uiState.value.stateFor(target)
+        if (state.cascade.autoMatching) return
+        when (target) {
+            ElectricityTarget.AC -> cascadeJobAc?.cancel()
+            ElectricityTarget.LIGHTING -> cascadeJobLighting?.cancel()
+        }
+        cancelFloorAndRoomJobs(target)
+        val config = state.config
+        updateCascade(target) { cascade ->
+            cascade.copy(
+                selectedBuilding = cascade.buildings.findByValue(config.building)
+                    ?: config.building.toFeeItemOptionOrNull(),
+                selectedFloor = cascade.floors.findByValue(config.floor)
+                    ?: config.floor.toFeeItemOptionOrNull(),
+                selectedRoom = cascade.rooms.findByValue(config.room)
+                    ?: config.room.toFeeItemOptionOrNull(),
+                selectedFeeitemid = deriveFeeitemid(config.building, config.building.substringAfter("&")),
+                loadingBuildings = false,
+                loadingFloors = false,
+                loadingRooms = false,
             )
-            saveElectricityConfig(config, target)
         }
     }
 
@@ -747,36 +914,8 @@ class HomeViewModel(
      * 3. 后 N 位: room 名提取数字后取后 3/2 位精确匹配 (8301→301, 3101→101)
      * 4. 去首位前缀: 去掉 1 位前缀后精确匹配 (3101→101)
      */
-    private fun matchRoomFlexible(rooms: List<FeeItemOption>, roomNumber: String): FeeItemOption? {
-        // 策略1: 完整包含
-        rooms.firstOrNull { roomNumber in it.name }?.let { return it }
-
-        // 策略2: 纯数字精确匹配
-        rooms.firstOrNull {
-            it.name.filter(Char::isDigit) == roomNumber
-        }?.let { return it }
-
-        // 策略3: 后N位精确匹配 (蕙园 8301→301, 江园 3101→101)
-        // 仅当位数差为 1 时使用 (避免 4 位→2 位的过度退让)
-        for (suffixLen in listOf(3, 2)) {
-            if (roomNumber.length > suffixLen && roomNumber.length - suffixLen <= 1) {
-                val suffix = roomNumber.takeLast(suffixLen)
-                rooms.firstOrNull {
-                    it.name.filter(Char::isDigit) == suffix
-                }?.let { return it }
-            }
-        }
-
-        // 策略4: 去首位前缀 (3101→101), 仅去 1 位
-        if (roomNumber.length >= 3) {
-            val sub = roomNumber.substring(1)
-            rooms.firstOrNull {
-                it.name.filter(Char::isDigit) == sub
-            }?.let { return it }
-        }
-
-        return null
-    }
+    private fun matchRoomFlexible(rooms: List<FeeItemOption>, roomNumber: String): FeeItemOption? =
+        matchRoomOption(rooms, roomNumber)
 
     /** 从 campusMap 查找 building 对应的 campus 全值。 */
     private fun resolveCampus(campusMap: Map<String, String>, buildingValue: String): String? {
@@ -876,6 +1015,25 @@ class HomeViewModel(
         }
     }
 
+    private fun cancelFloorAndRoomJobs(target: ElectricityTarget) {
+        when (target) {
+            ElectricityTarget.AC -> {
+                cascadeFloorJobAc?.cancel()
+                cascadeRoomJobAc?.cancel()
+            }
+            ElectricityTarget.LIGHTING -> {
+                cascadeFloorJobLighting?.cancel()
+                cascadeRoomJobLighting?.cancel()
+            }
+        }
+    }
+
+    private fun List<FeeItemOption>.findByValue(value: String): FeeItemOption? =
+        value.takeIf(String::isNotBlank)?.let { expected -> firstOrNull { it.value == expected } }
+
+    private fun String.toFeeItemOptionOrNull(): FeeItemOption? =
+        takeIf(String::isNotBlank)?.let { FeeItemOption(name = it.substringAfter("&"), value = it) }
+
     private fun HomeUiState.stateFor(target: ElectricityTarget): ElectricityState = when (target) {
         ElectricityTarget.AC -> ac
         ElectricityTarget.LIGHTING -> lighting
@@ -961,12 +1119,6 @@ class HomeViewModel(
             ElectricityTarget.AC -> "空调"
             ElectricityTarget.LIGHTING -> "照明"
         }
-
-    private fun List<FeeItemOption>.filterFor(target: ElectricityTarget): List<FeeItemOption> {
-        val suffix = target.suffix
-        val filtered = filter { it.name.endsWith(suffix) }
-        return filtered.ifEmpty { this }
-    }
 
     // ── 网费余额 ────────────────────────────────────────
 
@@ -1229,6 +1381,27 @@ class HomeViewModel(
      * 密码从学生信息 `ID_NUMBER` / `SFZH` 字段取后 6 位(默认查询密码 = 身份证后 6 位),
      * 取不到就留空让用户手输。
      */
+    fun openElectricityDeposit(target: ElectricityTarget) {
+        val state = _uiState.value.stateFor(target)
+        val data = state.data ?: return
+        val feeitemid = state.cascade.selectedFeeitemid
+            ?: deriveFeeitemid(state.config.building, state.config.building.substringAfter("&"))
+            ?: defaultFeeitemidFor(target)
+        openDepositSheet(
+            DepositTarget.Electricity(
+                feeitemid = feeitemid,
+                electricityTarget = target,
+                room = data,
+                buildingName = data.buildingName,
+                areaName = state.config.campus.substringAfter("&", ""),
+                buildingValue = state.config.building,
+                floorValue = state.config.floor,
+                roomValue = state.config.room,
+                floorName = data.floorName,
+            ),
+        )
+    }
+
     fun openDepositSheet(target: DepositTarget) {
         if (target === DepositTarget.None) return
         val info = studentInfoRepository?.readCachedStudentInfo()
@@ -1241,23 +1414,27 @@ class HomeViewModel(
 
         val sheet = when (target) {
             is DepositTarget.Electricity -> {
-                val ac = _uiState.value.ac
-                val lighting = _uiState.value.lighting
-                val eState = if (target.feeitemid == "428") lighting else ac
-                val isNew = target.feeitemid == "488"
+                val eState = _uiState.value.stateFor(target.electricityTarget)
                 DepositSheetState(
                     visible = true,
                     target = target,
-                    title = if (target.feeitemid == "428") "照明充值" else "空调充值",
+                    title = if (target.electricityTarget == ElectricityTarget.LIGHTING) {
+                        "照明充值"
+                    } else {
+                        "空调充值"
+                    },
                     subtitle = "${eState.config.campus.substringAfter("&", "未知校区")} " +
                         "${eState.config.building.substringAfter("&", "")} " +
                         eState.config.room.substringAfter("&", ""),
                     amount = _uiState.value.depositSheet.amount.ifBlank { "5" },
                     password = prefilledPassword,
                     passwordPrefilled = prefilledPassword.isNotEmpty(),
-                    showAcOrLighting = isNew,
-                    subTarget = if (target.feeitemid == "428") DepositSubTarget.Lighting
-                                 else DepositSubTarget.Ac,
+                    showAcOrLighting = false,
+                    subTarget = if (target.electricityTarget == ElectricityTarget.LIGHTING) {
+                        DepositSubTarget.Lighting
+                    } else {
+                        DepositSubTarget.Ac
+                    },
                 )
             }
             is DepositTarget.Bathroom -> {
@@ -1334,9 +1511,7 @@ class HomeViewModel(
 
             val result: Result<Unit> = when (target) {
                 is DepositTarget.Electricity -> {
-                    val ac = _uiState.value.ac
-                    val lighting = _uiState.value.lighting
-                    val eState = if (target.feeitemid == "428") lighting else ac
+                    val eState = _uiState.value.stateFor(target.electricityTarget)
                     val eData = eState.data
                     if (eData == null) {
                         Result.failure(IllegalStateException("请先选择房间再充值"))
@@ -1406,8 +1581,7 @@ class HomeViewModel(
                     // 刷新余额 / 账单
                     when (target) {
                         is DepositTarget.Electricity -> {
-                            if (target.feeitemid == "428") loadElectricityBalance(ElectricityTarget.LIGHTING)
-                            else loadElectricityBalance(ElectricityTarget.AC)
+                            loadElectricityBalance(target.electricityTarget)
                         }
                         is DepositTarget.Bathroom -> loadBathroomBalance()
                         is DepositTarget.Internet -> loadInternetBalance()
@@ -1560,10 +1734,149 @@ data class FeeItemCascadeState(
     val loadingFloors: Boolean = false,
     val loadingRooms: Boolean = false,
     val buildingsError: String? = null,
+    /** 部分来源失败但仍有可用楼栋时展示，不能伪装成完整成功。 */
+    val buildingsWarning: String? = null,
     val floorsError: String? = null,
     val roomsError: String? = null,
-    val dormHint: DormHint? = null
+    val dormHint: DormHint? = null,
+    /** 仅表示学生住宿信息驱动的自动链，手动编辑始终为 false。 */
+    val autoMatching: Boolean = false,
 )
 
 /** 标识电费类型 (空调 / 照明)。 */
 enum class ElectricityTarget { AC, LIGHTING }
+
+private data class FeeItemBuildingCatalog(
+    val acBuildings: List<FeeItemOption>,
+    val lightingBuildings: List<FeeItemOption>,
+    val newBuildings: List<FeeItemOption>,
+    val campusMap: Map<String, String>,
+    val acFailures: List<String>,
+    val lightingFailures: List<String>,
+) {
+    fun forTarget(target: ElectricityTarget): TargetBuildingCatalog = when (target) {
+        ElectricityTarget.AC -> TargetBuildingCatalog(acBuildings, acFailures)
+        ElectricityTarget.LIGHTING -> TargetBuildingCatalog(lightingBuildings, lightingFailures)
+    }
+}
+
+private data class TargetBuildingCatalog(
+    val oldBuildings: List<FeeItemOption>,
+    val failedSources: List<String>,
+)
+
+internal data class BuildingLoadAvailability(
+    val error: String? = null,
+    val warning: String? = null,
+)
+
+internal fun mergeBuildingOptions(
+    oldBuildings: List<FeeItemOption>,
+    newBuildings: List<FeeItemOption>,
+    target: ElectricityTarget,
+): List<FeeItemOption> =
+    (filterBuildingsForTarget(oldBuildings, target) + filterBuildingsForTarget(newBuildings, target))
+        .distinctBy(FeeItemOption::value)
+
+internal fun filterBuildingsForTarget(
+    buildings: List<FeeItemOption>,
+    target: ElectricityTarget,
+): List<FeeItemOption> {
+    val targetKeyword = if (target == ElectricityTarget.AC) "空调" else "照明"
+    val oppositeKeyword = if (target == ElectricityTarget.AC) "照明" else "空调"
+    return buildings.filter { option ->
+        targetKeyword in option.name || oppositeKeyword !in option.name
+    }
+}
+
+internal fun buildingLoadAvailability(
+    buildingCount: Int,
+    failedSources: List<String>,
+): BuildingLoadAvailability {
+    val sources = failedSources.distinct()
+    return when {
+        buildingCount == 0 && sources.isNotEmpty() -> BuildingLoadAvailability(
+            error = "楼栋列表加载失败（${sources.joinToString("、")}），请重试",
+        )
+        buildingCount == 0 -> BuildingLoadAvailability(
+            error = "未获取到可选楼栋，请重试",
+        )
+        sources.isNotEmpty() -> BuildingLoadAvailability(
+            warning = "已加载 $buildingCount 栋，但${sources.joinToString("、")}未完整返回，列表可能不完整",
+        )
+        else -> BuildingLoadAvailability()
+    }
+}
+
+internal fun shouldPersistMatchedRoom(
+    autoSubmit: Boolean,
+    room: FeeItemOption?,
+): Boolean = autoSubmit && room != null
+
+internal fun matchBuildingOption(
+    buildings: List<FeeItemOption>,
+    hint: DormHint,
+    targetKeyword: String,
+): FeeItemOption? {
+    val cnDigits = mapOf(
+        1 to "一", 2 to "二", 3 to "三", 4 to "四", 5 to "五",
+        6 to "六", 7 to "七", 8 to "八", 9 to "九",
+    )
+    val base = hint.buildingName.normalizedBuildingLabel()
+    if (base.isBlank()) return null
+    val digitCn = cnDigits[hint.buildingDigit] ?: hint.buildingDigit.toString()
+    val digitAr = hint.buildingDigit.toString()
+    val buildingIdentifiers = listOf(
+        "$base${digitCn}号楼",
+        "$base${digitAr}号楼",
+        "$base${digitCn}栋",
+        "$base${digitAr}栋",
+    )
+    val targetBuildings = buildings.filter { targetKeyword in it.name.normalizedBuildingLabel() }
+    val numberedMatches = targetBuildings.filter { option ->
+        val normalized = option.name.normalizedBuildingLabel()
+        buildingIdentifiers.any(normalized::contains)
+    }.distinctBy(FeeItemOption::value)
+    if (numberedMatches.size == 1) return numberedMatches.single()
+
+    // 学生信息本身已包含楼号时可直接匹配；仅园区名时必须保证候选唯一。
+    val baseMatches = targetBuildings.filter { option ->
+        option.name.normalizedBuildingLabel().startsWith(base)
+    }.distinctBy(FeeItemOption::value)
+    return baseMatches.singleOrNull()
+}
+
+internal fun matchRoomOption(
+    rooms: List<FeeItemOption>,
+    roomNumber: String,
+): FeeItemOption? {
+    val expected = roomNumber.filter(Char::isDigit)
+    if (expected.isBlank()) return null
+    val roomDigits = rooms.map { it to it.name.filter(Char::isDigit) }
+
+    roomDigits.filter { (_, digits) -> digits == expected }
+        .map { it.first }
+        .distinctBy(FeeItemOption::value)
+        .singleOrNull()
+        ?.let { return it }
+
+    val shortenedCandidates = buildSet {
+        if (expected.length >= 4) add(expected.drop(1))
+        for (suffixLength in listOf(3, 2)) {
+            if (expected.length - suffixLength == 1) add(expected.takeLast(suffixLength))
+        }
+    }
+    roomDigits.filter { (_, digits) -> digits in shortenedCandidates }
+        .map { it.first }
+        .distinctBy(FeeItemOption::value)
+        .singleOrNull()
+        ?.let { return it }
+
+    return roomDigits.filter { (_, digits) ->
+        digits.length == expected.length + 1 && digits.endsWith(expected)
+    }.map { it.first }
+        .distinctBy(FeeItemOption::value)
+        .singleOrNull()
+}
+
+private fun String.normalizedBuildingLabel(): String = filter(Char::isLetterOrDigit)

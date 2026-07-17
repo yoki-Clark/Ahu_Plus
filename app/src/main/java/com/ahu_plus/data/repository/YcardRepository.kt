@@ -553,11 +553,8 @@ class YcardRepository(
     /**
      * 拉取指定 feeitemid 下的楼栋列表。
      *
-     * 注意:feeitemid=408(空调) 的响应会混入"照明"后缀的楼栋
-     * (电表合一或 feeitemid 错配),这里按 name 后缀过滤,只保留与 feeitemid 对应的项:
-     * - 408 → name.endsWith("空调")
-     * - 428 → name.endsWith("照明")
-     * - 488 → 不过滤(空调和照明合并在同一 feeitemid)
+     * 接口可能返回混合类型或不以"空调/照明"结尾的命名变体，因此这里保留原始列表。
+     * 卡片类型筛选和多个费用项合并由 HomeViewModel 统一完成。
      *
      * @param campus 可选,新区 feeitemid=488 时必填,老区 408/428 不传。
      */
@@ -571,7 +568,7 @@ class YcardRepository(
             campus = campus,
             building = null,
             floor = null,
-            filterSuffix = feeitemSuffix(feeitemid)
+            filterSuffix = null
         )
     }
 
@@ -610,13 +607,6 @@ class YcardRepository(
             floor = floor,
             filterSuffix = null
         )
-    }
-
-    private fun feeitemSuffix(feeitemid: String): String = when (feeitemid) {
-        "408" -> "空调"
-        "428" -> "照明"
-        "488" -> ""  // 新区 feeitemid=488 把空调+照明合并,不过滤
-        else -> ""
     }
 
     /**

@@ -7,14 +7,20 @@ import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Grade
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Room
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.ahu_plus.ui.theme.AhuBlue
 import com.ahu_plus.ui.theme.AhuGreen
@@ -23,6 +29,7 @@ import com.ahu_plus.ui.theme.AhuOrange
 import com.ahu_plus.ui.theme.AhuRed
 import com.ahu_plus.ui.theme.AhuTeal
 import com.ahu_plus.ui.theme.AhuViolet
+import com.ahu_plus.ui.theme.AhuGradient
 
 /**
  * 静态应用注册表。
@@ -32,7 +39,7 @@ import com.ahu_plus.ui.theme.AhuViolet
  *
  *  - **app key**:稳定字符串,用于 SessionManager.recordRecentApp() 追踪
  *  - **title/icon/color**:UI 显示元数据(无回调,便于在 widget/通知等非 Composable 上下文使用)
- *  - **group**:所属分类("教务"/"生活"/"我的"),便于 AppHubScreen 分组渲染
+ *  - **group**:所属分类(学习/通知/校园卡/生活/个人信息),便于 AppHubScreen 分组渲染
  *
  * 真正的点击回调在消费方(Composable)处组装,与静态元数据解耦 —— 这样 widget /
  * 测试代码也可以查询 app 列表而无需构造 OkHttp client。
@@ -47,6 +54,7 @@ object AppRegistry {
     // ── App keys (稳定字符串,SessionManager.recent_apps 用这个)──────
 
     const val KEY_SCHEDULE = "schedule"
+    const val KEY_AGENDA = "agenda"
     const val KEY_GRADE = "grade"
     const val KEY_EXAM = "exam"
     const val KEY_TRAINING_PLAN = "trainingPlan"
@@ -59,78 +67,109 @@ object AppRegistry {
     const val KEY_LIGHTING = "lighting"
     const val KEY_INTERNET = "internet"
     const val KEY_WEATHER = "weather"
+    const val KEY_CPROG = "cprog"
+    const val KEY_EVALUATION = "evaluation"
+    const val KEY_STUDENT_INFO = "studentInfo"
+    const val KEY_FINANCE = "finance"
+    const val KEY_ATTENDANCE = "attendance"
 
     /** 默认显示顺序(用于 AppDock 未配置最近使用时的回退顺序) */
     private val DEFAULT_RECENT_KEYS = listOf(KEY_SCHEDULE, KEY_GRADE, KEY_EXAM)
 
-    /** "教务"分组 - 日常查询 */
-    val ACADEMIC = "教务"
-
-    /** "生活"分组 - 一卡通/账单/水电 */
-    val LIFE = "生活"
-
-    /** "查询"分组 - 工具类 */
-    val QUERY = "查询"
+    const val LEARNING = "学习"
+    const val NOTIFICATIONS = "通知"
+    const val CAMPUS_CARD = "校园卡"
+    const val LIFE = "生活"
+    const val PERSONAL = "个人信息"
 
     private val specs: List<AppSpec> = listOf(
-        // 教务
+        // 学习
         AppSpec(
             key = KEY_SCHEDULE,
             title = "课表",
             icon = Icons.Filled.CalendarMonth,
             tint = AhuBlue,
-            group = ACADEMIC,
+            group = LEARNING,
+            gradient = AhuGradient.Blue.brush,
+        ),
+        AppSpec(
+            key = KEY_AGENDA,
+            title = "日程",
+            icon = Icons.Filled.EditCalendar,
+            tint = AhuTeal,
+            group = LEARNING,
+            gradient = AhuGradient.Blue.brush,
         ),
         AppSpec(
             key = KEY_GRADE,
             title = "成绩",
             icon = Icons.Filled.Grade,
             tint = AhuRed,
-            group = ACADEMIC,
+            group = LEARNING,
+            gradient = AhuGradient.Violet.brush,
         ),
         AppSpec(
             key = KEY_EXAM,
             title = "考试",
             icon = Icons.AutoMirrored.Filled.EventNote,
             tint = AhuOrange,
-            group = ACADEMIC,
+            group = LEARNING,
+            gradient = AhuGradient.Orange.brush,
         ),
         AppSpec(
             key = KEY_TRAINING_PLAN,
             title = "培养方案",
             icon = Icons.Filled.School,
             tint = Color(0xFF6C63FF),
-            group = ACADEMIC,
+            group = LEARNING,
+            gradient = AhuGradient.Violet.brush,
         ),
         AppSpec(
             key = KEY_EMPTY_CLASSROOM,
             title = "空教室",
             icon = Icons.Filled.Room,
             tint = AhuGreen,
-            group = ACADEMIC,
+            group = LEARNING,
         ),
         AppSpec(
-            key = KEY_NOTICE_LIST,
-            title = "教务通告",
-            icon = Icons.Filled.Campaign,
-            tint = AhuViolet,
-            group = ACADEMIC,
+            key = KEY_CPROG,
+            title = "大学计算机平台",
+            icon = Icons.Filled.Computer,
+            tint = AhuTeal,
+            group = LEARNING,
+        ),
+        AppSpec(
+            key = KEY_EVALUATION,
+            title = "评教",
+            icon = Icons.Filled.RateReview,
+            tint = AhuIndigo,
+            group = LEARNING,
+            gradient = AhuGradient.Blue.brush,
         ),
 
-        // 生活
+        // 通知
+        AppSpec(
+            key = KEY_NOTICE_LIST,
+            title = "教务通知",
+            icon = Icons.Filled.Campaign,
+            tint = AhuViolet,
+            group = NOTIFICATIONS,
+        ),
+
+        // 校园卡
         AppSpec(
             key = KEY_CARD,
-            title = "账单",
+            title = "消费账单",
             icon = Icons.Filled.AccountBalanceWallet,
             tint = AhuGreen,
-            group = LIFE,
+            group = CAMPUS_CARD,
         ),
         AppSpec(
             key = KEY_CARD_ANALYTICS,
             title = "消费分析",
             icon = Icons.Filled.Assessment,
             tint = AhuViolet,
-            group = LIFE,
+            group = CAMPUS_CARD,
         ),
         AppSpec(
             key = KEY_BATHROOM,
@@ -165,7 +204,31 @@ object AppRegistry {
             title = "天气",
             icon = Icons.Filled.WbSunny,
             tint = AhuBlue,
-            group = QUERY,
+            group = LIFE,
+            gradient = AhuGradient.Blue.brush,
+        ),
+
+        // 个人信息
+        AppSpec(
+            key = KEY_STUDENT_INFO,
+            title = "学生信息",
+            icon = Icons.Filled.Info,
+            tint = AhuBlue,
+            group = PERSONAL,
+        ),
+        AppSpec(
+            key = KEY_FINANCE,
+            title = "财务汇总",
+            icon = Icons.Filled.AccountBalanceWallet,
+            tint = AhuGreen,
+            group = PERSONAL,
+        ),
+        AppSpec(
+            key = KEY_ATTENDANCE,
+            title = "考勤记录",
+            icon = Icons.Filled.EventBusy,
+            tint = AhuRed,
+            group = PERSONAL,
         ),
     )
 
@@ -181,7 +244,7 @@ object AppRegistry {
      * 按 group 分组(保持注册表顺序)。返回 LinkedHashMap 保证顺序稳定。
      */
     fun grouped(): Map<String, List<AppSpec>> =
-        specs.groupBy { it.group }.toSortedMap()
+        specs.groupBy { it.group }
 
     /**
      * 取最近使用的 app 列表。
@@ -209,4 +272,5 @@ data class AppSpec(
     val icon: ImageVector,
     val tint: Color,
     val group: String,
+    val gradient: Brush? = null,
 )

@@ -364,14 +364,7 @@ class MarketViewModel(
 
     fun onSearchQueryChanged(value: String) {
         if (value != _uiState.value.searchQuery) beginSearchRequest()
-        _uiState.update {
-            it.copy(
-                searchQuery = value,
-                searchLoading = false,
-                searchLoadingMore = false,
-                searchError = null,
-            )
-        }
+        _uiState.update { it.withSearchQuery(value) }
     }
 
     fun submitSearch() {
@@ -1499,7 +1492,7 @@ data class MarketUiState(
     val keywordInput: String = "",
     val filterNodeIds: List<Long> = emptyList(),
     val marketEnabled: Boolean = true,
-    // 第三方服务:parent 总开关 + 两个子开关 (集市 / 学习通)
+    // 第三方服务:parent 总开关 + 三个子开关 (集市 / 学习通 / WeLearn)
     val thirdPartyServicesEnabled: Boolean = false,
     val marketChildEnabled: Boolean = false,
     val chaoxingChildEnabled: Boolean = false,
@@ -1522,6 +1515,16 @@ data class MarketUiState(
     val listLayoutMode: String = "list",
     // ── "回到顶部"按钮 ──────────────────────────────
     val scrollToTopEnabled: Boolean = true
+)
+
+internal fun MarketUiState.withSearchQuery(value: String): MarketUiState = copy(
+    searchQuery = value,
+    searchResults = emptyList(),
+    searchPage = 0,
+    hasMoreSearch = true,
+    searchLoading = false,
+    searchLoadingMore = false,
+    searchError = null,
 )
 
 /**
