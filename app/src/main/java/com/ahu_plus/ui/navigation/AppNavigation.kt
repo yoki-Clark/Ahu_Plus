@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -20,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -41,7 +43,7 @@ import com.ahu_plus.data.repository.JwAuthRepository
 import com.ahu_plus.data.repository.MarketRepository
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.YcardRepository
-import com.ahu_plus.ui.screen.autologin.AutoLoginScreen
+import com.ahu_plus.ui.screen.autologin.AutoLoginState
 import com.ahu_plus.ui.screen.autologin.AutoLoginViewModel
 import com.ahu_plus.ui.screen.login.LoginScreen
 import com.ahu_plus.ui.screen.login.LoginViewModel
@@ -81,15 +83,15 @@ fun AppNavigation(
     val navController = rememberNavController()
     val coroutineScope = rememberCoroutineScope()
     var startRoute by remember { mutableStateOf<String?>(null) }
+    var hasCredentials by remember { mutableStateOf(false) }
+    var authRefreshVersion by remember { mutableIntStateOf(0) }
 
-    // 启动决策:
-    //  - 正在初始化 → 短暂显示 loading
-    //  - 有凭据 → 进入 autologin(自动登录 + 失败时显示校徽重试页)
-    //  - 无凭据 → 进入 login
+    // 只等待本地 DataStore 恢复。网络认证不再阻塞首屏，主界面显示后再静默进行。
     LaunchedEffect(Unit) {
         sessionManager.init()
         onSessionInitialized()
-        startRoute = if (sessionManager.hasCredentials()) "autologin" else "login"
+        hasCredentials = sessionManager.hasCredentials()
+        startRoute = "main"
     }
 
     if (startRoute == null) {
@@ -126,8 +128,7 @@ fun AppNavigation(
      *  2. 清 JW 旧 session/cookie(否则 `authenticate()` 会直接复用旧值,绕过 SSO)
      *  3. 教务续期 → `jwAuthRepository.authenticate()` → 用新 CASTGC 换新 SESSION
      *
-     * 返回 true 表示后台续期成功,调用方应让用户手动刷新当前页(emit "会话已恢复"
-     * 提示),不要跳转登录;返回 false 表示凭据丢失或网络问题,只能走 `navigateToLogin`。
+     * 返回 true 表示后台续期成功；返回 false 时由用户当前的显式操作决定是否进入登录页。
      */
     suspend fun attemptSilentReauth(): Boolean {
         // Step 1: CAS 续期
@@ -157,26 +158,6 @@ fun AppNavigation(
         navController = navController,
         startDestination = startRoute ?: return
     ) {
-        // ── 自动登录 + 重试页 ──────────────────────────
-        composable("autologin") {
-            val viewModel = viewModel {
-                AutoLoginViewModel(sessionManager, casAuthRepository, ycardRepository, adwmhCardRepository)
-            }
-            AutoLoginScreen(
-                viewModel = viewModel,
-                onSuccess = {
-                    navController.navigate("main") {
-                        popUpTo("autologin") { inclusive = true }
-                    }
-                },
-                onNoCredentials = {
-                    navController.navigate("login") {
-                        popUpTo("autologin") { inclusive = true }
-                    }
-                }
-            )
-        }
-
         // ── 手动登录页 ─────────────────────────────────
         composable("login") {
             val viewModel = viewModel {
@@ -194,8 +175,12 @@ fun AppNavigation(
                 savedUsername = sessionManager.getUsername(),
                 savedPassword = sessionManager.getPassword(),
                 onNavigateToHome = {
-                    navController.navigate("main") {
-                        popUpTo("login") { inclusive = true }
+                    hasCredentials = true
+                    authRefreshVersion++
+                    if (!navController.popBackStack()) {
+                        navController.navigate("main") {
+                            launchSingleTop = true
+                        }
                     }
                 }
             )
@@ -205,9 +190,34 @@ fun AppNavigation(
         composable("main") {
             val navigateToLogin: () -> Unit = {
                 navController.navigate("login") {
-                    popUpTo("main") { inclusive = true }
+                    launchSingleTop = true
                 }
             }
+
+            // 有保存凭据时在后台恢复 CAS/ycard/adwmh 会话。失败只记录状态，不遮挡主界面。
+            val silentLoginViewModel = viewModel {
+                AutoLoginViewModel(
+                    sessionManager,
+                    casAuthRepository,
+                    ycardRepository,
+                    adwmhCardRepository,
+                )
+            }
+            val silentLoginState by silentLoginViewModel.uiState.collectAsStateWithLifecycle()
+            LaunchedEffect(silentLoginState) {
+                when (val state = silentLoginState) {
+                    AutoLoginState.Success -> {
+                        hasCredentials = true
+                        authRefreshVersion++
+                        Log.i("AppNavigation", "启动静默登录成功，后台刷新账户数据")
+                    }
+                    is AutoLoginState.Failed -> {
+                        Log.w("AppNavigation", "启动静默登录失败，保留主界面: ${state.message}")
+                    }
+                    else -> Unit
+                }
+            }
+
             MainScreen(
                 sessionManager = sessionManager,
                 cardRepository = cardRepository,
@@ -229,15 +239,22 @@ fun AppNavigation(
                 onThemeModeChange = onThemeModeChange,
                 deepLink = deepLink,
                 onDeepLinkConsumed = onDeepLinkConsumed,
-                onReauth = {
+                hasCredentials = hasCredentials,
+                authRefreshVersion = authRefreshVersion,
+                onLogin = navigateToLogin,
+                onReauth = reauth@{
+                    if (!sessionManager.hasCredentials()) {
+                        navigateToLogin()
+                        return@reauth
+                    }
                     coroutineScope.launch {
-                        // 2026-06-23 修复：先尝试后台静默续期,只有真正失败才清数据+跳登录
                         val reauthed = attemptSilentReauth()
                         if (reauthed) {
                             Log.i("AppNavigation", "onReauth: 后台静默续期成功,通知 UI 刷新")
-                            initMessageFlow?.emit("会话已恢复，请下拉刷新")
+                            authRefreshVersion++
+                            initMessageFlow?.emit("会话已恢复，正在刷新数据")
                         } else {
-                            Log.w("AppNavigation", "onReauth: 后台续期失败,跳登录页")
+                            Log.w("AppNavigation", "onReauth: 后台续期失败，等待用户重新登录")
                             clearAllCookies()
                             sessionManager.clearSession()
                             sessionManager.clearJwSession()
@@ -246,11 +263,18 @@ fun AppNavigation(
                     }
                 },
                 onLogout = {
+                    silentLoginViewModel.cancel()
                     coroutineScope.launch {
                         clearAllCookies()
                         sessionManager.clearAuthData()
                         onAccountDataCleared()
-                        navigateToLogin()
+                        hasCredentials = false
+                        authRefreshVersion = 0
+                        // 留在可匿名使用的主界面，并用新的 NavBackStackEntry 清掉旧 ViewModel 数据。
+                        navController.navigate("main") {
+                            popUpTo("main") { inclusive = true }
+                            launchSingleTop = true
+                        }
                     }
                 }
             )

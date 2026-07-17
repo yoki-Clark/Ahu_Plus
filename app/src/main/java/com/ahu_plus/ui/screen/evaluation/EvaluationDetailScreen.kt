@@ -91,6 +91,7 @@ import kotlinx.coroutines.launch
 fun EvaluationDetailScreen(
     task: TeacherEvaluationTask,
     viewModel: EvaluationViewModel,
+    onNeedsLogin: () -> Unit,
     onBack: () -> Unit,
 ) {
     val state by viewModel.detailState.collectAsStateWithLifecycle()
@@ -193,7 +194,8 @@ fun EvaluationDetailScreen(
                 state.isLoading -> CenteredLoader()
                 state.error != null && state.questionnaire == null -> CenteredError(
                     message = state.error!!,
-                    onRetry = { viewModel.openTask(task) },
+                    onRetry = if (state.needsLogin) onNeedsLogin else ({ viewModel.openTask(task) }),
+                    actionLabel = if (state.needsLogin) "去登录" else "重试",
                 )
                 state.questionnaire != null -> {
                     val q = state.questionnaire!!

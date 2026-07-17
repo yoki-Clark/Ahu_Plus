@@ -6,6 +6,7 @@ import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.repository.CasAuthRepository
 import com.ahu_plus.data.repository.YcardRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +19,7 @@ import kotlinx.coroutines.withContext
  * 自动登录 ViewModel。
  *
  * 启动流程:
- *  - [AutoLoginState.Loading]   调用 casAuthRepository.login()
+ *  - [AutoLoginState.Loading]   调用 casAuthRepository.ensureValidSession()
  *  - 成功 → [AutoLoginState.Success]  (UI 收到后跳转到主页)
  *  - 失败 → [AutoLoginState.Failed]   (UI 显示"点击任意处重试",点击后调用 [retry])
  */
@@ -31,6 +32,7 @@ class AutoLoginViewModel(
 
     private val _uiState = MutableStateFlow<AutoLoginState>(AutoLoginState.Loading)
     val uiState: StateFlow<AutoLoginState> = _uiState.asStateFlow()
+    private var loginJob: Job? = null
 
     init {
         attemptLogin()
@@ -46,10 +48,12 @@ class AutoLoginViewModel(
             return
         }
         _uiState.value = AutoLoginState.Loading
-        viewModelScope.launch {
+        loginJob?.cancel()
+        loginJob = viewModelScope.launch {
             // CAS 与 adwmh 并发登录，adwmh 在后台静默（不影响页面加载速度）
             val casDeferred = async(Dispatchers.IO) {
-                casAuthRepository.login(username, password)
+                // 复用仓库互斥锁，避免与课表/JW 启动刷新同时发起重复 CAS 登录。
+                casAuthRepository.ensureValidSession()
             }
             val adwmhDeferred = if (adwmhCardRepository != null) {
                 async(Dispatchers.IO) {
@@ -89,8 +93,13 @@ class AutoLoginViewModel(
         attemptLogin()
     }
 
+    fun cancel() {
+        loginJob?.cancel()
+    }
+
     /** 用户主动退出登录,清除所有凭据和 session,跳回登录页 */
     fun logout() {
+        cancel()
         viewModelScope.launch {
             casAuthRepository.clearCookies() // 纯内存操作,无需切换线程
             sessionManager.clearAuthData()   // DataStore edit 自带调度器

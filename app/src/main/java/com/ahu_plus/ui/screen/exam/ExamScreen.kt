@@ -37,7 +37,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,10 +73,6 @@ fun ExamScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(uiState.needsLogin) {
-        if (uiState.needsLogin) onNeedsLogin()
-    }
-
     Scaffold(
         topBar = {
             AhuTopAppBar(
@@ -107,7 +102,8 @@ fun ExamScreen(
                 val errMsg = uiState.error
                 CenteredError(
                     message = errMsg!!,
-                    onRetry = viewModel::onRefresh,
+                    onRetry = if (uiState.needsLogin) onNeedsLogin else viewModel::onRefresh,
+                    actionLabel = if (uiState.needsLogin) "去登录" else "重试",
                     modifier = Modifier.padding(innerPadding)
                 )
             }

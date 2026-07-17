@@ -116,10 +116,6 @@ fun ScheduleScreen(
     )
     val backgroundConfig = uiState.paletteConfig.backgroundOrDefault()
 
-    LaunchedEffect(uiState.needsLogin) {
-        if (uiState.needsLogin) onNeedsLogin()
-    }
-
     // 进入 ScheduleScreen 时: 若 resetOnEnter 开启,跳到当前周
     LaunchedEffect(Unit) {
         viewModel.applyEnterReset()
@@ -303,8 +299,10 @@ fun ScheduleScreen(
                             modifier = Modifier.padding(horizontal = 24.dp)
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = { viewModel.onRefresh() }) {
-                            Text("重试")
+                        Button(
+                            onClick = if (uiState.needsLogin) onNeedsLogin else viewModel::onRefresh
+                        ) {
+                            Text(if (uiState.needsLogin) "去登录" else "重试")
                         }
                     }
                 }

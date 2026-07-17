@@ -122,6 +122,9 @@ class JwAuthRepository(
                 saveToCookieStore(JW_HOST, "SESSION", it)
                 return@withLock Result.success(Unit)
             }
+            if (!sessionManager.hasCredentials()) {
+                return@withLock Result.failure(JwAuthException("请先登录统一身份认证"))
+            }
             performAuth()
         }
     }
@@ -174,10 +177,18 @@ class JwAuthRepository(
                 trySimplifiedSso()
                 Log.d(TAG, "简易 SSO 成功")
             } catch (e: Exception) {
-                Log.e(TAG, "简易 SSO 失败: ${e.message}，回退到完整 CAS 登录")
-                // 策略 2: 完整 CAS 回退
-                performFullLogin()
-                Log.d(TAG, "完整 CAS 登录成功")
+                Log.w(TAG, "简易 SSO 失败: ${e.message}，等待共享 CAS 会话")
+                try {
+                    // 与启动静默登录共用 CasAuthRepository 的互斥锁，避免两套 CAS 表单并发提交。
+                    casAuthRepository.ensureValidSession().getOrThrow()
+                    trySimplifiedSso()
+                    Log.d(TAG, "共享 CAS 会话就绪后简易 SSO 成功")
+                } catch (sharedCasError: Exception) {
+                    Log.w(TAG, "共享 CAS 续期不可用，回退到 JW 完整登录: ${sharedCasError.message}")
+                    // 策略 2: 完整 CAS 回退
+                    performFullLogin()
+                    Log.d(TAG, "完整 CAS 登录成功")
+                }
             }
             Result.success(Unit)
         } catch (e: Exception) {

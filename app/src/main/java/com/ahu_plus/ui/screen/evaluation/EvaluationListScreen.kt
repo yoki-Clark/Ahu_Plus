@@ -69,6 +69,7 @@ import com.ahu_plus.ui.theme.AhuTeal
 fun EvaluationListScreen(
     viewModel: EvaluationViewModel,
     onBack: () -> Unit,
+    onNeedsLogin: () -> Unit,
     onOpenTask: (TeacherEvaluationTask) -> Unit,
 ) {
     val state by viewModel.listState.collectAsStateWithLifecycle()
@@ -122,6 +123,11 @@ fun EvaluationListScreen(
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     state.isLoading && state.tasks.isEmpty() -> CenteredLoader()
+                    state.needsLogin && state.tasks.isEmpty() -> CenteredError(
+                        message = "登录后可查看并完成评教任务",
+                        onRetry = onNeedsLogin,
+                        actionLabel = "去登录",
+                    )
                     state.error != null && state.tasks.isEmpty() -> CenteredError(
                         message = state.error!!,
                         onRetry = viewModel::refreshList,
