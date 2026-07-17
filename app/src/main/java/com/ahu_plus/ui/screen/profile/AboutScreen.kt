@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,15 +23,19 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.DeveloperMode
 import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -39,16 +44,27 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.R
+import com.ahu_plus.data.developer.DeveloperTapUnlocker
+import com.ahu_plus.data.developer.DeveloperTimePasswordValidator
 import com.ahu_plus.data.model.CheckResult
+import com.ahu_plus.ui.screen.developer.DeveloperCenterScreen
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -63,16 +79,37 @@ fun AboutScreen(
     onGuideIntroSeen: () -> Unit,
     betaEnabled: Boolean,
     onBetaEnabledChange: (Boolean) -> Unit,
+    developerEnabled: Boolean,
+    onDeveloperEnabledChange: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val app = context.applicationContext as AhuPlusApplication
+    val scrollState = rememberScrollState()
+    val developerUnlocker = remember { DeveloperTapUnlocker() }
+    val passwordValidator = remember { DeveloperTimePasswordValidator() }
+
+    var developerOptionRevealed by rememberSaveable { mutableStateOf(developerEnabled) }
+    var showDeveloperPasswordDialog by remember { mutableStateOf(false) }
 
     // 内测计划确认弹窗
     var showBetaPlanDialog by remember { mutableStateOf(false) }
 
     // 内部子页面导航
     var subPage by remember { mutableStateOf<AboutSubPage>(AboutSubPage.None) }
+
+    LaunchedEffect(developerEnabled) {
+        if (developerEnabled) developerOptionRevealed = true
+    }
+
+    LaunchedEffect(developerOptionRevealed, developerEnabled) {
+        if (developerOptionRevealed) {
+            // Wait for the newly revealed bottom section to participate in measurement.
+            delay(80L)
+            scrollState.animateScrollTo(scrollState.maxValue)
+        }
+    }
 
     if (showBetaPlanDialog) {
         BetaPlanEnableDialog(
@@ -83,6 +120,18 @@ fun AboutScreen(
             onClose = {
                 showBetaPlanDialog = false
             }
+        )
+    }
+
+    if (showDeveloperPasswordDialog) {
+        DeveloperPasswordDialog(
+            validator = passwordValidator,
+            onDismiss = { showDeveloperPasswordDialog = false },
+            onVerified = {
+                showDeveloperPasswordDialog = false
+                developerOptionRevealed = true
+                onDeveloperEnabledChange(true)
+            },
         )
     }
 
@@ -106,6 +155,10 @@ fun AboutScreen(
         AboutSubPage.OpenSourceLicenses -> {
             BackHandler { subPage = AboutSubPage.None }
             OpenSourceLicensesScreen(onBack = { subPage = AboutSubPage.None })
+        }
+        AboutSubPage.DeveloperCenter -> {
+            BackHandler { subPage = AboutSubPage.None }
+            DeveloperCenterScreen(onBack = { subPage = AboutSubPage.None })
         }
         AboutSubPage.None -> {
             Scaffold(
@@ -131,14 +184,38 @@ fun AboutScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(scrollState)
                         .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Spacer(modifier = Modifier.height(4.dp))
 
                     // ── 软件基本信息 ──
-                    AboutAppHeader()
+                    AboutAppHeader(
+                        onVersionClick = {
+                            if (!developerEnabled) {
+                                val result = developerUnlocker.onTap()
+                                when {
+                                    result.justUnlocked -> {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        developerOptionRevealed = true
+                                        Toast.makeText(
+                                            context,
+                                            "开发者选项已显示",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                    result.remainingTapCount in 1..3 -> {
+                                        Toast.makeText(
+                                            context,
+                                            "再点击 ${result.remainingTapCount} 次即可显示开发者选项",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                }
+                            }
+                        },
+                    )
 
                     // ── 功能入口 ──
                     ProfileSection {
@@ -219,6 +296,36 @@ fun AboutScreen(
                         )
                     }
 
+                    if (developerOptionRevealed || developerEnabled) {
+                        // 开发者入口必须是关于页最后一个功能分组。
+                        ProfileSection {
+                            SettingsSwitchRow(
+                                title = "开发者选项",
+                                description = if (developerEnabled) "已开启开发者测试功能" else "开启后进入开发者测试功能",
+                                checked = developerEnabled,
+                                onCheckedChange = { wantOn ->
+                                    if (wantOn) {
+                                        showDeveloperPasswordDialog = true
+                                    } else {
+                                        onDeveloperEnabledChange(false)
+                                        developerOptionRevealed = false
+                                        developerUnlocker.reset()
+                                    }
+                                },
+                            )
+                            if (developerEnabled) {
+                                HorizontalDivider()
+                                SettingsRow(
+                                    title = "开发者中心",
+                                    description = "诊断、测试、模拟、日志与数据工具",
+                                    iconColor = Color(0xFF455A64),
+                                    icon = { Icon(Icons.Filled.DeveloperMode, contentDescription = null) },
+                                    onClick = { subPage = AboutSubPage.DeveloperCenter },
+                                )
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(80.dp))
                 }
             }
@@ -232,10 +339,11 @@ private sealed class AboutSubPage {
     object Guide : AboutSubPage()
     object Faq : AboutSubPage()
     object OpenSourceLicenses : AboutSubPage()
+    object DeveloperCenter : AboutSubPage()
 }
 
 @Composable
-private fun AboutAppHeader() {
+private fun AboutAppHeader(onVersionClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -256,7 +364,63 @@ private fun AboutAppHeader() {
         Text(
             text = "版本 ${com.ahu_plus.BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.clickable(onClick = onVersionClick),
         )
     }
+}
+
+@Composable
+private fun DeveloperPasswordDialog(
+    validator: DeveloperTimePasswordValidator,
+    onDismiss: () -> Unit,
+    onVerified: () -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
+    var isError by remember { mutableStateOf(false) }
+
+    fun verify() {
+        if (validator.isValid(password)) {
+            onVerified()
+        } else {
+            isError = true
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("启用开发者选项") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("请输入密码")
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { value ->
+                        if (value.length <= DeveloperTimePasswordValidator.PASSWORD_LENGTH &&
+                            value.all { it in '0'..'9' }
+                        ) {
+                            password = value
+                            isError = false
+                        }
+                    },
+                    label = { Text("密码") },
+                    singleLine = true,
+                    isError = isError,
+                    supportingText = if (isError) ({ Text("密码错误") }) else null,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.NumberPassword,
+                        imeAction = ImeAction.Done,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = ::verify) { Text("确认") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
