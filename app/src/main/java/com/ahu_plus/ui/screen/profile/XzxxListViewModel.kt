@@ -3,23 +3,30 @@ package com.ahu_plus.ui.screen.profile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.XzxxLetter
+import com.ahu_plus.data.model.XzxxLetterDetail
+import com.ahu_plus.data.model.XzxxSubmitRequest
+import com.ahu_plus.data.model.XzxxSubmitResult
 import com.ahu_plus.data.repository.XzxxRepository
-import kotlinx.coroutines.Dispatchers
+import com.ahu_plus.data.repository.XzxxWafChallengeRequiredException
+import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-class XzxxListViewModel(
-    private val repository: XzxxRepository
+class XzxxViewModel(
+    private val repository: XzxxRepository,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(XzxxListUiState())
-    val uiState: StateFlow<XzxxListUiState> = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow(XzxxUiState())
+    val uiState: StateFlow<XzxxUiState> = _uiState.asStateFlow()
 
-    init { loadFirstPage() }
+    private var pendingAfterWaf: (() -> Unit)? = null
+
+    init {
+        loadFirstPage()
+    }
 
     fun loadFirstPage() {
         _uiState.update {
@@ -27,12 +34,30 @@ class XzxxListViewModel(
                 letters = emptyList(),
                 isLoading = true,
                 isLoadingMore = false,
+                loadMoreError = null,
                 error = null,
                 currentPage = 0,
                 hasMore = true,
-                letterFetchUrl = repository.listUrl(1),
-                letterFetchKey = it.letterFetchKey + 1
             )
+        }
+        viewModelScope.launch {
+            runCatching { repository.getLetters(1) }
+                .onSuccess { page ->
+                    _uiState.update {
+                        it.copy(
+                            letters = page.letters,
+                            isLoading = false,
+                            currentPage = 1,
+                            hasMore = page.hasMore,
+                            expandedIds = it.expandedIds.intersect(page.letters.mapTo(hashSetOf()) { letter -> letter.contentId }),
+                        )
+                    }
+                }
+                .onFailure { throwable ->
+                    handleFailure(throwable, retry = ::loadFirstPage) { message ->
+                        _uiState.update { it.copy(isLoading = false, error = message) }
+                    }
+                }
         }
     }
 
@@ -40,136 +65,260 @@ class XzxxListViewModel(
         val state = _uiState.value
         if (!state.hasMore || state.isLoading || state.isLoadingMore) return
         val nextPage = state.currentPage + 1
+        _uiState.update { it.copy(isLoadingMore = true, loadMoreError = null) }
+        viewModelScope.launch {
+            runCatching { repository.getLetters(nextPage) }
+                .onSuccess { page ->
+                    _uiState.update { previous ->
+                        val knownIds = previous.letters.mapTo(hashSetOf()) { it.contentId }
+                        previous.copy(
+                            letters = previous.letters + page.letters.filterNot { it.contentId in knownIds },
+                            isLoadingMore = false,
+                            currentPage = nextPage,
+                            hasMore = page.hasMore,
+                        )
+                    }
+                }
+                .onFailure { throwable ->
+                    handleFailure(throwable, retry = {
+                        _uiState.update { it.copy(isLoadingMore = false) }
+                        loadNextPage()
+                    }) { message ->
+                        _uiState.update { it.copy(isLoadingMore = false, loadMoreError = message) }
+                    }
+                }
+        }
+    }
+
+    fun toggleDetail(letter: XzxxLetter) {
+        val contentId = letter.contentId
+        val state = _uiState.value
+        if (contentId in state.expandedIds) {
+            _uiState.update { it.copy(expandedIds = it.expandedIds - contentId) }
+            return
+        }
+        _uiState.update { it.copy(expandedIds = it.expandedIds + contentId) }
+        if (state.details[contentId] == null && contentId !in state.detailLoadingIds) {
+            loadDetail(contentId)
+        }
+    }
+
+    fun retryDetail(contentId: String) {
+        _uiState.update { it.copy(detailErrors = it.detailErrors - contentId) }
+        loadDetail(contentId)
+    }
+
+    private fun loadDetail(contentId: String) {
         _uiState.update {
             it.copy(
-                isLoadingMore = true,
-                error = null,
-                letterFetchUrl = repository.listUrl(nextPage),
-                letterFetchKey = it.letterFetchKey + 1
+                detailLoadingIds = it.detailLoadingIds + contentId,
+                detailErrors = it.detailErrors - contentId,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { repository.getLetterDetail(contentId) }
+                .onSuccess { detail ->
+                    _uiState.update {
+                        it.copy(
+                            details = it.details + (contentId to detail),
+                            detailLoadingIds = it.detailLoadingIds - contentId,
+                        )
+                    }
+                }
+                .onFailure { throwable ->
+                    handleFailure(throwable, retry = { loadDetail(contentId) }) { message ->
+                        _uiState.update {
+                            it.copy(
+                                detailLoadingIds = it.detailLoadingIds - contentId,
+                                detailErrors = it.detailErrors + (contentId to message),
+                            )
+                        }
+                    }
+                }
+        }
+    }
+
+    fun openCompose() {
+        _uiState.update {
+            it.copy(
+                isComposeVisible = true,
+                captchaBytes = null,
+                captchaError = null,
+                submitResult = null,
+            )
+        }
+        prepareCompose()
+    }
+
+    fun closeCompose() {
+        if (_uiState.value.isSubmitting) return
+        _uiState.update {
+            it.copy(
+                isComposeVisible = false,
+                captchaBytes = null,
+                captchaLoading = false,
+                captchaError = null,
+                submitResult = null,
             )
         }
     }
 
-    /** 列表 HTML 加载回调。非首页自动追加到已有列表尾部。 */
-    fun onLetterHtmlLoaded(fetchUrl: String, html: String) {
-        if (fetchUrl != _uiState.value.letterFetchUrl) return
+    private fun prepareCompose() {
+        _uiState.update { it.copy(captchaLoading = true, captchaError = null) }
         viewModelScope.launch {
-            val parsed = withContext(Dispatchers.Default) {
-                XzxxRepository.parseLetterList(html, "https://www6.ahu.edu.cn")
-            }
-            val nextPageUrl = withContext(Dispatchers.Default) {
-                XzxxRepository.parseNextPageUrl(html, _uiState.value.currentPage + 1)
-            }
-            val incomingPage = pageFromUrl(fetchUrl)
+            runCatching { repository.prepareCompose() }
+                .onSuccess { captcha -> applyCaptcha(captcha.bytes) }
+                .onFailure { throwable ->
+                    handleFailure(throwable, retry = ::prepareCompose) { message ->
+                        _uiState.update { it.copy(captchaLoading = false, captchaError = message) }
+                    }
+                }
+        }
+    }
 
-            if (parsed.isEmpty()) {
+    fun refreshCaptcha() {
+        _uiState.update { it.copy(captchaLoading = true, captchaError = null) }
+        viewModelScope.launch {
+            runCatching { repository.refreshCaptcha() }
+                .onSuccess { captcha -> applyCaptcha(captcha.bytes) }
+                .onFailure { throwable ->
+                    handleFailure(throwable, retry = ::refreshCaptcha) { message ->
+                        _uiState.update { it.copy(captchaLoading = false, captchaError = message) }
+                    }
+                }
+        }
+    }
+
+    fun submitLetter(request: XzxxSubmitRequest) {
+        if (_uiState.value.isSubmitting) return
+        _uiState.update { it.copy(isSubmitting = true, submitResult = null) }
+        viewModelScope.launch {
+            runCatching { repository.submitLetter(request) }
+                .onSuccess { result ->
+                    _uiState.update { it.copy(isSubmitting = false, submitResult = result) }
+                    if (!result.success) refreshCaptcha()
+                }
+                .onFailure { throwable ->
+                    handleFailure(throwable, retry = {
+                        _uiState.update { it.copy(isSubmitting = false) }
+                        submitLetter(request)
+                    }) { message ->
+                        _uiState.update {
+                            it.copy(
+                                isSubmitting = false,
+                                submitResult = XzxxSubmitResult(false, message),
+                            )
+                        }
+                    }
+                }
+        }
+    }
+
+    fun dismissSubmitResult() {
+        val success = _uiState.value.submitResult?.success == true
+        _uiState.update { it.copy(submitResult = null) }
+        if (success) {
+            closeCompose()
+            loadFirstPage()
+        }
+    }
+
+    fun onWafCookieCaptured(cookieHeader: String) {
+        if (_uiState.value.wafValidating) return
+        _uiState.update { it.copy(wafValidating = true, wafError = null) }
+        viewModelScope.launch {
+            val accepted = runCatching { repository.acceptWafCookies(cookieHeader) }.getOrDefault(false)
+            if (accepted) {
+                val pending = pendingAfterWaf
+                pendingAfterWaf = null
+                _uiState.update { it.copy(needsWaf = false, wafValidating = false, wafError = null) }
+                pending?.invoke()
+            } else {
                 _uiState.update {
                     it.copy(
-                        isLoading = false, isLoadingMore = false,
-                        hasMore = false,
-                        currentPage = maxOf(it.currentPage, incomingPage)
+                        wafValidating = false,
+                        wafError = "安全校验未通过，请重试",
                     )
                 }
-                return@launch
-            }
-
-            val isFirstLoad = _uiState.value.currentPage == 0
-            _uiState.update { prev ->
-                val merged = if (isFirstLoad) {
-                    parsed
-                } else {
-                    val existing = prev.letters.map { it.url }.toHashSet()
-                    prev.letters + parsed.filterNot { it.url in existing }
-                }
-                prev.copy(
-                    letters = merged,
-                    isLoading = false, isLoadingMore = false,
-                    currentPage = maxOf(prev.currentPage, incomingPage),
-                    hasMore = nextPageUrl != null
-                )
             }
         }
     }
 
-    fun onLetterHtmlError(fetchUrl: String, message: String) {
-        if (fetchUrl != _uiState.value.letterFetchUrl) return
-        val isFirstLoad = _uiState.value.currentPage == 0
-        _uiState.update {
-            if (isFirstLoad) it.copy(isLoading = false, error = message)
-            else it.copy(isLoadingMore = false, error = message)
-        }
+    fun onWafBootstrapError(message: String) {
+        if (!_uiState.value.needsWaf) return
+        _uiState.update { it.copy(wafValidating = false, wafError = message) }
     }
 
-    /** 展开/折叠一条信件的详情。 */
-    fun toggleDetail(letter: XzxxLetter) {
-        val idx = _uiState.value.letters.indexOfFirst { it.contentId == letter.contentId }
-        if (idx < 0) return
-        val cur = _uiState.value.letters[idx]
-        if (cur.isExpanded) {
-            _uiState.update {
-                it.copy(letters = it.letters.toMutableList().also { l ->
-                    l[idx] = cur.copy(detail = null, detailError = null)
-                })
-            }
-        } else {
-            _uiState.update {
-                it.copy(detailFetchUrl = repository.detailUrl(letter.contentId),
-                    detailFetchKey = it.detailFetchKey + 1)
-            }
-        }
-    }
-
-    fun onDetailHtmlLoaded(fetchUrl: String, html: String) {
-        if (fetchUrl != _uiState.value.detailFetchUrl) return
-        viewModelScope.launch {
-            val detail = withContext(Dispatchers.Default) {
-                XzxxRepository.parseLetterDetail(html)
-            }
-            val cid = Regex("""contentid=(\d+)""").find(fetchUrl)?.groupValues?.get(1).orEmpty()
-            val idx = _uiState.value.letters.indexOfFirst { it.contentId == cid }
-            if (idx < 0) return@launch
-            _uiState.update {
-                it.copy(
-                    letters = it.letters.toMutableList().also { l ->
-                        l[idx] = if (detail != null) l[idx].copy(detail = detail)
-                        else l[idx].copy(detailError = "暂未获取到内容")
-                    },
-                    detailFetchUrl = null
-                )
-            }
-        }
-    }
-
-    fun onDetailHtmlError(fetchUrl: String, message: String) {
-        val cid = Regex("""contentid=(\d+)""").find(fetchUrl)?.groupValues?.get(1).orEmpty()
-        val idx = _uiState.value.letters.indexOfFirst { it.contentId == cid }
-        if (idx < 0) return
+    fun retryWafBootstrap() {
         _uiState.update {
             it.copy(
-                letters = it.letters.toMutableList().also { l ->
-                    l[idx] = l[idx].copy(detailError = message)
-                },
-                detailFetchUrl = null
+                wafError = null,
+                wafValidating = false,
+                wafReloadKey = it.wafReloadKey + 1,
             )
         }
     }
 
-    private fun pageFromUrl(url: String): Int =
-        Regex("""page=(\d+)""").find(url)?.groupValues?.get(1)?.toIntOrNull()
-            ?: Regex("""list(\d+)\.htm""", RegexOption.IGNORE_CASE).find(url)
-                ?.groupValues?.get(1)?.toIntOrNull()
-            ?: 1
+    fun challengeUrl(): String = repository.challengeUrl()
+
+    private fun applyCaptcha(bytes: ByteArray) {
+        _uiState.update {
+            it.copy(
+                captchaBytes = bytes,
+                captchaLoading = false,
+                captchaError = null,
+                captchaRevision = it.captchaRevision + 1,
+            )
+        }
+    }
+
+    private fun handleFailure(
+        throwable: Throwable,
+        retry: () -> Unit,
+        onRegularError: (String) -> Unit,
+    ) {
+        if (throwable is XzxxWafChallengeRequiredException) {
+            pendingAfterWaf = retry
+            _uiState.update {
+                it.copy(
+                    needsWaf = true,
+                    wafValidating = false,
+                    wafError = null,
+                    wafReloadKey = it.wafReloadKey + 1,
+                )
+            }
+        } else {
+            onRegularError(throwable.userMessage())
+        }
+    }
+
+    private fun Throwable.userMessage(): String = when (this) {
+        is IOException -> message ?: "网络请求失败"
+        else -> message ?: "加载失败，请稍后重试"
+    }
 }
 
-data class XzxxListUiState(
+data class XzxxUiState(
     val letters: List<XzxxLetter> = emptyList(),
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val error: String? = null,
+    val loadMoreError: String? = null,
     val currentPage: Int = 0,
     val hasMore: Boolean = true,
-    val letterFetchUrl: String? = null,
-    val letterFetchKey: Int = 0,
-    val detailFetchUrl: String? = null,
-    val detailFetchKey: Int = 0
+    val expandedIds: Set<String> = emptySet(),
+    val detailLoadingIds: Set<String> = emptySet(),
+    val details: Map<String, XzxxLetterDetail> = emptyMap(),
+    val detailErrors: Map<String, String> = emptyMap(),
+    val isComposeVisible: Boolean = false,
+    val captchaBytes: ByteArray? = null,
+    val captchaLoading: Boolean = false,
+    val captchaError: String? = null,
+    val captchaRevision: Int = 0,
+    val isSubmitting: Boolean = false,
+    val submitResult: XzxxSubmitResult? = null,
+    val needsWaf: Boolean = false,
+    val wafValidating: Boolean = false,
+    val wafError: String? = null,
+    val wafReloadKey: Int = 0,
 )

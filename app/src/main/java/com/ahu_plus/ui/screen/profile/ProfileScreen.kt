@@ -369,7 +369,10 @@ fun ProfileScreen(
         )
     } else if (showXzxx) {
         BackHandler(enabled = true) { showXzxx = false }
-        XzxxScreen(onBack = { showXzxx = false })
+        XzxxScreen(
+            onBack = { showXzxx = false },
+            repository = app.xzxxRepository,
+        )
     } else if (showGuide) {
         BackHandler(enabled = true) { showGuide = false }
         GuideScreen(
