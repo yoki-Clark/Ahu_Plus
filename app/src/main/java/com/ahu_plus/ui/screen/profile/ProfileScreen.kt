@@ -162,6 +162,11 @@ fun ProfileScreen(
     guideIntroSeen: Boolean = true,
     /** 首次展示帮助弹窗后落盘标记。 */
     onGuideIntroSeen: () -> Unit = {},
+    bottomNavServices: List<String> = emptyList(),
+    onBottomNavServicesChanged: (List<String>) -> Unit = {},
+    onOpenScheduleSettings: () -> Unit = {},
+    onOpenMarketSettings: () -> Unit = {},
+    onOpenChaoxingSettings: () -> Unit = {},
     isLoggedIn: Boolean,
     onLogin: () -> Unit,
     onLogout: () -> Unit
@@ -387,6 +392,27 @@ fun ProfileScreen(
             onQrBrightnessBoostChanged = cardViewModel::setQrBrightnessBoost,
             adwmhConcurrentRetry = cardViewModel.getAdwmhConcurrentRetry(),
             onAdwmhConcurrentRetryChanged = cardViewModel::setAdwmhConcurrentRetry,
+            cardBalanceAlertEnabled = cardViewModel.getCardBalanceAlertEnabled(),
+            cardBalanceAlertThreshold = cardViewModel.getCardBalanceAlertThreshold(),
+            onCardBalanceAlertEnabledChanged = cardViewModel::setCardBalanceAlertEnabled,
+            onCardBalanceAlertThresholdChanged = cardViewModel::setCardBalanceAlertThreshold,
+            bottomNavServices = bottomNavServices,
+            marketEnabled = marketUiState.thirdPartyServicesEnabled && marketUiState.marketChildEnabled,
+            chaoxingEnabled = marketUiState.thirdPartyServicesEnabled && marketUiState.chaoxingChildEnabled,
+            welearnEnabled = marketUiState.thirdPartyServicesEnabled && marketUiState.welearnChildEnabled,
+            onBottomNavServicesChanged = onBottomNavServicesChanged,
+            onOpenScheduleSettings = {
+                showSettings = false
+                onOpenScheduleSettings()
+            },
+            onOpenMarketSettings = {
+                showSettings = false
+                onOpenMarketSettings()
+            },
+            onOpenChaoxingSettings = {
+                showSettings = false
+                onOpenChaoxingSettings()
+            },
             onOpenCacheCleanup = {
                 showCacheCleanup = true
                 showSettings = false

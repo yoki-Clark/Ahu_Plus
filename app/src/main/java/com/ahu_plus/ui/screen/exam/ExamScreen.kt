@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +57,7 @@ import com.ahu_plus.ui.components.CenteredError
 import com.ahu_plus.ui.components.CenteredLoader
 import com.ahu_plus.ui.components.CenteredMessage
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.CollapsibleSection
 import java.text.SimpleDateFormat
@@ -86,15 +87,17 @@ fun ExamScreen(
                     TextButton(onClick = onOpenPrediction) {
                         Text("预测", fontWeight = FontWeight.Bold)
                     }
-                    IconButton(onClick = viewModel::onRefresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                    }
                 }
             )
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
-        when {
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = viewModel::onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            when {
             uiState.isLoading && uiState.exams.isEmpty() -> {
                 CenteredLoader(modifier = Modifier.padding(innerPadding))
             }
@@ -150,12 +153,17 @@ fun ExamScreen(
                             }
                         }
                     }
+                    uiState.dataStatus?.let { status ->
+                        item(key = "data_status") { DataStatusFooter(status) }
+                    }
                     item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
             }
         }
     }
 }
+}
+
 
 @Composable
 private fun ExamRow(exam: Exam, isFinished: Boolean = false) {

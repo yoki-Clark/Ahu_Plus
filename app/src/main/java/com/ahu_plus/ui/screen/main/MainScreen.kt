@@ -2,7 +2,9 @@ package com.ahu_plus.ui.screen.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
@@ -21,6 +23,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +41,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import android.app.Activity
 import android.widget.Toast
@@ -48,6 +55,7 @@ import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.MainActivity
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.local.BottomNavService
 import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.repository.AdwmhCardRepository
@@ -65,6 +73,7 @@ import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.YcardRepository
 import com.ahu_plus.ui.screen.apps.AppHubScreen
 import com.ahu_plus.ui.screen.chaoxing.ChaoxingTabScreen
+import com.ahu_plus.ui.screen.chaoxing.ChaoxingSubTab
 import com.ahu_plus.ui.screen.welearn.WeLearnCourseDetailScreen
 import com.ahu_plus.ui.screen.welearn.WeLearnMainScreen
 import com.ahu_plus.ui.screen.welearn.WeLearnStudyScreen
@@ -102,6 +111,13 @@ private const val TAB_CHAOXING = 2
 private const val TAB_WELEARN = 3
 private const val TAB_APPS = 4
 private const val TAB_PROFILE = 5
+
+private data class TopLevelDestination(
+    val tab: Int,
+    val label: String,
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector,
+)
 
 private const val HOME_DASHBOARD = 0
 private const val HOME_SCHEDULE = 1
@@ -223,6 +239,8 @@ fun MainScreen(
     var recentApps by remember { mutableStateOf(sessionManager.getRecentApps()) }
     // 首页"我的收藏"应用列表 (mutableStateOf 保证 onFavoriteIdsChange 后 UI 立即刷新)
     var favoriteIds by remember { mutableStateOf(sessionManager.getFavoriteAppIds()) }
+    var bottomNavServices by remember { mutableStateOf(sessionManager.getBottomNavServices()) }
+    var requestedChaoxingSubTab by remember { mutableStateOf<ChaoxingSubTab?>(null) }
     // 使用帮助首开弹窗：本会话内只弹一次，标记后即时生效（避免同会话二次进入重弹）
     var guideIntroSeen by remember { mutableStateOf(sessionManager.getGuideIntroSeen()) }
     val scope = rememberCoroutineScope()
@@ -233,6 +251,15 @@ fun MainScreen(
         { ids: List<String> ->
             favoriteIds = ids
             scope.launch { sessionManager.saveFavoriteAppIds(ids) }
+        }
+    }
+    val onBottomNavServicesChange: (List<String>) -> Unit = remember {
+        { services: List<String> ->
+            bottomNavServices = services.distinct().take(2)
+            scope.launch {
+                sessionManager.setBottomNavServices(bottomNavServices)
+                bottomNavServices = sessionManager.getBottomNavServices()
+            }
         }
     }
 
@@ -341,6 +368,22 @@ fun MainScreen(
     val marketVisible = thirdPartyEnabled && marketUiState.marketChildEnabled
     val chaoxingVisible = thirdPartyEnabled && marketUiState.chaoxingChildEnabled
     val welearnVisible = thirdPartyEnabled && marketUiState.welearnChildEnabled
+    val marketPinned = marketVisible && BottomNavService.MARKET in bottomNavServices
+    val chaoxingPinned = chaoxingVisible && BottomNavService.CHAOXING in bottomNavServices
+    val welearnPinned = welearnVisible && BottomNavService.WELEARN in bottomNavServices
+
+    LaunchedEffect(marketVisible, chaoxingVisible, welearnVisible) {
+        val enabled = buildSet {
+            if (marketVisible) add(BottomNavService.MARKET)
+            if (chaoxingVisible) add(BottomNavService.CHAOXING)
+            if (welearnVisible) add(BottomNavService.WELEARN)
+        }
+        val normalized = bottomNavServices.filter { it in enabled }.distinct().take(2)
+        if (normalized != bottomNavServices) {
+            bottomNavServices = normalized
+            sessionManager.setBottomNavServices(normalized)
+        }
+    }
 
     LaunchedEffect(selectedTab, marketVisible, chaoxingVisible, welearnVisible) {
         val hiddenThirdPartyTab =
@@ -405,13 +448,48 @@ fun MainScreen(
         if (selectedTab == TAB_PROFILE) studentInfoViewModel.activate()
     }
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
-    val showBottomNavigation = selectedTab != TAB_MARKET || (
+    val showTopLevelNavigation = selectedTab != TAB_MARKET || (
         marketUiState.selectedTopic == null &&
             !marketUiState.showCompose &&
             !marketUiState.showSettings &&
             !marketUiState.showHotTopics &&
             !marketUiState.showNotices
         )
+    val useNavigationRail = LocalConfiguration.current.screenWidthDp >= 600
+    val navigationDestinations = buildList {
+        add(TopLevelDestination(TAB_HOME, "首页", Icons.Filled.Home, Icons.Outlined.Home))
+        if (marketPinned) {
+            add(TopLevelDestination(TAB_MARKET, "集市", Icons.Filled.Storefront, Icons.Outlined.Storefront))
+        }
+        if (chaoxingPinned) {
+            add(TopLevelDestination(TAB_CHAOXING, "学习通", Icons.Filled.School, Icons.Outlined.School))
+        }
+        if (welearnPinned) {
+            add(
+                TopLevelDestination(
+                    TAB_WELEARN,
+                    "WeLearn",
+                    Icons.AutoMirrored.Filled.LibraryBooks,
+                    Icons.AutoMirrored.Outlined.LibraryBooks,
+                )
+            )
+        }
+        add(TopLevelDestination(TAB_APPS, "应用", Icons.Filled.Apps, Icons.Outlined.Apps))
+        add(TopLevelDestination(TAB_PROFILE, "我的", Icons.Filled.Person, Icons.Outlined.Person))
+    }
+    val onSelectTopLevelDestination: (Int) -> Unit = { tab ->
+        when (tab) {
+            TAB_HOME -> {
+                selectedTab = TAB_HOME
+                homePage = HOME_DASHBOARD
+            }
+            TAB_APPS -> {
+                appHubTarget = null
+                selectedTab = TAB_APPS
+            }
+            else -> selectedTab = tab
+        }
+    }
 
     Scaffold(
         // 顶层 Scaffold 不消耗系统栏 inset:顶部由各内层屏 (DashboardScreen/ScheduleScreen/
@@ -421,177 +499,24 @@ fun MainScreen(
         contentWindowInsets = WindowInsets(0),
         snackbarHost = { androidx.compose.material3.SnackbarHost(initSnackbarHostState) },
         bottomBar = {
-            if (showBottomNavigation) NavigationBar(
-                tonalElevation = 0.dp,
-                containerColor = MaterialTheme.colorScheme.surface,
-            ) {
-                NavigationBarItem(
-                    selected = selectedTab == TAB_HOME,
-                    onClick = {
-                        selectedTab = TAB_HOME
-                        homePage = HOME_DASHBOARD
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == TAB_HOME) Icons.Filled.Home
-                            else Icons.Outlined.Home,
-                            contentDescription = "首页"
-                        )
-                    },
-                    label = {
-                        Text(
-                            "首页",
-                            fontWeight = if (selectedTab == TAB_HOME) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    alwaysShowLabel = true,
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                )
-                if (marketVisible) {
-                    NavigationBarItem(
-                        selected = selectedTab == TAB_MARKET,
-                        onClick = { selectedTab = TAB_MARKET },
-                        icon = {
-                            Icon(
-                                imageVector = if (selectedTab == TAB_MARKET) Icons.Filled.Storefront
-                                else Icons.Outlined.Storefront,
-                                contentDescription = "集市"
-                            )
-                        },
-                        label = {
-                            Text(
-                                "集市",
-                                fontWeight = if (selectedTab == TAB_MARKET) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        alwaysShowLabel = true,
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    )
-                }
-                if (chaoxingVisible) {
-                    NavigationBarItem(
-                        selected = selectedTab == TAB_CHAOXING,
-                        onClick = { selectedTab = TAB_CHAOXING },
-                        icon = {
-                            Icon(
-                                imageVector = if (selectedTab == TAB_CHAOXING) Icons.Filled.School
-                                else Icons.Outlined.School,
-                                contentDescription = "学习通"
-                            )
-                        },
-                        label = {
-                            Text(
-                                "学习通",
-                                fontWeight = if (selectedTab == TAB_CHAOXING) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        alwaysShowLabel = true,
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    )
-                }
-                // WeLearn 随行课堂 (2026-06-27 新增, 2026-06-28 移入第三方服务)
-                if (welearnVisible) {
-                    NavigationBarItem(
-                        selected = selectedTab == TAB_WELEARN,
-                        onClick = { selectedTab = TAB_WELEARN },
-                        icon = {
-                            Icon(
-                                imageVector = if (selectedTab == TAB_WELEARN) Icons.AutoMirrored.Filled.LibraryBooks
-                                else Icons.AutoMirrored.Outlined.LibraryBooks,
-                                contentDescription = "WeLearn"
-                            )
-                        },
-                        label = {
-                            Text(
-                                "WeLearn",
-                                fontWeight = if (selectedTab == TAB_WELEARN) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        alwaysShowLabel = true,
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    )
-                }
-                NavigationBarItem(
-                    selected = selectedTab == TAB_APPS,
-                    onClick = {
-                        appHubTarget = null
-                        selectedTab = TAB_APPS
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == TAB_APPS) Icons.Filled.Apps
-                            else Icons.Outlined.Apps,
-                            contentDescription = "应用"
-                        )
-                    },
-                    label = {
-                        Text(
-                            "应用",
-                            fontWeight = if (selectedTab == TAB_APPS) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    alwaysShowLabel = true,
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                )
-                NavigationBarItem(
-                    selected = selectedTab == TAB_PROFILE,
-                    onClick = { selectedTab = TAB_PROFILE },
-                    icon = {
-                        Icon(
-                            imageVector = if (selectedTab == TAB_PROFILE) Icons.Filled.Person
-                            else Icons.Outlined.Person,
-                            contentDescription = "我的"
-                        )
-                    },
-                    label = {
-                        Text(
-                            "我的",
-                            fontWeight = if (selectedTab == TAB_PROFILE) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    alwaysShowLabel = true,
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            if (showTopLevelNavigation && !useNavigationRail) {
+                TopLevelNavigationBar(
+                    destinations = navigationDestinations,
+                    selectedTab = selectedTab,
+                    onSelect = onSelectTopLevelDestination,
                 )
             }
         }
     ) { innerPadding ->
-        Box(modifier = Modifier.padding(innerPadding)) {
+        Row(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            if (showTopLevelNavigation && useNavigationRail) {
+                TopLevelNavigationRail(
+                    destinations = navigationDestinations,
+                    selectedTab = selectedTab,
+                    onSelect = onSelectTopLevelDestination,
+                )
+            }
+            Box(modifier = Modifier.weight(1f).fillMaxSize()) {
             when {
                 (!marketVisible && selectedTab == TAB_MARKET) ||
                     (!chaoxingVisible && selectedTab == TAB_CHAOXING) ||
@@ -781,6 +706,8 @@ fun MainScreen(
                 selectedTab == TAB_CHAOXING -> ChaoxingTabScreen(
                     viewModel = chaoxingViewModel,
                     onSwitchToAppsTab = { selectedTab = TAB_APPS },
+                    requestedSubTab = requestedChaoxingSubTab,
+                    onRequestedSubTabConsumed = { requestedChaoxingSubTab = null },
                 )
                 selectedTab == TAB_WELEARN -> {
                     // WeLearn 内部三段式:课程列表 → 课程详情(单元+章节) → 刷课控制
@@ -833,9 +760,12 @@ fun MainScreen(
                     emptyClassroomViewModel = emptyClassroomViewModel,
                     cardViewModel = cardViewModel,
                     jwcNoticeListViewModel = jwcNoticeListViewModel,
+                    jwcNoticeViewModel = jwcNoticeViewModel,
+                    chaoxingViewModel = chaoxingViewModel,
                     studentInfoViewModel = studentInfoViewModel,
                     financeViewModel = financeViewModel,
                     attendanceViewModel = attendanceViewModel,
+                    marketViewModel = marketViewModel,
                     weatherViewModel = weatherViewModel,
                     agendaViewModel = agendaViewModel,
                     evaluationViewModel = evaluationViewModel,
@@ -844,6 +774,30 @@ fun MainScreen(
                     onRecordApp = recordApp,
                     hasCredentials = hasCredentials,
                     authRefreshVersion = authRefreshVersion,
+                    marketEnabled = marketVisible,
+                    chaoxingEnabled = chaoxingVisible,
+                    welearnEnabled = welearnVisible,
+                    onOpenMarket = {
+                        previousTab = TAB_APPS
+                        selectedTab = TAB_MARKET
+                    },
+                    onOpenChaoxing = {
+                        previousTab = TAB_APPS
+                        selectedTab = TAB_CHAOXING
+                    },
+                    onOpenWelearn = {
+                        previousTab = TAB_APPS
+                        selectedTab = TAB_WELEARN
+                    },
+                    onOpenMarketFromMessages = {
+                        previousTab = TAB_APPS
+                        selectedTab = TAB_MARKET
+                    },
+                    onOpenChaoxingFromMessages = {
+                        previousTab = TAB_APPS
+                        requestedChaoxingSubTab = ChaoxingSubTab.MESSAGES
+                        selectedTab = TAB_CHAOXING
+                    },
                     onNeedsLogin = onReauth
                 )
                 selectedTab == TAB_PROFILE -> ProfileScreen(
@@ -864,6 +818,21 @@ fun MainScreen(
                     onGuideIntroSeen = {
                         guideIntroSeen = true
                         scope.launch { sessionManager.setGuideIntroSeen() }
+                    },
+                    bottomNavServices = bottomNavServices,
+                    onBottomNavServicesChanged = onBottomNavServicesChange,
+                    onOpenScheduleSettings = {
+                        scheduleViewModel.onToggleSettings()
+                        selectedTab = TAB_HOME
+                        homePage = HOME_SCHEDULE
+                    },
+                    onOpenMarketSettings = {
+                        marketViewModel.openSettings()
+                        selectedTab = TAB_MARKET
+                    },
+                    onOpenChaoxingSettings = {
+                        requestedChaoxingSubTab = ChaoxingSubTab.SETTINGS
+                        selectedTab = TAB_CHAOXING
                     },
                     isLoggedIn = hasCredentials,
                     onLogin = onLogin,
@@ -919,6 +888,88 @@ fun MainScreen(
                     onNeedsLogin = onReauth
                 )
             }       // when close (含 else 分支)
-        }       // Box close
+            }       // Box close
+        }       // Row close
     }       // Scaffold trailing lambda close
 }       // MainScreen close
+
+@Composable
+private fun TopLevelNavigationBar(
+    destinations: List<TopLevelDestination>,
+    selectedTab: Int,
+    onSelect: (Int) -> Unit,
+) {
+    NavigationBar(
+        tonalElevation = 0.dp,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        destinations.forEach { destination ->
+            val selected = selectedTab == destination.tab
+            NavigationBarItem(
+                selected = selected,
+                onClick = { onSelect(destination.tab) },
+                icon = {
+                    Icon(
+                        imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
+                        contentDescription = null,
+                    )
+                },
+                label = {
+                    Text(
+                        destination.label,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1,
+                    )
+                },
+                alwaysShowLabel = true,
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TopLevelNavigationRail(
+    destinations: List<TopLevelDestination>,
+    selectedTab: Int,
+    onSelect: (Int) -> Unit,
+) {
+    NavigationRail(
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        destinations.forEach { destination ->
+            val selected = selectedTab == destination.tab
+            NavigationRailItem(
+                selected = selected,
+                onClick = { onSelect(destination.tab) },
+                icon = {
+                    Icon(
+                        imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
+                        contentDescription = null,
+                    )
+                },
+                label = {
+                    Text(
+                        destination.label,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1,
+                    )
+                },
+                alwaysShowLabel = true,
+                colors = NavigationRailItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            )
+        }
+    }
+}

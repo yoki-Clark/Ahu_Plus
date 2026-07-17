@@ -4,6 +4,7 @@ import com.ahu_plus.ui.components.CenteredLoader
 import com.ahu_plus.ui.components.CenteredError
 import com.ahu_plus.ui.components.CenteredMessage
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,7 +24,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,6 +37,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SelectableDates
@@ -42,6 +45,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,12 +69,14 @@ import com.ahu_plus.data.model.AhuUnitTimes
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.repository.FreeRoomResult
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuGreen
 import com.ahu_plus.ui.theme.AhuOrange
 import com.ahu_plus.ui.theme.AhuRed
 import kotlinx.coroutines.delay
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 private val FreeGreen = AhuGreen
 private val FreeOrange = AhuOrange
@@ -119,25 +125,22 @@ fun EmptyClassroomScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                },
-                actions = {
-                    if (uiState.hasBuildingSelected) {
-                        IconButton(onClick = viewModel::onRefresh) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                        }
-                    }
                 }
             )
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = viewModel::onRefresh,
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
             // ── 选择区域（始终可见）──────────────────────
             item { SelectorArea(uiState = uiState, viewModel = viewModel) }
 
@@ -208,6 +211,13 @@ fun EmptyClassroomScreen(
                     item { Spacer(modifier = Modifier.height(16.dp)) }
                 }
             }
+            uiState.dataStatus?.let { status ->
+                item(key = "data-status") {
+                    DataStatusFooter(status = status)
+                }
+            }
+            item { Spacer(modifier = Modifier.height(16.dp)) }
+            }
         }
     }
 }
@@ -220,6 +230,53 @@ private fun SelectorArea(
     uiState: EmptyClassroomUiState,
     viewModel: EmptyClassroomViewModel
 ) {
+    if (uiState.presets.isNotEmpty() || uiState.hasBuildingSelected) {
+        Text(
+            text = "快捷方案",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            uiState.presets.forEach { preset ->
+                val currentOffset = ChronoUnit.DAYS.between(
+                    DebugClock.todayDate(),
+                    uiState.selectedDate,
+                ).toInt()
+                val selected = preset.campusId == uiState.selectedCampusId &&
+                    preset.buildingId == uiState.selectedBuildingId &&
+                    preset.floor == uiState.selectedFloor &&
+                    preset.dayOffset == currentOffset &&
+                    preset.continuousFree == uiState.continuousFree
+                InputChip(
+                    selected = selected,
+                    onClick = { viewModel.applyPreset(preset) },
+                    label = { Text(preset.title) },
+                    trailingIcon = {
+                        IconButton(onClick = { viewModel.deletePreset(preset.id) }) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "删除${preset.title}",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    },
+                )
+            }
+            if (uiState.hasBuildingSelected) {
+                FilledTonalButton(onClick = viewModel::saveCurrentPreset) {
+                    Icon(Icons.Filled.BookmarkAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("保存当前")
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+
     // Header 文本三态:今天-有当前节 / 今天-课程已结束 / 非今天-全天
     val unitInfo = when {
         !uiState.isSelectedDateToday -> "全天"

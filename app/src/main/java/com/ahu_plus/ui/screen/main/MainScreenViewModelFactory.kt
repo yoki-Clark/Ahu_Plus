@@ -71,7 +71,7 @@ class MainScreenViewModelFactory(
         val app = application as AhuPlusApplication
         return when (modelClass) {
             HomeViewModel::class.java -> HomeViewModel(
-                cardRepository, casAuthRepository, ycardRepository, sessionManager,
+                app, cardRepository, casAuthRepository, ycardRepository, sessionManager,
                 studentInfoRepository, adwmhCardRepository,
             ) as T
             ScheduleViewModel::class.java -> ScheduleViewModel(

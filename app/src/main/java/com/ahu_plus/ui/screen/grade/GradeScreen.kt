@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Grade
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,6 +59,7 @@ import com.ahu_plus.data.model.jw.GpaMetadata
 import com.ahu_plus.data.model.jw.Grade
 import com.ahu_plus.data.model.jw.SemesterGpaEntry
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuGradient
 
@@ -99,11 +100,6 @@ fun GradeScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                actions = {
-                    IconButton(onClick = viewModel::onRefresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                    }
-                }
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -116,8 +112,13 @@ fun GradeScreen(
             )
         }
 
-        val allGradesEmpty = uiState.gradesBySemester.isEmpty()
-        when {
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = viewModel::onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            val allGradesEmpty = uiState.gradesBySemester.isEmpty()
+            when {
             uiState.isLoading && allGradesEmpty -> {
                 CenteredLoader(modifier = Modifier.padding(innerPadding))
             }
@@ -197,12 +198,17 @@ fun GradeScreen(
                             )
                         }
                     }
+                    uiState.dataStatus?.let { status ->
+                        item(key = "data_status") { DataStatusFooter(status) }
+                    }
                     item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
             }
         }
     }
 }
+}
+
 
 
 // ═══════════════════════ GPA Summary Card ═══════════════════════

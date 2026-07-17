@@ -34,8 +34,11 @@ internal val Context.ahuPlusDataStore: DataStore<Preferences>
  */
 class AppDataStore(context: Context) {
 
-    private val ds: DataStore<Preferences> = context.applicationContext.ahuPlusDataStore
+    private val appContext = context.applicationContext
+    private val ds: DataStore<Preferences> = appContext.ahuPlusDataStore
     private val gson: Gson = GsonProvider.instance
+
+    internal val credentialStore = EncryptedCredentialStore(appContext)
 
     /** 暴露原始 DataStore,供 SessionManager 沿用其原有 key 体系 */
     val dataStore: DataStore<Preferences> get() = ds

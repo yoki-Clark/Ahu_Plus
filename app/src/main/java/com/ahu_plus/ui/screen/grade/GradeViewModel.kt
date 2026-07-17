@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.jw.GpaMetadata
 import com.ahu_plus.data.model.jw.Grade
 import com.ahu_plus.data.local.DataRefreshPolicy
+import com.ahu_plus.data.local.DataSnapshotStatus
 import com.ahu_plus.data.repository.GradeRepository
 import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.JwAuthRepository
@@ -42,7 +43,9 @@ class GradeViewModel(
     }
 
     fun onRefresh() {
-        viewModelScope.launch { loadGrades(isRefresh = false) }
+        viewModelScope.launch {
+            loadGrades(isRefresh = _uiState.value.gradesBySemester.isNotEmpty())
+        }
     }
 
     fun selectSemester(semesterId: Int) {
@@ -86,6 +89,7 @@ class GradeViewModel(
                                 ?: resp.semesters?.firstOrNull { s -> s.id == id }?.nameZh
                         },
                         gpaMetadata = gpa,
+                        dataStatus = DataSnapshotStatus.cache(sm.getGradesUpdatedAt()),
                         error = null,
                         needsLogin = false
                     )
@@ -98,6 +102,8 @@ class GradeViewModel(
     private suspend fun loadGrades(isRefresh: Boolean) {
         if (!isRefresh) {
             _uiState.update { it.copy(isLoading = true, error = null) }
+        } else {
+            _uiState.update { it.copy(isRefreshing = true) }
         }
         val wasLoaded = _uiState.value.gradesBySemester.isNotEmpty()
         try {
@@ -146,6 +152,10 @@ class GradeViewModel(
                                 },
                                 // I-012 fix: GPA fetch 失败时保留缓存的旧值，不用 null 覆盖
                                 gpaMetadata = gpaResult.getOrNull() ?: it.gpaMetadata,
+                                isRefreshing = false,
+                                dataStatus = DataSnapshotStatus.network(
+                                    sm?.getGradesUpdatedAt() ?: System.currentTimeMillis()
+                                ),
                                 error = null,
                                 needsLogin = false
                             )
@@ -156,7 +166,9 @@ class GradeViewModel(
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
+                                isRefreshing = false,
                                 error = if (!wasLoaded) (e.message ?: "成绩加载失败") else it.error,
+                                dataStatus = it.dataStatus?.withFailedRefresh(),
                                 needsLogin = !wasLoaded &&
                                     (e is SessionExpiredException || e is JwAuthException),
                                 // I-012 fix: grades 失败时不覆盖已缓存的 gpaMetadata
@@ -169,7 +181,9 @@ class GradeViewModel(
             _uiState.update {
                 it.copy(
                     isLoading = false,
+                    isRefreshing = false,
                     error = if (!wasLoaded) "未知错误: ${e.message}" else it.error,
+                    dataStatus = it.dataStatus?.withFailedRefresh(),
                     needsLogin = !wasLoaded &&
                         (e is SessionExpiredException || e is JwAuthException)
                 )
@@ -225,6 +239,7 @@ class GradeViewModel(
 
 data class GradeUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val gradesBySemester: Map<String, List<Grade>> = emptyMap(),
     val availableSemesterIds: List<Int> = emptyList(),
     val selectedSemesterId: Int? = null,
@@ -232,6 +247,7 @@ data class GradeUiState(
     val gpaMetadata: GpaMetadata? = null,
     val selectedGrade: Grade? = null,
     val error: String? = null,
+    val dataStatus: DataSnapshotStatus? = null,
     val needsLogin: Boolean = false
 ) {
     val currentGrades: List<Grade>

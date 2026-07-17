@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.local.DataRefreshPolicy
+import com.ahu_plus.data.local.DataSnapshotStatus
 import com.ahu_plus.data.model.jw.CompletionCourse
 import com.ahu_plus.data.model.jw.CompletionSummary
 import com.ahu_plus.data.model.jw.GradeResponse
@@ -49,7 +50,7 @@ class TrainingPlanViewModel(
     }
 
     fun onRefresh() {
-        viewModelScope.launch { loadAll(isRefresh = false) }
+        viewModelScope.launch { loadAll(isRefresh = true) }
     }
 
     fun toggleExpand(moduleId: Int) {
@@ -78,6 +79,9 @@ class TrainingPlanViewModel(
                     applyScheduleCache(scheduleJson)
                 }
             }
+            _uiState.update {
+                it.copy(dataStatus = DataSnapshotStatus.cache(sm.getTrainingPlanUpdatedAt()))
+            }
             true
         } catch (_: Exception) { false }
     }
@@ -85,6 +89,8 @@ class TrainingPlanViewModel(
     private suspend fun loadAll(isRefresh: Boolean) {
         if (!isRefresh) {
             _uiState.update { it.copy(isLoading = true, error = null) }
+        } else {
+            _uiState.update { it.copy(isRefreshing = true) }
         }
         val wasLoaded = _uiState.value.topModules.isNotEmpty()
         try {
@@ -106,6 +112,9 @@ class TrainingPlanViewModel(
                             catch (_: Exception) { Log.w(TAG, "Failed to cache training plan JSON") }
                         }
                         applyTrainingPlan(resp)
+                        _uiState.update {
+                            it.copy(dataStatus = DataSnapshotStatus.network())
+                        }
                     },
                     onFailure = { e ->
                         // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
@@ -114,7 +123,10 @@ class TrainingPlanViewModel(
                                 isLoading = false,
                                 error = if (!wasLoaded) (e.message ?: "培养方案加载失败") else it.error,
                                 needsLogin = !wasLoaded &&
-                                    (e is SessionExpiredException || e is JwAuthException)
+                                    (e is SessionExpiredException || e is JwAuthException),
+                                dataStatus = if (wasLoaded) {
+                                    it.dataStatus?.withFailedRefresh()
+                                } else it.dataStatus,
                             )
                         }
                     }
@@ -133,10 +145,14 @@ class TrainingPlanViewModel(
                     isLoading = false,
                     error = if (!wasLoaded) "未知错误: ${e.message}" else it.error,
                     needsLogin = !wasLoaded &&
-                        (e is SessionExpiredException || e is JwAuthException)
+                        (e is SessionExpiredException || e is JwAuthException),
+                    dataStatus = if (wasLoaded) {
+                        it.dataStatus?.withFailedRefresh()
+                    } else it.dataStatus,
                 )
             }
         }
+        _uiState.update { it.copy(isRefreshing = false) }
     }
 
     private fun applyTrainingPlan(resp: TrainingPlanResponse) {
@@ -314,6 +330,7 @@ internal fun uniqueUnmatched(a: List<CompletionCourse>, b: List<CompletionCourse
 
 data class TrainingPlanUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val planId: Int? = null,
     val topModules: List<PlanModuleNode> = emptyList(),
     val totalRequiredCredits: Double? = null,
@@ -330,7 +347,8 @@ data class TrainingPlanUiState(
     /** 模块名 → 已通过学分 */
     val moduleCompletion: Map<String, Double> = emptyMap(),
     /** 未匹配到培养方案课程的完成数据（如通识选修的 TX 课程） */
-    val unmatchedCompletionCourses: List<CompletionCourse> = emptyList()
+    val unmatchedCompletionCourses: List<CompletionCourse> = emptyList(),
+    val dataStatus: DataSnapshotStatus? = null,
 ) {
     val totalModuleCount: Int get() = topModules.size
     val completionProgress: Float

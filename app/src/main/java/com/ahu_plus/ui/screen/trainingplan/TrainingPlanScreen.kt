@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.RemoveCircleOutline
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.Card
@@ -44,6 +43,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -65,6 +65,7 @@ import com.ahu_plus.data.model.jw.PlanCourseInfo
 import com.ahu_plus.data.model.jw.PlanEnumValue
 import com.ahu_plus.data.model.jw.PlanModuleNode
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuShapes
 
 // ── 颜色常量 ──────────────────────────────────────────────────────────
@@ -97,30 +98,30 @@ fun TrainingPlanScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                },
-                actions = {
-                    IconButton(onClick = viewModel::onRefresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                    }
                 }
             )
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = viewModel::onRefresh,
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+        ) {
         when {
             uiState.isLoading && uiState.topModules.isEmpty() -> {
-                CenteredLoader(modifier = Modifier.padding(innerPadding))
+                CenteredLoader()
             }
             uiState.error != null && uiState.topModules.isEmpty() -> {
                 CenteredError(
                     message = uiState.error!!,
                     onRetry = if (uiState.needsLogin) onNeedsLogin else viewModel::onRefresh,
                     actionLabel = if (uiState.needsLogin) "去登录" else "重试",
-                    modifier = Modifier.padding(innerPadding)
+                    modifier = Modifier.fillMaxSize()
                 )
             }
             uiState.topModules.isEmpty() -> {
-                CenteredMessage(text = "暂无培养方案数据", modifier = Modifier.padding(innerPadding))
+                CenteredMessage(text = "暂无培养方案数据")
             }
             else -> {
                 val allCourses = uiState.topModules.sumOf { countAllCourses(it) }
@@ -131,8 +132,7 @@ fun TrainingPlanScreen(
                 )
                 LazyColumn(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
+                        .fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
                 ) {
@@ -186,9 +186,15 @@ fun TrainingPlanScreen(
                         }
                     }
 
+                    uiState.dataStatus?.let { status ->
+                        item(key = "data-status") {
+                            DataStatusFooter(status = status)
+                        }
+                    }
                     item(key = "spacer") { Spacer(modifier = Modifier.height(24.dp)) }
                 }
             }
+        }
         }
     }
 }

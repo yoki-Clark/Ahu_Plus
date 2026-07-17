@@ -1,7 +1,14 @@
 package com.ahu_plus.ui.screen.profile
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -12,7 +19,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -22,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -31,10 +43,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.local.BottomNavService
+import androidx.core.content.ContextCompat
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,12 +62,44 @@ internal fun AppSettingsScreen(
     onQrBrightnessBoostChanged: (Boolean) -> Unit = {},
     adwmhConcurrentRetry: Boolean = false,
     onAdwmhConcurrentRetryChanged: (Boolean) -> Unit = {},
+    cardBalanceAlertEnabled: Boolean = false,
+    cardBalanceAlertThreshold: Double = 20.0,
+    onCardBalanceAlertEnabledChanged: (Boolean) -> Unit = {},
+    onCardBalanceAlertThresholdChanged: (Double) -> Unit = {},
+    bottomNavServices: List<String> = emptyList(),
+    marketEnabled: Boolean = false,
+    chaoxingEnabled: Boolean = false,
+    welearnEnabled: Boolean = false,
+    onBottomNavServicesChanged: (List<String>) -> Unit = {},
+    onOpenScheduleSettings: () -> Unit = {},
+    onOpenMarketSettings: () -> Unit = {},
+    onOpenChaoxingSettings: () -> Unit = {},
     onOpenCacheCleanup: () -> Unit = {},
     onBack: () -> Unit
 ) {
     // 本地状态确保开关即时响应
     var localQrBrightness by remember { mutableStateOf(qrBrightnessBoost) }
     var localAdwmhRetry by remember { mutableStateOf(adwmhConcurrentRetry) }
+    var localCardAlert by remember { mutableStateOf(cardBalanceAlertEnabled) }
+    var localCardThreshold by remember { mutableStateOf(cardBalanceAlertThreshold.toFloat()) }
+    val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        localCardAlert = granted
+        if (granted) onCardBalanceAlertEnabledChanged(true)
+    }
+    val setCardAlertEnabled: (Boolean) -> Unit = { enabled ->
+        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            localCardAlert = enabled
+            onCardBalanceAlertEnabledChanged(enabled)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -75,6 +124,94 @@ internal fun AppSettingsScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            item {
+                ProfileSection {
+                    Column {
+                        Text(
+                            text = "底部导航",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "首页、应用、我的固定显示；可再固定最多 2 个服务（已选 ${bottomNavServices.size}/2）",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        val availableServices = listOfNotNull(
+                            if (marketEnabled) BottomNavService.MARKET to "集市" else null,
+                            if (chaoxingEnabled) BottomNavService.CHAOXING to "学习通" else null,
+                            if (welearnEnabled) BottomNavService.WELEARN to "WeLearn" else null,
+                        )
+                        availableServices.forEachIndexed { index, (id, title) ->
+                            if (index > 0) HorizontalDivider()
+                            val selected = id in bottomNavServices
+                            val canSelect = selected || bottomNavServices.size < 2
+                            ListItem(
+                                headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
+                                supportingContent = {
+                                    Text(if (selected) "显示在底栏" else "仍可从应用页进入")
+                                },
+                                trailingContent = {
+                                    Checkbox(
+                                        checked = selected,
+                                        enabled = canSelect,
+                                        onCheckedChange = null,
+                                    )
+                                },
+                                modifier = Modifier.toggleable(
+                                    value = selected,
+                                    enabled = canSelect,
+                                    role = Role.Checkbox,
+                                    onValueChange = { checked ->
+                                        onBottomNavServicesChanged(
+                                            if (checked) bottomNavServices + id
+                                            else bottomNavServices - id
+                                        )
+                                    },
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                ProfileSection {
+                    Column {
+                        Text(
+                            text = "页面设置",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        SettingsRouteRow(
+                            title = "课表设置",
+                            description = "列宽、行高、字体和显示内容",
+                            icon = Icons.Filled.CalendarMonth,
+                            onClick = onOpenScheduleSettings,
+                        )
+                        if (marketEnabled) {
+                            HorizontalDivider()
+                            SettingsRouteRow(
+                                title = "集市设置",
+                                description = "身份、列表布局和内容过滤",
+                                icon = Icons.Filled.Storefront,
+                                onClick = onOpenMarketSettings,
+                            )
+                        }
+                        if (chaoxingEnabled) {
+                            HorizontalDivider()
+                            SettingsRouteRow(
+                                title = "学习通设置",
+                                description = "登录、学习策略和通知方式",
+                                icon = Icons.Filled.School,
+                                onClick = onOpenChaoxingSettings,
+                            )
+                        }
+                    }
+                }
+            }
             item {
                 ProfileSection {
                     Column {
@@ -132,6 +269,35 @@ internal fun AppSettingsScreen(
                             },
                         )
                         HorizontalDivider()
+                        SettingsSwitchRow(
+                            title = "校园卡低余额提醒",
+                            description = if (localCardAlert) {
+                                "余额刷新后低于阈值时发送通知"
+                            } else {
+                                "关闭后不发送校园卡余额通知"
+                            },
+                            checked = localCardAlert,
+                            onCheckedChange = setCardAlertEnabled,
+                        )
+                        if (localCardAlert) {
+                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text(
+                                    text = "提醒阈值：${localCardThreshold.roundToInt()} 元",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Slider(
+                                    value = localCardThreshold,
+                                    onValueChange = { localCardThreshold = (it / 5f).roundToInt() * 5f },
+                                    onValueChangeFinished = {
+                                        onCardBalanceAlertThresholdChanged(localCardThreshold.toDouble())
+                                    },
+                                    valueRange = 5f..100f,
+                                    steps = 18,
+                                )
+                            }
+                        }
+                        HorizontalDivider()
                         ListItem(
                             headlineContent = {
                                 Text("清理本地缓存", fontWeight = FontWeight.Medium)
@@ -167,6 +333,26 @@ internal fun AppSettingsScreen(
 }
 
 @Composable
+private fun SettingsRouteRow(
+    title: String,
+    description: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    ListItem(
+        headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
+        supportingContent = { Text(description) },
+        leadingContent = {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        },
+        trailingContent = {
+            Icon(Icons.Filled.ChevronRight, contentDescription = null)
+        },
+        modifier = Modifier.clickable(onClick = onClick),
+    )
+}
+
+@Composable
 internal fun SettingsSwitchRow(
     title: String,
     description: String,
@@ -187,9 +373,13 @@ internal fun SettingsSwitchRow(
             )
         },
         trailingContent = {
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
+            Switch(checked = checked, onCheckedChange = null)
         },
-        modifier = Modifier.clickable { onCheckedChange(!checked) }
+        modifier = Modifier.toggleable(
+            value = checked,
+            role = Role.Switch,
+            onValueChange = onCheckedChange,
+        ),
     )
 }
 
@@ -212,10 +402,14 @@ private fun ThemeModeRow(
         leadingContent = {
             RadioButton(
                 selected = selected,
-                onClick = onClick
+                onClick = null,
             )
         },
-        modifier = Modifier.clickable(onClick = onClick)
+        modifier = Modifier.selectable(
+            selected = selected,
+            role = Role.RadioButton,
+            onClick = onClick,
+        ),
     )
 }
 
@@ -232,4 +426,3 @@ private fun AppThemeMode.descriptionText(): String = when (this) {
 }
 
 // ─── 我的信息二级入口 (Hub) ──────────────────────────────
-

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.jw.Exam
 import com.ahu_plus.data.local.DataRefreshPolicy
+import com.ahu_plus.data.local.DataSnapshotStatus
 import com.ahu_plus.data.repository.ExamRepository
 import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.JwAuthRepository
@@ -50,7 +51,7 @@ class ExamViewModel(
     }
 
     fun onRefresh() {
-        viewModelScope.launch { loadExams(isRefresh = false) }
+        viewModelScope.launch { loadExams(isRefresh = _uiState.value.exams.isNotEmpty()) }
     }
 
     /** 从 SessionManager 恢复缓存的考试数据 */
@@ -61,7 +62,13 @@ class ExamViewModel(
             withContext(Dispatchers.IO) {
                 val list = gson.fromJson(json, Array<Exam>::class.java).toList()
                 _uiState.update {
-                    it.copy(isLoading = false, exams = list, error = null, needsLogin = false)
+                    it.copy(
+                        isLoading = false,
+                        exams = list,
+                        dataStatus = DataSnapshotStatus.cache(sm.getExamsUpdatedAt()),
+                        error = null,
+                        needsLogin = false,
+                    )
                 }
             }
             true
@@ -71,6 +78,8 @@ class ExamViewModel(
     private suspend fun loadExams(isRefresh: Boolean) {
         if (!isRefresh) {
             _uiState.update { it.copy(isLoading = true, error = null) }
+        } else {
+            _uiState.update { it.copy(isRefreshing = true) }
         }
         val wasLoaded = _uiState.value.exams.isNotEmpty()
         try {
@@ -85,7 +94,11 @@ class ExamViewModel(
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
+                                isRefreshing = false,
                                 exams = list,
+                                dataStatus = DataSnapshotStatus.network(
+                                    sm?.getExamsUpdatedAt() ?: System.currentTimeMillis()
+                                ),
                                 error = null,
                                 needsLogin = false
                             )
@@ -96,7 +109,9 @@ class ExamViewModel(
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
+                                isRefreshing = false,
                                 error = if (!wasLoaded) (e.message ?: "考试安排加载失败") else it.error,
+                                dataStatus = it.dataStatus?.withFailedRefresh(),
                                 needsLogin = !wasLoaded &&
                                     (e is SessionExpiredException || e is JwAuthException)
                             )
@@ -108,7 +123,9 @@ class ExamViewModel(
             _uiState.update {
                 it.copy(
                     isLoading = false,
+                    isRefreshing = false,
                     error = if (!wasLoaded) "未知错误: ${e.message}" else it.error,
+                    dataStatus = it.dataStatus?.withFailedRefresh(),
                     needsLogin = !wasLoaded &&
                         (e is SessionExpiredException || e is JwAuthException)
                 )
@@ -143,7 +160,9 @@ class ExamViewModel(
 
 data class ExamUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val exams: List<Exam> = emptyList(),
     val error: String? = null,
+    val dataStatus: DataSnapshotStatus? = null,
     val needsLogin: Boolean = false
 )

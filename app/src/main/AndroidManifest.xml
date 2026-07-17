@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
 
     <!-- 2026-06-22 新增:学习通后台学习 ForegroundService 所需 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

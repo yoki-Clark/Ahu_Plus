@@ -3,10 +3,12 @@ package com.ahu_plus.data.local
 import android.util.Log
 
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.Preferences
 
 import androidx.datastore.preferences.core.longPreferencesKey
 
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 
 import com.google.gson.reflect.TypeToken
@@ -57,6 +59,8 @@ import kotlinx.coroutines.sync.withLock
 
 class SessionManager(private val appDataStore: AppDataStore) {
 
+    private val credentialStore = appDataStore.credentialStore
+
     /** 首次登录初始化是否已完成 */
     @Volatile var firstLoginInitDone: Boolean = false
 
@@ -104,6 +108,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedMarketChildEnabled: Boolean = true
     @Volatile private var cachedChaoxingChildEnabled: Boolean = true
     @Volatile private var cachedWelearnChildEnabled: Boolean = true
+
+    // 底栏只固定最多两个第三方服务；服务是否可用仍由上面的启用开关决定。
+    @Volatile private var cachedBottomNavServices: List<String> = emptyList()
 
     // \u96C6\u5E02\u5217\u8868\u5E03\u5C40\u6A21\u5F0F ("list" \u5355\u5217 / "stagger" \u5C0F\u7EA2\u4E66\u53CC\u5217\u7011\u5E03)
 
@@ -305,6 +312,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedQrBrightnessBoost: Boolean = false
 
     @Volatile private var cachedAdwmhConcurrentRetry: Boolean = true
+    @Volatile private var cachedCardBalanceAlertEnabled: Boolean = false
+    @Volatile private var cachedCardBalanceAlertThreshold: Double = 20.0
+    @Volatile private var cachedCardBalanceLastAlertAt: Long = 0L
 
     @Volatile private var cachedTrainingPlanJson: String? = null
 
@@ -317,6 +327,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedEmptyClassroomKey: String? = null
 
     @Volatile private var cachedEmptyClassroomUpdatedAt: Long = 0L
+
+    @Volatile private var cachedEmptyClassroomPresets: List<EmptyClassroomPreset> = emptyList()
 
     // \u2500\u2500 \u8D85\u661F\u5B66\u4E60\u901A \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
@@ -463,15 +475,28 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
             val prefs = appDataStore.dataStore.data.first()
 
-        cachedSessionId = prefs[SESSION_KEY]
+        val migratedPlaintextKeys = linkedSetOf<Preferences.Key<String>>()
+        fun encryptedOrLegacy(
+            encryptedKey: String,
+            legacyKey: Preferences.Key<String>,
+        ): String? {
+            credentialStore.getString(encryptedKey)?.let { return it }
+            val legacy = prefs[legacyKey] ?: return null
+            if (credentialStore.putString(encryptedKey, legacy)) {
+                migratedPlaintextKeys += legacyKey
+            }
+            return legacy
+        }
 
-        cachedJwSessionId = prefs[JW_SESSION_KEY]
+        cachedSessionId = encryptedOrLegacy(EncryptedCredentialStore.PORTAL_SESSION, SESSION_KEY)
 
-        cachedJwPstSid = prefs[JW_PST_SID_KEY]
+        cachedJwSessionId = encryptedOrLegacy(EncryptedCredentialStore.JW_SESSION, JW_SESSION_KEY)
 
-        cachedUsername = prefs[USERNAME_KEY]
+        cachedJwPstSid = encryptedOrLegacy(EncryptedCredentialStore.JW_PST_SID, JW_PST_SID_KEY)
 
-        cachedPassword = prefs[PASSWORD_KEY]
+        cachedUsername = encryptedOrLegacy(EncryptedCredentialStore.CAS_USERNAME, USERNAME_KEY)
+
+        cachedPassword = encryptedOrLegacy(EncryptedCredentialStore.CAS_PASSWORD, PASSWORD_KEY)
 
         cachedThemeMode = AppThemeMode.fromStorageValue(prefs[THEME_MODE_KEY])
 
@@ -481,9 +506,15 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         // \u2500\u2500 \u96C6\u5E02\u8BBE\u7F6E\uFF1A\u8FC1\u79FB\u65E7\u5355\u8EAB\u4EFD \u2192 \u65B0\u591A\u8EAB\u4EFD\u683C\u5F0F \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-        val oldIdentity = prefs[MARKET_API_IDENTITY_KEY]
+        val oldIdentity = encryptedOrLegacy(
+            EncryptedCredentialStore.MARKET_LEGACY_IDENTITY,
+            MARKET_API_IDENTITY_KEY,
+        )
 
-        val newIdentitiesJson = prefs[MARKET_IDENTITIES_KEY]
+        val newIdentitiesJson = encryptedOrLegacy(
+            EncryptedCredentialStore.MARKET_IDENTITIES,
+            MARKET_IDENTITIES_KEY,
+        )
 
         if (!oldIdentity.isNullOrBlank() && newIdentitiesJson.isNullOrBlank()) {
 
@@ -511,13 +542,19 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
             cachedMarketApiIdentity = oldIdentity
 
+            val migratedIdentitiesJson = gson.toJson(cachedMarketIdentities)
+            if (credentialStore.putString(
+                    EncryptedCredentialStore.MARKET_IDENTITIES,
+                    migratedIdentitiesJson,
+                )
+            ) {
+                credentialStore.remove(EncryptedCredentialStore.MARKET_LEGACY_IDENTITY)
+                migratedPlaintextKeys += MARKET_API_IDENTITY_KEY
+                migratedPlaintextKeys += MARKET_IDENTITIES_KEY
+            }
             appDataStore.dataStore.edit { edit ->
 
-                edit[MARKET_IDENTITIES_KEY] = gson.toJson(cachedMarketIdentities)
-
                 edit[MARKET_SELECTED_IDS_KEY] = gson.toJson(cachedSelectedIdentityIds.toList())
-
-                edit.remove(MARKET_API_IDENTITY_KEY)
 
             }
 
@@ -567,6 +604,18 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedChaoxingChildEnabled = thirdPartyFlags.chaoxingEnabled
         cachedWelearnChildEnabled = thirdPartyFlags.welearnEnabled
 
+        val enabledBottomNavServices = buildSet {
+            if (thirdPartyFlags.parentEnabled && thirdPartyFlags.marketEnabled) add(BottomNavService.MARKET)
+            if (thirdPartyFlags.parentEnabled && thirdPartyFlags.chaoxingEnabled) add(BottomNavService.CHAOXING)
+            if (thirdPartyFlags.parentEnabled && thirdPartyFlags.welearnEnabled) add(BottomNavService.WELEARN)
+        }
+        val storedBottomNavServices = prefs[BOTTOM_NAV_SERVICES_KEY]
+        cachedBottomNavServices = if (storedBottomNavServices == null) {
+            defaultBottomNavServices(enabledBottomNavServices)
+        } else {
+            normalizeBottomNavServices(parseStringList(storedBottomNavServices), enabledBottomNavServices)
+        }
+
         if (prefs[THIRD_PARTY_SERVICES_ENABLED_KEY] == null ||
             prefs[MARKET_CHILD_ENABLED_KEY] == null ||
             prefs[CHAOXING_CHILD_ENABLED_KEY] == null ||
@@ -577,6 +626,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
                 it[MARKET_CHILD_ENABLED_KEY] = thirdPartyFlags.marketEnabled.toString()
                 it[CHAOXING_CHILD_ENABLED_KEY] = thirdPartyFlags.chaoxingEnabled.toString()
                 it[WELEARN_CHILD_ENABLED_KEY] = thirdPartyFlags.welearnEnabled.toString()
+            }
+        }
+        if (storedBottomNavServices == null) {
+            appDataStore.dataStore.edit {
+                it[BOTTOM_NAV_SERVICES_KEY] = gson.toJson(cachedBottomNavServices)
             }
         }
 
@@ -712,13 +766,19 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedNewCampusConfig = parseElectricityConfig(prefs[NEW_CAMPUS_CONFIG_KEY])
 
-        cachedAdwmhSessionId = prefs[ADWMH_SESSION_KEY]
+        cachedAdwmhSessionId = encryptedOrLegacy(
+            EncryptedCredentialStore.ADWMH_SESSION,
+            ADWMH_SESSION_KEY,
+        )
         cachedAdwmhQrPayload = prefs[ADWMH_QR_PAYLOAD_KEY]
         cachedAdwmhQrServerText = prefs[ADWMH_QR_SERVER_TEXT_KEY] ?: ""
         cachedAdwmhQrFetchedAt = prefs[ADWMH_QR_FETCHED_AT_KEY] ?: 0L
 
         cachedExamPredictionsJson = prefs[EXAM_PREDICTIONS_JSON_KEY]
-        cachedEvaluationJwt = prefs[EVALUATION_JWT_KEY]
+        cachedEvaluationJwt = encryptedOrLegacy(
+            EncryptedCredentialStore.EVALUATION_JWT,
+            EVALUATION_JWT_KEY,
+        )
         cachedEvaluationCommentOptions = prefs[EVALUATION_COMMENT_OPTIONS_KEY] ?: ""
 
         cachedAnnouncementsJson = prefs[ANNOUNCEMENTS_JSON_KEY]
@@ -742,6 +802,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedQrBrightnessBoost = prefs[QR_BRIGHTNESS_BOOST_KEY] ?: false
 
         cachedAdwmhConcurrentRetry = prefs[ADWMH_CONCURRENT_RETRY_KEY] ?: true
+        cachedCardBalanceAlertEnabled = prefs[CARD_BALANCE_ALERT_ENABLED_KEY] ?: false
+        cachedCardBalanceAlertThreshold = prefs[CARD_BALANCE_ALERT_THRESHOLD_KEY] ?: 20.0
+        cachedCardBalanceLastAlertAt = prefs[CARD_BALANCE_LAST_ALERT_AT_KEY] ?: 0L
 
         cachedTrainingPlanJson = prefs[TRAINING_PLAN_JSON_KEY]
 
@@ -754,26 +817,48 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedEmptyClassroomKey = prefs[EMPTY_CLASSROOM_KEY_KEY]
 
         cachedEmptyClassroomUpdatedAt = prefs[EMPTY_CLASSROOM_UPDATED_AT_KEY] ?: 0L
+        cachedEmptyClassroomPresets = runCatching {
+            val type = object : TypeToken<List<EmptyClassroomPreset>>() {}.type
+            gson.fromJson<List<EmptyClassroomPreset>>(prefs[EMPTY_CLASSROOM_PRESETS_KEY], type)
+        }.getOrNull().orEmpty()
 
         // \u8D85\u661F\u5B66\u4E60\u901A
 
-        cachedCxCookies = prefs[CX_COOKIES_KEY]
+        cachedCxCookies = encryptedOrLegacy(EncryptedCredentialStore.CHAOXING_COOKIES, CX_COOKIES_KEY)
 
-        cachedCxPhone = prefs[CX_PHONE_KEY]
-        cachedCxPassword = prefs[CX_PASSWORD_KEY]
+        cachedCxPhone = encryptedOrLegacy(EncryptedCredentialStore.CHAOXING_PHONE, CX_PHONE_KEY)
+        cachedCxPassword = encryptedOrLegacy(EncryptedCredentialStore.CHAOXING_PASSWORD, CX_PASSWORD_KEY)
 
-        cachedWeLearnCookies = prefs[WELEARN_COOKIES_KEY]
-        cachedWeLearnUsername = prefs[WELEARN_USERNAME_KEY]
-        cachedWeLearnPassword = prefs[WELEARN_PASSWORD_KEY]
+        cachedWeLearnCookies = encryptedOrLegacy(
+            EncryptedCredentialStore.WELEARN_COOKIES,
+            WELEARN_COOKIES_KEY,
+        )
+        cachedWeLearnUsername = encryptedOrLegacy(
+            EncryptedCredentialStore.WELEARN_USERNAME,
+            WELEARN_USERNAME_KEY,
+        )
+        cachedWeLearnPassword = encryptedOrLegacy(
+            EncryptedCredentialStore.WELEARN_PASSWORD,
+            WELEARN_PASSWORD_KEY,
+        )
         cachedWeLearnHeartbeatEnabled = prefs[WELEARN_HEARTBEAT_ENABLED_KEY] ?: "true"
         cachedWeLearnHeartbeatMinutesPerSco = prefs[WELEARN_HEARTBEAT_MINUTES_PER_SCO_KEY] ?: "3"
 
         cachedCProgBaseUrl = prefs[CPROG_BASE_URL_KEY]
-        cachedCProgJwt = prefs[CPROG_JWT_KEY]
-        cachedCProgJsessionid = prefs[CPROG_JSESSIONID_KEY]
-        cachedCProgUserId = prefs[CPROG_USER_ID_KEY]
-        cachedCProgUsername = prefs[CPROG_USERNAME_KEY]
-        cachedCProgIdno = prefs[CPROG_IDNO_KEY]
+        cachedCProgJwt = encryptedOrLegacy(EncryptedCredentialStore.CPROG_JWT, CPROG_JWT_KEY)
+        cachedCProgJsessionid = encryptedOrLegacy(
+            EncryptedCredentialStore.CPROG_JSESSIONID,
+            CPROG_JSESSIONID_KEY,
+        )
+        cachedCProgUserId = encryptedOrLegacy(
+            EncryptedCredentialStore.CPROG_USER_ID,
+            CPROG_USER_ID_KEY,
+        )
+        cachedCProgUsername = encryptedOrLegacy(
+            EncryptedCredentialStore.CPROG_USERNAME,
+            CPROG_USERNAME_KEY,
+        )
+        cachedCProgIdno = encryptedOrLegacy(EncryptedCredentialStore.CPROG_IDNO, CPROG_IDNO_KEY)
 
         cachedCxCoursesJson = prefs[CX_COURSES_JSON_KEY]
         cachedCxCoursesProgressJson = prefs[CX_COURSES_PROGRESS_JSON_KEY]
@@ -807,7 +892,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedCxProviderChain = prefs[CX_PROVIDER_CHAIN_KEY] ?: "CACHE"
 
-        cachedCxTokensYanxi = prefs[CX_TOKENS_YANXI_KEY] ?: ""
+        cachedCxTokensYanxi = encryptedOrLegacy(
+            EncryptedCredentialStore.CHAOXING_YANXI_TOKENS,
+            CX_TOKENS_YANXI_KEY,
+        ) ?: ""
 
         cachedCxCoverRate = prefs[CX_COVER_RATE_KEY] ?: "0.8"
 
@@ -817,7 +905,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedCxAiHttpProxy = prefs[CX_AI_HTTP_PROXY_KEY] ?: ""
 
-        cachedCxSiliconflowKey = prefs[CX_SILICONFLOW_KEY_KEY] ?: ""
+        cachedCxSiliconflowKey = encryptedOrLegacy(
+            EncryptedCredentialStore.CHAOXING_SILICONFLOW_KEY,
+            CX_SILICONFLOW_KEY_KEY,
+        ) ?: ""
 
         cachedCxSiliconflowModel = prefs[CX_SILICONFLOW_MODEL_KEY] ?: "deepseek-ai/DeepSeek-R1"
 
@@ -829,7 +920,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedCxLikeapiModel = prefs[CX_LIKEAPI_MODEL_KEY] ?: "glm-4.5-air"
 
-        cachedCxGoAuthorization = prefs[CX_GO_AUTHORIZATION_KEY] ?: ""
+        cachedCxGoAuthorization = encryptedOrLegacy(
+            EncryptedCredentialStore.CHAOXING_GO_AUTHORIZATION,
+            CX_GO_AUTHORIZATION_KEY,
+        ) ?: ""
 
         cachedCxGoMinInterval = prefs[CX_GO_MIN_INTERVAL_KEY] ?: "1.0"
 
@@ -837,7 +931,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedCxNotifyProvider = prefs[CX_NOTIFY_PROVIDER_KEY] ?: ""
 
-        cachedCxNotifyUrl = prefs[CX_NOTIFY_URL_KEY] ?: ""
+        cachedCxNotifyUrl = encryptedOrLegacy(
+            EncryptedCredentialStore.CHAOXING_NOTIFY_URL,
+            CX_NOTIFY_URL_KEY,
+        ) ?: ""
 
         cachedCxNotifyTgChatId = prefs[CX_NOTIFY_TG_CHAT_ID_KEY] ?: ""
 
@@ -845,9 +942,15 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedCxTikuType = prefs[CX_TIKU_TYPE_KEY] ?: "CACHE"
 
-        cachedCxTikuToken = prefs[CX_TIKU_TOKEN_KEY] ?: ""
+        cachedCxTikuToken = encryptedOrLegacy(
+            EncryptedCredentialStore.CHAOXING_TIKU_TOKEN,
+            CX_TIKU_TOKEN_KEY,
+        ) ?: ""
 
-        cachedCxAiKey = prefs[CX_AI_KEY_KEY] ?: ""
+        cachedCxAiKey = encryptedOrLegacy(
+            EncryptedCredentialStore.CHAOXING_AI_KEY,
+            CX_AI_KEY_KEY,
+        ) ?: ""
 
         cachedCxAiBaseUrl = prefs[CX_AI_BASE_URL_KEY] ?: ""
 
@@ -864,6 +967,13 @@ class SessionManager(private val appDataStore: AppDataStore) {
         // \u81EA\u52A8\u66F4\u65B0
 
         cachedIgnoredVersionCode = prefs[IGNORED_VERSION_CODE_KEY]?.toIntOrNull() ?: 0
+
+        if (migratedPlaintextKeys.isNotEmpty()) {
+            appDataStore.dataStore.edit { editable ->
+                migratedPlaintextKeys.forEach(editable::remove)
+            }
+            Log.i(TAG, "Migrated ${migratedPlaintextKeys.size} plaintext credential fields")
+        }
 
         initialized = true
 
@@ -910,18 +1020,15 @@ class SessionManager(private val appDataStore: AppDataStore) {
     suspend fun saveSessionId(id: String) {
 
         cachedSessionId = id
-
-        appDataStore.dataStore.edit { preferences ->
-
-            preferences[SESSION_KEY] = id
-
-        }
+        saveEncrypted(EncryptedCredentialStore.PORTAL_SESSION, SESSION_KEY, id)
 
     }
 
     suspend fun clearSession() {
 
         cachedSessionId = null
+
+        credentialStore.remove(EncryptedCredentialStore.PORTAL_SESSION)
 
         appDataStore.dataStore.edit { preferences ->
 
@@ -943,13 +1050,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedJwPstSid = pstSid
 
-        appDataStore.dataStore.edit { preferences ->
-
-            preferences[JW_SESSION_KEY] = sessionId
-
-            preferences[JW_PST_SID_KEY] = pstSid
-
-        }
+        saveEncrypted(EncryptedCredentialStore.JW_SESSION, JW_SESSION_KEY, sessionId)
+        saveEncrypted(EncryptedCredentialStore.JW_PST_SID, JW_PST_SID_KEY, pstSid)
 
     }
 
@@ -958,6 +1060,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedJwSessionId = null
 
         cachedJwPstSid = null
+
+        credentialStore.remove(EncryptedCredentialStore.JW_SESSION)
+        credentialStore.remove(EncryptedCredentialStore.JW_PST_SID)
 
         appDataStore.dataStore.edit { preferences ->
 
@@ -977,13 +1082,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedPassword = password
 
-        appDataStore.dataStore.edit { preferences ->
-
-            preferences[USERNAME_KEY] = username
-
-            preferences[PASSWORD_KEY] = password
-
-        }
+        saveEncrypted(EncryptedCredentialStore.CAS_USERNAME, USERNAME_KEY, username)
+        saveEncrypted(EncryptedCredentialStore.CAS_PASSWORD, PASSWORD_KEY, password)
 
         Log.i(TAG, "\u51ED\u636E\u5DF2\u4FDD\u5B58")
 
@@ -1000,6 +1100,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedUsername = null
 
         cachedPassword = null
+
+        credentialStore.remove(EncryptedCredentialStore.CAS_USERNAME)
+        credentialStore.remove(EncryptedCredentialStore.CAS_PASSWORD)
 
         appDataStore.dataStore.edit { preferences ->
 
@@ -1028,18 +1131,19 @@ class SessionManager(private val appDataStore: AppDataStore) {
     suspend fun saveMarketApiIdentity(identity: String) {
 
         cachedMarketApiIdentity = identity
-
-        appDataStore.dataStore.edit { preferences ->
-
-            preferences[MARKET_API_IDENTITY_KEY] = identity
-
-        }
+        saveEncrypted(
+            EncryptedCredentialStore.MARKET_LEGACY_IDENTITY,
+            MARKET_API_IDENTITY_KEY,
+            identity,
+        )
 
     }
 
     suspend fun clearMarketApiIdentity() {
 
         cachedMarketApiIdentity = null
+
+        credentialStore.remove(EncryptedCredentialStore.MARKET_LEGACY_IDENTITY)
 
         appDataStore.dataStore.edit { preferences ->
 
@@ -1058,8 +1162,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
     suspend fun saveMarketIdentities(identities: List<MarketIdentity>) {
 
         cachedMarketIdentities = identities
-
-        appDataStore.dataStore.edit { it[MARKET_IDENTITIES_KEY] = gson.toJson(identities) }
+        saveEncrypted(
+            EncryptedCredentialStore.MARKET_IDENTITIES,
+            MARKET_IDENTITIES_KEY,
+            gson.toJson(identities),
+        )
 
     }
 
@@ -1122,6 +1229,20 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getChaoxingChildEnabled(): Boolean = cachedChaoxingChildEnabled
 
     fun getWelearnChildEnabled(): Boolean = cachedWelearnChildEnabled
+
+    fun getBottomNavServices(): List<String> = cachedBottomNavServices
+
+    suspend fun setBottomNavServices(services: List<String>) {
+        val enabled = buildSet {
+            if (cachedThirdPartyServicesEnabled && cachedMarketChildEnabled) add(BottomNavService.MARKET)
+            if (cachedThirdPartyServicesEnabled && cachedChaoxingChildEnabled) add(BottomNavService.CHAOXING)
+            if (cachedThirdPartyServicesEnabled && cachedWelearnChildEnabled) add(BottomNavService.WELEARN)
+        }
+        cachedBottomNavServices = normalizeBottomNavServices(services, enabled)
+        appDataStore.dataStore.edit {
+            it[BOTTOM_NAV_SERVICES_KEY] = gson.toJson(cachedBottomNavServices)
+        }
+    }
 
     suspend fun setMarketEnabled(enabled: Boolean) = setThirdPartyServicesEnabled(enabled)
 
@@ -2092,8 +2213,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
     suspend fun saveAdwmhSessionId(sessionId: String) {
 
         cachedAdwmhSessionId = sessionId
-
-        appDataStore.dataStore.edit { it[ADWMH_SESSION_KEY] = sessionId }
+        saveEncrypted(EncryptedCredentialStore.ADWMH_SESSION, ADWMH_SESSION_KEY, sessionId)
 
     }
 
@@ -2101,6 +2221,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         cachedAdwmhSessionId = null
         cachedExamPredictionsJson = null
+
+        credentialStore.remove(EncryptedCredentialStore.ADWMH_SESSION)
 
         appDataStore.dataStore.edit { it.remove(ADWMH_SESSION_KEY) }
 
@@ -2143,6 +2265,35 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     }
 
+    fun getCardBalanceAlertEnabled(): Boolean = cachedCardBalanceAlertEnabled
+
+    suspend fun setCardBalanceAlertEnabled(enabled: Boolean) {
+        cachedCardBalanceAlertEnabled = enabled
+        if (!enabled) cachedCardBalanceLastAlertAt = 0L
+        appDataStore.dataStore.edit {
+            it[CARD_BALANCE_ALERT_ENABLED_KEY] = enabled
+            if (!enabled) it[CARD_BALANCE_LAST_ALERT_AT_KEY] = 0L
+        }
+    }
+
+    fun getCardBalanceAlertThreshold(): Double = cachedCardBalanceAlertThreshold
+
+    suspend fun setCardBalanceAlertThreshold(value: Double) {
+        cachedCardBalanceAlertThreshold = value.coerceIn(5.0, 100.0)
+        cachedCardBalanceLastAlertAt = 0L
+        appDataStore.dataStore.edit {
+            it[CARD_BALANCE_ALERT_THRESHOLD_KEY] = cachedCardBalanceAlertThreshold
+            it[CARD_BALANCE_LAST_ALERT_AT_KEY] = 0L
+        }
+    }
+
+    fun getCardBalanceLastAlertAt(): Long = cachedCardBalanceLastAlertAt
+
+    suspend fun setCardBalanceLastAlertAt(value: Long) {
+        cachedCardBalanceLastAlertAt = value.coerceAtLeast(0L)
+        appDataStore.dataStore.edit { it[CARD_BALANCE_LAST_ALERT_AT_KEY] = cachedCardBalanceLastAlertAt }
+    }
+
     // ── 开发者选项(退登保留) ──
 
     fun isDeveloperEnabled(): Boolean = cachedDeveloperEnabled
@@ -2179,11 +2330,12 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     suspend fun saveEvaluationJwt(jwt: String) {
         cachedEvaluationJwt = jwt
-        appDataStore.dataStore.edit { it[EVALUATION_JWT_KEY] = jwt }
+        saveEncrypted(EncryptedCredentialStore.EVALUATION_JWT, EVALUATION_JWT_KEY, jwt)
     }
 
     suspend fun clearEvaluationJwt() {
         cachedEvaluationJwt = null
+        credentialStore.remove(EncryptedCredentialStore.EVALUATION_JWT)
         appDataStore.dataStore.edit { it.remove(EVALUATION_JWT_KEY) }
     }
 
@@ -2288,6 +2440,15 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     fun getEmptyClassroomUpdatedAt(): Long = cachedEmptyClassroomUpdatedAt
 
+    fun getEmptyClassroomPresets(): List<EmptyClassroomPreset> = cachedEmptyClassroomPresets
+
+    suspend fun saveEmptyClassroomPresets(presets: List<EmptyClassroomPreset>) {
+        cachedEmptyClassroomPresets = presets.distinctBy { it.id }.take(6)
+        appDataStore.dataStore.edit {
+            it[EMPTY_CLASSROOM_PRESETS_KEY] = gson.toJson(cachedEmptyClassroomPresets)
+        }
+    }
+
     suspend fun saveEmptyClassroomJson(json: String, cacheKey: String) {
 
         cachedEmptyClassroomJson = json
@@ -2360,6 +2521,15 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         }
 
+        credentialStore.remove(
+            EncryptedCredentialStore.ACCOUNT_KEYS + setOf(
+                EncryptedCredentialStore.CHAOXING_PHONE,
+                EncryptedCredentialStore.CHAOXING_PASSWORD,
+                EncryptedCredentialStore.WELEARN_USERNAME,
+                EncryptedCredentialStore.WELEARN_PASSWORD,
+            )
+        )
+
     }
 
     suspend fun clearAll() {
@@ -2404,6 +2574,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedWeLearnCookies = null
         cachedWeLearnUsername = null
         cachedWeLearnPassword = null
+        cachedCProgUsername = null
+        cachedCProgIdno = null
 
         cachedCxCoursesJson = null
 
@@ -2456,6 +2628,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
             ALL_CLEARABLE_KEYS.forEach { preferences.remove(it) }
 
         }
+
+        credentialStore.remove(
+            EncryptedCredentialStore.ACCOUNT_KEYS +
+                EncryptedCredentialStore.THIRD_PARTY_ACCOUNT_KEYS
+        )
 
         Log.i(TAG, "\u6240\u6709\u4F1A\u8BDD\u548C\u51ED\u636E\u5DF2\u6E05\u9664")
 
@@ -2577,6 +2754,18 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     private val gson = GsonProvider.instance
 
+    private suspend fun saveEncrypted(
+        encryptedKey: String,
+        legacyKey: Preferences.Key<String>,
+        value: String,
+    ) {
+        if (credentialStore.putString(encryptedKey, value)) {
+            appDataStore.dataStore.edit { it.remove(legacyKey) }
+        } else {
+            Log.e(TAG, "Credential was not persisted because encrypted storage is unavailable")
+        }
+    }
+
     private fun parseIdentityList(json: String?): List<MarketIdentity> {
 
         if (json.isNullOrBlank()) return emptyList()
@@ -2674,8 +2863,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
     suspend fun saveCxCookies(value: String) {
 
         cachedCxCookies = value
-
-        appDataStore.dataStore.edit { it[CX_COOKIES_KEY] = value }
+        saveEncrypted(EncryptedCredentialStore.CHAOXING_COOKIES, CX_COOKIES_KEY, value)
 
     }
 
@@ -2688,15 +2876,15 @@ class SessionManager(private val appDataStore: AppDataStore) {
     suspend fun saveCxCredentials(phone: String, password: String) {
         cachedCxPhone = phone
         cachedCxPassword = password
-        appDataStore.dataStore.edit { prefs ->
-            prefs[CX_PHONE_KEY] = phone
-            prefs[CX_PASSWORD_KEY] = password
-        }
+        saveEncrypted(EncryptedCredentialStore.CHAOXING_PHONE, CX_PHONE_KEY, phone)
+        saveEncrypted(EncryptedCredentialStore.CHAOXING_PASSWORD, CX_PASSWORD_KEY, password)
     }
 
     suspend fun clearCxCredentials() {
         cachedCxPhone = null
         cachedCxPassword = null
+        credentialStore.remove(EncryptedCredentialStore.CHAOXING_PHONE)
+        credentialStore.remove(EncryptedCredentialStore.CHAOXING_PASSWORD)
         appDataStore.dataStore.edit { prefs ->
             prefs.remove(CX_PHONE_KEY)
             prefs.remove(CX_PASSWORD_KEY)
@@ -2712,21 +2900,21 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     suspend fun saveWeLearnCookies(value: String) {
         cachedWeLearnCookies = value
-        appDataStore.dataStore.edit { it[WELEARN_COOKIES_KEY] = value }
+        saveEncrypted(EncryptedCredentialStore.WELEARN_COOKIES, WELEARN_COOKIES_KEY, value)
     }
 
     suspend fun saveWeLearnCredentials(username: String, password: String) {
         cachedWeLearnUsername = username
         cachedWeLearnPassword = password
-        appDataStore.dataStore.edit { prefs ->
-            prefs[WELEARN_USERNAME_KEY] = username
-            prefs[WELEARN_PASSWORD_KEY] = password
-        }
+        saveEncrypted(EncryptedCredentialStore.WELEARN_USERNAME, WELEARN_USERNAME_KEY, username)
+        saveEncrypted(EncryptedCredentialStore.WELEARN_PASSWORD, WELEARN_PASSWORD_KEY, password)
     }
 
     suspend fun clearWeLearnCredentials() {
         cachedWeLearnUsername = null
         cachedWeLearnPassword = null
+        credentialStore.remove(EncryptedCredentialStore.WELEARN_USERNAME)
+        credentialStore.remove(EncryptedCredentialStore.WELEARN_PASSWORD)
         appDataStore.dataStore.edit { prefs ->
             prefs.remove(WELEARN_USERNAME_KEY)
             prefs.remove(WELEARN_PASSWORD_KEY)
@@ -2766,20 +2954,16 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedCProgJwt = jwt
         cachedCProgUserId = userId
         cachedCProgJsessionid = jsessionid
-        appDataStore.dataStore.edit {
-            it[CPROG_JWT_KEY] = jwt
-            it[CPROG_USER_ID_KEY] = userId
-            it[CPROG_JSESSIONID_KEY] = jsessionid
-        }
+        saveEncrypted(EncryptedCredentialStore.CPROG_JWT, CPROG_JWT_KEY, jwt)
+        saveEncrypted(EncryptedCredentialStore.CPROG_USER_ID, CPROG_USER_ID_KEY, userId)
+        saveEncrypted(EncryptedCredentialStore.CPROG_JSESSIONID, CPROG_JSESSIONID_KEY, jsessionid)
     }
 
     suspend fun saveCProgCredentials(username: String, idno: String) {
         cachedCProgUsername = username
         cachedCProgIdno = idno
-        appDataStore.dataStore.edit {
-            it[CPROG_USERNAME_KEY] = username
-            it[CPROG_IDNO_KEY] = idno
-        }
+        saveEncrypted(EncryptedCredentialStore.CPROG_USERNAME, CPROG_USERNAME_KEY, username)
+        saveEncrypted(EncryptedCredentialStore.CPROG_IDNO, CPROG_IDNO_KEY, idno)
     }
 
     /** 退登时只清会话(JWT/JSESSIONID/userId),保留学号/身份证/baseUrl 供下次预填 */
@@ -2787,6 +2971,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedCProgJwt = null
         cachedCProgJsessionid = null
         cachedCProgUserId = null
+        credentialStore.remove(EncryptedCredentialStore.CPROG_JWT)
+        credentialStore.remove(EncryptedCredentialStore.CPROG_JSESSIONID)
+        credentialStore.remove(EncryptedCredentialStore.CPROG_USER_ID)
         appDataStore.dataStore.edit {
             it.remove(CPROG_JWT_KEY)
             it.remove(CPROG_JSESSIONID_KEY)
@@ -3036,7 +3223,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     fun getCxTokensYanxi(): String = cachedCxTokensYanxi
 
-    suspend fun saveCxTokensYanxi(v: String) { cachedCxTokensYanxi = v; appDataStore.dataStore.edit { it[CX_TOKENS_YANXI_KEY] = v } }
+    suspend fun saveCxTokensYanxi(v: String) { cachedCxTokensYanxi = v; saveEncrypted(EncryptedCredentialStore.CHAOXING_YANXI_TOKENS, CX_TOKENS_YANXI_KEY, v) }
 
     fun getCxCoverRate(): Double = cachedCxCoverRate.toDoubleOrNull() ?: 0.8
 
@@ -3056,7 +3243,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     fun getCxSiliconflowKey(): String = cachedCxSiliconflowKey
 
-    suspend fun saveCxSiliconflowKey(v: String) { cachedCxSiliconflowKey = v; appDataStore.dataStore.edit { it[CX_SILICONFLOW_KEY_KEY] = v } }
+    suspend fun saveCxSiliconflowKey(v: String) { cachedCxSiliconflowKey = v; saveEncrypted(EncryptedCredentialStore.CHAOXING_SILICONFLOW_KEY, CX_SILICONFLOW_KEY_KEY, v) }
 
     fun getCxSiliconflowModel(): String = cachedCxSiliconflowModel
 
@@ -3080,7 +3267,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     fun getCxGoAuthorization(): String = cachedCxGoAuthorization
 
-    suspend fun saveCxGoAuthorization(v: String) { cachedCxGoAuthorization = v; appDataStore.dataStore.edit { it[CX_GO_AUTHORIZATION_KEY] = v } }
+    suspend fun saveCxGoAuthorization(v: String) { cachedCxGoAuthorization = v; saveEncrypted(EncryptedCredentialStore.CHAOXING_GO_AUTHORIZATION, CX_GO_AUTHORIZATION_KEY, v) }
 
     fun getCxGoMinInterval(): Double = cachedCxGoMinInterval.toDoubleOrNull() ?: 1.0
 
@@ -3098,7 +3285,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     fun getCxNotifyUrl(): String = cachedCxNotifyUrl
 
-    suspend fun saveCxNotifyUrl(v: String) { cachedCxNotifyUrl = v; appDataStore.dataStore.edit { it[CX_NOTIFY_URL_KEY] = v } }
+    suspend fun saveCxNotifyUrl(v: String) { cachedCxNotifyUrl = v; saveEncrypted(EncryptedCredentialStore.CHAOXING_NOTIFY_URL, CX_NOTIFY_URL_KEY, v) }
 
     fun getCxNotifyTgChatId(): String = cachedCxNotifyTgChatId
 
@@ -3114,11 +3301,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     fun getCxTikuToken(): String = cachedCxTikuToken
 
-    suspend fun saveCxTikuToken(v: String) { cachedCxTikuToken = v; appDataStore.dataStore.edit { it[CX_TIKU_TOKEN_KEY] = v } }
+    suspend fun saveCxTikuToken(v: String) { cachedCxTikuToken = v; saveEncrypted(EncryptedCredentialStore.CHAOXING_TIKU_TOKEN, CX_TIKU_TOKEN_KEY, v) }
 
     fun getCxAiKey(): String = cachedCxAiKey
 
-    suspend fun saveCxAiKey(v: String) { cachedCxAiKey = v; appDataStore.dataStore.edit { it[CX_AI_KEY_KEY] = v } }
+    suspend fun saveCxAiKey(v: String) { cachedCxAiKey = v; saveEncrypted(EncryptedCredentialStore.CHAOXING_AI_KEY, CX_AI_KEY_KEY, v) }
 
     fun getCxAiBaseUrl(): String = cachedCxAiBaseUrl.ifBlank { "https://api.deepseek.com" }
 
@@ -3221,6 +3408,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val MARKET_CHILD_ENABLED_KEY = stringPreferencesKey("market_child_enabled")
         val CHAOXING_CHILD_ENABLED_KEY = stringPreferencesKey("chaoxing_child_enabled")
         val WELEARN_CHILD_ENABLED_KEY = stringPreferencesKey("welearn_child_enabled")
+
+        val BOTTOM_NAV_SERVICES_KEY = stringPreferencesKey("bottom_nav_services")
 
         val MARKET_LIST_LAYOUT_KEY = stringPreferencesKey("market_list_layout_mode")
 
@@ -3357,6 +3546,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private val QR_BRIGHTNESS_BOOST_KEY = booleanPreferencesKey("qr_brightness_boost")
 
     private val ADWMH_CONCURRENT_RETRY_KEY = booleanPreferencesKey("adwmh_concurrent_retry")
+    private val CARD_BALANCE_ALERT_ENABLED_KEY = booleanPreferencesKey("card_balance_alert_enabled")
+    private val CARD_BALANCE_ALERT_THRESHOLD_KEY = doublePreferencesKey("card_balance_alert_threshold")
+    private val CARD_BALANCE_LAST_ALERT_AT_KEY = longPreferencesKey("card_balance_last_alert_at")
 
         val TRAINING_PLAN_JSON_KEY = stringPreferencesKey("training_plan_json")
 
@@ -3369,6 +3561,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         val EMPTY_CLASSROOM_KEY_KEY = stringPreferencesKey("empty_classroom_key")
 
         val EMPTY_CLASSROOM_UPDATED_AT_KEY = longPreferencesKey("empty_classroom_updated_at")
+        val EMPTY_CLASSROOM_PRESETS_KEY = stringPreferencesKey("empty_classroom_presets")
 
         val CX_COURSES_PROGRESS_JSON_KEY = stringPreferencesKey("cx_courses_progress_json")
         val CX_HOMEWORK_JSON_KEY = stringPreferencesKey("cx_homework_json")

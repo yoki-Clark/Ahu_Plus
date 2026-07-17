@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Room
 import androidx.compose.material.icons.filled.School
@@ -62,6 +63,7 @@ object AppRegistry {
     const val KEY_CARD = "card"
     const val KEY_CARD_ANALYTICS = "cardAnalytics"
     const val KEY_NOTICE_LIST = "noticeList"
+    const val KEY_MESSAGE_CENTER = "messageCenter"
     const val KEY_BATHROOM = "bathroom"
     const val KEY_AC = "ac"
     const val KEY_LIGHTING = "lighting"
@@ -153,6 +155,13 @@ object AppRegistry {
             title = "教务通知",
             icon = Icons.Filled.Campaign,
             tint = AhuViolet,
+            group = NOTIFICATIONS,
+        ),
+        AppSpec(
+            key = KEY_MESSAGE_CENTER,
+            title = "消息中心",
+            icon = Icons.Filled.Notifications,
+            tint = AhuOrange,
             group = NOTIFICATIONS,
         ),
 

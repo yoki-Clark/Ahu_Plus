@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.DataRefreshPolicy
+import com.ahu_plus.data.local.DataSnapshotStatus
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.course.AssessmentPlan
 import com.ahu_plus.data.model.course.RecordEntry
@@ -302,6 +303,7 @@ class ScheduleViewModel(
                         lessons = data.lessons,
                         // 本地缓存始终是本学期数据(写缓存策略仅 DEFAULT_SEMESTER_ID) → 同步更新
                         currentSemesterCurrentWeek = data.currentWeek,
+                        dataStatus = DataSnapshotStatus.cache(sm.getScheduleUpdatedAt()),
                     )
                 }
                 true
@@ -465,6 +467,7 @@ class ScheduleViewModel(
                             currentSemesterCurrentWeek = if (isCurrentSemester)
                                 data.currentWeek
                             else state.currentSemesterCurrentWeek,
+                            dataStatus = DataSnapshotStatus.network(),
                         )
                     }
                 },
@@ -476,6 +479,9 @@ class ScheduleViewModel(
                             isLoadingSemester = false,
                             error = if (!wasLoaded) "课表加载失败: ${e.message}" else state.error,
                             needsLogin = !wasLoaded && (e is SessionExpiredException || e is JwAuthException),
+                            dataStatus = if (wasLoaded) {
+                                state.dataStatus?.withFailedRefresh()
+                            } else state.dataStatus,
                         )
                     }
                 }
@@ -486,7 +492,10 @@ class ScheduleViewModel(
                 state.copy(
                     isLoading = false,
                     isLoadingSemester = false,
-                    error = if (!wasLoaded) "未知错误: ${e.message}" else state.error
+                    error = if (!wasLoaded) "未知错误: ${e.message}" else state.error,
+                    dataStatus = if (wasLoaded) {
+                        state.dataStatus?.withFailedRefresh()
+                    } else state.dataStatus,
                 )
             }
         } finally {
@@ -563,6 +572,11 @@ class ScheduleViewModel(
                         requestId = requestId,
                         semesterId = semesterId,
                     )
+                    _uiState.update {
+                        if (isCurrentScheduleRequest(requestId, semesterId)) {
+                            it.copy(dataStatus = DataSnapshotStatus.cache(0L))
+                        } else it
+                    }
                 }
             } else {
                 scheduleRequestJob = viewModelScope.launch {
@@ -1066,6 +1080,7 @@ data class ScheduleUiState(
     val needsLogin: Boolean = false,
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,  // I-008: 下拉刷新状态
+    val dataStatus: DataSnapshotStatus? = null,
     val error: String? = null,
     val studentName: String? = null,
     val className: String? = null,

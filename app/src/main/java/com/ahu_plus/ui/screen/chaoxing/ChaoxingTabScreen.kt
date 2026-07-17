@@ -107,18 +107,29 @@ import kotlinx.coroutines.launch
 fun ChaoxingTabScreen(
     viewModel: ChaoxingViewModel,
     onSwitchToAppsTab: () -> Unit,
+    requestedSubTab: ChaoxingSubTab? = null,
+    onRequestedSubTabConsumed: () -> Unit = {},
 ) {
     val loginState by viewModel.loginState.collectAsStateWithLifecycle()
     val coursesState by viewModel.coursesState.collectAsStateWithLifecycle()
     val settingsState by viewModel.settingsState.collectAsStateWithLifecycle()
     val studyState by viewModel.studyState.collectAsStateWithLifecycle()
 
-    var selectedTab by rememberSaveable { mutableStateOf(ChaoxingSubTab.COURSES.ordinal) }
+    var selectedTab by rememberSaveable {
+        mutableStateOf(requestedSubTab?.ordinal ?: ChaoxingSubTab.COURSES.ordinal)
+    }
     val pagerState = rememberPagerState(
         initialPage = selectedTab,
         pageCount = { ChaoxingSubTab.entries.size },
     )
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(requestedSubTab) {
+        val target = requestedSubTab ?: return@LaunchedEffect
+        selectedTab = target.ordinal
+        pagerState.scrollToPage(target.ordinal)
+        onRequestedSubTabConsumed()
+    }
 
     // 课程详情 / 学习进度 / 作业详情 覆盖层
     var showDetail by rememberSaveable { mutableStateOf(false) }
