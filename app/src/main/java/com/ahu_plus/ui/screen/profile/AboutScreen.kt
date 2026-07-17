@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -97,17 +100,20 @@ fun AboutScreen(
     var showBetaPlanDialog by remember { mutableStateOf(false) }
 
     // 内部子页面导航
-    var subPage by remember { mutableStateOf<AboutSubPage>(AboutSubPage.None) }
+    // Keep the internal About route across Activity recreation (rotation/process recreation).
+    var subPage by rememberSaveable { mutableStateOf(AboutSubPage.NONE) }
+    var scrollToDeveloper by remember { mutableStateOf(false) }
 
     LaunchedEffect(developerEnabled) {
         if (developerEnabled) developerOptionRevealed = true
     }
 
-    LaunchedEffect(developerOptionRevealed, developerEnabled) {
-        if (developerOptionRevealed) {
+    LaunchedEffect(scrollToDeveloper) {
+        if (scrollToDeveloper) {
             // Wait for the newly revealed bottom section to participate in measurement.
             delay(80L)
             scrollState.animateScrollTo(scrollState.maxValue)
+            scrollToDeveloper = false
         }
     }
 
@@ -136,31 +142,31 @@ fun AboutScreen(
     }
 
     when (subPage) {
-        AboutSubPage.Announcements -> {
-            BackHandler { subPage = AboutSubPage.None }
-            AnnouncementHistoryScreen(onBack = { subPage = AboutSubPage.None })
+        AboutSubPage.ANNOUNCEMENTS -> {
+            BackHandler { subPage = AboutSubPage.NONE }
+            AnnouncementHistoryScreen(onBack = { subPage = AboutSubPage.NONE })
         }
-        AboutSubPage.Guide -> {
-            BackHandler { subPage = AboutSubPage.None }
+        AboutSubPage.GUIDE -> {
+            BackHandler { subPage = AboutSubPage.NONE }
             GuideScreen(
                 introSeen = guideIntroSeen,
                 onIntroSeen = onGuideIntroSeen,
-                onBack = { subPage = AboutSubPage.None }
+                onBack = { subPage = AboutSubPage.NONE }
             )
         }
-        AboutSubPage.Faq -> {
-            BackHandler { subPage = AboutSubPage.None }
-            FaqScreen(onBack = { subPage = AboutSubPage.None })
+        AboutSubPage.FAQ -> {
+            BackHandler { subPage = AboutSubPage.NONE }
+            FaqScreen(onBack = { subPage = AboutSubPage.NONE })
         }
-        AboutSubPage.OpenSourceLicenses -> {
-            BackHandler { subPage = AboutSubPage.None }
-            OpenSourceLicensesScreen(onBack = { subPage = AboutSubPage.None })
+        AboutSubPage.OPEN_SOURCE_LICENSES -> {
+            BackHandler { subPage = AboutSubPage.NONE }
+            OpenSourceLicensesScreen(onBack = { subPage = AboutSubPage.NONE })
         }
-        AboutSubPage.DeveloperCenter -> {
-            BackHandler { subPage = AboutSubPage.None }
-            DeveloperCenterScreen(onBack = { subPage = AboutSubPage.None })
+        AboutSubPage.DEVELOPER_CENTER -> {
+            BackHandler { subPage = AboutSubPage.NONE }
+            DeveloperCenterScreen(onBack = { subPage = AboutSubPage.NONE })
         }
-        AboutSubPage.None -> {
+        AboutSubPage.NONE -> {
             Scaffold(
                 topBar = {
                     TopAppBar(
@@ -199,6 +205,7 @@ fun AboutScreen(
                                     result.justUnlocked -> {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         developerOptionRevealed = true
+                                        scrollToDeveloper = true
                                         Toast.makeText(
                                             context,
                                             "开发者选项已显示",
@@ -224,7 +231,7 @@ fun AboutScreen(
                             description = "查看开发者发布的历史公告",
                             iconColor = Color(0xFFE67E22),
                             icon = { Icon(Icons.Filled.Campaign, contentDescription = null) },
-                            onClick = { subPage = AboutSubPage.Announcements }
+                            onClick = { subPage = AboutSubPage.ANNOUNCEMENTS }
                         )
                         HorizontalDivider()
                         SettingsRow(
@@ -232,7 +239,7 @@ fun AboutScreen(
                             description = "功能说明、操作指引与常见问题",
                             iconColor = Color(0xFF2F80ED),
                             icon = { Icon(Icons.AutoMirrored.Filled.Help, contentDescription = null) },
-                            onClick = { subPage = AboutSubPage.Guide }
+                            onClick = { subPage = AboutSubPage.GUIDE }
                         )
                         HorizontalDivider()
                         SettingsRow(
@@ -240,7 +247,7 @@ fun AboutScreen(
                             description = "数据安全、平台接入、性能等 ${faqCategories.sumOf { it.items.size }} 题分类整理",
                             iconColor = Color(0xFF00B894),
                             icon = { Icon(Icons.Filled.QuestionAnswer, contentDescription = null) },
-                            onClick = { subPage = AboutSubPage.Faq }
+                            onClick = { subPage = AboutSubPage.FAQ }
                         )
                         HorizontalDivider()
                         SettingsRow(
@@ -279,7 +286,7 @@ fun AboutScreen(
                             description = "本应用使用的所有开源项目与 License",
                             iconColor = Color(0xFF607D8B),
                             icon = { Icon(Icons.Filled.Code, contentDescription = null) },
-                            onClick = { subPage = AboutSubPage.OpenSourceLicenses }
+                            onClick = { subPage = AboutSubPage.OPEN_SOURCE_LICENSES }
                         )
                         HorizontalDivider()
                         SettingsSwitchRow(
@@ -320,7 +327,7 @@ fun AboutScreen(
                                     description = "诊断、测试、模拟、日志与数据工具",
                                     iconColor = Color(0xFF455A64),
                                     icon = { Icon(Icons.Filled.DeveloperMode, contentDescription = null) },
-                                    onClick = { subPage = AboutSubPage.DeveloperCenter },
+                                    onClick = { subPage = AboutSubPage.DEVELOPER_CENTER },
                                 )
                             }
                         }
@@ -333,13 +340,13 @@ fun AboutScreen(
     }
 }
 
-private sealed class AboutSubPage {
-    object None : AboutSubPage()
-    object Announcements : AboutSubPage()
-    object Guide : AboutSubPage()
-    object Faq : AboutSubPage()
-    object OpenSourceLicenses : AboutSubPage()
-    object DeveloperCenter : AboutSubPage()
+private enum class AboutSubPage {
+    NONE,
+    ANNOUNCEMENTS,
+    GUIDE,
+    FAQ,
+    OPEN_SOURCE_LICENSES,
+    DEVELOPER_CENTER,
 }
 
 @Composable
@@ -365,7 +372,10 @@ private fun AboutAppHeader(onVersionClick: () -> Unit) {
             text = "版本 ${com.ahu_plus.BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.clickable(onClick = onVersionClick),
+            modifier = Modifier
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .clickable(onClick = onVersionClick)
+                .wrapContentSize(Alignment.Center),
         )
     }
 }
@@ -408,6 +418,11 @@ private fun DeveloperPasswordDialog(
                     isError = isError,
                     supportingText = if (isError) ({ Text("密码错误") }) else null,
                     visualTransformation = PasswordVisualTransformation(),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            if (password.length == DeveloperTimePasswordValidator.PASSWORD_LENGTH) verify()
+                        },
+                    ),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.NumberPassword,
                         imeAction = ImeAction.Done,
@@ -417,7 +432,10 @@ private fun DeveloperPasswordDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = ::verify) { Text("确认") }
+            TextButton(
+                onClick = ::verify,
+                enabled = password.length == DeveloperTimePasswordValidator.PASSWORD_LENGTH,
+            ) { Text("确认") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }

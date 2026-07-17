@@ -26,6 +26,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.SessionManager
@@ -189,6 +190,8 @@ fun AppNavigation(
         // ── 主页(一卡通 + 课表)────────────────────────
         composable("main") {
             val navigateToLogin: () -> Unit = {
+                // Manual authentication must always use the real network, even after a fault test.
+                DeveloperRuntime.resetOverrides()
                 navController.navigate("login") {
                     launchSingleTop = true
                 }
@@ -263,6 +266,8 @@ fun AppNavigation(
                     }
                 },
                 onLogout = {
+                    // Fault injection is process-local and must not survive an account boundary.
+                    DeveloperRuntime.resetOverrides()
                     silentLoginViewModel.cancel()
                     coroutineScope.launch {
                         clearAllCookies()
