@@ -1,5 +1,9 @@
 package com.ahu_plus.ui.screen.agenda
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -28,6 +33,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +63,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.agenda.AgendaEvent
 import com.ahu_plus.data.model.agenda.AgendaSource
@@ -97,6 +106,27 @@ fun AgendaScreen(
     val selectedDate by viewModel.selectedDate.collectAsStateWithLifecycle()
     val showCourses by viewModel.showCourses.collectAsStateWithLifecycle()
     val showExams by viewModel.showExams.collectAsStateWithLifecycle()
+    val calendarSyncState by viewModel.calendarSyncState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var calendarPermissionDenied by remember { mutableStateOf(false) }
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        calendarPermissionDenied = !result.values.all { it }
+        if (!calendarPermissionDenied) viewModel.syncSystemCalendar()
+    }
+    val syncCalendar: () -> Unit = {
+        val permissions = arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
+        if (permissions.all {
+                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+            }
+        ) {
+            calendarPermissionDenied = false
+            viewModel.syncSystemCalendar()
+        } else {
+            calendarPermissionLauncher.launch(permissions)
+        }
+    }
 
     var showAddSheet by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<UserTask?>(null) }
@@ -263,6 +293,35 @@ fun AgendaScreen(
                 Spacer(Modifier.height(8.dp))
                 SettingSwitch("课程自动加入日程", showCourses) { viewModel.setShowCourses(it) }
                 SettingSwitch("考试自动加入日程", showExams) { viewModel.setShowExams(it) }
+                FilledTonalButton(
+                    onClick = syncCalendar,
+                    enabled = !calendarSyncState.isSyncing,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (calendarSyncState.isSyncing) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (calendarSyncState.isSyncing) "正在同步" else "同步到系统日历")
+                }
+                calendarSyncState.message?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (calendarSyncState.isError) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                if (calendarPermissionDenied) {
+                    Text(
+                        text = "需要日历读写权限才能同步",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 Spacer(Modifier.height(16.dp))
             }
         }
@@ -545,7 +604,7 @@ private fun AgendaEventRow(
         ) {
             // 左侧时间列
             Column(
-                modifier = Modifier.width(52.dp),
+                modifier = Modifier.widthIn(min = 52.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val start = event.startClock()
@@ -577,7 +636,7 @@ private fun AgendaEventRow(
                     fontWeight = FontWeight.Medium,
                     // 删除线只对"可勾选完成"的待办生效;考试的 isFinished 不可靠且语义不同
                     textDecoration = if (event.isCheckable && event.completed) TextDecoration.LineThrough else null,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 val meta = listOfNotNull(sourceLabel(event.source), event.location?.takeIf { it.isNotBlank() })
@@ -587,7 +646,7 @@ private fun AgendaEventRow(
                         text = meta,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

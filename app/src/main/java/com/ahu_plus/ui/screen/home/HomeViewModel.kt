@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.home
 
+import android.app.Application
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -26,6 +27,7 @@ import com.ahu_plus.data.repository.SessionExpiredException
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.YcardAuthExpiredException
 import com.ahu_plus.data.repository.YcardRepository
+import com.ahu_plus.notification.CampusCardAlertNotifier
 import com.ahu_plus.data.repository.YcardPayRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +46,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 class HomeViewModel(
+    private val application: Application,
     private val repository: CardRepository,
     private val casAuthRepository: CasAuthRepository,
     private val ycardRepository: YcardRepository,
@@ -224,14 +227,16 @@ class HomeViewModel(
                 }
 
                 if (adwmhBalance.isSuccess) {
+                    val balance = adwmhBalance.getOrThrow()
                     _uiState.update {
                         it.copy(
-                            balance = adwmhBalance.getOrThrow(),
+                            balance = balance,
                             timestamp = DebugClock.nowMillis(),
                             isLoading = false,
                             error = null,
                         )
                     }
+                    CampusCardAlertNotifier.evaluate(application, balance, sessionManager)
                     return@withContext
                 }
 
@@ -252,6 +257,7 @@ class HomeViewModel(
                         _uiState.update {
                             it.copy(balance = portal.balance, timestamp = portal.timestamp, isLoading = false)
                         }
+                        CampusCardAlertNotifier.evaluate(application, portal.balance, sessionManager)
                     },
                     onFailure = { e ->
                         _uiState.update { it.copy(isLoading = false, error = e.message ?: "查询失败") }
@@ -1298,9 +1304,17 @@ class HomeViewModel(
 
     /** 读取设置：智慧安大登录是否启用并发重试 */
     fun getAdwmhConcurrentRetry(): Boolean = sessionManager.getAdwmhConcurrentRetry()
+    fun getCardBalanceAlertEnabled(): Boolean = sessionManager.getCardBalanceAlertEnabled()
+    fun getCardBalanceAlertThreshold(): Double = sessionManager.getCardBalanceAlertThreshold()
 
     fun setQrBrightnessBoost(enabled: Boolean) { viewModelScope.launch { sessionManager.setQrBrightnessBoost(enabled) } }
     fun setAdwmhConcurrentRetry(enabled: Boolean) { viewModelScope.launch { sessionManager.setAdwmhConcurrentRetry(enabled) } }
+    fun setCardBalanceAlertEnabled(enabled: Boolean) {
+        viewModelScope.launch { sessionManager.setCardBalanceAlertEnabled(enabled) }
+    }
+    fun setCardBalanceAlertThreshold(value: Double) {
+        viewModelScope.launch { sessionManager.setCardBalanceAlertThreshold(value) }
+    }
 
     /** @deprecated 保留兼容 — 手动导入 session 的旧入口。 */
     fun importAdwmhSession(sessionId: String) {

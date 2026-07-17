@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.agenda.AgendaBuilder
+import com.ahu_plus.data.calendar.SystemCalendarSync
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.agenda.AgendaEvent
@@ -23,6 +24,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -60,6 +63,9 @@ class AgendaViewModel(
 
     private val _showExams = MutableStateFlow(sessionManager.getAgendaShowExams())
     val showExams: StateFlow<Boolean> = _showExams.asStateFlow()
+
+    private val _calendarSyncState = MutableStateFlow(CalendarSyncUiState())
+    val calendarSyncState: StateFlow<CalendarSyncUiState> = _calendarSyncState.asStateFlow()
 
     /**
      * 所有事件按日期分组,组内按开始时间排序(全天/无时间的排最前)。
@@ -169,6 +175,42 @@ class AgendaViewModel(
         refreshTrigger.value += 1
     }
 
+    fun syncSystemCalendar() {
+        if (_calendarSyncState.value.isSyncing) return
+        viewModelScope.launch {
+            _calendarSyncState.value = CalendarSyncUiState(isSyncing = true)
+            runCatching {
+                val events = buildSystemCalendarEvents(_showCourses.value, _showExams.value)
+                withContext(Dispatchers.IO) {
+                    SystemCalendarSync(getApplication()).sync(events)
+                }
+            }.onSuccess { result ->
+                _calendarSyncState.value = CalendarSyncUiState(
+                    message = "已同步到${result.calendarName}：新增 ${result.inserted}，更新 ${result.updated}，移除 ${result.removed}",
+                )
+            }.onFailure { error ->
+                _calendarSyncState.value = CalendarSyncUiState(
+                    message = error.message ?: "系统日历同步失败",
+                    isError = true,
+                )
+            }
+        }
+    }
+
+    private fun buildSystemCalendarEvents(
+        includeCourses: Boolean,
+        includeExams: Boolean,
+    ): List<AgendaEvent> {
+        val from = today.minusDays(PAST_DAYS)
+        val to = today.plusDays(RANGE_DAYS)
+        return buildList {
+            if (includeCourses) {
+                loadScheduleData()?.let { addAll(AgendaBuilder.expandCourses(it, today, from, to)) }
+            }
+            if (includeExams) addAll(AgendaBuilder.expandExams(loadExams(), from, to))
+        }
+    }
+
     /** 按 sourceId 反查手动日程原始 [UserTask](编辑时预填 sheet 用)。 */
     fun findTask(id: String): UserTask? =
         userTaskRepository.tasksSnapshot().firstOrNull { it.id == id }
@@ -228,3 +270,9 @@ class AgendaViewModel(
         const val PAST_DAYS = 120L   // 今天往前(约一学期,够翻看历史课程)
     }
 }
+
+data class CalendarSyncUiState(
+    val isSyncing: Boolean = false,
+    val message: String? = null,
+    val isError: Boolean = false,
+)

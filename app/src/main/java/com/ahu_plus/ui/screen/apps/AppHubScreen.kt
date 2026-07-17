@@ -15,10 +15,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.ui.Alignment
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -40,6 +48,9 @@ import com.ahu_plus.data.home.AppRegistry
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.ui.components.AhuIconBox
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuBlue
+import com.ahu_plus.ui.theme.AhuOrange
+import com.ahu_plus.ui.theme.AhuViolet
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -48,6 +59,7 @@ import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.CenteredMessage
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeListScreen
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
+import com.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomScreen
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
 import com.ahu_plus.ui.screen.evaluation.EvaluationDetailScreen
@@ -55,6 +67,9 @@ import com.ahu_plus.ui.screen.evaluation.EvaluationListScreen
 import com.ahu_plus.ui.screen.evaluation.EvaluationViewModel
 import com.ahu_plus.ui.screen.weather.WeatherScreen
 import com.ahu_plus.ui.screen.weather.WeatherViewModel
+import com.ahu_plus.ui.screen.market.MarketViewModel
+import com.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
+import com.ahu_plus.ui.screen.messages.UnifiedMessageCenterScreen
 import com.ahu_plus.ui.screen.exam.ExamScreen
 import com.ahu_plus.ui.screen.exam.ExamViewModel
 import com.ahu_plus.ui.screen.exam.ExamPredictionScreen
@@ -89,6 +104,7 @@ private const val PAGE_GRADE = "grade"
 private const val PAGE_EXAM = "exam"
 private const val PAGE_EXAM_PREDICTION = "examPrediction"
 private const val PAGE_NOTICES = "notices"
+private const val PAGE_MESSAGE_CENTER = "messageCenter"
 private const val PAGE_BILLS = "bills"
 private const val PAGE_ANALYTICS = "analytics"
 private const val PAGE_BATHROOM = "bathroom"
@@ -118,6 +134,7 @@ internal fun appHubPageForAppKey(appKey: String): String? = when (appKey) {
     AppRegistry.KEY_CPROG -> PAGE_CPROG
     AppRegistry.KEY_EVALUATION -> PAGE_EVALUATION
     AppRegistry.KEY_NOTICE_LIST -> PAGE_NOTICES
+    AppRegistry.KEY_MESSAGE_CENTER -> PAGE_MESSAGE_CENTER
     AppRegistry.KEY_CARD -> PAGE_BILLS
     AppRegistry.KEY_CARD_ANALYTICS -> PAGE_ANALYTICS
     AppRegistry.KEY_BATHROOM -> PAGE_BATHROOM
@@ -140,9 +157,12 @@ fun AppHubScreen(
     emptyClassroomViewModel: EmptyClassroomViewModel,
     cardViewModel: HomeViewModel,
     jwcNoticeListViewModel: JwcNoticeListViewModel,
+    jwcNoticeViewModel: JwcNoticeViewModel,
+    chaoxingViewModel: ChaoxingViewModel,
     studentInfoViewModel: StudentInfoViewModel,
     financeViewModel: FinanceViewModel,
     attendanceViewModel: AttendanceViewModel,
+    marketViewModel: MarketViewModel,
     weatherViewModel: WeatherViewModel,
     agendaViewModel: AgendaViewModel,
     evaluationViewModel: EvaluationViewModel,
@@ -151,6 +171,14 @@ fun AppHubScreen(
     onRecordApp: (String) -> Unit = {},
     hasCredentials: Boolean = false,
     authRefreshVersion: Int = 0,
+    marketEnabled: Boolean = false,
+    chaoxingEnabled: Boolean = false,
+    welearnEnabled: Boolean = false,
+    onOpenMarket: () -> Unit = {},
+    onOpenChaoxing: () -> Unit = {},
+    onOpenWelearn: () -> Unit = {},
+    onOpenMarketFromMessages: () -> Unit = {},
+    onOpenChaoxingFromMessages: () -> Unit = {},
     onNeedsLogin: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as AhuPlusApplication
@@ -160,6 +188,7 @@ fun AppHubScreen(
     val studentInfoUiState by studentInfoViewModel.uiState.collectAsStateWithLifecycle()
     val financeUiState by financeViewModel.uiState.collectAsStateWithLifecycle()
     val attendanceUiState by attendanceViewModel.uiState.collectAsStateWithLifecycle()
+    val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
 
     var currentPage by rememberSaveable { mutableStateOf<String?>(null) }
     var analyticsFromBills by rememberSaveable { mutableStateOf(false) }
@@ -197,6 +226,10 @@ fun AppHubScreen(
             PAGE_EXAM -> examViewModel.activate()
             PAGE_TRAINING_PLAN -> trainingPlanViewModel.activate()
             PAGE_NOTICES -> jwcNoticeListViewModel.activate()
+            PAGE_MESSAGE_CENTER -> {
+                chaoxingViewModel.loadMessages()
+                marketViewModel.refreshNotices()
+            }
             PAGE_EVALUATION -> {
                 if (authRefreshVersion > 0) evaluationViewModel.refreshList()
                 else evaluationViewModel.activate()
@@ -307,6 +340,29 @@ fun AppHubScreen(
             viewModel = jwcNoticeListViewModel,
             onBack = { currentPage = null }
         )
+        PAGE_MESSAGE_CENTER -> {
+            val academicState by jwcNoticeViewModel.uiState.collectAsStateWithLifecycle()
+            val cxState by chaoxingViewModel.messagesState.collectAsStateWithLifecycle()
+            UnifiedMessageCenterScreen(
+                academicNotices = academicState.notices,
+                marketNotices = marketUiState.notices,
+                marketAvailable = marketUiState.hasSavedIdentity,
+                cxMessages = cxState.messages,
+                cxAvailable = chaoxingViewModel.loginState.collectAsStateWithLifecycle().value.isLoggedIn,
+                isRefreshing = marketUiState.noticesLoading || cxState.isLoading,
+                onRefresh = {
+                    chaoxingViewModel.loadMessages()
+                    marketViewModel.refreshNotices()
+                },
+                onOpenAcademic = { currentPage = PAGE_NOTICES },
+                onOpenMarket = {
+                    marketViewModel.openNotices()
+                    onOpenMarketFromMessages()
+                },
+                onOpenChaoxing = onOpenChaoxingFromMessages,
+                onBack = { currentPage = null },
+            )
+        }
         PAGE_BILLS -> BillDetailScreen(
             bills = cardUiState.bills,
             isLoading = cardUiState.billsLoading,
@@ -433,6 +489,12 @@ fun AppHubScreen(
         )
         else -> AppHubPage(
             listState = hubListState,
+            marketEnabled = marketEnabled,
+            chaoxingEnabled = chaoxingEnabled,
+            welearnEnabled = welearnEnabled,
+            onOpenMarket = onOpenMarket,
+            onOpenChaoxing = onOpenChaoxing,
+            onOpenWelearn = onOpenWelearn,
             onNavigate = { appKey ->
                 appHubPageForAppKey(appKey)?.let { page ->
                     analyticsFromBills = false
@@ -449,11 +511,70 @@ fun AppHubScreen(
 @Composable
 private fun AppHubPage(
     listState: androidx.compose.foundation.lazy.LazyListState,
+    marketEnabled: Boolean,
+    chaoxingEnabled: Boolean,
+    welearnEnabled: Boolean,
+    onOpenMarket: () -> Unit,
+    onOpenChaoxing: () -> Unit,
+    onOpenWelearn: () -> Unit,
     onNavigate: (String) -> Unit
 ) {
+    var searchVisible by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val normalizedQuery = query.trim()
+    val groupedApps = remember(normalizedQuery) {
+        AppRegistry.grouped().mapValues { (_, specs) ->
+            if (normalizedQuery.isBlank()) specs
+            else specs.filter {
+                it.title.contains(normalizedQuery, ignoreCase = true) ||
+                    it.group.contains(normalizedQuery, ignoreCase = true)
+            }
+        }.filterValues { it.isNotEmpty() }
+    }
+    val serviceMatches: (String) -> Boolean = { title ->
+        normalizedQuery.isBlank() ||
+            title.contains(normalizedQuery, ignoreCase = true) ||
+            "第三方服务".contains(normalizedQuery, ignoreCase = true)
+    }
+    val hasMatchingService =
+        (marketEnabled && serviceMatches("集市")) ||
+            (chaoxingEnabled && serviceMatches("学习通")) ||
+            (welearnEnabled && serviceMatches("WeLearn"))
+
     Scaffold(
         topBar = {
-            AhuTopAppBar(title = { Text("应用") })
+            AhuTopAppBar(
+                title = {
+                    if (searchVisible) {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("搜索应用或分类") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                            ),
+                        )
+                    } else {
+                        Text("应用")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            if (searchVisible) query = ""
+                            searchVisible = !searchVisible
+                        }
+                    ) {
+                        Icon(
+                            if (searchVisible) Icons.Filled.Close else Icons.Filled.Search,
+                            contentDescription = if (searchVisible) "关闭搜索" else "搜索应用",
+                        )
+                    }
+                }
+            )
         }
     ) { innerPadding ->
         LazyColumn(
@@ -463,7 +584,30 @@ private fun AppHubPage(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
-            AppRegistry.grouped().forEach { (group, specs) ->
+            if (hasMatchingService) {
+                item(key = "header:third-party") {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AhuSectionTitle(text = "第三方服务")
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                if (marketEnabled && serviceMatches("集市")) {
+                    item(key = "service:market") {
+                        AppHubItem("集市", Icons.Filled.Storefront, AhuOrange, onClick = onOpenMarket)
+                    }
+                }
+                if (chaoxingEnabled && serviceMatches("学习通")) {
+                    item(key = "service:chaoxing") {
+                        AppHubItem("学习通", Icons.Filled.School, AhuViolet, onClick = onOpenChaoxing)
+                    }
+                }
+                if (welearnEnabled && serviceMatches("WeLearn")) {
+                    item(key = "service:welearn") {
+                        AppHubItem("WeLearn", Icons.AutoMirrored.Filled.LibraryBooks, AhuBlue, onClick = onOpenWelearn)
+                    }
+                }
+            }
+
+            groupedApps.forEach { (group, specs) ->
                 item(key = "header:$group") {
                     Spacer(modifier = Modifier.height(8.dp))
                     AhuSectionTitle(text = group)
@@ -477,6 +621,12 @@ private fun AppHubPage(
                         gradient = spec.gradient,
                         onClick = { onNavigate(spec.key) },
                     )
+                }
+            }
+
+            if (groupedApps.isEmpty() && !hasMatchingService) {
+                item(key = "empty-search") {
+                    CenteredMessage("没有找到相关应用")
                 }
             }
 

@@ -88,6 +88,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import androidx.core.view.drawToBitmap
 import com.ahu_plus.data.model.jw.UserScheduleItem
+import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.screen.schedule.components.ReminderPermissionBanner
 import com.ahu_plus.ui.screen.schedule.components.WeekPager
 import com.ahu_plus.ui.theme.AhuShapes
@@ -238,7 +239,8 @@ fun ScheduleScreen(
         // ── 内容区（下拉刷新）────────────────────────
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
                 .background(scheduleBackground.canvas)
         ) {
             if (backgroundConfig.backgroundMode == "image" &&
@@ -371,6 +373,12 @@ fun ScheduleScreen(
                 }
             }
             }
+        }
+        uiState.dataStatus?.let { status ->
+            DataStatusFooter(
+                status = status,
+                modifier = Modifier.background(MaterialTheme.colorScheme.background),
+            )
         }
     }
 

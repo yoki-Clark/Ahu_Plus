@@ -7,6 +7,8 @@ import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.local.DataRefreshPolicy
+import com.ahu_plus.data.local.DataSnapshotStatus
+import com.ahu_plus.data.local.EmptyClassroomPreset
 import com.google.gson.reflect.TypeToken
 import com.ahu_plus.data.model.AhuUnitTimes
 import com.ahu_plus.data.model.BuildingInfo
@@ -26,6 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 class EmptyClassroomViewModel(
     private val jwAuthRepository: JwAuthRepository,
@@ -77,6 +80,7 @@ class EmptyClassroomViewModel(
     }
 
     init {
+        _uiState.update { it.copy(presets = sessionManager?.getEmptyClassroomPresets().orEmpty()) }
         sessionManager?.getBuildingFloorsJson()?.let { raw ->
             runCatching {
                 val type = object : TypeToken<Map<String, List<Int>>>() {}.type
@@ -143,7 +147,7 @@ class EmptyClassroomViewModel(
         val date = state.selectedDate
         queryJob = viewModelScope.launch {
             loadData(
-                isRefresh = false,
+                isRefresh = true,
                 buildingId = buildingId,
                 campusId = campusId,
                 date = date,
@@ -252,6 +256,71 @@ class EmptyClassroomViewModel(
         }
     }
 
+    fun saveCurrentPreset() {
+        val sm = sessionManager ?: return
+        val state = _uiState.value
+        val campusId = state.selectedCampusId ?: return
+        val buildingId = state.selectedBuildingId ?: return
+        val buildingName = state.buildings.firstOrNull { it.id == buildingId }?.nameZh ?: "教学楼"
+        val dayOffset = ChronoUnit.DAYS.between(DebugClock.todayDate(), state.selectedDate)
+            .toInt()
+            .coerceIn(0, 30)
+        val id = listOf(
+            campusId,
+            buildingId,
+            state.selectedFloor?.toString().orEmpty(),
+            dayOffset.toString(),
+            state.continuousFree.toString(),
+        ).joinToString("|")
+        val dateLabel = when (dayOffset) {
+            0 -> "今天"
+            1 -> "明天"
+            2 -> "后天"
+            else -> "+${dayOffset}天"
+        }
+        val title = buildString {
+            append(buildingName)
+            state.selectedFloor?.let { append(" ${it}F") }
+            append(" · ")
+            append(dateLabel)
+            if (state.continuousFree) append(" · 连续")
+        }
+        val preset = EmptyClassroomPreset(
+            id = id,
+            title = title,
+            campusId = campusId,
+            buildingId = buildingId,
+            floor = state.selectedFloor,
+            dayOffset = dayOffset,
+            continuousFree = state.continuousFree,
+        )
+        val updated = (listOf(preset) + state.presets.filterNot { it.id == id }).take(6)
+        _uiState.update { it.copy(presets = updated) }
+        viewModelScope.launch { sm.saveEmptyClassroomPresets(updated) }
+    }
+
+    fun applyPreset(preset: EmptyClassroomPreset) {
+        val date = DebugClock.todayDate().plusDays(preset.dayOffset.coerceIn(0, 30).toLong())
+        selectCampus(preset.campusId)
+        _uiState.update {
+            it.copy(
+                selectedDate = date,
+                isSelectedDateToday = preset.dayOffset == 0,
+                currentUnit = currentUnitForToday(date),
+                continuousFree = preset.continuousFree,
+            )
+        }
+        selectBuilding(preset.buildingId)
+        selectFloor(preset.floor)
+    }
+
+    fun deletePreset(presetId: String) {
+        val sm = sessionManager ?: return
+        val updated = _uiState.value.presets.filterNot { it.id == presetId }
+        _uiState.update { it.copy(presets = updated) }
+        viewModelScope.launch { sm.saveEmptyClassroomPresets(updated) }
+    }
+
     /**
      * 应用排序规则。
      * - total(默认): 按全天总空闲节数降序。
@@ -327,7 +396,8 @@ class EmptyClassroomViewModel(
                         isSelectedDateToday = isToday,
                         currentUnit = if (isToday) currentUnitForToday(cachedDate) else null,
                         error = null,
-                        needsLogin = false
+                        needsLogin = false,
+                        dataStatus = DataSnapshotStatus.cache(updatedAt),
                     )
                 }
                 true
@@ -362,7 +432,7 @@ class EmptyClassroomViewModel(
         if (!isRefresh) {
             _uiState.update { it.copy(isLoading = true, error = null, currentUnit = currentUnit) }
         } else {
-            _uiState.update { it.copy(currentUnit = currentUnit) }
+            _uiState.update { it.copy(isRefreshing = true, currentUnit = currentUnit) }
         }
 
         try {
@@ -401,7 +471,9 @@ class EmptyClassroomViewModel(
                             filteredRooms = filtered,
                             availableFloors = floors,
                             error = null,
-                            needsLogin = false
+                            needsLogin = false,
+                            isRefreshing = false,
+                            dataStatus = DataSnapshotStatus.network(),
                         )
                     }
                 },
@@ -414,7 +486,11 @@ class EmptyClassroomViewModel(
                             isLoading = false,
                             error = if (!wasLoaded) (e.message ?: "空教室查询失败") else state.error,
                             needsLogin = !wasLoaded &&
-                                (e is SessionExpiredException || e is JwAuthException)
+                                (e is SessionExpiredException || e is JwAuthException),
+                            isRefreshing = false,
+                            dataStatus = if (wasLoaded) {
+                                state.dataStatus?.withFailedRefresh()
+                            } else state.dataStatus,
                         )
                     }
                 }
@@ -426,7 +502,11 @@ class EmptyClassroomViewModel(
                     isLoading = false,
                     error = if (!wasLoaded) "未知错误: ${e.message}" else state.error,
                     needsLogin = !wasLoaded &&
-                        (e is SessionExpiredException || e is JwAuthException)
+                        (e is SessionExpiredException || e is JwAuthException),
+                    isRefreshing = false,
+                    dataStatus = if (wasLoaded) {
+                        state.dataStatus?.withFailedRefresh()
+                    } else state.dataStatus,
                 )
             }
         }
@@ -465,7 +545,9 @@ class EmptyClassroomViewModel(
                 filteredRooms = filtered,
                 availableFloors = floors,
                 error = null,
-                needsLogin = false
+                needsLogin = false,
+                isRefreshing = false,
+                dataStatus = DataSnapshotStatus.network(),
             )
         }
     }
@@ -477,6 +559,7 @@ class EmptyClassroomViewModel(
 
 data class EmptyClassroomUiState(
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val selectedCampusId: String? = null,
     val selectedBuildingId: String? = null,
     val selectedFloor: Int? = null,
@@ -498,7 +581,9 @@ data class EmptyClassroomUiState(
      * **设计而非 bug** — 用户可能更看重"现在进去能连坐多少节",而非"今日累计空闲节数"。
      * 这是产品设计选择,不是 bug,后续维护请勿当成"排序异常"修复。
      */
-    val continuousFree: Boolean = false
+    val continuousFree: Boolean = false,
+    val dataStatus: DataSnapshotStatus? = null,
+    val presets: List<EmptyClassroomPreset> = emptyList(),
 ) {
     val availableCampuses: List<CampusInfo>
         get() = CampusBuildingData.campuses
