@@ -12,6 +12,7 @@ import com.ahu_plus.data.model.jw.PlanModuleNode
 import com.ahu_plus.data.model.jw.ResultTypeEntry
 import com.ahu_plus.data.model.jw.TrainingPlanResponse
 import com.ahu_plus.data.repository.JwAuthRepository
+import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.ProgramCompletionRepository
 import com.ahu_plus.data.repository.SessionExpiredException
 import com.ahu_plus.data.repository.TrainingPlanRepository
@@ -112,7 +113,8 @@ class TrainingPlanViewModel(
                             it.copy(
                                 isLoading = false,
                                 error = if (!wasLoaded) (e.message ?: "培养方案加载失败") else it.error,
-                                needsLogin = !wasLoaded && e is SessionExpiredException
+                                needsLogin = !wasLoaded &&
+                                    (e is SessionExpiredException || e is JwAuthException)
                             )
                         }
                     }
@@ -130,7 +132,8 @@ class TrainingPlanViewModel(
                 it.copy(
                     isLoading = false,
                     error = if (!wasLoaded) "未知错误: ${e.message}" else it.error,
-                    needsLogin = !wasLoaded && e is SessionExpiredException
+                    needsLogin = !wasLoaded &&
+                        (e is SessionExpiredException || e is JwAuthException)
                 )
             }
         }

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.Email
@@ -112,6 +113,7 @@ import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.ui.components.AhuInfoRow
 import com.ahu_plus.ui.components.AhuSectionHeader
+import com.ahu_plus.ui.components.LoginRequiredCard
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.AhuStatusCard
 import com.ahu_plus.data.local.ElectricityRoomConfig
@@ -159,6 +161,8 @@ fun ProfileScreen(
     guideIntroSeen: Boolean = true,
     /** 首次展示帮助弹窗后落盘标记。 */
     onGuideIntroSeen: () -> Unit = {},
+    isLoggedIn: Boolean,
+    onLogin: () -> Unit,
     onLogout: () -> Unit
 ) {
     // 2026-07-06 修复: 提升到 ProfileScreen 顶层(不嵌套在 if 链内部)。
@@ -251,6 +255,8 @@ fun ProfileScreen(
             error = cardUiState.billsError,
             onBack = { showBills = false },
             onRefresh = cardViewModel::onRefresh,
+            isLoggedIn = isLoggedIn,
+            onLogin = onLogin,
             onOpenAnalytics = { showCardAnalytics = true }
         )
     } else if (showUtilities) {
@@ -433,8 +439,12 @@ fun ProfileScreen(
             qrError = cardUiState.qrError,
             qrCountdownSeconds = cardUiState.qrCountdownSeconds,
             onQrClick = {
-                cardViewModel.loadCampusQrCode()
-                showFullQrCode = true
+                if (isLoggedIn) {
+                    cardViewModel.loadCampusQrCode()
+                    showFullQrCode = true
+                } else {
+                    onLogin()
+                }
             },
             identityCount = marketUiState.identities.size,
             hasMarketIdentity = marketUiState.hasSavedIdentity,
@@ -458,17 +468,26 @@ fun ProfileScreen(
             internetError = cardUiState.internetError,
             onRetryInternet = cardViewModel::loadInternetBalance,
             onRefresh = { cardViewModel.onRefresh() },
-            onOpenBills = { showBills = true },
-            onOpenUtilityOverview = { showUtilities = true; utilityTarget = null },
-            onOpenBathroom = { openUtility("bathroom") },
-            onOpenAc = { openUtility("ac") },
-            onOpenLighting = { openUtility("lighting") },
-            onOpenInternet = { openUtility("internet") },
+            onOpenBills = { if (isLoggedIn) showBills = true else onLogin() },
+            onOpenUtilityOverview = {
+                if (isLoggedIn) {
+                    showUtilities = true
+                    utilityTarget = null
+                } else {
+                    onLogin()
+                }
+            },
+            onOpenBathroom = { if (isLoggedIn) openUtility("bathroom") else onLogin() },
+            onOpenAc = { if (isLoggedIn) openUtility("ac") else onLogin() },
+            onOpenLighting = { if (isLoggedIn) openUtility("lighting") else onLogin() },
+            onOpenInternet = { if (isLoggedIn) openUtility("internet") else onLogin() },
             onOpenMyInfoHub = { showMyInfoHub = true },
             themeMode = themeMode,
             onOpenSettings = { showSettings = true },
             onOpenXzxx = { showXzxx = true },
             onOpenAbout = { showAbout = true },
+            isLoggedIn = isLoggedIn,
+            onLogin = onLogin,
             onLogout = onLogout
         )
     }
@@ -546,13 +565,23 @@ private fun ProfileHomeScreen(
     onOpenSettings: () -> Unit,
     onOpenXzxx: () -> Unit,
     onOpenAbout: () -> Unit,
+    isLoggedIn: Boolean,
+    onLogin: () -> Unit,
     onLogout: () -> Unit
 ) {
-    val displayName = studentName?.takeIf { it.isNotBlank() } ?: "未命名同学"
-    val subtitle = listOfNotNull(
-        department?.takeIf { it.isNotBlank() },
-        className?.takeIf { it.isNotBlank() }
-    ).joinToString(" · ").ifBlank { "学生信息接口待接入" }
+    val displayName = if (isLoggedIn) {
+        studentName?.takeIf { it.isNotBlank() } ?: "未命名同学"
+    } else {
+        "未登录"
+    }
+    val subtitle = if (isLoggedIn) {
+        listOfNotNull(
+            department?.takeIf { it.isNotBlank() },
+            className?.takeIf { it.isNotBlank() }
+        ).joinToString(" · ").ifBlank { "学生信息加载中" }
+    } else {
+        "登录后查看校园账户与个人数据"
+    }
     var showLogoutConfirm by rememberSaveable { mutableStateOf(false) }
     // 第三方服务 parent 启用前的 5s 风险声明弹窗 (子开关不需要二次确认)
     var showThirdPartyDialog by rememberSaveable { mutableStateOf(false) }
@@ -575,7 +604,7 @@ private fun ProfileHomeScreen(
         AlertDialog(
             onDismissRequest = { showLogoutConfirm = false },
             title = { Text("确认退出登录？") },
-            text = { Text("退出后会清除本地凭据与登录会话，需要重新登录后继续使用。") },
+            text = { Text("将清除本地凭据与账户数据。退出后仍可使用无需认证的功能。") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -612,12 +641,22 @@ private fun ProfileHomeScreen(
             TopAppBar(
                 title = { Text("我的") },
                 actions = {
-                    IconButton(onClick = { showLogoutConfirm = true }) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Logout,
-                            contentDescription = "退出登录",
-                            tint = MaterialTheme.colorScheme.error
-                        )
+                    if (isLoggedIn) {
+                        IconButton(onClick = { showLogoutConfirm = true }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = "退出登录",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    } else {
+                        IconButton(onClick = onLogin) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Login,
+                                contentDescription = "登录",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -652,8 +691,14 @@ private fun ProfileHomeScreen(
                 ProfileHeader(
                     displayName = displayName,
                     subtitle = subtitle,
-                    onClick = onOpenMyInfoHub
+                    onClick = if (isLoggedIn) onOpenMyInfoHub else onLogin,
                 )
+            }
+
+            if (!isLoggedIn) {
+                item {
+                    LoginRequiredCard(onLogin = onLogin)
+                }
             }
 
             item {

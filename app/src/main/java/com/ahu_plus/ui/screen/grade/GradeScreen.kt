@@ -41,7 +41,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,10 +78,6 @@ fun GradeScreen(
     onNeedsLogin: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    LaunchedEffect(uiState.needsLogin) {
-        if (uiState.needsLogin) onNeedsLogin()
-    }
 
     Scaffold(
         topBar = {
@@ -130,7 +125,8 @@ fun GradeScreen(
                 val errMsg = uiState.error
                 CenteredError(
                     message = errMsg!!,
-                    onRetry = viewModel::onRefresh,
+                    onRetry = if (uiState.needsLogin) onNeedsLogin else viewModel::onRefresh,
+                    actionLabel = if (uiState.needsLogin) "去登录" else "重试",
                     modifier = Modifier.padding(innerPadding)
                 )
             }

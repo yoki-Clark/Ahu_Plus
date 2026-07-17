@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
@@ -421,6 +422,7 @@ fun AhuErrorState(
     message: String,
     modifier: Modifier = Modifier,
     onRetry: (() -> Unit)? = null,
+    actionLabel: String = "重试",
     centered: Boolean = false,
 ) {
     val content: @Composable () -> Unit = {
@@ -454,7 +456,7 @@ fun AhuErrorState(
             if (onRetry != null) {
                 Spacer(modifier = Modifier.height(AhuSpacing.xs))
                 TextButton(onClick = onRetry) {
-                    Text("重试")
+                    Text(actionLabel)
                 }
             }
         }
@@ -483,14 +485,62 @@ fun CenteredLoader(modifier: Modifier = Modifier) {
 fun CenteredError(
     message: String,
     onRetry: () -> Unit,
+    actionLabel: String = "重试",
     modifier: Modifier = Modifier
 ) {
     AhuErrorState(
         message = message,
         onRetry = onRetry,
+        actionLabel = actionLabel,
         modifier = modifier,
         centered = true,
     )
+}
+
+/** 在可匿名浏览的页面内提示统一身份认证，不触发自动跳转。 */
+@Composable
+fun LoginRequiredCard(
+    onLogin: () -> Unit,
+    modifier: Modifier = Modifier,
+    title: String = "登录后同步校园数据",
+    description: String = "课表、成绩、校园卡等账户数据需要统一身份认证",
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AhuSpacing.md, vertical = AhuSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Login,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = AhuSpacing.sm),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onLogin) {
+                Text("去登录")
+            }
+        }
+    }
 }
 
 /**

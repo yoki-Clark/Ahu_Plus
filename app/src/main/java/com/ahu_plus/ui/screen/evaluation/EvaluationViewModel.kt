@@ -131,8 +131,12 @@ class EvaluationViewModel(
     }
 
     fun refreshList() {
-        val sid = _listState.value.selectedSemesterId ?: return
-        loadTasks(sid, isRefresh = true)
+        val sid = _listState.value.selectedSemesterId
+        if (sid == null) {
+            loadSemesters()
+        } else {
+            loadTasks(sid, isRefresh = true)
+        }
     }
 
     private fun loadTasks(semesterId: String, isRefresh: Boolean = false) {

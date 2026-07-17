@@ -149,6 +149,8 @@ fun AppHubScreen(
     requestedAppKey: String? = null,
     onRequestedAppConsumed: () -> Unit = {},
     onRecordApp: (String) -> Unit = {},
+    hasCredentials: Boolean = false,
+    authRefreshVersion: Int = 0,
     onNeedsLogin: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as AhuPlusApplication
@@ -189,13 +191,21 @@ fun AppHubScreen(
         if (currentPage != PAGE_ANALYTICS) analyticsFromBills = false
     }
 
-    LaunchedEffect(currentPage) {
+    LaunchedEffect(currentPage, authRefreshVersion) {
         when (currentPage) {
             PAGE_GRADE -> gradeViewModel.activate()
             PAGE_EXAM -> examViewModel.activate()
             PAGE_TRAINING_PLAN -> trainingPlanViewModel.activate()
             PAGE_NOTICES -> jwcNoticeListViewModel.activate()
-            PAGE_EVALUATION -> evaluationViewModel.activate()
+            PAGE_EVALUATION -> {
+                if (authRefreshVersion > 0) evaluationViewModel.refreshList()
+                else evaluationViewModel.activate()
+            }
+            PAGE_EVALUATION_DETAIL -> {
+                if (authRefreshVersion > 0) {
+                    selectedEvaluationTask?.let(evaluationViewModel::openTask)
+                }
+            }
             PAGE_MY_INFO_HUB, PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO,
             PAGE_ACADEMIC_WARNING -> studentInfoViewModel.activate()
             PAGE_FINANCE -> financeViewModel.activate()
@@ -268,6 +278,7 @@ fun AppHubScreen(
         PAGE_EVALUATION -> EvaluationListScreen(
             viewModel = evaluationViewModel,
             onBack = { currentPage = null },
+            onNeedsLogin = onNeedsLogin,
             onOpenTask = {
                 selectedEvaluationTask = it
                 currentPage = PAGE_EVALUATION_DETAIL
@@ -283,6 +294,7 @@ fun AppHubScreen(
                 EvaluationDetailScreen(
                     task = task,
                     viewModel = evaluationViewModel,
+                    onNeedsLogin = onNeedsLogin,
                     onBack = {
                         evaluationViewModel.resetDetail()
                         selectedEvaluationTask = null
@@ -301,6 +313,8 @@ fun AppHubScreen(
             error = cardUiState.billsError,
             onBack = { currentPage = null },
             onRefresh = cardViewModel::onRefresh,
+            isLoggedIn = hasCredentials,
+            onLogin = onNeedsLogin,
             onOpenAnalytics = {
                 analyticsFromBills = true
                 currentPage = PAGE_ANALYTICS

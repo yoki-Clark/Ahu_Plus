@@ -14,6 +14,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.util.concurrent.ConcurrentHashMap
 
 internal fun isSameCookieSlot(stored: Cookie, incoming: Cookie): Boolean =
@@ -157,6 +159,7 @@ class CasAuthRepository(
             Log.d(TAG, "获取到 JSESSIONID: ${jsessionid.take(8)}...")
 
             // 保存
+            currentCoroutineContext().ensureActive()
             sessionManager.saveSessionId(jsessionid)
             sessionManager.saveCredentials(username, password)
             Log.d(TAG, "登录成功，JSESSIONID=${jsessionid.take(8)}...")

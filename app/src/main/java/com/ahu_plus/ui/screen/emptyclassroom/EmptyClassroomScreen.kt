@@ -91,10 +91,6 @@ fun EmptyClassroomScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(uiState.needsLogin) {
-        if (uiState.needsLogin) onNeedsLogin()
-    }
-
     // 单例 60 秒 tick:驱动「当前时间指示条」位置刷新 + 节次跨越自动刷新
     // 提升自原来的 per-card LaunchedEffect,避免 20+ 个房间起 20+ 个循环。
     var minuteTick by remember { mutableIntStateOf(0) }
@@ -155,7 +151,8 @@ fun EmptyClassroomScreen(
                     item {
                         CenteredError(
                             message = uiState.error ?: "加载失败",
-                            onRetry = viewModel::onRefresh,
+                            onRetry = if (uiState.needsLogin) onNeedsLogin else viewModel::onRefresh,
+                            actionLabel = if (uiState.needsLogin) "去登录" else "重试",
                             modifier = Modifier.fillMaxWidth().height(200.dp)
                         )
                     }

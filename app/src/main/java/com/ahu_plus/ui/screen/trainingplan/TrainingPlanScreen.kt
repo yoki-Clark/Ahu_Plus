@@ -47,7 +47,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,10 +89,6 @@ fun TrainingPlanScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(uiState.needsLogin) {
-        if (uiState.needsLogin) onNeedsLogin()
-    }
-
     Scaffold(
         topBar = {
             AhuTopAppBar(
@@ -119,7 +114,8 @@ fun TrainingPlanScreen(
             uiState.error != null && uiState.topModules.isEmpty() -> {
                 CenteredError(
                     message = uiState.error!!,
-                    onRetry = viewModel::onRefresh,
+                    onRetry = if (uiState.needsLogin) onNeedsLogin else viewModel::onRefresh,
+                    actionLabel = if (uiState.needsLogin) "去登录" else "重试",
                     modifier = Modifier.padding(innerPadding)
                 )
             }

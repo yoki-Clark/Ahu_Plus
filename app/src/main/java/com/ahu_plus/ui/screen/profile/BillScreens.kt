@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.BillRecord
+import com.ahu_plus.ui.components.LoginRequiredCard
 import com.ahu_plus.ui.theme.AhuShapes
 import java.text.DecimalFormat
 import kotlin.math.abs
@@ -60,6 +61,8 @@ fun BillDetailScreen(
     error: String?,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
+    isLoggedIn: Boolean = true,
+    onLogin: () -> Unit = {},
     onOpenAnalytics: () -> Unit = {}
 ) {
     // 2026-06-22: 单条账单选中后弹出明细 BottomSheet
@@ -98,6 +101,15 @@ fun BillDetailScreen(
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             when {
+                !isLoggedIn -> {
+                    item {
+                        LoginRequiredCard(
+                            onLogin = onLogin,
+                            title = "登录后查看校园卡账单",
+                            description = "账单和消费分析属于账户数据",
+                        )
+                    }
+                }
                 isLoading && bills.isEmpty() -> {
                     item {
                         LoadingBlock("正在加载账单...")
@@ -317,4 +329,3 @@ fun BillRow(bill: BillRecord, onClick: () -> Unit = {}) {
         )
     }
 }
-

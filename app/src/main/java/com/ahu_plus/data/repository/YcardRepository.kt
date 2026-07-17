@@ -19,6 +19,8 @@ import com.ahu_plus.data.network.SecureHttpClientFactory
 import com.ahu_plus.util.DES
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
@@ -707,6 +709,7 @@ class YcardRepository(
         val jwt = Regex("""synjones-auth=([^&"]+)""").find(finalUrl)?.groupValues?.get(1)
             ?: throw Exception("未获取到 synjones-auth JWT (final URL: ${finalUrl.take(200)})")
 
+        currentCoroutineContext().ensureActive()
         cachedJwt = jwt
         Log.i(TAG, "ycard 简易 SSO 成功")
     }
@@ -772,6 +775,7 @@ class YcardRepository(
         val jwt = Regex("""synjones-auth=([^&"]+)""").find(finalUrl)?.groupValues?.get(1)
             ?: throw Exception("未获取到 synjones-auth JWT")
 
+        currentCoroutineContext().ensureActive()
         cachedJwt = jwt
         Log.i(TAG, "ycard 完整登录成功")
     }

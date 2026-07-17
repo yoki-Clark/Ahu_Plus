@@ -7,6 +7,7 @@ import com.ahu_plus.data.model.jw.GpaMetadata
 import com.ahu_plus.data.model.jw.Grade
 import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.repository.GradeRepository
+import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.JwAuthRepository
 import com.ahu_plus.data.repository.SessionExpiredException
 import kotlinx.coroutines.Dispatchers
@@ -156,7 +157,8 @@ class GradeViewModel(
                             it.copy(
                                 isLoading = false,
                                 error = if (!wasLoaded) (e.message ?: "成绩加载失败") else it.error,
-                                needsLogin = !wasLoaded && e is SessionExpiredException,
+                                needsLogin = !wasLoaded &&
+                                    (e is SessionExpiredException || e is JwAuthException),
                                 // I-012 fix: grades 失败时不覆盖已缓存的 gpaMetadata
                             )
                         }
@@ -168,7 +170,8 @@ class GradeViewModel(
                 it.copy(
                     isLoading = false,
                     error = if (!wasLoaded) "未知错误: ${e.message}" else it.error,
-                    needsLogin = !wasLoaded && e is SessionExpiredException
+                    needsLogin = !wasLoaded &&
+                        (e is SessionExpiredException || e is JwAuthException)
                 )
             }
         }

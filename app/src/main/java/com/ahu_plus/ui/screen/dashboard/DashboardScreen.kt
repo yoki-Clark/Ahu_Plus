@@ -113,6 +113,7 @@ import com.ahu_plus.ui.components.AhuIconBox
 import com.ahu_plus.ui.components.AhuSectionTitle
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.LoginRequiredCard
 import com.ahu_plus.ui.screen.schedule.ScheduleUiState
 import com.ahu_plus.ui.screen.schedule.ScheduleViewModel
 import com.ahu_plus.ui.theme.AhuBlue
@@ -169,10 +170,6 @@ fun DashboardScreen(
         androidx.compose.runtime.mutableStateOf(false)
     }
 
-    LaunchedEffect(uiState.needsLogin) {
-        if (uiState.needsLogin) onNeedsLogin()
-    }
-
     Scaffold(
         topBar = {
             AhuTopAppBar(
@@ -202,6 +199,16 @@ fun DashboardScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (uiState.needsLogin) {
+                    item {
+                        LoginRequiredCard(
+                            onLogin = onNeedsLogin,
+                            title = "登录后同步课表",
+                            description = "当前仍可使用日程、天气和其他公开功能",
+                        )
+                    }
+                }
+
                 item {
                     // 方案 B: 走 CourseRepository.toDisplayItems() —— 与完整课表
                     // 同一管道,自动按 selectedWeek 过滤 weekIndexes,避免首页小课表

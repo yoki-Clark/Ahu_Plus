@@ -172,7 +172,13 @@ fun MainScreen(
     adwmhCardRepository: AdwmhCardRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
-    /** 仅清除会话并跳转登录(保留凭据/集市token等本地数据) */
+    /** 是否保存了统一身份认证凭据，用于匿名态与账户态 UI 切换。 */
+    hasCredentials: Boolean,
+    /** 每次后台或手动认证成功后递增，驱动当前可见数据静默刷新。 */
+    authRefreshVersion: Int,
+    /** 用户显式选择登录。 */
+    onLogin: () -> Unit,
+    /** 当前功能明确需要认证时，先尝试静默续期，再按需打开登录页。 */
     onReauth: () -> Unit,
     /** 完全退出登录(清除所有本地数据) */
     onLogout: () -> Unit,
@@ -366,6 +372,23 @@ fun MainScreen(
         viewModel(factory = factory)
     val agendaViewModel: com.ahu_plus.ui.screen.agenda.AgendaViewModel = viewModel(factory = factory)
     val agendaEventsByDate by agendaViewModel.eventsByDate.collectAsStateWithLifecycle()
+
+    // 首屏已经展示后，认证成功再刷新账户数据；不会用登录加载页阻塞导航。
+    LaunchedEffect(authRefreshVersion) {
+        if (authRefreshVersion <= 0) return@LaunchedEffect
+        scheduleViewModel.onRefresh()
+        studentInfoViewModel.refreshStudentInfo()
+        if (selectedTab == TAB_PROFILE) cardViewModel.onRefresh()
+        if (selectedTab == TAB_HOME) {
+            when (homePage) {
+                HOME_GRADE -> gradeViewModel.activate()
+                HOME_EXAM -> examViewModel.activate()
+                HOME_TRAINING_PLAN -> trainingPlanViewModel.activate()
+                HOME_EMPTY_CLASSROOM -> emptyClassroomViewModel.onRefresh()
+                HOME_BILLS -> cardViewModel.onRefresh()
+            }
+        }
+    }
 
     LaunchedEffect(selectedTab, homePage) {
         val onHome = selectedTab == TAB_HOME
@@ -668,6 +691,8 @@ fun MainScreen(
                                 error = cardState.billsError,
                                 onBack = { homePage = HOME_DASHBOARD },
                                 onRefresh = cardViewModel::onRefresh,
+                                isLoggedIn = hasCredentials,
+                                onLogin = onReauth,
                                 onOpenAnalytics = {
                                     previousTab = selectedTab
                                     selectedTab = TAB_PROFILE
@@ -817,6 +842,8 @@ fun MainScreen(
                     requestedAppKey = appHubTarget,
                     onRequestedAppConsumed = { appHubTarget = null },
                     onRecordApp = recordApp,
+                    hasCredentials = hasCredentials,
+                    authRefreshVersion = authRefreshVersion,
                     onNeedsLogin = onReauth
                 )
                 selectedTab == TAB_PROFILE -> ProfileScreen(
@@ -838,6 +865,8 @@ fun MainScreen(
                         guideIntroSeen = true
                         scope.launch { sessionManager.setGuideIntroSeen() }
                     },
+                    isLoggedIn = hasCredentials,
+                    onLogin = onLogin,
                     onLogout = onLogout
                 )
                 else -> DashboardScreen(
