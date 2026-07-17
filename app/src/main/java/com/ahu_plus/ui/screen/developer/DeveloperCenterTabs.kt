@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -47,19 +48,24 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.AhuPlusApplication
@@ -88,11 +94,105 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToLong
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+
+internal sealed interface DeveloperDataUiState {
+    data object Loading : DeveloperDataUiState
+
+    data class Ready(val report: DeveloperCacheReport) : DeveloperDataUiState
+
+    data class Failed(val message: String) : DeveloperDataUiState
+}
+
+internal enum class DeveloperDataResultState {
+    HAS_RESULTS,
+    EMPTY,
+    NO_MATCH,
+}
+
+internal fun developerDataResultState(
+    totalEntryCount: Int,
+    visibleEntryCount: Int,
+): DeveloperDataResultState = when {
+        visibleEntryCount > 0 -> DeveloperDataResultState.HAS_RESULTS
+        totalEntryCount > 0 -> DeveloperDataResultState.NO_MATCH
+        else -> DeveloperDataResultState.EMPTY
+    }
 
 @Composable
 internal fun DeveloperDataTab(
+    state: DeveloperDataUiState,
+    onClearKey: (String) -> Unit,
+    onClearCategory: (DeveloperCacheCategorySummary) -> Unit,
+    onRetry: () -> Unit,
+) {
+    when (state) {
+        DeveloperDataUiState.Loading -> DeveloperDataMessage(
+            title = "正在读取本地数据",
+            message = "请稍候",
+            loading = true,
+        )
+        is DeveloperDataUiState.Failed -> DeveloperDataMessage(
+            title = "本地数据读取失败",
+            message = state.message,
+            onRetry = onRetry,
+        )
+        is DeveloperDataUiState.Ready -> DeveloperDataContent(
+            report = state.report,
+            onClearKey = onClearKey,
+            onClearCategory = onClearCategory,
+        )
+    }
+}
+
+@Composable
+private fun DeveloperDataMessage(
+    title: String,
+    message: String,
+    loading: Boolean = false,
+    onRetry: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
+        } else {
+            Icon(
+                Icons.Filled.Error,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(32.dp),
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            message,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+        )
+        onRetry?.let {
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = it) {
+                Icon(Icons.Filled.Refresh, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("重试")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeveloperDataContent(
     report: DeveloperCacheReport,
     onClearKey: (String) -> Unit,
     onClearCategory: (DeveloperCacheCategorySummary) -> Unit,
@@ -117,6 +217,7 @@ internal fun DeveloperDataTab(
             title = "清理 ${summary.category.displayText()}？",
             text = "将删除该分类下 ${summary.entryCount} 个 DataStore 项。登录凭据等敏感项也可能包含在内。",
             confirmText = "清理",
+            destructive = true,
             onDismiss = { categoryToClear = null },
             onConfirm = {
                 onClearCategory(summary)
@@ -132,16 +233,20 @@ internal fun DeveloperDataTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            DataSummaryPill("总项", report.totalEntryCount.toString(), Modifier.weight(1f))
-            DataSummaryPill("估算", formatBytes(report.totalEstimatedBytes), Modifier.weight(1f))
-            DataSummaryPill("敏感", report.sensitiveEntryCount.toString(), Modifier.weight(1f))
-            DataSummaryPill("异常 JSON", report.invalidJsonCount.toString(), Modifier.weight(1f))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DataSummaryPill("总项", report.totalEntryCount.toString(), Modifier.weight(1f))
+                DataSummaryPill("估算", formatBytes(report.totalEstimatedBytes), Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DataSummaryPill("敏感", report.sensitiveEntryCount.toString(), Modifier.weight(1f))
+                DataSummaryPill("异常 JSON", report.invalidJsonCount.toString(), Modifier.weight(1f))
+            }
         }
         OutlinedTextField(
             value = query,
@@ -195,8 +300,42 @@ internal fun DeveloperDataTab(
             contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(filtered, key = { it.keyName }) { entry ->
-                CacheEntryRow(entry = entry, onClick = { selectedEntry = entry })
+            when (developerDataResultState(report.totalEntryCount, filtered.size)) {
+                DeveloperDataResultState.EMPTY,
+                DeveloperDataResultState.NO_MATCH -> {
+                    item(key = "cache-empty-state") {
+                        val hasAnyEntries = report.totalEntryCount > 0
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 40.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                if (hasAnyEntries) "没有匹配的数据" else "暂无缓存数据",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                if (hasAnyEntries) "请调整搜索词或分类筛选" else "应用产生 DataStore 数据后会显示在这里",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+                DeveloperDataResultState.HAS_RESULTS -> {
+                    items(filtered, key = { it.keyName }) { entry ->
+                        CacheEntryRow(entry = entry, onClick = { selectedEntry = entry })
+                    }
+                }
             }
             item { Spacer(Modifier.height(72.dp)) }
         }
@@ -220,7 +359,7 @@ private fun DataSummaryPill(label: String, value: String, modifier: Modifier = M
 @Composable
 private fun CacheEntryRow(entry: DeveloperPreferenceEntry, onClick: () -> Unit) {
     val jsonColor = when (entry.jsonState) {
-        DeveloperJsonState.VALID -> Color(0xFF2E7D32)
+        DeveloperJsonState.VALID -> developerSuccessColor()
         DeveloperJsonState.INVALID -> MaterialTheme.colorScheme.error
         DeveloperJsonState.NOT_APPLICABLE -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -275,6 +414,7 @@ private fun CacheEntryDialog(
             title = "删除 ${entry.keyName}？",
             text = "该操作删除持久化 DataStore 值；当前进程的内存镜像可能继续保留，重启应用后才能完整验证冷启动行为。",
             confirmText = "删除",
+            destructive = true,
             onDismiss = { confirmDelete = false },
             onConfirm = onDelete,
         )
@@ -316,6 +456,11 @@ internal fun DeveloperToolsTab(
     var latencyMillis by rememberSaveable { mutableFloatStateOf(runtime.latencyMillis.toFloat()) }
     var payload by remember { mutableStateOf("") }
     var uiScenario by rememberSaveable { mutableStateOf(DeveloperUiScenario.NORMAL) }
+
+    LaunchedEffect(runtime.targetHost, runtime.latencyMillis) {
+        targetHost = runtime.targetHost
+        latencyMillis = runtime.latencyMillis.toFloat()
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -443,7 +588,7 @@ internal fun DeveloperToolsTab(
 @Composable
 private fun PayloadAnalysisResult(analysis: DeveloperPayloadAnalysis) {
     val color = when (analysis.type) {
-        DeveloperPayloadType.JSON, DeveloperPayloadType.HTML -> Color(0xFF2E7D32)
+        DeveloperPayloadType.JSON, DeveloperPayloadType.HTML -> developerSuccessColor()
         DeveloperPayloadType.INVALID_JSON -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
@@ -480,7 +625,7 @@ private fun UiScenarioPreview(scenario: DeveloperUiScenario) {
             DeveloperUiScenario.NORMAL -> ListItem(
                 headlineContent = { Text("高等数学") },
                 supportingContent = { Text("博学南楼 B205 · 第 1-16 周") },
-                leadingContent = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32)) },
+                leadingContent = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = developerSuccessColor()) },
             )
             DeveloperUiScenario.LOADING -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()
@@ -497,7 +642,7 @@ private fun UiScenarioPreview(scenario: DeveloperUiScenario) {
                 TextButton(onClick = {}) { Text("重试") }
             }
             DeveloperUiScenario.STALE -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFEF6C00))
+                Icon(Icons.Filled.Warning, contentDescription = null, tint = developerWarningColor())
                 Text("正在显示 14 天前的本地缓存")
                 Text("后台刷新失败", style = MaterialTheme.typography.bodySmall)
             }
@@ -534,7 +679,7 @@ private fun DeveloperMaintenanceSection(
             runningId = null
             DeveloperEventRecorder.record(
                 category = "维护工具",
-                message = "${result.status.name}：${action.title}",
+                message = "${result.status.displayText()}：${action.title}",
                 detail = result.message,
                 level = if (result.status == DeveloperMaintenanceStatus.FAILED) DeveloperLogLevel.ERROR else DeveloperLogLevel.INFO,
             )
@@ -547,6 +692,7 @@ private fun DeveloperMaintenanceSection(
             title = "执行“${action.title}”？",
             text = action.description,
             confirmText = "执行",
+            destructive = action.risk == DeveloperMaintenanceRisk.HIGH,
             onDismiss = { pendingConfirmation = null },
             onConfirm = {
                 pendingConfirmation = null
@@ -585,13 +731,22 @@ private fun DeveloperMaintenanceSection(
                 actions.forEachIndexed { index, action ->
                     val result = results[action.id]
                     ListItem(
+                        modifier = if (result != null) {
+                            Modifier.clickable(
+                                onClickLabel = "查看 ${action.title} 结果",
+                                role = Role.Button,
+                                onClick = { selectedResult = result },
+                            )
+                        } else {
+                            Modifier
+                        },
                         headlineContent = {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Text(action.title)
-                                SmallStatusLabel(action.risk.name, action.risk.color())
+                                SmallStatusLabel(action.risk.displayText(), action.risk.color())
                             }
                         },
                         supportingContent = {
@@ -604,7 +759,6 @@ private fun DeveloperMaintenanceSection(
                                         style = MaterialTheme.typography.bodySmall,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.clickable { selectedResult = it },
                                     )
                                 }
                             }
@@ -641,7 +795,7 @@ private fun MaintenanceResultDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(result.status.name) },
+        title = { Text(result.status.displayText()) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -739,7 +893,7 @@ internal fun DeveloperLogsTab() {
 private fun LogEntryRow(entry: DeveloperLogEntry) {
     val color = when (entry.level) {
         DeveloperLogLevel.INFO -> MaterialTheme.colorScheme.primary
-        DeveloperLogLevel.WARNING -> Color(0xFFEF6C00)
+        DeveloperLogLevel.WARNING -> developerWarningColor()
         DeveloperLogLevel.ERROR -> MaterialTheme.colorScheme.error
     }
     Surface(shape = AhuShapes.Card, color = MaterialTheme.colorScheme.surface) {
@@ -773,11 +927,11 @@ internal fun NetworkResultDialog(result: NetworkDiagnosticResult, onDismiss: () 
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 DetailLine("地址", result.hostSpec.redactedUrl)
-                DetailLine("总状态", result.status.name)
+                DetailLine("总状态", result.status.displayText())
                 DetailLine("总耗时", result.totalDurationMillis?.let { "${it}ms" } ?: "-")
-                DetailLine("DNS", "${result.dns.status} · ${result.dns.durationMillis ?: "-"}ms")
+                DetailLine("DNS", "${result.dns.status.displayText()} · ${result.dns.durationMillis ?: "-"}ms")
                 if (result.dns.addresses.isNotEmpty()) DetailLine("解析地址", result.dns.addresses.joinToString())
-                DetailLine("HTTPS", "${result.http.status} · ${result.http.durationMillis ?: "-"}ms")
+                DetailLine("HTTPS", "${result.http.status.displayText()} · ${result.http.durationMillis ?: "-"}ms")
                 DetailLine("HTTP", "${result.http.httpStatusCode ?: "-"} ${result.http.httpStatusMessage.orEmpty()}")
                 result.http.protocol?.let { DetailLine("协议", it) }
                 result.http.tlsVersion?.let { DetailLine("TLS", it) }
@@ -814,6 +968,7 @@ internal fun ConfirmDialog(
     title: String,
     text: String,
     confirmText: String,
+    destructive: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
@@ -821,7 +976,20 @@ internal fun ConfirmDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(text) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmText) } },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = if (destructive) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                ),
+            ) {
+                Text(confirmText)
+            }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
@@ -849,17 +1017,29 @@ private fun DeveloperMaintenanceCategory.displayText(): String = when (this) {
     DeveloperMaintenanceCategory.RUNTIME -> "运行时"
 }
 
+private fun DeveloperMaintenanceRisk.displayText(): String = when (this) {
+    DeveloperMaintenanceRisk.LOW -> "低风险"
+    DeveloperMaintenanceRisk.MEDIUM -> "中风险"
+    DeveloperMaintenanceRisk.HIGH -> "高风险"
+}
+
+private fun DeveloperMaintenanceStatus.displayText(): String = when (this) {
+    DeveloperMaintenanceStatus.SUCCESS -> "成功"
+    DeveloperMaintenanceStatus.SKIPPED -> "已跳过"
+    DeveloperMaintenanceStatus.FAILED -> "失败"
+}
+
 @Composable
 private fun DeveloperMaintenanceRisk.color(): Color = when (this) {
-    DeveloperMaintenanceRisk.LOW -> Color(0xFF2E7D32)
-    DeveloperMaintenanceRisk.MEDIUM -> Color(0xFFEF6C00)
+    DeveloperMaintenanceRisk.LOW -> developerSuccessColor()
+    DeveloperMaintenanceRisk.MEDIUM -> developerWarningColor()
     DeveloperMaintenanceRisk.HIGH -> MaterialTheme.colorScheme.error
 }
 
 @Composable
 private fun DeveloperMaintenanceStatus.color(): Color = when (this) {
-    DeveloperMaintenanceStatus.SUCCESS -> Color(0xFF2E7D32)
-    DeveloperMaintenanceStatus.SKIPPED -> Color(0xFFEF6C00)
+    DeveloperMaintenanceStatus.SUCCESS -> developerSuccessColor()
+    DeveloperMaintenanceStatus.SKIPPED -> developerWarningColor()
     DeveloperMaintenanceStatus.FAILED -> MaterialTheme.colorScheme.error
 }
 
@@ -877,3 +1057,19 @@ private fun formatBytes(bytes: Long): String = when {
     bytes < 1_048_576L -> String.format(Locale.US, "%.1f KiB", bytes / 1_024.0)
     else -> String.format(Locale.US, "%.1f MiB", bytes / 1_048_576.0)
 }
+
+@Composable
+internal fun developerSuccessColor(): Color =
+    if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) {
+        Color(0xFF81C784)
+    } else {
+        Color(0xFF2E7D32)
+    }
+
+@Composable
+internal fun developerWarningColor(): Color =
+    if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) {
+        Color(0xFFFFB74D)
+    } else {
+        Color(0xFFEF6C00)
+    }

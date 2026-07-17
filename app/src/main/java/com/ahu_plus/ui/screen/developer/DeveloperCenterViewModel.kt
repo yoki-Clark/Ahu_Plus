@@ -18,9 +18,11 @@ import com.ahu_plus.data.developer.DeveloperPayloadAnalyzer
 import com.ahu_plus.data.developer.DeveloperPayloadType
 import com.ahu_plus.data.developer.DeveloperTestStatus
 import com.ahu_plus.data.developer.NetworkDiagnosticCategory
+import com.ahu_plus.data.developer.NetworkDiagnosticCancelTarget
 import com.ahu_plus.data.developer.NetworkDiagnosticEngine
 import com.ahu_plus.data.developer.NetworkDiagnosticHosts
 import com.ahu_plus.data.developer.NetworkDiagnosticResult
+import com.ahu_plus.data.developer.NetworkDiagnosticRunCoordinator
 import com.ahu_plus.data.developer.NetworkHostSpec
 import java.time.Instant
 import java.time.ZoneId
@@ -69,6 +71,8 @@ class DeveloperCenterViewModel(
     val payloadAnalysis: StateFlow<DeveloperPayloadAnalysis?> = _payloadAnalysis.asStateFlow()
 
     private val networkJobs = mutableMapOf<String, Job>()
+    private val networkRunCoordinator = NetworkDiagnosticRunCoordinator()
+    private val moduleRunCoordinator = DeveloperModuleRunCoordinator()
     private val moduleJobs = mutableMapOf<String, Job>()
     private var moduleBatchJob: Job? = null
     private var networkBatchJob: Job? = null
@@ -79,7 +83,7 @@ class DeveloperCenterViewModel(
     }
 
     fun runModuleTest(id: String) {
-        if (moduleJobs[id]?.isActive == true) return
+        if (!moduleRunCoordinator.tryStartSingle(id)) return
         moduleJobs[id] = viewModelScope.launch {
             val title = moduleRepository.getTests().firstOrNull { it.id == id }?.title ?: id
             DeveloperEventRecorder.record("模块测试", "开始：$title")
@@ -95,6 +99,7 @@ class DeveloperCenterViewModel(
                 DeveloperEventRecorder.record("模块测试", "已取消：$title", level = DeveloperLogLevel.WARNING)
             } finally {
                 refreshOverview()
+                moduleRunCoordinator.finishSingle(id)
                 moduleJobs.remove(id)
             }
         }
@@ -105,7 +110,7 @@ class DeveloperCenterViewModel(
     }
 
     fun runAllModuleTests() {
-        if (moduleBatchJob?.isActive == true) return
+        if (!moduleRunCoordinator.tryStartBatch()) return
         moduleBatchJob = viewModelScope.launch {
             _runningAllModules.value = true
             DeveloperEventRecorder.record("模块测试", "开始全部只读模块测试")
@@ -118,6 +123,8 @@ class DeveloperCenterViewModel(
                 DeveloperEventRecorder.record("模块测试", "批量测试已取消", level = DeveloperLogLevel.WARNING)
             } finally {
                 _runningAllModules.value = false
+                moduleRunCoordinator.finishBatch()
+                moduleBatchJob = null
                 refreshOverview()
             }
         }
@@ -129,9 +136,9 @@ class DeveloperCenterViewModel(
     }
 
     fun runNetwork(hostSpec: NetworkHostSpec) {
-        if (networkJobs[hostSpec.id]?.isActive == true) return
+        if (!networkRunCoordinator.tryStartSingle(hostSpec.id)) return
+        syncNetworkRunningState()
         networkJobs[hostSpec.id] = viewModelScope.launch {
-            _runningNetworkIds.update { it + hostSpec.id }
             DeveloperEventRecorder.record("网络诊断", "开始：${hostSpec.displayName}", hostSpec.redactedUrl)
             try {
                 val result = networkEngine.run(hostSpec) { progress ->
@@ -146,14 +153,19 @@ class DeveloperCenterViewModel(
             } catch (_: CancellationException) {
                 DeveloperEventRecorder.record("网络诊断", "已取消：${hostSpec.displayName}", level = DeveloperLogLevel.WARNING)
             } finally {
-                _runningNetworkIds.update { it - hostSpec.id }
+                networkRunCoordinator.finishSingle(hostSpec.id)
+                syncNetworkRunningState()
                 networkJobs.remove(hostSpec.id)
             }
         }
     }
 
     fun cancelNetwork(id: String) {
-        networkJobs[id]?.cancel()
+        when (networkRunCoordinator.cancelTarget(id)) {
+            NetworkDiagnosticCancelTarget.SINGLE -> networkJobs[id]?.cancel()
+            NetworkDiagnosticCancelTarget.BATCH -> networkBatchJob?.cancel()
+            NetworkDiagnosticCancelTarget.NONE -> Unit
+        }
     }
 
     fun runNetworkCategory(category: NetworkDiagnosticCategory) {
@@ -169,29 +181,40 @@ class DeveloperCenterViewModel(
     }
 
     private fun runNetworkBatch(hosts: List<NetworkHostSpec>) {
-        if (networkBatchJob?.isActive == true || hosts.isEmpty()) return
+        if (hosts.isEmpty() || !networkRunCoordinator.tryStartBatch()) return
+        syncNetworkRunningState()
         networkBatchJob = viewModelScope.launch {
-            _runningNetworkBatch.value = true
             try {
                 for (host in hosts) {
-                    _runningNetworkIds.update { it + host.id }
-                    val result = networkEngine.run(host) { progress ->
-                        _networkResults.update { it + (host.id to progress) }
+                    networkRunCoordinator.startBatchHost(host.id)
+                    syncNetworkRunningState()
+                    try {
+                        val result = networkEngine.run(host) { progress ->
+                            _networkResults.update { it + (host.id to progress) }
+                        }
+                        _networkResults.update { it + (host.id to result) }
+                    } finally {
+                        networkRunCoordinator.finishBatchHost(host.id)
+                        syncNetworkRunningState()
                     }
-                    _networkResults.update { it + (host.id to result) }
-                    _runningNetworkIds.update { it - host.id }
                 }
             } catch (_: CancellationException) {
                 DeveloperEventRecorder.record("网络诊断", "批量网络诊断已取消", level = DeveloperLogLevel.WARNING)
             } finally {
-                _runningNetworkIds.value = emptySet()
-                _runningNetworkBatch.value = false
+                networkRunCoordinator.finishBatch()
+                syncNetworkRunningState()
+                networkBatchJob = null
             }
         }
     }
 
     fun cancelNetworkBatch() {
         networkBatchJob?.cancel()
+    }
+
+    private fun syncNetworkRunningState() {
+        _runningNetworkIds.value = networkRunCoordinator.runningIds
+        _runningNetworkBatch.value = networkRunCoordinator.isBatchActive
     }
 
     fun cancelAllOperations() {
@@ -216,7 +239,10 @@ class DeveloperCenterViewModel(
 
     fun clearCacheCategory(summary: DeveloperCacheCategorySummary) {
         viewModelScope.launch {
-            val names = cacheReport.value.entries
+            // The UI may observe the cache through its loading/error state instead of the
+            // WhileSubscribed StateFlow above. Read a fresh snapshot so category deletion never
+            // depends on whether that flow currently has a collector.
+            val names = cacheRepository.inspect().entries
                 .filter { it.category == summary.category }
                 .map { it.keyName }
             val removed = cacheRepository.clearKeys(names)
@@ -328,6 +354,31 @@ class DeveloperCenterViewModel(
             .ofPattern("uuuu-MM-dd HH:mm:ss XXX")
             .withZone(ZoneId.systemDefault())
         const val MAX_PAYLOAD_CHARS = 2_000_000
+    }
+}
+
+internal class DeveloperModuleRunCoordinator {
+    private val singleIds = linkedSetOf<String>()
+    private var batchActive = false
+
+    fun tryStartSingle(id: String): Boolean {
+        if (batchActive || id in singleIds) return false
+        singleIds += id
+        return true
+    }
+
+    fun finishSingle(id: String) {
+        singleIds -= id
+    }
+
+    fun tryStartBatch(): Boolean {
+        if (batchActive || singleIds.isNotEmpty()) return false
+        batchActive = true
+        return true
+    }
+
+    fun finishBatch() {
+        batchActive = false
     }
 }
 

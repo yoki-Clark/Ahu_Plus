@@ -10,6 +10,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,6 +59,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -65,13 +68,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ahu_plus.AhuPlusApplication
-import com.ahu_plus.data.developer.DeveloperCacheReport
+import com.ahu_plus.data.developer.DeveloperCacheRepository
 import com.ahu_plus.data.developer.DeveloperEventRecorder
 import com.ahu_plus.data.developer.DeveloperLogLevel
 import com.ahu_plus.data.developer.DeveloperModuleTest
@@ -81,6 +86,7 @@ import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.data.developer.DeveloperStatusItem
 import com.ahu_plus.data.developer.DeveloperStatusKind
 import com.ahu_plus.data.developer.DeveloperTestCategory
+import com.ahu_plus.data.developer.DeveloperTestRisk
 import com.ahu_plus.data.developer.DeveloperTestStatus
 import com.ahu_plus.data.developer.NetworkDiagnosticCategory
 import com.ahu_plus.data.developer.NetworkDiagnosticHosts
@@ -88,11 +94,14 @@ import com.ahu_plus.data.developer.NetworkDiagnosticResult
 import com.ahu_plus.data.developer.NetworkDiagnosticStatus
 import com.ahu_plus.data.developer.NetworkHostSpec
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuSpacing
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -116,7 +125,6 @@ fun DeveloperCenterScreen(onBack: () -> Unit) {
 
     val overview by viewModel.overview.collectAsState()
     val tests by viewModel.moduleTests.collectAsState()
-    val cacheReport by viewModel.cacheReport.collectAsState()
     val networkResults by viewModel.networkResults.collectAsState()
     val runningNetworkIds by viewModel.runningNetworkIds.collectAsState()
     val runningModules by viewModel.runningAllModules.collectAsState()
@@ -125,6 +133,22 @@ fun DeveloperCenterScreen(onBack: () -> Unit) {
 
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
     var exportRunning by remember { mutableStateOf(false) }
+    var cacheReloadKey by remember { mutableIntStateOf(0) }
+    val cacheRepository = remember(app) { DeveloperCacheRepository(app.appDataStore) }
+    val cacheState by produceState<DeveloperDataUiState>(
+        initialValue = DeveloperDataUiState.Loading,
+        key1 = cacheRepository,
+        key2 = cacheReloadKey,
+    ) {
+        value = DeveloperDataUiState.Loading
+        cacheRepository.observeReport()
+            .catch { error ->
+                value = DeveloperDataUiState.Failed(
+                    error.message?.takeIf(String::isNotBlank) ?: error.javaClass.simpleName,
+                )
+            }
+            .collect { report -> value = DeveloperDataUiState.Ready(report) }
+    }
 
     BackHandler(onBack = onBack)
     DisposableEffect(viewModel) {
@@ -214,7 +238,7 @@ fun DeveloperCenterScreen(onBack: () -> Unit) {
                 DeveloperTab.OVERVIEW -> DeveloperOverviewTab(
                     overview = overview,
                     tests = tests,
-                    cacheReport = cacheReport,
+                    cacheEntryCount = (cacheState as? DeveloperDataUiState.Ready)?.report?.totalEntryCount,
                     networkResults = networkResults,
                     isRunningTests = runningModules,
                     onRefresh = viewModel::refreshOverview,
@@ -240,9 +264,10 @@ fun DeveloperCenterScreen(onBack: () -> Unit) {
                     onCancelBatch = viewModel::cancelNetworkBatch,
                 )
                 DeveloperTab.DATA -> DeveloperDataTab(
-                    report = cacheReport,
+                    state = cacheState,
                     onClearKey = viewModel::clearCacheKey,
                     onClearCategory = viewModel::clearCacheCategory,
+                    onRetry = { cacheReloadKey++ },
                 )
                 DeveloperTab.TOOLS -> DeveloperToolsTab(
                     app = app,
@@ -281,11 +306,12 @@ private fun ActiveOverrideBanner(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DeveloperOverviewTab(
     overview: DeveloperOverview,
     tests: List<DeveloperModuleTest>,
-    cacheReport: DeveloperCacheReport,
+    cacheEntryCount: Int?,
     networkResults: Map<String, NetworkDiagnosticResult>,
     isRunningTests: Boolean,
     onRefresh: () -> Unit,
@@ -308,11 +334,15 @@ private fun DeveloperOverviewTab(
             ) {
                 SummaryMetric("模块通过", "$passed/${tests.size}", if (failed > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, Modifier.weight(1f))
                 SummaryMetric("网络结果", "${networkResults.size}", if (networkFailed > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
-                SummaryMetric("缓存项", cacheReport.totalEntryCount.toString(), MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
+                SummaryMetric("缓存项", cacheEntryCount?.toString() ?: "-", MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(AhuSpacing.sm),
+                verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm),
+            ) {
                 Button(onClick = if (isRunningTests) onCancelTests else onRunTests) {
                     Icon(if (isRunningTests) Icons.Filled.Stop else Icons.Filled.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -361,17 +391,32 @@ private fun StatusSection(title: String, items: List<DeveloperStatusItem>) {
         Surface(shape = AhuShapes.Card, color = MaterialTheme.colorScheme.surface) {
             Column {
                 items.forEachIndexed { index, item ->
+                    val displayValue = developerOverviewDisplayValue(item.id, item.value)
+                    val isTechnicalValue = item.id in setOf("application_id", "signature", "abi")
                     ListItem(
                         headlineContent = { Text(item.title) },
-                        supportingContent = item.detail.takeIf(String::isNotBlank)?.let { detail ->
-                            { Text(detail, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                        },
-                        trailingContent = {
-                            Text(
-                                item.value,
-                                color = statusColor(item.kind),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
+                        supportingContent = {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    displayValue,
+                                    color = statusColor(item.kind),
+                                    style = if (isTechnicalValue) {
+                                        MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                                    } else {
+                                        MaterialTheme.typography.bodyMedium
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    maxLines = 4,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                item.detail.takeIf(String::isNotBlank)?.let { detail ->
+                                    Text(
+                                        detail,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                         },
                         leadingContent = { StatusIcon(item.kind) },
                     )
@@ -382,6 +427,7 @@ private fun StatusSection(title: String, items: List<DeveloperStatusItem>) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DeveloperModulesTab(
     tests: List<DeveloperModuleTest>,
@@ -393,6 +439,7 @@ private fun DeveloperModulesTab(
 ) {
     var selectedCategory by rememberSaveable { mutableStateOf<DeveloperTestCategory?>(null) }
     val filtered = tests.filter { selectedCategory == null || it.category == selectedCategory }
+    val hasRunningSingle = !isRunningAll && tests.any { it.status == DeveloperTestStatus.RUNNING }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -411,11 +458,17 @@ private fun DeveloperModulesTab(
                 )
             }
         }
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AhuSpacing.ScreenHorizontal, vertical = AhuSpacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(AhuSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(AhuSpacing.xs),
         ) {
-            Button(onClick = if (isRunningAll) onCancelAll else onRunAll) {
+            Button(
+                onClick = if (isRunningAll) onCancelAll else onRunAll,
+                enabled = isRunningAll || !hasRunningSingle,
+            ) {
                 Icon(if (isRunningAll) Icons.Filled.Stop else Icons.Filled.PlayArrow, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text(if (isRunningAll) "停止" else "全部运行")
@@ -424,7 +477,7 @@ private fun DeveloperModulesTab(
                 "${tests.count { it.status == DeveloperTestStatus.PASSED }} 通过 · " +
                     "${tests.count { it.status == DeveloperTestStatus.FAILED }} 失败 · " +
                     "${tests.count { it.status == DeveloperTestStatus.SKIPPED }} 跳过",
-                modifier = Modifier.align(Alignment.CenterVertically),
+                modifier = Modifier.padding(vertical = AhuSpacing.md),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -438,6 +491,7 @@ private fun DeveloperModulesTab(
             items(filtered, key = { it.id }) { test ->
                 ModuleTestRow(
                     test = test,
+                    runEnabled = !isRunningAll,
                     onRun = { onRun(test.id) },
                     onCancel = { if (isRunningAll) onCancelAll() else onCancel(test.id) },
                 )
@@ -450,6 +504,7 @@ private fun DeveloperModulesTab(
 @Composable
 private fun ModuleTestRow(
     test: DeveloperModuleTest,
+    runEnabled: Boolean,
     onRun: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -466,7 +521,7 @@ private fun ModuleTestRow(
                     Text(test.description)
                     test.result?.let { Text(it, color = test.status.color(), style = MaterialTheme.typography.bodySmall) }
                     Text(
-                        "${test.category.displayText()} · ${test.risk.name}" +
+                        "${test.category.displayText()} · ${test.risk.displayText()}" +
                             (test.durationMillis?.let { " · ${it}ms" } ?: ""),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -480,13 +535,16 @@ private fun ModuleTestRow(
                         Icon(Icons.Filled.Cancel, contentDescription = "取消 ${test.title}")
                     }
                 } else {
-                    IconButton(onClick = onRun) { Icon(Icons.Filled.PlayArrow, contentDescription = "运行 ${test.title}") }
+                    IconButton(onClick = onRun, enabled = runEnabled) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = "运行 ${test.title}")
+                    }
                 }
             },
         )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DeveloperNetworkTab(
     results: Map<String, NetworkDiagnosticResult>,
@@ -523,17 +581,26 @@ private fun DeveloperNetworkTab(
                 )
             }
         }
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AhuSpacing.ScreenHorizontal, vertical = AhuSpacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(AhuSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(AhuSpacing.xs),
         ) {
-            Button(onClick = if (runningBatch) onCancelBatch else onRunCore) {
+            Button(
+                onClick = if (runningBatch) onCancelBatch else onRunCore,
+                enabled = runningBatch || runningIds.isEmpty(),
+            ) {
                 Icon(if (runningBatch) Icons.Filled.Stop else Icons.Filled.PlayArrow, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text(if (runningBatch) "停止批量" else "核心主机体检")
             }
             category?.let { selected ->
-                OutlinedButton(onClick = { onRunCategory(selected) }, enabled = !runningBatch) {
+                OutlinedButton(
+                    onClick = { onRunCategory(selected) },
+                    enabled = !runningBatch && runningIds.isEmpty(),
+                ) {
                     Text("运行本分类")
                 }
             }
@@ -550,8 +617,10 @@ private fun DeveloperNetworkTab(
                     host = host,
                     result = result,
                     running = host.id in runningIds,
+                    runningBatch = runningBatch,
                     onRun = { onRun(host) },
                     onCancel = { onCancel(host.id) },
+                    onCancelBatch = onCancelBatch,
                     onOpen = { if (result != null) selectedResult = result },
                 )
             }
@@ -565,15 +634,25 @@ private fun NetworkHostRow(
     host: NetworkHostSpec,
     result: NetworkDiagnosticResult?,
     running: Boolean,
+    runningBatch: Boolean,
     onRun: () -> Unit,
     onCancel: () -> Unit,
+    onCancelBatch: () -> Unit,
     onOpen: () -> Unit,
 ) {
     val color = result?.status?.color() ?: MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
         shape = AhuShapes.Card,
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.clickable(enabled = result != null, onClick = onOpen),
+        modifier = if (result != null) {
+            Modifier.clickable(
+                onClickLabel = "查看 ${host.displayName} 诊断结果",
+                role = Role.Button,
+                onClick = onOpen,
+            )
+        } else {
+            Modifier
+        },
     ) {
         ListItem(
             headlineContent = {
@@ -609,8 +688,28 @@ private fun NetworkHostRow(
                 else NetworkStatusIcon(result?.status)
             },
             trailingContent = {
-                IconButton(onClick = if (running) onCancel else onRun) {
-                    Icon(if (running) Icons.Filled.Cancel else Icons.Filled.PlayArrow, contentDescription = if (running) "取消" else "运行")
+                val batchHostRunning = runningBatch && running
+                IconButton(
+                    onClick = when {
+                        batchHostRunning -> onCancelBatch
+                        running -> onCancel
+                        else -> onRun
+                    },
+                    enabled = !runningBatch || batchHostRunning,
+                ) {
+                    Icon(
+                        imageVector = when {
+                            batchHostRunning -> Icons.Filled.Stop
+                            running -> Icons.Filled.Cancel
+                            else -> Icons.Filled.PlayArrow
+                        },
+                        contentDescription = when {
+                            batchHostRunning -> "停止批量诊断，当前主机 ${host.displayName}"
+                            running -> "取消诊断 ${host.displayName}"
+                            runningBatch -> "批量诊断进行中，暂不可运行 ${host.displayName}"
+                            else -> "运行诊断 ${host.displayName}"
+                        },
+                    )
                 }
             },
         )
@@ -689,25 +788,25 @@ private fun NetworkStatusIcon(status: NetworkDiagnosticStatus?) {
 
 @Composable
 private fun statusColor(kind: DeveloperStatusKind): Color = when (kind) {
-    DeveloperStatusKind.PASS -> Color(0xFF2E7D32)
-    DeveloperStatusKind.WARNING -> Color(0xFFEF6C00)
+    DeveloperStatusKind.PASS -> developerSuccessColor()
+    DeveloperStatusKind.WARNING -> developerWarningColor()
     DeveloperStatusKind.FAIL -> MaterialTheme.colorScheme.error
     DeveloperStatusKind.INFO -> MaterialTheme.colorScheme.primary
 }
 
 @Composable
 internal fun DeveloperTestStatus.color(): Color = when (this) {
-    DeveloperTestStatus.PASSED -> Color(0xFF2E7D32)
+    DeveloperTestStatus.PASSED -> developerSuccessColor()
     DeveloperTestStatus.FAILED, DeveloperTestStatus.TIMED_OUT -> MaterialTheme.colorScheme.error
-    DeveloperTestStatus.SKIPPED, DeveloperTestStatus.CANCELLED -> Color(0xFFEF6C00)
+    DeveloperTestStatus.SKIPPED, DeveloperTestStatus.CANCELLED -> developerWarningColor()
     DeveloperTestStatus.RUNNING -> MaterialTheme.colorScheme.primary
     DeveloperTestStatus.NOT_RUN -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable
 private fun NetworkDiagnosticStatus.color(): Color = when (this) {
-    NetworkDiagnosticStatus.SUCCEEDED -> Color(0xFF2E7D32)
-    NetworkDiagnosticStatus.WARNING -> Color(0xFFEF6C00)
+    NetworkDiagnosticStatus.SUCCEEDED -> developerSuccessColor()
+    NetworkDiagnosticStatus.WARNING -> developerWarningColor()
     NetworkDiagnosticStatus.FAILED -> MaterialTheme.colorScheme.error
     NetworkDiagnosticStatus.RUNNING -> MaterialTheme.colorScheme.primary
     else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -723,7 +822,13 @@ internal fun DeveloperTestStatus.displayText(): String = when (this) {
     DeveloperTestStatus.CANCELLED -> "已取消"
 }
 
-private fun NetworkDiagnosticStatus.displayText(): String = when (this) {
+private fun DeveloperTestRisk.displayText(): String = when (this) {
+    DeveloperTestRisk.LOCAL_ONLY -> "仅本地"
+    DeveloperTestRisk.PUBLIC_READ -> "公开只读"
+    DeveloperTestRisk.AUTHENTICATED_READ -> "认证只读"
+}
+
+internal fun NetworkDiagnosticStatus.displayText(): String = when (this) {
     NetworkDiagnosticStatus.PENDING -> "等待"
     NetworkDiagnosticStatus.RUNNING -> "运行中"
     NetworkDiagnosticStatus.SUCCEEDED -> "通过"
@@ -751,6 +856,19 @@ internal fun NetworkDiagnosticCategory.displayText(): String = when (this) {
     NetworkDiagnosticCategory.PUBLIC_DATA -> "公开数据"
     NetworkDiagnosticCategory.AI_PROVIDER -> "AI 服务"
 }
+
+internal fun developerOverviewDisplayValue(
+    itemId: String,
+    rawValue: String,
+    timestampFormatter: (Long) -> String = ::formatOverviewTimestamp,
+): String {
+    if (itemId != "first_install" && itemId != "last_update") return rawValue
+    val timestampMillis = rawValue.toLongOrNull()?.takeIf { it > 0L } ?: return rawValue
+    return timestampFormatter(timestampMillis)
+}
+
+private fun formatOverviewTimestamp(timestampMillis: Long): String =
+    SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(timestampMillis))
 
 private suspend fun shareDiagnosticReport(context: Context, report: String) {
     val file = withContext(Dispatchers.IO) {

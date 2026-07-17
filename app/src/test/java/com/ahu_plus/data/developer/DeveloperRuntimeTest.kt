@@ -38,6 +38,33 @@ class DeveloperRuntimeTest {
     }
 
     @Test
+    fun `resetting overrides restores network without disabling developer mode`() {
+        val server = MockWebServer().apply {
+            enqueue(MockResponse().setResponseCode(204))
+            start()
+        }
+        try {
+            DeveloperRuntime.setDeveloperEnabled(true)
+            DeveloperRuntime.configureNetworkFault(
+                DeveloperNetworkFault.OFFLINE,
+                targetHost = server.hostName,
+            )
+
+            DeveloperRuntime.resetOverrides()
+
+            assertTrue(DeveloperRuntime.state.value.developerEnabled)
+            assertFalse(DeveloperRuntime.state.value.hasActiveOverrides)
+            assertEquals("", DeveloperRuntime.state.value.targetHost)
+            client().newCall(Request.Builder().url(server.url("/cas/login")).build()).execute().use {
+                assertEquals(204, it.code)
+            }
+            assertEquals(1, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun `http auth fault is injected inside the network layer`() {
         val server = MockWebServer().apply {
             enqueue(MockResponse().setResponseCode(204))
