@@ -11,6 +11,7 @@ import com.ahu_plus.data.model.CxStudyUiState
 import com.ahu_plus.data.model.CxTaskProgress
 import com.ahu_plus.data.model.CxTaskStatus
 import com.ahu_plus.data.model.CxVideoInfo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +50,7 @@ class ChaoxingStudyRepository(
     fun stop() {
         shouldStop = true
         studyJob?.cancel()
+        _studyState.value = _studyState.value.copy(isRunning = false, currentTask = null)
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -71,7 +73,8 @@ class ChaoxingStudyRepository(
         enabledTaskTypes: Set<String> = setOf("video", "document", "read", "workid", "audio", "live"),
     ) {
         // 保存当前协程的 Job,供 stop() 取消
-        studyJob = kotlin.coroutines.coroutineContext[Job]
+        val runningJob = kotlin.coroutines.coroutineContext[Job]
+        studyJob = runningJob
         shouldStop = false
         _studyState.value = CxStudyUiState(isRunning = true)
 
@@ -108,6 +111,8 @@ class ChaoxingStudyRepository(
                 }
             }
 
+            if (shouldStop) throw CancellationException("Study stopped")
+
             addLog("所有课程学习任务已完成")
 
             // 自动签到(Phase 5, 2026-06-20)
@@ -128,12 +133,20 @@ class ChaoxingStudyRepository(
                 addLog("通知推送失败: ${it.message}")
             }
 
-            _studyState.value = _studyState.value.copy(isRunning = false)
+        } catch (e: CancellationException) {
+            Log.i(TAG, "学习已停止")
+            addLog("学习已停止")
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "学习异常", e)
             addLog("学习异常: ${e.message}")
+            _studyState.value = _studyState.value.copy(error = e.message)
             notificationRepo?.send("超星学习通异常: ${e.message}")
-            _studyState.value = _studyState.value.copy(isRunning = false, error = e.message)
+        } finally {
+            if (studyJob === runningJob) {
+                studyJob = null
+                _studyState.value = _studyState.value.copy(isRunning = false, currentTask = null)
+            }
         }
     }
 

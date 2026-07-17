@@ -128,8 +128,9 @@ fun ChaoxingTabScreen(
     // 避免 showDetail/showStudyScreen/showHomeworkDetail 短路时 CoursesTabContent 销毁重建导致滚动丢。
     val coursesListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var showStudyScreen by rememberSaveable { mutableStateOf(false) }
-    var showHomeworkDetail by rememberSaveable { mutableStateOf(false) }
-    var selectedHomework by rememberSaveable { mutableStateOf<CxHomeworkItem?>(null) }
+    // 作业模型没有 Saver；进程/Activity 重建时关闭详情页，避免 rememberSaveable 保存崩溃。
+    var showHomeworkDetail by remember { mutableStateOf(false) }
+    var selectedHomework by remember { mutableStateOf<CxHomeworkItem?>(null) }
 
     // 首次进入时检查登录状态
     LaunchedEffect(Unit) {
@@ -181,7 +182,14 @@ fun ChaoxingTabScreen(
             onBack = { showDetail = false; selectedCourse = null },
             onStartStudy = { course ->
                 // 2026-06-22: 单课程入口 — Service 后台学习，showStudyScreen 仅显示进度
-                ChaoxingStudyService.start(context, listOf(course.courseId), settingsState.speed, settingsState.concurrency, settingsState.submitMode == "auto")
+                ChaoxingStudyService.start(
+                    context = context,
+                    courseIds = listOf(course.courseId),
+                    speed = settingsState.speed,
+                    concurrency = settingsState.concurrency,
+                    autoSubmit = settingsState.submitMode == "auto",
+                    enabledTaskTypes = settingsState.enabledTaskTypes,
+                )
                 showStudyScreen = true
             },
         )
@@ -223,6 +231,7 @@ fun ChaoxingTabScreen(
                         speed = settingsState.speed,
                         concurrency = settingsState.concurrency,
                         autoSubmit = settingsState.submitMode == "auto",
+                        enabledTaskTypes = settingsState.enabledTaskTypes,
                     )
                     showStudyScreen = true
                 }
@@ -328,4 +337,3 @@ fun ChaoxingTabScreen(
 // ══════════════════════════════════════════════════════════════
 //  消息 Tab (2026-06-21)
 // ══════════════════════════════════════════════════════════════
-

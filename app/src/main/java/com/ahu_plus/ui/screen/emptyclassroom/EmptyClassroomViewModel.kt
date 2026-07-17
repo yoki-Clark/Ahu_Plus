@@ -17,6 +17,7 @@ import com.ahu_plus.data.repository.FreeRoomResult
 import com.ahu_plus.data.repository.JwAuthRepository
 import com.ahu_plus.data.repository.SessionExpiredException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +36,26 @@ class EmptyClassroomViewModel(
     val uiState: StateFlow<EmptyClassroomUiState> = _uiState.asStateFlow()
 
     private val gson = GsonProvider.instance
+    private var queryGeneration = 0L
+    private var queryJob: Job? = null
+
+    private fun beginQuery(): Long {
+        queryJob?.cancel()
+        return ++queryGeneration
+    }
+
+    private fun isCurrentQuery(
+        requestId: Long,
+        buildingId: String,
+        campusId: String,
+        date: LocalDate,
+    ): Boolean {
+        val state = _uiState.value
+        return requestId == queryGeneration &&
+            state.selectedBuildingId == buildingId &&
+            state.selectedCampusId == campusId &&
+            state.selectedDate == date
+    }
 
     /**
      * 2026-06-27: buildingId → 该楼全量楼层集合缓存。
@@ -62,9 +83,10 @@ class EmptyClassroomViewModel(
                 buildingRoomsFloors.putAll(cached)
             }
         }
-        viewModelScope.launch {
-            val restored = restoreFromCache()
-            if (!restored) {
+        val requestId = beginQuery()
+        queryJob = viewModelScope.launch {
+            val restored = restoreFromCache(requestId)
+            if (!restored && requestId == queryGeneration) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -86,9 +108,11 @@ class EmptyClassroomViewModel(
     }
 
     fun selectCampus(campusId: String) {
+        beginQuery()
         val buildings = CampusBuildingData.getBuildings(campusId)
         _uiState.update {
             it.copy(
+                isLoading = false,
                 selectedCampusId = campusId,
                 selectedBuildingId = null,
                 selectedFloor = null,
@@ -96,12 +120,14 @@ class EmptyClassroomViewModel(
                 rooms = emptyList(),
                 filteredRooms = emptyList(),
                 availableFloors = emptyList(),
-                error = null
+                error = null,
+                needsLogin = false,
             )
         }
     }
 
     fun selectBuilding(buildingId: String) {
+        val requestId = beginQuery()
         _uiState.update {
             it.copy(
                 selectedBuildingId = buildingId,
@@ -111,7 +137,18 @@ class EmptyClassroomViewModel(
                 availableFloors = computeAllFloors(buildingId, emptyList())
             )
         }
-        viewModelScope.launch { loadData(isRefresh = false) }
+        val state = _uiState.value
+        val campusId = state.selectedCampusId ?: return
+        val date = state.selectedDate
+        queryJob = viewModelScope.launch {
+            loadData(
+                isRefresh = false,
+                buildingId = buildingId,
+                campusId = campusId,
+                date = date,
+                requestId = requestId,
+            )
+        }
         // 2026-06-27: fire-and-forget 拉全楼房间,补全楼层 chip。
         // 不阻塞 loadData;失败时静默回退,fallback 已隐含在 computeAllFloors 优先级里。
         val floorsFresh = sessionManager?.let {
@@ -153,6 +190,7 @@ class EmptyClassroomViewModel(
     fun selectDate(date: LocalDate) {
         if (date.isBefore(DebugClock.todayDate())) return
         if (date == _uiState.value.selectedDate) return
+        val requestId = beginQuery()
         _uiState.update {
             it.copy(
                 selectedDate = date,
@@ -165,8 +203,19 @@ class EmptyClassroomViewModel(
                 error = null
             )
         }
-        if (_uiState.value.hasBuildingSelected) {
-            viewModelScope.launch { loadData(isRefresh = false, date = date) }
+        val state = _uiState.value
+        val buildingId = state.selectedBuildingId
+        val campusId = state.selectedCampusId
+        if (buildingId != null && campusId != null) {
+            queryJob = viewModelScope.launch {
+                loadData(
+                    isRefresh = false,
+                    buildingId = buildingId,
+                    campusId = campusId,
+                    date = date,
+                    requestId = requestId,
+                )
+            }
         }
     }
 
@@ -223,10 +272,23 @@ class EmptyClassroomViewModel(
     }
 
     fun onRefresh() {
-        viewModelScope.launch { loadData(isRefresh = false) }
+        val state = _uiState.value
+        val buildingId = state.selectedBuildingId ?: return
+        val campusId = state.selectedCampusId ?: return
+        val date = state.selectedDate
+        val requestId = beginQuery()
+        queryJob = viewModelScope.launch {
+            loadData(
+                isRefresh = false,
+                buildingId = buildingId,
+                campusId = campusId,
+                date = date,
+                requestId = requestId,
+            )
+        }
     }
 
-    private suspend fun restoreFromCache(): Boolean {
+    private suspend fun restoreFromCache(requestId: Long): Boolean {
         val sm = sessionManager ?: return false
         val json = sm.getEmptyClassroomJson() ?: return false
         val key = sm.getEmptyClassroomKey() ?: return false
@@ -241,13 +303,18 @@ class EmptyClassroomViewModel(
         val campusId = parts[2]
 
         return try {
-            withContext(Dispatchers.IO) {
-                val rooms = gson.fromJson(json, Array<FreeRoomResult>::class.java).toList()
+            val rooms = withContext(Dispatchers.IO) {
+                gson.fromJson(json, Array<FreeRoomResult>::class.java).toList()
+            }
+            if (requestId != queryGeneration) {
+                true
+            } else {
                 val campus = CampusBuildingData.campuses.find { it.id == campusId }
                 val floors = computeAllFloors(buildingId, rooms)
                 val isToday = cachedDate == DebugClock.todayDate()
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    if (requestId != queryGeneration) return@update state
+                    state.copy(
                         isLoading = false,
                         selectedCampusId = campusId,
                         selectedBuildingId = buildingId,
@@ -262,20 +329,31 @@ class EmptyClassroomViewModel(
                         needsLogin = false
                     )
                 }
+                true
             }
-            true
         } catch (_: Exception) { false }
     }
 
-    private suspend fun loadData(isRefresh: Boolean, date: LocalDate = _uiState.value.selectedDate) {
-        val buildingId = _uiState.value.selectedBuildingId ?: return
-        val campusId = _uiState.value.selectedCampusId ?: return
+    private suspend fun loadData(
+        isRefresh: Boolean,
+        buildingId: String,
+        campusId: String,
+        date: LocalDate,
+        requestId: Long,
+    ) {
+        if (!isCurrentQuery(requestId, buildingId, campusId, date)) return
         val isToday = date == DebugClock.todayDate()
         val currentUnit = currentUnitForToday(date)
 
         // 今天且当前节次为 null (= 当日课程已结束或尚未开始第一波)
         if (isToday && currentUnit == null) {
-            _uiState.update { it.copy(isLoading = false, rooms = emptyList(), filteredRooms = emptyList()) }
+            _uiState.update { state ->
+                if (isCurrentQuery(requestId, buildingId, campusId, date)) {
+                    state.copy(isLoading = false, rooms = emptyList(), filteredRooms = emptyList())
+                } else {
+                    state
+                }
+            }
             return
         }
 
@@ -287,7 +365,7 @@ class EmptyClassroomViewModel(
         }
 
         try {
-            withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 jwAuthRepository.executeWithSessionRetry {
                     emptyClassroomRepository.getFreeRoomsWithDuration(
                         buildingId = buildingId,
@@ -295,49 +373,56 @@ class EmptyClassroomViewModel(
                         currentUnit = currentUnit,
                         date = date,
                     )
-                }.fold(
-                    onSuccess = { rooms ->
-                        val sm = sessionManager
-                        if (sm != null) {
-                            try {
-                                val cacheKey = "${date}|$buildingId|$campusId"
-                                sm.saveEmptyClassroomJson(gson.toJson(rooms), cacheKey)
-                            } catch (_: Exception) { Log.w(TAG, "Failed to cache empty classroom JSON") }
-                        }
-                        val floors = computeAllFloors(buildingId, rooms)
-                        val sortedAll = applyRoomSort(rooms, _uiState.value.continuousFree)
-                        val selectedFloor = _uiState.value.selectedFloor
-                        val filtered = if (selectedFloor != null)
-                            sortedAll.filter { it.room.floor == selectedFloor } else sortedAll
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                rooms = rooms,
-                                filteredRooms = filtered,
-                                availableFloors = floors,
-                                error = null,
-                                needsLogin = false
-                            )
-                        }
-                    },
-                    onFailure = { e ->
-                        // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次,
-                        // 避免直接走到 needsLogin → onReauth 跳转登录的路径。
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                error = if (!wasLoaded) (e.message ?: "空教室查询失败") else it.error,
-                                needsLogin = !wasLoaded && e is SessionExpiredException
-                            )
-                        }
-                    }
-                )
+                }
             }
+            result.fold(
+                onSuccess = { rooms ->
+                    if (!isCurrentQuery(requestId, buildingId, campusId, date)) return@fold
+                    val sm = sessionManager
+                    if (sm != null) {
+                        try {
+                            val cacheKey = "${date}|$buildingId|$campusId"
+                            sm.saveEmptyClassroomJson(gson.toJson(rooms), cacheKey)
+                        } catch (_: Exception) { Log.w(TAG, "Failed to cache empty classroom JSON") }
+                    }
+                    if (!isCurrentQuery(requestId, buildingId, campusId, date)) return@fold
+                    val floors = computeAllFloors(buildingId, rooms)
+                    val state = _uiState.value
+                    val sortedAll = applyRoomSort(rooms, state.continuousFree)
+                    val selectedFloor = state.selectedFloor
+                    val filtered = if (selectedFloor != null)
+                        sortedAll.filter { it.room.floor == selectedFloor } else sortedAll
+                    _uiState.update { current ->
+                        if (!isCurrentQuery(requestId, buildingId, campusId, date)) return@update current
+                        current.copy(
+                            isLoading = false,
+                            rooms = rooms,
+                            filteredRooms = filtered,
+                            availableFloors = floors,
+                            error = null,
+                            needsLogin = false
+                        )
+                    }
+                },
+                onFailure = { e ->
+                    // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次,
+                    // 避免直接走到 needsLogin → onReauth 跳转登录的路径。
+                    _uiState.update { state ->
+                        if (!isCurrentQuery(requestId, buildingId, campusId, date)) return@update state
+                        state.copy(
+                            isLoading = false,
+                            error = if (!wasLoaded) (e.message ?: "空教室查询失败") else state.error,
+                            needsLogin = !wasLoaded && e is SessionExpiredException
+                        )
+                    }
+                }
+            )
         } catch (e: Exception) {
-            _uiState.update {
-                it.copy(
+            _uiState.update { state ->
+                if (!isCurrentQuery(requestId, buildingId, campusId, date)) return@update state
+                state.copy(
                     isLoading = false,
-                    error = if (!wasLoaded) "未知错误: ${e.message}" else it.error,
+                    error = if (!wasLoaded) "未知错误: ${e.message}" else state.error,
                     needsLogin = !wasLoaded && e is SessionExpiredException
                 )
             }

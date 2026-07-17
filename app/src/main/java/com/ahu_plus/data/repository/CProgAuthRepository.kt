@@ -173,6 +173,11 @@ class CProgAuthRepository(
 
     /** 启动时把持久化的 JSESSIONID 灌回 CookieJar(JWT/userId 已在字段初始化时读出) */
     fun loadPersistedSession() {
+        activeBaseUrl = normalizeBaseUrl(sessionManager.getCProgBaseUrl())
+        transportMode = TransportMode.UNKNOWN
+        tk = sessionManager.getCProgJwt()
+        userId = sessionManager.getCProgUserId()
+        cookieStore.clear()
         val jsid = sessionManager.getCProgJsessionid()?.takeIf { it.isNotBlank() } ?: return
         val host = runCatching { baseUrl.toHttpUrl().host }.getOrNull() ?: return
         val list = cookieStore.getOrPut(host) { mutableListOf() }

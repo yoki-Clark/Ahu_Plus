@@ -3,6 +3,7 @@ package com.ahu_plus.data.network
 import okhttp3.Cookie
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,10 +42,20 @@ class SecureHttpClientFactoryTest {
     }
 
     @Test
-    fun `create with trustAll=true accepts any certificate chain`() {
+    fun `create with trustAll=true creates the AHU compatibility client`() {
         val client = SecureHttpClientFactory.create(trustAll = true)
         // 验证 client 配置了自定义 SSL — 连接超时存在即说明 builder 正常工作
         assertEquals(15_000, client.connectTimeoutMillis)
+    }
+
+    @Test
+    fun `ahu compatibility mode accepts AHU subdomains and rejects other hosts`() {
+        val client = SecureHttpClientFactory.create(trustAll = true)
+
+        assertFalse(client.hostnameVerifier.verify("attacker.example", null))
+        assertTrue(client.hostnameVerifier.verify("ahu.edu.cn", null))
+        assertTrue(client.hostnameVerifier.verify("one.ahu.edu.cn", null))
+        assertTrue(client.hostnameVerifier.verify("new-api.ahu.edu.cn", null))
     }
 
     @Test

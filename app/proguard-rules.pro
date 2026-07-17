@@ -13,6 +13,9 @@
 -keep class com.ahu_plus.data.model.course.** { *; }
 -keep class com.ahu_plus.data.model.task.** { *; }
 
+# Gson reflects this private DTO from inline grade-page JSON. Keep both field names and values.
+-keep class com.ahu_plus.data.repository.GradeRepository$Companion$SubEntry { *; }
+
 # Gson specific
 -dontwarn sun.misc.**
 -keep class com.google.gson.** { *; }

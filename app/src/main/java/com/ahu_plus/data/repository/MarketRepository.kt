@@ -27,6 +27,18 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
+internal fun parseMarketTopicDetail(body: String): MarketTopic {
+    val data = JsonUtils.parseData(body)
+    return if (data.isJsonObject) {
+        JsonUtils.parseObject<MarketTopic>(data.toString())
+            ?.takeIf { it.id > 0L }
+            ?: throw Exception("帖子详情解析失败")
+    } else {
+        JsonUtils.parseRowsSafe<MarketTopic>(body).firstOrNull()
+            ?: throw Exception("帖子详情解析失败")
+    }
+}
+
 class MarketRepository(
     private val sessionManager: SessionManager
 ) {
@@ -54,16 +66,8 @@ class MarketRepository(
         topicId: Long,
         identity: String? = null
     ): Result<MarketTopic> = withContext(Dispatchers.IO) {
-        requestMarketJson("${MarketApi.TOPICS_URL}/$topicId", identity).mapCatching { body ->
-            val data = JsonUtils.parseData(body)
-            if (data.isJsonObject) {
-                JsonUtils.parseObject<MarketTopic>(body)
-                    ?: throw Exception("帖子详情解析失败")
-            } else {
-                JsonUtils.parseRowsSafe<MarketTopic>(body).firstOrNull()
-                    ?: throw Exception("帖子详情解析失败")
-            }
-        }
+        requestMarketJson("${MarketApi.TOPICS_URL}/$topicId", identity)
+            .mapCatching(::parseMarketTopicDetail)
     }
 
     suspend fun getComments(

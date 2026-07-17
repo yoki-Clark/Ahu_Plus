@@ -20,6 +20,7 @@ import com.ahu_plus.data.model.CxStudyUiState
 import com.ahu_plus.data.repository.ChaoxingStudyRepository
 import com.ahu_plus.util.OverlayWindow
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -111,8 +112,13 @@ class ChaoxingStudyService : Service() {
                 val speed = intent.getFloatExtra(EXTRA_SPEED, 1.5f)
                 val concurrency = intent.getIntExtra(EXTRA_CONCURRENCY, 4)
                 val autoSubmit = intent.getBooleanExtra(EXTRA_AUTO_SUBMIT, true)
+                val enabledTaskTypes = if (intent.hasExtra(EXTRA_ENABLED_TASK_TYPES)) {
+                    intent.getStringArrayListExtra(EXTRA_ENABLED_TASK_TYPES)?.toSet() ?: emptySet()
+                } else {
+                    null
+                }
 
-                startStudying(courseIds, speed, concurrency, autoSubmit)
+                startStudying(courseIds, speed, concurrency, autoSubmit, enabledTaskTypes)
             }
             ACTION_STOP -> {
                 stopStudyingAndSelf()
@@ -127,6 +133,7 @@ class ChaoxingStudyService : Service() {
         speed: Float,
         concurrency: Int,
         autoSubmit: Boolean,
+        enabledTaskTypes: Set<String>?,
     ) {
         val app = applicationContext as AhuPlusApplication
         scope.launch(Dispatchers.IO) {
@@ -147,10 +154,14 @@ class ChaoxingStudyService : Service() {
                     speed = speed,
                     concurrency = concurrency,
                     autoSubmit = autoSubmit,
+                    enabledTaskTypes = enabledTaskTypes ?: app.sessionManager.getCxTaskTypes(),
                 )
 
                 // 完成后自动停止服务
                 Log.i(tag, "学习完成,自动停止服务")
+                stopStudyingAndSelf()
+            } catch (_: CancellationException) {
+                Log.i(tag, "学习已由用户停止")
                 stopStudyingAndSelf()
             } catch (e: Exception) {
                 Log.e(tag, "学习失败: ${e.message}", e)
@@ -177,6 +188,7 @@ class ChaoxingStudyService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
             "超星后台学习",
@@ -271,6 +283,7 @@ class ChaoxingStudyService : Service() {
         const val EXTRA_SPEED = "speed"
         const val EXTRA_CONCURRENCY = "concurrency"
         const val EXTRA_AUTO_SUBMIT = "auto_submit"
+        const val EXTRA_ENABLED_TASK_TYPES = "enabled_task_types"
 
         /** 启动服务开始学习 */
         fun start(
@@ -279,6 +292,7 @@ class ChaoxingStudyService : Service() {
             speed: Float = 1.5f,
             concurrency: Int = 4,
             autoSubmit: Boolean = true,
+            enabledTaskTypes: Set<String>,
         ) {
             android.util.Log.e("CxStudyService", "★★★ start() called, courseIds=$courseIds ★★★")
             try {
@@ -288,6 +302,7 @@ class ChaoxingStudyService : Service() {
                     putExtra(EXTRA_SPEED, speed)
                     putExtra(EXTRA_CONCURRENCY, concurrency)
                     putExtra(EXTRA_AUTO_SUBMIT, autoSubmit)
+                    putStringArrayListExtra(EXTRA_ENABLED_TASK_TYPES, ArrayList(enabledTaskTypes))
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)

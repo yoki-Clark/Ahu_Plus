@@ -144,6 +144,27 @@ class AhuPlusApplication : Application() {
     // 评教 (jw.ahu.edu.cn/eams5-evaluation-service, 2026-07-11)
     lateinit var evaluationRepository: com.ahu_plus.data.repository.EvaluationRepository
         private set
+
+    fun restorePersistedRepositoryState() {
+        recordRepository.reloadFromSession()
+        homeworkRepository.reloadFromSession()
+        userTaskRepository.reloadFromSession()
+        weLearnAuthRepository.loadPersistedCookies()
+        cProgAuthRepository.loadPersistedSession()
+    }
+
+    suspend fun clearAccountScopedRepositoryState() {
+        attendanceRepository.clearCookies()
+        cProgAuthRepository.clearSession()
+        gradeRepository.clearAccountState()
+        examRepository.clearAccountState()
+        trainingPlanRepository.clearAccountState()
+        programCompletionRepository.clearAccountState()
+        recordRepository.reloadFromSession()
+        homeworkRepository.reloadFromSession()
+        userTaskRepository.reloadFromSession()
+    }
+
     override fun onCreate() {
         super.onCreate()
 
@@ -213,11 +234,9 @@ class AhuPlusApplication : Application() {
         weLearnRepository = WeLearnRepository(weLearnAuthRepository)
         weLearnAnswerRepository = WeLearnAnswerRepository(weLearnAuthRepository)
         weLearnStudyRepository = WeLearnStudyRepository(weLearnAuthRepository, weLearnRepository, weLearnAnswerRepository)
-        weLearnAuthRepository.loadPersistedCookies()
         // 大学计算机平台 (C 语言在线评测, 内网, 独立 JWT+JSESSIONID)
         cProgAuthRepository = CProgAuthRepository(sessionManager)
         cProgRepository = CProgRepository(cProgAuthRepository)
-        cProgAuthRepository.loadPersistedSession()
         // 首次登录初始化协调器 (2026-06-22 新增) — 串行预热 7 项核心数据
         initCoordinator = com.ahu_plus.data.repository.InitCoordinator(
             sessionManager = sessionManager,

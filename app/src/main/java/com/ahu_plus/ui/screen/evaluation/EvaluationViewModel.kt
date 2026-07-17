@@ -21,8 +21,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.UUID
+
+internal fun isSameEvaluationTask(
+    current: TeacherEvaluationTask?,
+    requested: TeacherEvaluationTask,
+): Boolean = current?.stdSumTaskId == requested.stdSumTaskId &&
+    current.evaluationQuestionnaireId == requested.evaluationQuestionnaireId
 
 /**
  * 评教 ViewModel — 列表 + 详情两个状态。
@@ -51,6 +58,16 @@ class EvaluationViewModel(
     val detailState: StateFlow<EvaluationDetailUiState> = _detailState.asStateFlow()
 
     private var activated = false
+    private var questionnaireJob: Job? = null
+
+    private inline fun updateDetailFor(
+        task: TeacherEvaluationTask,
+        transform: (EvaluationDetailUiState) -> EvaluationDetailUiState,
+    ) {
+        _detailState.update { current ->
+            if (isSameEvaluationTask(current.task, task)) transform(current) else current
+        }
+    }
 
     fun activate() {
         if (activated) return
@@ -165,20 +182,21 @@ class EvaluationViewModel(
     // ════════════════════════════════════════════════════════
 
     fun openTask(task: TeacherEvaluationTask) {
+        questionnaireJob?.cancel()
         _detailState.value = EvaluationDetailUiState(
             isLoading = true,
             task = task,
         )
-        viewModelScope.launch {
+        questionnaireJob = viewModelScope.launch {
             readCache().questionnaires[task.evaluationQuestionnaireId]?.let { cached ->
-                _detailState.update {
+                updateDetailFor(task) {
                     it.copy(isLoading = false, questionnaire = cached, error = null)
                 }
                 return@launch
             }
             evaluationRepository.getQuestionnaire(task.evaluationQuestionnaireId).fold(
                 onSuccess = { q ->
-                    _detailState.update {
+                    updateDetailFor(task) {
                         it.copy(
                             isLoading = false,
                             questionnaire = q,
@@ -195,7 +213,7 @@ class EvaluationViewModel(
                 },
                 onFailure = { e ->
                     Log.w(TAG, "拉问卷失败: ${e.message}", e)
-                    _detailState.update {
+                    updateDetailFor(task) {
                         it.copy(
                             isLoading = false,
                             error = e.message ?: "加载问卷失败",
@@ -230,6 +248,8 @@ class EvaluationViewModel(
     }
 
     fun resetDetail() {
+        questionnaireJob?.cancel()
+        questionnaireJob = null
         _detailState.value = EvaluationDetailUiState()
     }
 
@@ -301,6 +321,12 @@ class EvaluationViewModel(
         val state = _detailState.value
         val task = state.task ?: return
         val questionnaire = state.questionnaire ?: return
+        if (questionnaire.questionnaireId != task.evaluationQuestionnaireId) {
+            _detailState.update {
+                it.copy(submitError = "问卷与当前评教任务不匹配，请重新打开后再提交")
+            }
+            return
+        }
 
         val validation = validateEvaluationDraft(questionnaire, state.answers)
         if (!validation.isValid) {

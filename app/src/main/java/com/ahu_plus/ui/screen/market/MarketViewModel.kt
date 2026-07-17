@@ -15,6 +15,7 @@ import com.ahu_plus.data.remote.market.MarketApi
 import com.ahu_plus.data.repository.MarketRepository
 import com.ahu_plus.data.repository.AiCommentRepository
 import com.ahu_plus.data.repository.MarketTopicBatch
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,31 @@ class MarketViewModel(
     private val _uiState = MutableStateFlow(MarketUiState())
     val uiState: StateFlow<MarketUiState> = _uiState.asStateFlow()
     private var lastTopicsLoadedAt: Long = 0L
+    private var searchJob: Job? = null
+    private var searchRequestId = 0L
+    private var topicJob: Job? = null
+    private var topicRequestId = 0L
+
+    private fun beginSearchRequest(): Long {
+        searchJob?.cancel()
+        return ++searchRequestId
+    }
+
+    private fun isCurrentSearchRequest(requestId: Long, query: String): Boolean {
+        val state = _uiState.value
+        return requestId == searchRequestId &&
+            state.isSearching &&
+            state.searchQuery.trim() == query
+    }
+
+    private fun beginTopicRequest(): Long {
+        topicJob?.cancel()
+        return ++topicRequestId
+    }
+
+    private fun isCurrentTopicRequest(requestId: Long, topicId: Long): Boolean {
+        return requestId == topicRequestId && _uiState.value.selectedTopic?.id == topicId
+    }
 
     init {
         refreshSettingsState()
@@ -305,6 +331,7 @@ class MarketViewModel(
     // ── 搜索 ────────────────────────────────────────────
 
     fun openSearch() {
+        beginSearchRequest()
         _uiState.update {
             it.copy(
                 isSearching = true,
@@ -320,6 +347,7 @@ class MarketViewModel(
     }
 
     fun closeSearch() {
+        beginSearchRequest()
         _uiState.update {
             it.copy(
                 isSearching = false,
@@ -335,14 +363,23 @@ class MarketViewModel(
     }
 
     fun onSearchQueryChanged(value: String) {
-        _uiState.update { it.copy(searchQuery = value, searchError = null) }
+        if (value != _uiState.value.searchQuery) beginSearchRequest()
+        _uiState.update {
+            it.copy(
+                searchQuery = value,
+                searchLoading = false,
+                searchLoadingMore = false,
+                searchError = null,
+            )
+        }
     }
 
     fun submitSearch() {
         val query = _uiState.value.searchQuery.trim()
         if (query.isBlank()) return
-        viewModelScope.launch {
-            loadSearchPage(query = query, page = 1, append = false)
+        val requestId = beginSearchRequest()
+        searchJob = viewModelScope.launch {
+            loadSearchPage(query = query, page = 1, append = false, requestId = requestId)
         }
     }
 
@@ -352,15 +389,28 @@ class MarketViewModel(
         if (state.searchLoading || state.searchLoadingMore || !state.hasMoreSearch) return
         val query = state.searchQuery.trim()
         if (query.isBlank()) return
-        viewModelScope.launch {
-            loadSearchPage(query = query, page = state.searchPage + 1, append = true)
+        val requestId = beginSearchRequest()
+        searchJob = viewModelScope.launch {
+            loadSearchPage(
+                query = query,
+                page = state.searchPage + 1,
+                append = true,
+                requestId = requestId,
+            )
         }
     }
 
-    private suspend fun loadSearchPage(query: String, page: Int, append: Boolean) {
-        _uiState.update {
-            if (append) it.copy(searchLoadingMore = true, searchError = null)
-            else it.copy(searchLoading = true, searchError = null)
+    private suspend fun loadSearchPage(
+        query: String,
+        page: Int,
+        append: Boolean,
+        requestId: Long,
+    ) {
+        if (!isCurrentSearchRequest(requestId, query)) return
+        _uiState.update { state ->
+            if (!isCurrentSearchRequest(requestId, query)) return@update state
+            if (append) state.copy(searchLoadingMore = true, searchError = null)
+            else state.copy(searchLoading = true, searchError = null)
         }
         val identities = selectedIdentities()
         val result = if (identities.size == 1) {
@@ -379,7 +429,9 @@ class MarketViewModel(
         }
         result.fold(
             onSuccess = { batch ->
+                if (!isCurrentSearchRequest(requestId, query)) return@fold
                 _uiState.update { s ->
+                    if (!isCurrentSearchRequest(requestId, query)) return@update s
                     val merged = if (append) {
                         (s.searchResults + batch.topics).distinctBy { it.id }
                     } else {
@@ -399,8 +451,9 @@ class MarketViewModel(
                 }
             },
             onFailure = { e ->
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    if (!isCurrentSearchRequest(requestId, query)) return@update state
+                    state.copy(
                         searchLoading = false,
                         searchLoadingMore = false,
                         searchError = e.message ?: "搜索失败"
@@ -685,26 +738,39 @@ class MarketViewModel(
     }
 
     fun openTopic(topic: MarketTopic) {
-        viewModelScope.launch {
-            val identity = identityTokenForTopic(topic.id)
-            _uiState.update {
-                it.copy(
-                    selectedTopic = topic,
-                    selectedTopicIdentity = identity,
-                    topicDetail = topic,
-                    detailLoading = true,
-                    detailError = null,
-                    comments = emptyList(),
-                    commentsPage = 0,
-                    hasMoreComments = true,
-                    commentsLoading = true,
-                    replyLoadingCommentIds = emptySet(),
-                    replyErrors = emptyMap(),
-                    commentsError = null
-                )
-            }
-            loadTopicDetail(topic.id, identity)
-            loadCommentsPage(topic.id, page = 1, append = false, identity = identity)
+        val identity = identityTokenForTopic(topic.id)
+        val requestId = beginTopicRequest()
+        _uiState.update {
+            it.copy(
+                selectedTopic = topic,
+                selectedTopicIdentity = identity,
+                topicDetail = topic,
+                detailLoading = true,
+                detailError = null,
+                comments = emptyList(),
+                commentsPage = 0,
+                hasMoreComments = true,
+                commentsLoading = true,
+                replyLoadingCommentIds = emptySet(),
+                replyErrors = emptyMap(),
+                commentsError = null,
+                commentDraft = "",
+                replyingTo = null,
+                isPostingComment = false,
+                isGeneratingAiComment = false,
+                postCommentError = null,
+                postCommentSuccessMessage = null,
+            )
+        }
+        topicJob = viewModelScope.launch {
+            loadTopicDetail(topic.id, identity, requestId)
+            loadCommentsPage(
+                topicId = topic.id,
+                page = 1,
+                append = false,
+                identity = identity,
+                requestId = requestId,
+            )
         }
     }
 
@@ -840,6 +906,7 @@ class MarketViewModel(
     }
 
     fun closeTopic() {
+        beginTopicRequest()
         _uiState.update {
             it.copy(
                 selectedTopic = null,
@@ -858,6 +925,7 @@ class MarketViewModel(
                     commentDraft = "",
                     replyingTo = null,
                     isPostingComment = false,
+                    isGeneratingAiComment = false,
                     postCommentError = null,
                     postCommentSuccessMessage = null
                 )
@@ -1051,10 +1119,13 @@ class MarketViewModel(
         }
         val topic = state.topicDetail ?: state.selectedTopic ?: return
         val target = state.replyingTo
+        val requestId = topicRequestId
 
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(isGeneratingAiComment = true, postCommentError = null)
+            if (!isCurrentTopicRequest(requestId, topic.id)) return@launch
+            _uiState.update { current ->
+                if (!isCurrentTopicRequest(requestId, topic.id)) return@update current
+                current.copy(isGeneratingAiComment = true, postCommentError = null)
             }
             val fullComments = selectAiContextComments(
                 fullResult = repository.loadAllCommentsWithReplies(
@@ -1063,6 +1134,7 @@ class MarketViewModel(
                 ),
                 loadedComments = state.comments
             )
+            if (!isCurrentTopicRequest(requestId, topic.id)) return@launch
             val targetComment = target?.let { replyTarget ->
                 fullComments.firstOrNull { it.id == replyTarget.commentId }
             }
@@ -1079,13 +1151,15 @@ class MarketViewModel(
                 model = state.aiCommentModel
             ).fold(
                 onSuccess = { draft ->
-                    _uiState.update {
-                        it.copy(isGeneratingAiComment = false, commentDraft = draft, postCommentError = null)
+                    _uiState.update { current ->
+                        if (!isCurrentTopicRequest(requestId, topic.id)) return@update current
+                        current.copy(isGeneratingAiComment = false, commentDraft = draft, postCommentError = null)
                     }
                 },
                 onFailure = { error ->
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { current ->
+                        if (!isCurrentTopicRequest(requestId, topic.id)) return@update current
+                        current.copy(
                             isGeneratingAiComment = false,
                             postCommentError = error.message ?: "AI 评论生成失败"
                         )
@@ -1108,10 +1182,13 @@ class MarketViewModel(
             return
         }
         val target = state.replyingTo
+        val requestId = topicRequestId
 
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
+            if (!isCurrentTopicRequest(requestId, topicId)) return@launch
+            _uiState.update { current ->
+                if (!isCurrentTopicRequest(requestId, topicId)) return@update current
+                current.copy(
                     isPostingComment = true,
                     postCommentError = null,
                     postCommentSuccessMessage = null
@@ -1127,6 +1204,7 @@ class MarketViewModel(
             ).fold(
                 onSuccess = { newComment ->
                     _uiState.update { current ->
+                        if (!isCurrentTopicRequest(requestId, topicId)) return@update current
                         val updatedComments = if (target == null || target.replyId == 0L) {
                             // 顶级评论：插到列表头部
                             (listOf(newComment) + current.comments).distinctBy { it.id }
@@ -1155,8 +1233,9 @@ class MarketViewModel(
                     }
                 },
                 onFailure = { e ->
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { current ->
+                        if (!isCurrentTopicRequest(requestId, topicId)) return@update current
+                        current.copy(
                             isPostingComment = false,
                             postCommentError = e.message ?: "评论失败"
                         )
@@ -1169,18 +1248,27 @@ class MarketViewModel(
     fun retryDetail() {
         val topicId = _uiState.value.selectedTopic?.id ?: return
         val identity = identityTokenForTopic(topicId)
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    detailLoading = true,
-                    detailError = null,
-                    commentsLoading = it.comments.isEmpty(),
-                    commentsError = null
+        val shouldLoadComments = _uiState.value.comments.isEmpty()
+        val requestId = beginTopicRequest()
+        _uiState.update {
+            it.copy(
+                detailLoading = true,
+                detailError = null,
+                commentsLoading = shouldLoadComments,
+                commentsError = null,
+                replyLoadingCommentIds = emptySet(),
+            )
+        }
+        topicJob = viewModelScope.launch {
+            loadTopicDetail(topicId, identity, requestId)
+            if (shouldLoadComments) {
+                loadCommentsPage(
+                    topicId = topicId,
+                    page = 1,
+                    append = false,
+                    identity = identity,
+                    requestId = requestId,
                 )
-            }
-            loadTopicDetail(topicId, identity)
-            if (_uiState.value.comments.isEmpty()) {
-                loadCommentsPage(topicId, page = 1, append = false, identity = identity)
             }
         }
     }
@@ -1196,18 +1284,20 @@ class MarketViewModel(
         return repository.loadAllCommentsWithReplies(topicId = topicId, identity = identity)
     }
 
-    private suspend fun loadTopicDetail(topicId: Long, identity: String?) {
+    private suspend fun loadTopicDetail(topicId: Long, identity: String?, requestId: Long) {
         repository.getTopic(topicId, identity).fold(
             onSuccess = { detail ->
-                _uiState.update {
-                    it.copy(topicDetail = detail, detailLoading = false, detailError = null)
+                _uiState.update { state ->
+                    if (!isCurrentTopicRequest(requestId, topicId)) return@update state
+                    state.copy(topicDetail = detail, detailLoading = false, detailError = null)
                 }
             },
             onFailure = { e ->
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    if (!isCurrentTopicRequest(requestId, topicId)) return@update state
+                    state.copy(
                         detailLoading = false,
-                        detailError = if (it.topicDetail == null) {
+                        detailError = if (state.topicDetail == null) {
                             e.message ?: "帖子详情加载失败"
                         } else {
                             null
@@ -1223,13 +1313,22 @@ class MarketViewModel(
         val topicId = state.selectedTopic?.id ?: return
         if (state.commentsLoading || state.commentsLoadingMore || !state.hasMoreComments) return
 
-        viewModelScope.launch {
-            _uiState.update { it.copy(commentsLoadingMore = true, commentsError = null) }
+        val requestId = topicRequestId
+        topicJob = viewModelScope.launch {
+            if (!isCurrentTopicRequest(requestId, topicId)) return@launch
+            _uiState.update { current ->
+                if (isCurrentTopicRequest(requestId, topicId)) {
+                    current.copy(commentsLoadingMore = true, commentsError = null)
+                } else {
+                    current
+                }
+            }
             loadCommentsPage(
                 topicId = topicId,
                 page = state.commentsPage + 1,
                 append = true,
-                identity = identityTokenForTopic(topicId, state)
+                identity = identityTokenForTopic(topicId, state),
+                requestId = requestId,
             )
         }
     }
@@ -1241,12 +1340,15 @@ class MarketViewModel(
 
         val pageSize = comment.replys?.pageSize?.takeIf { it > 0 } ?: 6
         val nextPage = (comment.visibleReplies.size / pageSize) + 1
+        val requestId = topicRequestId
 
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    replyLoadingCommentIds = it.replyLoadingCommentIds + comment.id,
-                    replyErrors = it.replyErrors - comment.id
+            if (!isCurrentTopicRequest(requestId, topicId)) return@launch
+            _uiState.update { current ->
+                if (!isCurrentTopicRequest(requestId, topicId)) return@update current
+                current.copy(
+                    replyLoadingCommentIds = current.replyLoadingCommentIds + comment.id,
+                    replyErrors = current.replyErrors - comment.id
                 )
             }
             repository.getCommentReplies(
@@ -1258,6 +1360,7 @@ class MarketViewModel(
             ).fold(
                 onSuccess = { replyPage ->
                     _uiState.update { current ->
+                        if (!isCurrentTopicRequest(requestId, topicId)) return@update current
                         current.copy(
                             comments = current.comments.map { item ->
                                 if (item.id == comment.id) item.mergeReplies(replyPage) else item
@@ -1268,10 +1371,11 @@ class MarketViewModel(
                     }
                 },
                 onFailure = { e ->
-                    _uiState.update {
-                        it.copy(
-                            replyLoadingCommentIds = it.replyLoadingCommentIds - comment.id,
-                            replyErrors = it.replyErrors + (comment.id to (e.message ?: "回复加载失败"))
+                    _uiState.update { current ->
+                        if (!isCurrentTopicRequest(requestId, topicId)) return@update current
+                        current.copy(
+                            replyLoadingCommentIds = current.replyLoadingCommentIds - comment.id,
+                            replyErrors = current.replyErrors + (comment.id to (e.message ?: "回复加载失败"))
                         )
                     }
                 }
@@ -1283,11 +1387,13 @@ class MarketViewModel(
         topicId: Long,
         page: Int,
         append: Boolean,
-        identity: String?
+        identity: String?,
+        requestId: Long,
     ) {
         repository.getComments(topicId = topicId, page = page, identity = identity).fold(
             onSuccess = { comments ->
                 _uiState.update { state ->
+                    if (!isCurrentTopicRequest(requestId, topicId)) return@update state
                     val merged = if (append) {
                         (state.comments + comments).distinctBy { it.id }
                     } else {
@@ -1304,8 +1410,9 @@ class MarketViewModel(
                 }
             },
             onFailure = { e ->
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    if (!isCurrentTopicRequest(requestId, topicId)) return@update state
+                    state.copy(
                         commentsLoading = false,
                         commentsLoadingMore = false,
                         commentsError = e.message ?: "评论加载失败"

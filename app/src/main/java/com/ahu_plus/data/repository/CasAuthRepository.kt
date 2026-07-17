@@ -16,6 +16,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
+internal fun isSameCookieSlot(stored: Cookie, incoming: Cookie): Boolean =
+    stored.name == incoming.name &&
+        stored.domain == incoming.domain &&
+        stored.path == incoming.path
+
 /**
  * CAS 自动登录仓库。
  *
@@ -59,8 +64,10 @@ class CasAuthRepository(
     /** 获取当前有效的 JSESSIONID(供 CardRepository 直接使用) */
     fun getJsessionid(): String? {
         cachedJsessionId?.let { return it }
+        val portalUrl = "$tpUpBaseUrl/".toHttpUrl()
         val id = cookieStore[casHost]
-            ?.find { it.name == "JSESSIONID" }
+            ?.filter { it.name == "JSESSIONID" && it.matches(portalUrl) }
+            ?.maxByOrNull { it.path.length }
             ?.value
         cachedJsessionId = id
         return id
@@ -68,7 +75,10 @@ class CasAuthRepository(
 
     private val cookieJar = object : CookieJar {
         override fun loadForRequest(url: HttpUrl): List<Cookie> {
-            return cookieStore[url.host] ?: emptyList()
+            return cookieStore[url.host]
+                ?.filter { it.matches(url) }
+                ?.sortedByDescending { it.path.length }
+                .orEmpty()
         }
 
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
@@ -77,7 +87,7 @@ class CasAuthRepository(
             }
             synchronized(hostCookies) {
                 for (cookie in cookies) {
-                    hostCookies.removeAll { it.name == cookie.name }
+                    hostCookies.removeAll { isSameCookieSlot(it, cookie) }
                     hostCookies.add(cookie)
                 }
                 // 任意 cookie 变化都使 JSESSIONID 缓存失效（放在锁内保证与 cookie 写入原子性）
@@ -188,12 +198,18 @@ class CasAuthRepository(
         if (sessionId.isNullOrBlank()) {
             return mutexLogin()
         }
-        // 用现有 JSESSIONID 探测
-        return probeSession(sessionId).recoverCatching {
-            Log.w(TAG, "JSESSIONID 已失效，尝试重新登录")
+        val probe = probeSession(sessionId)
+        if (probe.isSuccess) return Result.success(Unit)
+
+        Log.w(TAG, "JSESSIONID 已失效，尝试串行重新登录", probe.exceptionOrNull())
+        return sessionMutex.withLock {
+            val currentSessionId = sessionManager.getSessionId()
+            if (!currentSessionId.isNullOrBlank() && currentSessionId != sessionId) {
+                return@withLock Result.success(Unit)
+            }
             clearCookies()
             sessionManager.clearSession()
-            mutexLogin()
+            autoLogin()
         }
     }
 

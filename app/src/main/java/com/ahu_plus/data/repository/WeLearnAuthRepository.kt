@@ -81,6 +81,7 @@ class WeLearnAuthRepository(
 
     /** 启动时把上次登录的 cookie 灌回 CookieJar */
     fun loadPersistedCookies() {
+        cookieStore.clear()
         val raw = sessionManager.getWeLearnCookies() ?: return
         if (raw.isBlank()) return
         val list = cookieStore.getOrPut(COOKIE_HOST) { mutableListOf() }
