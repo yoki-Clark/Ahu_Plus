@@ -44,7 +44,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -88,7 +88,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import androidx.core.view.drawToBitmap
 import com.ahu_plus.data.model.jw.UserScheduleItem
-import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.screen.schedule.components.ReminderPermissionBanner
 import com.ahu_plus.ui.screen.schedule.components.WeekPager
 import com.ahu_plus.ui.theme.AhuShapes
@@ -107,7 +106,8 @@ fun ScheduleScreen(
     viewModel: ScheduleViewModel,
     assessmentRepository: com.ahu_plus.data.repository.AssessmentRepository,
     onBack: () -> Unit,
-    onNeedsLogin: () -> Unit
+    onNeedsLogin: () -> Unit,
+    onSettingsDismissed: (() -> Unit)? = null,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scheduleBackground = CoursePalettes.backgroundVisuals(
@@ -266,7 +266,7 @@ fun ScheduleScreen(
                         )
                 )
             }
-            PullToRefreshBox(
+            AhuPullToRefreshBox(
                 isRefreshing = uiState.isRefreshing,
                 onRefresh = { viewModel.onRefresh() },
                 modifier = Modifier.fillMaxSize()
@@ -340,6 +340,11 @@ fun ScheduleScreen(
                             fontScale = uiState.fontScale,
                             verScroll = sharedVerScroll,
                             paletteConfig = uiState.paletteConfig,
+                            bottomSpacerHeight = if (uiState.dataStatus != null) {
+                                DATA_STATUS_FOOTER_HEIGHT
+                            } else {
+                                0.dp
+                            },
                         )
                         com.ahu_plus.ui.screen.schedule.components.WeekPager(
                             maxPage = maxPage,
@@ -367,18 +372,13 @@ fun ScheduleScreen(
                                 timeTick = timeTick,
                                 sharedVerScroll = sharedVerScroll,
                                 paletteConfig = uiState.paletteConfig,
+                                dataStatus = uiState.dataStatus,
                             )
                         }
                     }
                 }
             }
             }
-        }
-        uiState.dataStatus?.let { status ->
-            DataStatusFooter(
-                status = status,
-                modifier = Modifier.background(MaterialTheme.colorScheme.background),
-            )
         }
     }
 
@@ -423,7 +423,10 @@ fun ScheduleScreen(
             onCustomPaletteColorChanged = viewModel::setCustomPaletteColor,
             onBackgroundConfigChanged = viewModel::setScheduleBackground,
             onReset = viewModel::onResetSettings,
-            onDismiss = { viewModel.onToggleSettings() },
+            onDismiss = {
+                viewModel.onToggleSettings()
+                onSettingsDismissed?.invoke()
+            },
             sessionManager = viewModel.reminderPrefs,
         )
     }

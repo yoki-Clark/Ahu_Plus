@@ -77,7 +77,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -119,6 +119,7 @@ import com.ahu_plus.ui.components.AhuStatusCard
 import com.ahu_plus.data.local.ElectricityRoomConfig
 import com.ahu_plus.data.model.ElectricityDailyRecord
 import com.ahu_plus.data.model.ElectricityUiData
+import com.ahu_plus.data.local.BottomNavService
 import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.ui.screen.home.BathroomBalanceCard
 import com.ahu_plus.data.model.InternetBalanceData
@@ -133,6 +134,8 @@ import com.ahu_plus.ui.screen.home.QrCodeFullScreenDialog
 import com.ahu_plus.ui.screen.market.MarketIdentityEditor
 import com.ahu_plus.ui.screen.market.MarketViewModel
 import com.ahu_plus.ui.screen.schedule.ScheduleUiState
+import com.ahu_plus.notification.CardBalanceAlertMode
+import com.ahu_plus.notification.recentCanteenDailyAverage
 import com.ahu_plus.ui.theme.AhuGreen
 import com.ahu_plus.util.BrowserOpener
 import com.ahu_plus.util.QrCodeBitmap
@@ -394,8 +397,15 @@ fun ProfileScreen(
             onAdwmhConcurrentRetryChanged = cardViewModel::setAdwmhConcurrentRetry,
             cardBalanceAlertEnabled = cardViewModel.getCardBalanceAlertEnabled(),
             cardBalanceAlertThreshold = cardViewModel.getCardBalanceAlertThreshold(),
+            cardBalanceAlertMode = CardBalanceAlertMode.fromStored(cardViewModel.getCardBalanceAlertMode()),
+            cardBalanceAlertLookbackDays = cardViewModel.getCardBalanceAlertLookbackDays(),
+            recentCanteenDailyAverages = listOf(7, 14, 30).associateWith { days ->
+                recentCanteenDailyAverage(cardUiState.bills, days)
+            },
             onCardBalanceAlertEnabledChanged = cardViewModel::setCardBalanceAlertEnabled,
             onCardBalanceAlertThresholdChanged = cardViewModel::setCardBalanceAlertThreshold,
+            onCardBalanceAlertModeChanged = { cardViewModel.setCardBalanceAlertMode(it.name) },
+            onCardBalanceAlertLookbackDaysChanged = cardViewModel::setCardBalanceAlertLookbackDays,
             bottomNavServices = bottomNavServices,
             marketEnabled = marketUiState.thirdPartyServicesEnabled && marketUiState.marketChildEnabled,
             chaoxingEnabled = marketUiState.thirdPartyServicesEnabled && marketUiState.chaoxingChildEnabled,
@@ -493,6 +503,7 @@ fun ProfileScreen(
             marketChildEnabled = marketUiState.marketChildEnabled,
             chaoxingChildEnabled = marketUiState.chaoxingChildEnabled,
             welearnChildEnabled = marketUiState.welearnChildEnabled,
+            bottomNavServices = bottomNavServices,
             onThirdPartyEnabledChanged = marketViewModel::setMarketEnabled,
             onMarketChildEnabledChanged = marketViewModel::setMarketChildEnabled,
             onChaoxingChildEnabledChanged = marketViewModel::setChaoxingChildEnabled,
@@ -576,6 +587,7 @@ private fun ProfileHomeScreen(
     marketChildEnabled: Boolean,
     chaoxingChildEnabled: Boolean,
     welearnChildEnabled: Boolean,
+    bottomNavServices: List<String>,
     onThirdPartyEnabledChanged: (Boolean) -> Unit,
     onMarketChildEnabledChanged: (Boolean) -> Unit,
     onChaoxingChildEnabledChanged: (Boolean) -> Unit,
@@ -625,6 +637,7 @@ private fun ProfileHomeScreen(
     var showLogoutConfirm by rememberSaveable { mutableStateOf(false) }
     // 第三方服务 parent 启用前的 5s 风险声明弹窗 (子开关不需要二次确认)
     var showThirdPartyDialog by rememberSaveable { mutableStateOf(false) }
+    var unpinnedServiceName by rememberSaveable { mutableStateOf<String?>(null) }
     var showDeveloperContact by rememberSaveable { mutableStateOf(false) }
     var showShareSheet by rememberSaveable { mutableStateOf(false) }
     var showQrCard by rememberSaveable { mutableStateOf(false) }
@@ -637,6 +650,27 @@ private fun ProfileHomeScreen(
                 showThirdPartyDialog = false
             },
             onDismiss = { showThirdPartyDialog = false }
+        )
+    }
+
+    unpinnedServiceName?.let { serviceName ->
+        AlertDialog(
+            onDismissRequest = { unpinnedServiceName = null },
+            title = { Text("$serviceName 已启用") },
+            text = {
+                Text("底部栏最多固定两个第三方服务，因此该服务会显示在“应用”页。可在“设置 > 底部栏服务”中调整固定项。")
+            },
+            confirmButton = {
+                TextButton(onClick = { unpinnedServiceName = null }) { Text("知道了") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        unpinnedServiceName = null
+                        onOpenSettings()
+                    }
+                ) { Text("去设置") }
+            },
         )
     }
 
@@ -710,7 +744,7 @@ private fun ProfileHomeScreen(
         LaunchedEffect(balanceLoading) {
             if (!balanceLoading) isRefreshing = false
         }
-        PullToRefreshBox(
+        AhuPullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
                 isRefreshing = true
@@ -876,7 +910,7 @@ private fun ProfileHomeScreen(
                                 SettingsSwitchRow(
                                     title = "是否开启",
                                     description = if (thirdPartyEnabled) {
-                                        "已开启：可单独控制「集市」「学习通」「WeLearn」Tab 显示"
+                                        "已开启：前两个启用项自动固定到底部栏，其余显示在应用页"
                                     } else {
                                         "默认关闭，启用需阅读并确认风险声明"
                                     },
@@ -893,36 +927,63 @@ private fun ProfileHomeScreen(
                                 if (thirdPartyEnabled) {
                                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                                     SettingsSwitchRow(
-                                        title = "校园集市",
-                                        description = if (marketChildEnabled) {
-                                            "底部导航显示「集市」Tab"
+                                    title = "校园集市",
+                                    description = if (marketChildEnabled) {
+                                            if (BottomNavService.MARKET in bottomNavServices) {
+                                                "已固定在底部栏"
+                                            } else {
+                                                "已启用，可从应用页进入"
+                                            }
                                         } else {
-                                            "已隐藏「集市」Tab,本地 token/设置保留"
+                                            "已关闭，本地 token/设置保留"
                                         },
-                                        checked = marketChildEnabled,
-                                        onCheckedChange = onMarketChildEnabledChanged
+                                    checked = marketChildEnabled,
+                                    onCheckedChange = { enabled ->
+                                        onMarketChildEnabledChanged(enabled)
+                                        if (enabled && BottomNavService.MARKET !in bottomNavServices && bottomNavServices.size >= 2) {
+                                            unpinnedServiceName = "校园集市"
+                                        }
+                                    }
                                     )
                                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                                     SettingsSwitchRow(
-                                        title = "超星学习通",
-                                        description = if (chaoxingChildEnabled) {
-                                            "底部导航显示「学习通」Tab"
+                                    title = "超星学习通",
+                                    description = if (chaoxingChildEnabled) {
+                                            if (BottomNavService.CHAOXING in bottomNavServices) {
+                                                "已固定在底部栏"
+                                            } else {
+                                                "已启用，可从应用页进入"
+                                            }
                                         } else {
-                                            "已隐藏「学习通」Tab,本地登录态保留"
+                                            "已关闭，本地登录态保留"
                                         },
-                                        checked = chaoxingChildEnabled,
-                                        onCheckedChange = onChaoxingChildEnabledChanged
+                                    checked = chaoxingChildEnabled,
+                                    onCheckedChange = { enabled ->
+                                        onChaoxingChildEnabledChanged(enabled)
+                                        if (enabled && BottomNavService.CHAOXING !in bottomNavServices && bottomNavServices.size >= 2) {
+                                            unpinnedServiceName = "超星学习通"
+                                        }
+                                    }
                                     )
                                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                                     SettingsSwitchRow(
-                                        title = "WeLearn 随行课堂",
-                                        description = if (welearnChildEnabled) {
-                                            "底部导航显示「WeLearn」Tab"
+                                    title = "WeLearn 随行课堂",
+                                    description = if (welearnChildEnabled) {
+                                            if (BottomNavService.WELEARN in bottomNavServices) {
+                                                "已固定在底部栏"
+                                            } else {
+                                                "已启用，可从应用页进入"
+                                            }
                                         } else {
-                                            "已隐藏「WeLearn」Tab,本地登录态保留"
+                                            "已关闭，本地登录态保留"
                                         },
-                                        checked = welearnChildEnabled,
-                                        onCheckedChange = onWelearnChildEnabledChanged
+                                    checked = welearnChildEnabled,
+                                    onCheckedChange = { enabled ->
+                                        onWelearnChildEnabledChanged(enabled)
+                                        if (enabled && BottomNavService.WELEARN !in bottomNavServices && bottomNavServices.size >= 2) {
+                                            unpinnedServiceName = "WeLearn 随行课堂"
+                                        }
+                                    }
                                     )
                                 }
                             }
@@ -983,7 +1044,7 @@ private fun ProfileHomeScreen(
                 Spacer(modifier = Modifier.height(64.dp))
             }
         }
-        } // PullToRefreshBox
+        } // AhuPullToRefreshBox
     }
 }
 

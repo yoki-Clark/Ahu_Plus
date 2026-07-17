@@ -38,7 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -112,10 +112,11 @@ fun GradeScreen(
             )
         }
 
-        PullToRefreshBox(
+        AhuPullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
             onRefresh = viewModel::onRefresh,
             modifier = Modifier.fillMaxSize(),
+            threshold = 32.dp,
         ) {
             val allGradesEmpty = uiState.gradesBySemester.isEmpty()
             when {

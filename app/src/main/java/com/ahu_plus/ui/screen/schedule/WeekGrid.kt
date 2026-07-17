@@ -40,7 +40,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.ahu_plus.data.debug.DebugClock
+import com.ahu_plus.data.local.DataSnapshotStatus
 import com.ahu_plus.data.model.jw.CourseDisplayItem
+import com.ahu_plus.ui.components.CompactDataStatusFooter
 import com.ahu_plus.data.model.jw.CourseUnit
 import com.ahu_plus.data.model.schedule.SchedulePaletteConfig
 import com.ahu_plus.data.model.schedule.backgroundOrDefault
@@ -102,6 +104,7 @@ fun WeekGrid(
      */
     sharedVerScroll: ScrollState? = null,
     paletteConfig: SchedulePaletteConfig = SchedulePaletteConfig(),
+    dataStatus: DataSnapshotStatus? = null,
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val backgroundVisuals = CoursePalettes.backgroundVisuals(
@@ -237,13 +240,18 @@ fun WeekGrid(
         }
 
         // ── 网格体 ──
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(verScroll)
-                .horizontalScroll(horScroll)
         ) {
-            Box(modifier = Modifier.size(gridWidth, bodyHeight)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(bodyHeight)
+                    .horizontalScroll(horScroll)
+            ) {
+                Box(modifier = Modifier.size(gridWidth, bodyHeight)) {
                 for (u in minUnit..maxUnit) {
                     val row = u - minUnit
                     for (d in visibleDays) {
@@ -336,6 +344,15 @@ fun WeekGrid(
                         )
                     }
                 }
+                }
+            }
+            dataStatus?.let { status ->
+                CompactDataStatusFooter(
+                    status = status,
+                    modifier = Modifier
+                        .height(DATA_STATUS_FOOTER_HEIGHT)
+                        .background(backgroundVisuals.canvas),
+                )
             }
         }
     }
@@ -357,6 +374,7 @@ fun FixedTimeColumn(
     verScroll: ScrollState,
     modifier: Modifier = Modifier,
     paletteConfig: SchedulePaletteConfig = SchedulePaletteConfig(),
+    bottomSpacerHeight: Dp = 0.dp,
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val backgroundVisuals = CoursePalettes.backgroundVisuals(
@@ -409,9 +427,14 @@ fun FixedTimeColumn(
                     backgroundColor = backgroundVisuals.timeColumn,
                 )
             }
+            if (bottomSpacerHeight > 0.dp) {
+                Box(Modifier.height(bottomSpacerHeight).width(TIME_COL_WIDTH))
+            }
         }
     }
 }
+
+internal val DATA_STATUS_FOOTER_HEIGHT = 40.dp
 
 @Composable
 private fun DayHeaderCell(

@@ -45,7 +45,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -130,7 +130,7 @@ fun EmptyClassroomScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
-        PullToRefreshBox(
+        AhuPullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
             onRefresh = viewModel::onRefresh,
             modifier = Modifier.fillMaxSize().padding(innerPadding),

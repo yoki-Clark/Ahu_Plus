@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -46,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.home.AppRegistry
 import com.ahu_plus.data.local.SessionManager
+import kotlinx.coroutines.launch
 import com.ahu_plus.ui.components.AhuIconBox
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuBlue
@@ -174,6 +176,9 @@ fun AppHubScreen(
     marketEnabled: Boolean = false,
     chaoxingEnabled: Boolean = false,
     welearnEnabled: Boolean = false,
+    marketInAppHub: Boolean = marketEnabled,
+    chaoxingInAppHub: Boolean = chaoxingEnabled,
+    welearnInAppHub: Boolean = welearnEnabled,
     onOpenMarket: () -> Unit = {},
     onOpenChaoxing: () -> Unit = {},
     onOpenWelearn: () -> Unit = {},
@@ -183,6 +188,8 @@ fun AppHubScreen(
 ) {
     val app = LocalContext.current.applicationContext as AhuPlusApplication
     val sessionManager: SessionManager = app.sessionManager
+    val scope = rememberCoroutineScope()
+    var messagePreviewCount by remember { mutableStateOf(sessionManager.getMessagePreviewCount()) }
 
     val cardUiState by cardViewModel.uiState.collectAsStateWithLifecycle()
     val studentInfoUiState by studentInfoViewModel.uiState.collectAsStateWithLifecycle()
@@ -227,8 +234,9 @@ fun AppHubScreen(
             PAGE_TRAINING_PLAN -> trainingPlanViewModel.activate()
             PAGE_NOTICES -> jwcNoticeListViewModel.activate()
             PAGE_MESSAGE_CENTER -> {
-                chaoxingViewModel.loadMessages()
-                marketViewModel.refreshNotices()
+                jwcNoticeViewModel.loadNotices()
+                if (chaoxingEnabled) chaoxingViewModel.loadMessages()
+                if (marketEnabled) marketViewModel.refreshNotices()
             }
             PAGE_EVALUATION -> {
                 if (authRefreshVersion > 0) evaluationViewModel.refreshList()
@@ -343,16 +351,23 @@ fun AppHubScreen(
         PAGE_MESSAGE_CENTER -> {
             val academicState by jwcNoticeViewModel.uiState.collectAsStateWithLifecycle()
             val cxState by chaoxingViewModel.messagesState.collectAsStateWithLifecycle()
+            val cxLoginState by chaoxingViewModel.loginState.collectAsStateWithLifecycle()
             UnifiedMessageCenterScreen(
                 academicNotices = academicState.notices,
                 marketNotices = marketUiState.notices,
-                marketAvailable = marketUiState.hasSavedIdentity,
+                marketAvailable = marketEnabled && marketUiState.hasSavedIdentity,
                 cxMessages = cxState.messages,
-                cxAvailable = chaoxingViewModel.loginState.collectAsStateWithLifecycle().value.isLoggedIn,
-                isRefreshing = marketUiState.noticesLoading || cxState.isLoading,
+                cxAvailable = chaoxingEnabled && cxLoginState.isLoggedIn,
+                isRefreshing = academicState.isLoading || marketUiState.noticesLoading || cxState.isLoading,
+                previewCount = messagePreviewCount,
+                onPreviewCountChange = { count ->
+                    messagePreviewCount = count
+                    scope.launch { sessionManager.setMessagePreviewCount(count) }
+                },
                 onRefresh = {
-                    chaoxingViewModel.loadMessages()
-                    marketViewModel.refreshNotices()
+                    jwcNoticeViewModel.loadNotices()
+                    if (chaoxingEnabled) chaoxingViewModel.loadMessages()
+                    if (marketEnabled) marketViewModel.refreshNotices()
                 },
                 onOpenAcademic = { currentPage = PAGE_NOTICES },
                 onOpenMarket = {
@@ -489,9 +504,9 @@ fun AppHubScreen(
         )
         else -> AppHubPage(
             listState = hubListState,
-            marketEnabled = marketEnabled,
-            chaoxingEnabled = chaoxingEnabled,
-            welearnEnabled = welearnEnabled,
+            marketEnabled = marketInAppHub,
+            chaoxingEnabled = chaoxingInAppHub,
+            welearnEnabled = welearnInAppHub,
             onOpenMarket = onOpenMarket,
             onOpenChaoxing = onOpenChaoxing,
             onOpenWelearn = onOpenWelearn,

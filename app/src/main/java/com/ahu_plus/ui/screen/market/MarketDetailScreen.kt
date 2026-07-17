@@ -59,7 +59,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -247,7 +247,7 @@ internal fun MarketDetailScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
-        PullToRefreshBox(
+        AhuPullToRefreshBox(
             isRefreshing = uiState.detailLoading && uiState.topicDetail != null,
             onRefresh = onRefresh,
             modifier = Modifier

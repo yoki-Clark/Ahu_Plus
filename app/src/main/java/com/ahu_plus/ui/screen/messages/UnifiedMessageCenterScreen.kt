@@ -17,6 +17,9 @@ import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -24,8 +27,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.ListItem
+import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +45,7 @@ import com.ahu_plus.data.model.CxMessage
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.MarketNotice
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.data.local.MESSAGE_PREVIEW_COUNT_OPTIONS
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -47,12 +58,44 @@ fun UnifiedMessageCenterScreen(
     cxMessages: List<CxMessage>,
     cxAvailable: Boolean,
     isRefreshing: Boolean,
+    previewCount: Int,
+    onPreviewCountChange: (Int) -> Unit,
     onRefresh: () -> Unit,
     onOpenAcademic: () -> Unit,
     onOpenMarket: () -> Unit,
     onOpenChaoxing: () -> Unit,
     onBack: () -> Unit,
 ) {
+    var showPreviewSettings by remember { mutableStateOf(false) }
+
+    if (showPreviewSettings) {
+        AlertDialog(
+            onDismissRequest = { showPreviewSettings = false },
+            title = { Text("消息预览") },
+            text = {
+                Column {
+                    MESSAGE_PREVIEW_COUNT_OPTIONS.forEach { count ->
+                        ListItem(
+                            headlineContent = {
+                                Text(if (count == 0) "不显示预览" else "每个来源显示 $count 条")
+                            },
+                            leadingContent = {
+                                RadioButton(selected = previewCount == count, onClick = null)
+                            },
+                            modifier = Modifier.clickable {
+                                onPreviewCountChange(count)
+                                showPreviewSettings = false
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPreviewSettings = false }) { Text("关闭") }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             AhuTopAppBar(
@@ -62,10 +105,15 @@ fun UnifiedMessageCenterScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
+                actions = {
+                    IconButton(onClick = { showPreviewSettings = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "消息预览设置")
+                    }
+                },
             )
         },
     ) { innerPadding ->
-        PullToRefreshBox(
+        AhuPullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize().padding(innerPadding),
@@ -76,12 +124,30 @@ fun UnifiedMessageCenterScreen(
             ) {
                 item { Spacer(Modifier.height(8.dp)) }
                 item {
+                    MessageSourceSummary(
+                        marketAvailable = marketAvailable,
+                        cxAvailable = cxAvailable,
+                        previewCount = previewCount,
+                    )
+                }
+                item {
                     MessageSourceCard(
                         title = "教务通知",
                         subtitle = if (academicNotices.isEmpty()) "打开原通知列表查看全部" else "${academicNotices.size} 条最新通知",
                         icon = Icons.Filled.Campaign,
                         onClick = onOpenAcademic,
                     )
+                }
+                if (academicNotices.isNotEmpty()) {
+                    items(academicNotices.take(previewCount), key = { "academic-${it.url}" }) { notice ->
+                        MessagePreview(
+                            source = "教务通知",
+                            title = notice.title,
+                            body = notice.date,
+                            time = notice.date,
+                            onClick = onOpenAcademic,
+                        )
+                    }
                 }
                 if (marketAvailable) {
                     item {
@@ -92,7 +158,7 @@ fun UnifiedMessageCenterScreen(
                             onClick = onOpenMarket,
                         )
                     }
-                    items(marketNotices.take(3), key = { "market-${it.id}" }) { notice ->
+                    items(marketNotices.take(previewCount), key = { "market-${it.id}" }) { notice ->
                         MessagePreview(
                             source = "集市",
                             title = notice.actionTypeText.ifBlank { if (notice.isLike) "收到点赞" else "收到互动" },
@@ -111,7 +177,7 @@ fun UnifiedMessageCenterScreen(
                             onClick = onOpenChaoxing,
                         )
                     }
-                    items(cxMessages.take(3), key = { "cx-${it.id}" }) { message ->
+                    items(cxMessages.take(previewCount), key = { "cx-${it.id}" }) { message ->
                         MessagePreview(
                             source = "学习通",
                             title = message.title,
@@ -121,18 +187,48 @@ fun UnifiedMessageCenterScreen(
                         )
                     }
                 }
-                if (academicNotices.isNotEmpty()) {
-                    items(academicNotices.take(3), key = { "academic-${it.url}" }) { notice ->
-                        MessagePreview(
-                            source = "教务通知",
-                            title = notice.title,
-                            body = notice.date,
-                            time = notice.date,
-                            onClick = onOpenAcademic,
-                        )
-                    }
-                }
                 item { Spacer(Modifier.height(24.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageSourceSummary(
+    marketAvailable: Boolean,
+    cxAvailable: Boolean,
+    previewCount: Int,
+) {
+    val sources = buildList {
+        add("教务通知")
+        if (marketAvailable) add("集市互动")
+        if (cxAvailable) add("学习通消息")
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = "当前汇总：${sources.joinToString("、")}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = if (previewCount == 0) {
+                        "消息预览已关闭，点击来源卡片查看完整列表"
+                    } else {
+                        "每个来源显示最近 $previewCount 条；未登录的第三方服务不会显示"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
             }
         }
     }

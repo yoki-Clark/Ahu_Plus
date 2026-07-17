@@ -41,4 +41,48 @@ class BottomNavPreferencesTest {
             ),
         )
     }
+
+    @Test
+    fun newlyEnabledServicesFillAvailableSlotsButNeverDisplacePinnedServices() {
+        assertEquals(
+            listOf(BottomNavService.MARKET, BottomNavService.CHAOXING),
+            reconcileBottomNavServices(
+                selected = listOf(BottomNavService.MARKET),
+                previouslyEnabled = setOf(BottomNavService.MARKET),
+                currentlyEnabled = setOf(BottomNavService.MARKET, BottomNavService.CHAOXING),
+            ),
+        )
+
+        assertEquals(
+            listOf(BottomNavService.MARKET, BottomNavService.CHAOXING),
+            reconcileBottomNavServices(
+                selected = listOf(BottomNavService.MARKET, BottomNavService.CHAOXING),
+                previouslyEnabled = setOf(BottomNavService.MARKET, BottomNavService.CHAOXING),
+                currentlyEnabled = BottomNavService.all.toSet(),
+            ),
+        )
+    }
+
+    @Test
+    fun reconciliationDoesNotUndoAnExplicitUnpinOnStartup() {
+        assertEquals(
+            emptyList<String>(),
+            reconcileBottomNavServices(
+                selected = emptyList(),
+                previouslyEnabled = BottomNavService.all.toSet(),
+                currentlyEnabled = BottomNavService.all.toSet(),
+            ),
+        )
+    }
+
+    @Test
+    fun legacyEmptySelectionIsRepairedOnce() {
+        assertEquals(
+            listOf(BottomNavService.MARKET, BottomNavService.CHAOXING),
+            migrateLegacyBottomNavServices(
+                selected = emptyList(),
+                enabled = BottomNavService.all.toSet(),
+            ),
+        )
+    }
 }

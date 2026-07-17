@@ -44,7 +44,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -181,7 +181,7 @@ internal fun MessagesTabContent(
                 }
             }
             else -> {
-                PullToRefreshBox(
+                AhuPullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = {
                         isRefreshing = true
@@ -761,4 +761,3 @@ private fun AttachmentCard(attachment: CxAttachment, onDownload: () -> Unit) {
 // ══════════════════════════════════════════════════════════════
 //  课程 Tab 内容
 // ══════════════════════════════════════════════════════════════
-

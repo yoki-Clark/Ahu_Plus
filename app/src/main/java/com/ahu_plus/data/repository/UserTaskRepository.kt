@@ -82,6 +82,16 @@ class UserTaskRepository(private val sessionManager: SessionManager) {
         }
     }
 
+    /** Atomically replaces one imported task namespace while preserving user-created tasks. */
+    suspend fun replaceImported(idPrefix: String, imported: List<UserTask>) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val current = flow.value.filterNot { it.id.startsWith(idPrefix) }
+            val merged = current + imported.distinctBy { it.id }
+            flow.value = merged
+            persist(merged)
+        }
+    }
+
     private suspend fun persist(list: List<UserTask>) {
         sessionManager.saveUserTasksJson(gson.toJson(list))
     }

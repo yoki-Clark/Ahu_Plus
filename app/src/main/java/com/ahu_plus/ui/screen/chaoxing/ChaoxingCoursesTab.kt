@@ -38,7 +38,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -112,7 +112,7 @@ internal fun CoursesTabContent(
                 LaunchedEffect(coursesState.isLoading) {
                     if (!coursesState.isLoading) isCoursesRefreshing = false
                 }
-                PullToRefreshBox(
+                AhuPullToRefreshBox(
                     isRefreshing = isCoursesRefreshing,
                     onRefresh = {
                         isCoursesRefreshing = true
@@ -180,7 +180,7 @@ internal fun CoursesTabContent(
                         )
                     }
                 }
-                } // PullToRefreshBox
+                } // AhuPullToRefreshBox
             }
         }
 

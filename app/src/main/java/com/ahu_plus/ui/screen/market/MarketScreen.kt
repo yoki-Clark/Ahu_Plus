@@ -19,7 +19,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  *  - [MarketComponents]   共享的 Card / Avatar / Status 等
  */
 @Composable
-fun MarketScreen(viewModel: MarketViewModel) {
+fun MarketScreen(
+    viewModel: MarketViewModel,
+    onSettingsBack: (() -> Unit)? = null,
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val hotListState = rememberLazyListState()
@@ -28,10 +31,11 @@ fun MarketScreen(viewModel: MarketViewModel) {
 
     when {
         uiState.showSettings -> {
-            BackHandler(onBack = viewModel::closeSettings)
+            val closeSettings = onSettingsBack ?: viewModel::closeSettings
+            BackHandler(onBack = closeSettings)
             MarketSettingsScreen(
                 uiState = uiState,
-                onBack = viewModel::closeSettings,
+                onBack = closeSettings,
                 onIdentityChanged = viewModel::onIdentityInputChanged,
                 onAddIdentity = viewModel::saveIdentity,
                 onClearIdentities = viewModel::clearIdentity,

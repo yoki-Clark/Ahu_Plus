@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
@@ -63,7 +64,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -109,6 +109,7 @@ fun ChaoxingTabScreen(
     onSwitchToAppsTab: () -> Unit,
     requestedSubTab: ChaoxingSubTab? = null,
     onRequestedSubTabConsumed: () -> Unit = {},
+    onSettingsBack: (() -> Unit)? = null,
 ) {
     val loginState by viewModel.loginState.collectAsStateWithLifecycle()
     val coursesState by viewModel.coursesState.collectAsStateWithLifecycle()
@@ -164,6 +165,7 @@ fun ChaoxingTabScreen(
         when {
             showStudyScreen -> showStudyScreen = false
             showDetail -> { showDetail = false; selectedCourse = null }
+            onSettingsBack != null -> onSettingsBack()
             selectedTab != ChaoxingSubTab.COURSES.ordinal -> {
                 selectedTab = ChaoxingSubTab.COURSES.ordinal
                 scope.launch { pagerState.animateScrollToPage(0) }
@@ -284,6 +286,18 @@ fun ChaoxingTabScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         // 状态栏占位
         Spacer(modifier = Modifier.height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding()))
+
+        if (onSettingsBack != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onSettingsBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回聚合设置")
+                }
+                Text("学习通设置", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+        }
 
         // ── Tab 栏 ─────────────────────────────────────────
         PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {

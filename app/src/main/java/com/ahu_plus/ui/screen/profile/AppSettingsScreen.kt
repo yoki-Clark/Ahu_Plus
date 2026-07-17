@@ -11,10 +11,12 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -33,7 +35,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Slider
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -47,11 +50,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.local.BottomNavService
 import androidx.core.content.ContextCompat
-import kotlin.math.roundToInt
+import com.ahu_plus.notification.CardBalanceAlertMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,8 +69,13 @@ internal fun AppSettingsScreen(
     onAdwmhConcurrentRetryChanged: (Boolean) -> Unit = {},
     cardBalanceAlertEnabled: Boolean = false,
     cardBalanceAlertThreshold: Double = 20.0,
+    cardBalanceAlertMode: CardBalanceAlertMode = CardBalanceAlertMode.FIXED,
+    cardBalanceAlertLookbackDays: Int = 30,
+    recentCanteenDailyAverages: Map<Int, Double> = emptyMap(),
     onCardBalanceAlertEnabledChanged: (Boolean) -> Unit = {},
     onCardBalanceAlertThresholdChanged: (Double) -> Unit = {},
+    onCardBalanceAlertModeChanged: (CardBalanceAlertMode) -> Unit = {},
+    onCardBalanceAlertLookbackDaysChanged: (Int) -> Unit = {},
     bottomNavServices: List<String> = emptyList(),
     marketEnabled: Boolean = false,
     chaoxingEnabled: Boolean = false,
@@ -81,7 +91,10 @@ internal fun AppSettingsScreen(
     var localQrBrightness by remember { mutableStateOf(qrBrightnessBoost) }
     var localAdwmhRetry by remember { mutableStateOf(adwmhConcurrentRetry) }
     var localCardAlert by remember { mutableStateOf(cardBalanceAlertEnabled) }
-    var localCardThreshold by remember { mutableStateOf(cardBalanceAlertThreshold.toFloat()) }
+    var localCardThreshold by remember { mutableStateOf(formatThresholdInput(cardBalanceAlertThreshold)) }
+    var localCardMode by remember { mutableStateOf(cardBalanceAlertMode) }
+    var localLookbackDays by remember { mutableStateOf(cardBalanceAlertLookbackDays) }
+    val recentCanteenDailyAverage = recentCanteenDailyAverages[localLookbackDays] ?: 0.0
     val context = LocalContext.current
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -280,21 +293,73 @@ internal fun AppSettingsScreen(
                             onCheckedChange = setCardAlertEnabled,
                         )
                         if (localCardAlert) {
-                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
                                 Text(
-                                    text = "提醒阈值：${localCardThreshold.roundToInt()} 元",
+                                    text = "预警方式",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
                                 )
-                                Slider(
-                                    value = localCardThreshold,
-                                    onValueChange = { localCardThreshold = (it / 5f).roundToInt() * 5f },
-                                    onValueChangeFinished = {
-                                        onCardBalanceAlertThresholdChanged(localCardThreshold.toDouble())
+                                AlertModeRow(
+                                    title = "固定金额",
+                                    description = "余额低于手动设定金额时提醒",
+                                    selected = localCardMode == CardBalanceAlertMode.FIXED,
+                                    onClick = {
+                                        localCardMode = CardBalanceAlertMode.FIXED
+                                        onCardBalanceAlertModeChanged(localCardMode)
                                     },
-                                    valueRange = 5f..100f,
-                                    steps = 18,
                                 )
+                                AlertModeRow(
+                                    title = "近期食堂日均",
+                                    description = if (recentCanteenDailyAverage > 0.0) {
+                                        "当前估算 %.2f 元，按有食堂消费的日期计算".format(recentCanteenDailyAverage)
+                                    } else {
+                                        "暂无可用食堂账单，将使用固定金额"
+                                    },
+                                    selected = localCardMode == CardBalanceAlertMode.CANTEEN_DAILY_AVERAGE,
+                                    onClick = {
+                                        localCardMode = CardBalanceAlertMode.CANTEEN_DAILY_AVERAGE
+                                        onCardBalanceAlertModeChanged(localCardMode)
+                                    },
+                                )
+                                if (localCardMode == CardBalanceAlertMode.CANTEEN_DAILY_AVERAGE) {
+                                    Text("统计范围", style = MaterialTheme.typography.labelMedium)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        listOf(7, 14, 30).forEach { days ->
+                                            FilterChip(
+                                                selected = localLookbackDays == days,
+                                                onClick = {
+                                                    localLookbackDays = days
+                                                    onCardBalanceAlertLookbackDaysChanged(days)
+                                                },
+                                                label = { Text("$days 天") },
+                                            )
+                                        }
+                                    }
+                                }
+                                if (localCardMode == CardBalanceAlertMode.FIXED) {
+                                    OutlinedTextField(
+                                        value = localCardThreshold,
+                                        onValueChange = { value ->
+                                            val normalized = value.filterIndexed { index, char ->
+                                                char.isDigit() || (char == '.' && index > 0 && '.' !in value.take(index))
+                                            }.take(7)
+                                            localCardThreshold = normalized
+                                            normalized.toDoubleOrNull()?.takeIf { it in 1.0..500.0 }?.let {
+                                                onCardBalanceAlertThresholdChanged(it)
+                                            }
+                                        },
+                                        label = { Text("固定预警金额") },
+                                        suffix = { Text("元") },
+                                        supportingText = { Text("可输入 1 至 500 元") },
+                                        isError = localCardThreshold.toDoubleOrNull()?.let { it !in 1.0..500.0 } ?: true,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
                             }
                         }
                         HorizontalDivider()
@@ -331,6 +396,24 @@ internal fun AppSettingsScreen(
         }
     }
 }
+
+@Composable
+private fun AlertModeRow(
+    title: String,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    ListItem(
+        headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
+        supportingContent = { Text(description) },
+        leadingContent = { RadioButton(selected = selected, onClick = null) },
+        modifier = Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
+    )
+}
+
+private fun formatThresholdInput(value: Double): String =
+    if (value % 1.0 == 0.0) value.toInt().toString() else "%.2f".format(value)
 
 @Composable
 private fun SettingsRouteRow(

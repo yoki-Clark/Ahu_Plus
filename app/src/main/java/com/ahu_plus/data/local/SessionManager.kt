@@ -314,7 +314,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile private var cachedAdwmhConcurrentRetry: Boolean = true
     @Volatile private var cachedCardBalanceAlertEnabled: Boolean = false
     @Volatile private var cachedCardBalanceAlertThreshold: Double = 20.0
+    @Volatile private var cachedCardBalanceAlertMode: String = "FIXED"
+    @Volatile private var cachedCardBalanceAlertLookbackDays: Int = 30
     @Volatile private var cachedCardBalanceLastAlertAt: Long = 0L
+    @Volatile private var cachedMessagePreviewCount: Int = 3
 
     @Volatile private var cachedTrainingPlanJson: String? = null
 
@@ -610,10 +613,17 @@ class SessionManager(private val appDataStore: AppDataStore) {
             if (thirdPartyFlags.parentEnabled && thirdPartyFlags.welearnEnabled) add(BottomNavService.WELEARN)
         }
         val storedBottomNavServices = prefs[BOTTOM_NAV_SERVICES_KEY]
-        cachedBottomNavServices = if (storedBottomNavServices == null) {
-            defaultBottomNavServices(enabledBottomNavServices)
-        } else {
-            normalizeBottomNavServices(parseStringList(storedBottomNavServices), enabledBottomNavServices)
+        val bottomNavPreferencesVersion = prefs[BOTTOM_NAV_PREFERENCES_VERSION_KEY]?.toIntOrNull() ?: 0
+        cachedBottomNavServices = when {
+            storedBottomNavServices == null -> defaultBottomNavServices(enabledBottomNavServices)
+            bottomNavPreferencesVersion < BOTTOM_NAV_PREFERENCES_VERSION -> migrateLegacyBottomNavServices(
+                parseStringList(storedBottomNavServices),
+                enabledBottomNavServices,
+            )
+            else -> normalizeBottomNavServices(
+                parseStringList(storedBottomNavServices),
+                enabledBottomNavServices,
+            )
         }
 
         if (prefs[THIRD_PARTY_SERVICES_ENABLED_KEY] == null ||
@@ -628,9 +638,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
                 it[WELEARN_CHILD_ENABLED_KEY] = thirdPartyFlags.welearnEnabled.toString()
             }
         }
-        if (storedBottomNavServices == null) {
+        if (storedBottomNavServices == null || bottomNavPreferencesVersion < BOTTOM_NAV_PREFERENCES_VERSION) {
             appDataStore.dataStore.edit {
                 it[BOTTOM_NAV_SERVICES_KEY] = gson.toJson(cachedBottomNavServices)
+                it[BOTTOM_NAV_PREFERENCES_VERSION_KEY] = BOTTOM_NAV_PREFERENCES_VERSION.toString()
             }
         }
 
@@ -804,7 +815,13 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedAdwmhConcurrentRetry = prefs[ADWMH_CONCURRENT_RETRY_KEY] ?: true
         cachedCardBalanceAlertEnabled = prefs[CARD_BALANCE_ALERT_ENABLED_KEY] ?: false
         cachedCardBalanceAlertThreshold = prefs[CARD_BALANCE_ALERT_THRESHOLD_KEY] ?: 20.0
+        cachedCardBalanceAlertMode = prefs[CARD_BALANCE_ALERT_MODE_KEY] ?: "FIXED"
+        cachedCardBalanceAlertLookbackDays = prefs[CARD_BALANCE_ALERT_LOOKBACK_DAYS_KEY]
+            ?.toIntOrNull()?.takeIf { it in CARD_BALANCE_LOOKBACK_OPTIONS } ?: 30
         cachedCardBalanceLastAlertAt = prefs[CARD_BALANCE_LAST_ALERT_AT_KEY] ?: 0L
+        cachedMessagePreviewCount = normalizeMessagePreviewCount(
+            prefs[MESSAGE_PREVIEW_COUNT_KEY]?.toIntOrNull() ?: 3,
+        )
 
         cachedTrainingPlanJson = prefs[TRAINING_PLAN_JSON_KEY]
 
@@ -1241,6 +1258,7 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedBottomNavServices = normalizeBottomNavServices(services, enabled)
         appDataStore.dataStore.edit {
             it[BOTTOM_NAV_SERVICES_KEY] = gson.toJson(cachedBottomNavServices)
+            it[BOTTOM_NAV_PREFERENCES_VERSION_KEY] = BOTTOM_NAV_PREFERENCES_VERSION.toString()
         }
     }
 
@@ -2279,11 +2297,42 @@ class SessionManager(private val appDataStore: AppDataStore) {
     fun getCardBalanceAlertThreshold(): Double = cachedCardBalanceAlertThreshold
 
     suspend fun setCardBalanceAlertThreshold(value: Double) {
-        cachedCardBalanceAlertThreshold = value.coerceIn(5.0, 100.0)
+        cachedCardBalanceAlertThreshold = value.coerceIn(1.0, 500.0)
         cachedCardBalanceLastAlertAt = 0L
         appDataStore.dataStore.edit {
             it[CARD_BALANCE_ALERT_THRESHOLD_KEY] = cachedCardBalanceAlertThreshold
             it[CARD_BALANCE_LAST_ALERT_AT_KEY] = 0L
+        }
+    }
+
+    fun getCardBalanceAlertMode(): String = cachedCardBalanceAlertMode
+
+    suspend fun setCardBalanceAlertMode(value: String) {
+        cachedCardBalanceAlertMode = if (value == "CANTEEN_DAILY_AVERAGE") value else "FIXED"
+        cachedCardBalanceLastAlertAt = 0L
+        appDataStore.dataStore.edit {
+            it[CARD_BALANCE_ALERT_MODE_KEY] = cachedCardBalanceAlertMode
+            it[CARD_BALANCE_LAST_ALERT_AT_KEY] = 0L
+        }
+    }
+
+    fun getCardBalanceAlertLookbackDays(): Int = cachedCardBalanceAlertLookbackDays
+
+    suspend fun setCardBalanceAlertLookbackDays(value: Int) {
+        cachedCardBalanceAlertLookbackDays = value.takeIf { it in CARD_BALANCE_LOOKBACK_OPTIONS } ?: 30
+        cachedCardBalanceLastAlertAt = 0L
+        appDataStore.dataStore.edit {
+            it[CARD_BALANCE_ALERT_LOOKBACK_DAYS_KEY] = cachedCardBalanceAlertLookbackDays.toString()
+            it[CARD_BALANCE_LAST_ALERT_AT_KEY] = 0L
+        }
+    }
+
+    fun getMessagePreviewCount(): Int = cachedMessagePreviewCount
+
+    suspend fun setMessagePreviewCount(value: Int) {
+        cachedMessagePreviewCount = normalizeMessagePreviewCount(value)
+        appDataStore.dataStore.edit {
+            it[MESSAGE_PREVIEW_COUNT_KEY] = cachedMessagePreviewCount.toString()
         }
     }
 
@@ -2551,9 +2600,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedFilterNodeIds = emptyList()
 
         cachedMarketEnabled = false
+        cachedThirdPartyServicesEnabled = false
         cachedMarketChildEnabled = false
         cachedChaoxingChildEnabled = false
         cachedWelearnChildEnabled = false
+        cachedBottomNavServices = emptyList()
 
         cachedMarketListLayoutMode = "list"
 
@@ -2620,6 +2671,13 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedResetOnEnter = true
 
         cachedShowOtherSemesters = true
+
+        cachedCardBalanceAlertEnabled = false
+        cachedCardBalanceAlertThreshold = 20.0
+        cachedCardBalanceAlertMode = "FIXED"
+        cachedCardBalanceAlertLookbackDays = 30
+        cachedCardBalanceLastAlertAt = 0L
+        cachedMessagePreviewCount = 3
 
         // \u4E00\u6B21 edit \u5B8C\u6210\u6240\u6709\u5220\u9664\uFF0C\u907F\u514D\u591A\u6B21 DataStore \u5E8F\u5217\u5316/\u5199\u5165
 
@@ -3548,7 +3606,13 @@ class SessionManager(private val appDataStore: AppDataStore) {
     private val ADWMH_CONCURRENT_RETRY_KEY = booleanPreferencesKey("adwmh_concurrent_retry")
     private val CARD_BALANCE_ALERT_ENABLED_KEY = booleanPreferencesKey("card_balance_alert_enabled")
     private val CARD_BALANCE_ALERT_THRESHOLD_KEY = doublePreferencesKey("card_balance_alert_threshold")
+    private val CARD_BALANCE_ALERT_MODE_KEY = stringPreferencesKey("card_balance_alert_mode")
+    private val CARD_BALANCE_ALERT_LOOKBACK_DAYS_KEY = stringPreferencesKey("card_balance_alert_lookback_days")
     private val CARD_BALANCE_LAST_ALERT_AT_KEY = longPreferencesKey("card_balance_last_alert_at")
+    private val MESSAGE_PREVIEW_COUNT_KEY = stringPreferencesKey("message_preview_count")
+    private val CARD_BALANCE_LOOKBACK_OPTIONS = setOf(7, 14, 30)
+    private val BOTTOM_NAV_PREFERENCES_VERSION_KEY = stringPreferencesKey("bottom_nav_preferences_version")
+    private const val BOTTOM_NAV_PREFERENCES_VERSION = 2
 
         val TRAINING_PLAN_JSON_KEY = stringPreferencesKey("training_plan_json")
 
@@ -3769,7 +3833,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
             MARKET_BLOCK_PINNED_KEY, MARKET_BLOCK_KEYWORDS_KEY, MARKET_FILTER_NODES_KEY,
 
-            MARKET_ENABLED_KEY, THIRD_PARTY_SERVICES_ENABLED_KEY, MARKET_CHILD_ENABLED_KEY, CHAOXING_CHILD_ENABLED_KEY, WELEARN_CHILD_ENABLED_KEY, MARKET_LIST_LAYOUT_KEY, MARKET_SCROLL_TO_TOP_KEY,
+            MARKET_ENABLED_KEY, THIRD_PARTY_SERVICES_ENABLED_KEY, MARKET_CHILD_ENABLED_KEY, CHAOXING_CHILD_ENABLED_KEY, WELEARN_CHILD_ENABLED_KEY, BOTTOM_NAV_SERVICES_KEY, BOTTOM_NAV_PREFERENCES_VERSION_KEY, MARKET_LIST_LAYOUT_KEY, MARKET_SCROLL_TO_TOP_KEY,
+
+            CARD_BALANCE_ALERT_ENABLED_KEY, CARD_BALANCE_ALERT_THRESHOLD_KEY,
+            CARD_BALANCE_ALERT_MODE_KEY, CARD_BALANCE_ALERT_LOOKBACK_DAYS_KEY,
+            CARD_BALANCE_LAST_ALERT_AT_KEY, MESSAGE_PREVIEW_COUNT_KEY,
 
             AI_COMMENT_ENABLED_KEY, AI_COMMENT_MODEL_KEY, AI_COMMENT_STYLE_KEY,
 

@@ -27,13 +27,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +47,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -79,6 +84,8 @@ import java.time.temporal.TemporalAdjusters
 private val WEEKDAY_LABELS = listOf("一", "二", "三", "四", "五", "六", "日")
 /** 月视图单格最多显示几条日程标题(超出显示 +N)。 */
 private const val MAX_CELL_EVENTS = 3
+private enum class CalendarPermissionAction { SYNC, IMPORT, REMOVE }
+private val CALENDAR_PERMISSIONS = arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
 
 /**
  * 日程页,两种形态:
@@ -109,22 +116,40 @@ fun AgendaScreen(
     val calendarSyncState by viewModel.calendarSyncState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var calendarPermissionDenied by remember { mutableStateOf(false) }
+    var pendingCalendarAction by remember { mutableStateOf<CalendarPermissionAction?>(null) }
+    var selectedSyncSources by remember {
+        mutableStateOf(setOf(AgendaSource.COURSE, AgendaSource.EXAM))
+    }
+    var showSyncDialog by remember { mutableStateOf(false) }
+    var showUndoDialog by remember { mutableStateOf(false) }
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
-        calendarPermissionDenied = !result.values.all { it }
-        if (!calendarPermissionDenied) viewModel.syncSystemCalendar()
+        calendarPermissionDenied = CALENDAR_PERMISSIONS.any { result[it] != true }
+        if (!calendarPermissionDenied) {
+            when (pendingCalendarAction) {
+                CalendarPermissionAction.SYNC -> viewModel.syncSystemCalendar(selectedSyncSources)
+                CalendarPermissionAction.IMPORT -> viewModel.importSystemCalendar()
+                CalendarPermissionAction.REMOVE -> viewModel.removeSystemCalendarEvents()
+                null -> Unit
+            }
+        }
+        pendingCalendarAction = null
     }
-    val syncCalendar: () -> Unit = {
-        val permissions = arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
-        if (permissions.all {
+    val runCalendarAction: (CalendarPermissionAction) -> Unit = { action ->
+        if (CALENDAR_PERMISSIONS.all {
                 ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
             }
         ) {
             calendarPermissionDenied = false
-            viewModel.syncSystemCalendar()
+            when (action) {
+                CalendarPermissionAction.SYNC -> viewModel.syncSystemCalendar(selectedSyncSources)
+                CalendarPermissionAction.IMPORT -> viewModel.importSystemCalendar()
+                CalendarPermissionAction.REMOVE -> viewModel.removeSystemCalendarEvents()
+            }
         } else {
-            calendarPermissionLauncher.launch(permissions)
+            pendingCalendarAction = action
+            calendarPermissionLauncher.launch(CALENDAR_PERMISSIONS)
         }
     }
 
@@ -294,7 +319,7 @@ fun AgendaScreen(
                 SettingSwitch("课程自动加入日程", showCourses) { viewModel.setShowCourses(it) }
                 SettingSwitch("考试自动加入日程", showExams) { viewModel.setShowExams(it) }
                 FilledTonalButton(
-                    onClick = syncCalendar,
+                    onClick = { showSyncDialog = true },
                     enabled = !calendarSyncState.isSyncing,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -303,6 +328,24 @@ fun AgendaScreen(
                         Spacer(Modifier.width(8.dp))
                     }
                     Text(if (calendarSyncState.isSyncing) "正在同步" else "同步到系统日历")
+                }
+                OutlinedButton(
+                    onClick = { runCalendarAction(CalendarPermissionAction.IMPORT) },
+                    enabled = !calendarSyncState.isSyncing,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("从系统日历导入")
+                }
+                TextButton(
+                    onClick = { showUndoDialog = true },
+                    enabled = !calendarSyncState.isSyncing,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("撤销 Ahu Plus 已同步日程")
                 }
                 calendarSyncState.message?.let { message ->
                     Text(
@@ -326,7 +369,82 @@ fun AgendaScreen(
             }
         }
     }
+
+    if (showSyncDialog) {
+        AlertDialog(
+            onDismissRequest = { showSyncDialog = false },
+            title = { Text("选择同步内容") },
+            text = {
+                Column {
+                    CalendarSourceRow("课程", AgendaSource.COURSE, selectedSyncSources) {
+                        selectedSyncSources = toggleSource(selectedSyncSources, it)
+                    }
+                    CalendarSourceRow("考试", AgendaSource.EXAM, selectedSyncSources) {
+                        selectedSyncSources = toggleSource(selectedSyncSources, it)
+                    }
+                    CalendarSourceRow("作业", AgendaSource.HOMEWORK, selectedSyncSources) {
+                        selectedSyncSources = toggleSource(selectedSyncSources, it)
+                    }
+                    CalendarSourceRow("自设定日程", AgendaSource.CUSTOM, selectedSyncSources) {
+                        selectedSyncSources = toggleSource(selectedSyncSources, it)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = selectedSyncSources.isNotEmpty(),
+                    onClick = {
+                        showSyncDialog = false
+                        runCalendarAction(CalendarPermissionAction.SYNC)
+                    },
+                ) { Text("开始同步") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSyncDialog = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (showUndoDialog) {
+        AlertDialog(
+            onDismissRequest = { showUndoDialog = false },
+            title = { Text("撤销系统日历同步？") },
+            text = { Text("将删除所有由 Ahu Plus 写入系统日历的课程、考试、作业和自设定日程；不会删除系统日历原有内容。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showUndoDialog = false
+                        runCalendarAction(CalendarPermissionAction.REMOVE)
+                    },
+                ) { Text("确认撤销") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUndoDialog = false }) { Text("取消") }
+            },
+        )
+    }
 }
+
+@Composable
+private fun CalendarSourceRow(
+    label: String,
+    source: AgendaSource,
+    selectedSources: Set<AgendaSource>,
+    onToggle: (AgendaSource) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onToggle(source) }.padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = source in selectedSources, onCheckedChange = null)
+        Text(label, modifier = Modifier.padding(start = 8.dp))
+    }
+}
+
+private fun toggleSource(
+    selected: Set<AgendaSource>,
+    source: AgendaSource,
+): Set<AgendaSource> = if (source in selected) selected - source else selected + source
 
 // ── 月历 ─────────────────────────────────────────────
 

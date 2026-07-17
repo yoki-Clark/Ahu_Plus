@@ -31,6 +31,8 @@ class HomeworkRepository(private val sessionManager: SessionManager) {
     private val flow = MutableStateFlow<List<HomeworkRecord>>(emptyList())
     val homework: Flow<List<HomeworkRecord>> = flow.asStateFlow()
 
+    fun homeworkSnapshot(): List<HomeworkRecord> = flow.value
+
     /** 互斥锁:保护 flow.value 的读-改-写原子性 */
     private val mutex = Mutex()
 

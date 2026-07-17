@@ -13,12 +13,26 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.ahu_plus.MainActivity
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.model.BillRecord
 
 object CampusCardAlertNotifier {
-    suspend fun evaluate(context: Context, balance: Double, sessionManager: SessionManager) {
+    suspend fun evaluate(
+        context: Context,
+        balance: Double,
+        sessionManager: SessionManager,
+        bills: List<BillRecord> = emptyList(),
+    ) {
         if (!sessionManager.getCardBalanceAlertEnabled()) return
-        val threshold = sessionManager.getCardBalanceAlertThreshold()
-        if (balance > threshold) {
+        val mode = CardBalanceAlertMode.fromStored(sessionManager.getCardBalanceAlertMode())
+        val canteenAverage = if (mode == CardBalanceAlertMode.CANTEEN_DAILY_AVERAGE) {
+            recentCanteenDailyAverage(
+                bills = bills,
+                lookbackDays = sessionManager.getCardBalanceAlertLookbackDays(),
+            )
+        } else 0.0
+        val usesCanteenAverage = canteenAverage > 0.0
+        val threshold = if (usesCanteenAverage) canteenAverage else sessionManager.getCardBalanceAlertThreshold()
+        if (balance >= threshold) {
             sessionManager.setCardBalanceLastAlertAt(0L)
             return
         }
@@ -42,7 +56,13 @@ object CampusCardAlertNotifier {
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("校园卡余额偏低")
-            .setContentText("当前余额 %.2f 元，已低于 %.0f 元提醒阈值".format(balance, threshold))
+            .setContentText(
+                if (usesCanteenAverage) {
+                    "当前余额 %.2f 元，低于近期食堂日均 %.2f 元".format(balance, threshold)
+                } else {
+                    "当前余额 %.2f 元，已低于 %.2f 元提醒阈值".format(balance, threshold)
+                }
+            )
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
