@@ -194,7 +194,8 @@ fun ProfileScreen(
 
     // 内测计划:ProfileScreen 顶层持有,持久化到 SessionManager
     val appContext = LocalContext.current
-    val sessionManager = (appContext.applicationContext as AhuPlusApplication).sessionManager
+    val app = appContext.applicationContext as AhuPlusApplication
+    val sessionManager = app.sessionManager
     var betaEnabled by remember { mutableStateOf(sessionManager.isBetaEnabled()) }
     val scope = rememberCoroutineScope()
 
@@ -390,7 +391,7 @@ fun ProfileScreen(
         BackHandler(enabled = true) { showCacheCleanup = false; showSettings = true }
         val cacheRepo = remember(appContext) {
             CacheCleanupRepository(
-                appDataStore = (appContext.applicationContext as AhuPlusApplication).appDataStore,
+                appDataStore = app.appDataStore,
                 appContext = appContext
             )
         }
@@ -413,8 +414,10 @@ fun ProfileScreen(
             onGuideIntroSeen = onGuideIntroSeen,
             betaEnabled = betaEnabled,
             onBetaEnabledChange = { newValue ->
-                scope.launch { sessionManager.setBetaEnabled(newValue) }
-                betaEnabled = newValue
+                scope.launch {
+                    app.updateManager.changeChannel(newValue)
+                    betaEnabled = newValue
+                }
             }
         )
     } else {

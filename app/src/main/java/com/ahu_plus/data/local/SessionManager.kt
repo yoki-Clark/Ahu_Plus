@@ -32,6 +32,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
 
@@ -62,6 +64,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
     @Volatile var showStudyOverlay: Boolean = true
 
     @Volatile private var initialized = false
+
+    private val initMutex = Mutex()
 
     @Volatile private var cachedSessionId: String? = null
 
@@ -450,7 +454,11 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         if (initialized) return cachedSessionId
 
-        val prefs = appDataStore.dataStore.data.first()
+        return initMutex.withLock {
+
+            if (initialized) return@withLock cachedSessionId
+
+            val prefs = appDataStore.dataStore.data.first()
 
         cachedSessionId = prefs[SESSION_KEY]
 
@@ -864,7 +872,9 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
         )
 
-        return cachedSessionId
+            cachedSessionId
+
+        }
 
     }
 

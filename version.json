@@ -1,4 +1,5 @@
 {
+  "channel": "stable",
   "latestVersion": "2.2.2",
   "latestVersionCode": 24,
   "minSupportedVersionCode": 13,

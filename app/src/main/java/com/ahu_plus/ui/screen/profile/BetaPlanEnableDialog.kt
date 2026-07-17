@@ -41,12 +41,14 @@ private const val BETA_QQ_GROUP_UIN = "1039158498"
  * - step 2:感谢 + 可点击的群号(跳 QQ) + 「完成」按钮
  *
  * 父级契约:
- * - onDecline:用户拒绝(step 1 「不参加」按钮 / step 1 外部点击)→ 父级回退开关 OFF
+ * - onDecline:用户拒绝(step 1 「不参加」按钮 / step 1 外部点击)→ 开关保持 OFF
+ * - onConfirm:用户点击「参加内测计划」→ 父级持久化开关 ON
  * - onClose:用户确认完成(step 2 「完成」按钮 / step 2 外部点击)→ 父级只关闭弹窗,开关保持 ON
  */
 @Composable
 fun BetaPlanEnableDialog(
     onDecline: () -> Unit,
+    onConfirm: () -> Unit,
     onClose: () -> Unit
 ) {
     var step by remember { mutableIntStateOf(1) }
@@ -76,7 +78,10 @@ fun BetaPlanEnableDialog(
         },
         confirmButton = {
             if (isStep1) {
-                Button(onClick = { step = 2 }) {
+                Button(onClick = {
+                    onConfirm()
+                    step = 2
+                }) {
                     Text("参加内测计划", fontWeight = FontWeight.Medium)
                 }
             } else {
