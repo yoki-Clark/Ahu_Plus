@@ -57,7 +57,11 @@ class AutoLoginViewModel(
             }
             val adwmhDeferred = if (adwmhCardRepository != null) {
                 async(Dispatchers.IO) {
-                    adwmhCardRepository.autoLogin(username, password)
+                    if (adwmhCardRepository.hasSession()) {
+                        Result.success(Unit)
+                    } else {
+                        adwmhCardRepository.autoLogin(username, password).map { Unit }
+                    }
                 }
             } else null
 
