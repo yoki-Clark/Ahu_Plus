@@ -650,8 +650,10 @@ private fun createJwcDownloadTarget(context: Context, requestedName: String): Jw
         )
     }
 
-    @Suppress("DEPRECATION")
-    val directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+    // API 24-28 cannot write public Downloads without a runtime permission. Keep the
+    // download private instead; FileProvider still exposes it to the share/open action.
+    val directory = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        ?: File(context.filesDir, Environment.DIRECTORY_DOWNLOADS)
     if (!directory.exists() && !directory.mkdirs()) throw IllegalStateException("无法创建下载目录")
     val file = uniqueDownloadFile(directory, requestedName)
     val mimeType = URLConnection.guessContentTypeFromName(file.name) ?: "application/octet-stream"

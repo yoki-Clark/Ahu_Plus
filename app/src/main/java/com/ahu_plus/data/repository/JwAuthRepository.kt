@@ -220,7 +220,7 @@ class JwAuthRepository(
                 if (session != null) {
                     Log.i(TAG, "JW 已有有效 session")
                     persistSession(session)
-                    sessionManager.saveJwSession(session, "")
+                    sessionManager.saveJwSession(session, "", sessionManager.currentAccountGeneration())
                     return
                 }
                 // 302 但没有 SESSION cookie —— 跟随重定向获取
@@ -234,7 +234,7 @@ class JwAuthRepository(
                             if (session2 != null) {
                                 Log.i(TAG, "跟随 JW 重定向后获取到 session")
                                 persistSession(session2)
-                                sessionManager.saveJwSession(session2, "")
+                                sessionManager.saveJwSession(session2, "", sessionManager.currentAccountGeneration())
                                 return
                             }
                         }
@@ -274,7 +274,7 @@ class JwAuthRepository(
             ?: throw JwAuthException("未获取到 JW SESSION cookie")
 
         Log.i(TAG, "获取到 JW SESSION")
-        sessionManager.saveJwSession(session, "")
+        sessionManager.saveJwSession(session, "", sessionManager.currentAccountGeneration())
     }
 
     /** 从 CasAuthRepository 的 cookieStore 中读取 CASTGC */
@@ -342,7 +342,7 @@ class JwAuthRepository(
         val session = exchangeTicketForSessionFb(ticket)
 
         Log.i(TAG, "回退获取到 JW SESSION")
-        sessionManager.saveJwSession(session, "")
+        sessionManager.saveJwSession(session, "", sessionManager.currentAccountGeneration())
     }
 
     /** 回退 Step 1: GET CAS 登录页面 */

@@ -143,7 +143,7 @@ fun CampusQrCodeCard(
                     }
 
                     // 已加载 QR 码
-                    qrCode != null -> {
+                    qrCode != null && !isStale -> {
                         val image = remember(qrCode.payload) {
                             QrCodeBitmap.create(qrCode.payload, 720)
                         }
@@ -293,4 +293,3 @@ internal fun formatQrAge(ageSeconds: Int): String = when {
     ageSeconds < 60 -> "$ageSeconds 秒前"
     else -> "${ageSeconds / 60} 分钟前"
 }
-

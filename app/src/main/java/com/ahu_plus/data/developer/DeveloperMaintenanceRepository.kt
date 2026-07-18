@@ -502,6 +502,8 @@ class DeveloperMaintenanceRepository(
     private suspend fun clearJwSession() {
         application.jwAuthRepository.clearCookies()
         application.sessionManager.clearJwSession()
+        application.sessionManager.clearEvaluationJwt()
+        application.jwAppAuthRepository.clearSession()
     }
 
     private fun clearYcardSession() {

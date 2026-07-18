@@ -22,7 +22,7 @@ class XzxxViewModel(
     private val _uiState = MutableStateFlow(XzxxUiState())
     val uiState: StateFlow<XzxxUiState> = _uiState.asStateFlow()
 
-    private var pendingAfterWaf: (() -> Unit)? = null
+    private val pendingAfterWaf = linkedMapOf<Long, () -> Unit>()
 
     init {
         loadFirstPage()
@@ -230,10 +230,10 @@ class XzxxViewModel(
         viewModelScope.launch {
             val accepted = runCatching { repository.acceptWafCookies(cookieHeader) }.getOrDefault(false)
             if (accepted) {
-                val pending = pendingAfterWaf
-                pendingAfterWaf = null
+                val pending = pendingAfterWaf.values.toList()
+                pendingAfterWaf.clear()
                 _uiState.update { it.copy(needsWaf = false, wafValidating = false, wafError = null) }
-                pending?.invoke()
+                pending.forEach { it() }
             } else {
                 _uiState.update {
                     it.copy(
@@ -279,7 +279,7 @@ class XzxxViewModel(
         onRegularError: (String) -> Unit,
     ) {
         if (throwable is XzxxWafChallengeRequiredException) {
-            pendingAfterWaf = retry
+            pendingAfterWaf[System.nanoTime()] = retry
             _uiState.update {
                 it.copy(
                     needsWaf = true,

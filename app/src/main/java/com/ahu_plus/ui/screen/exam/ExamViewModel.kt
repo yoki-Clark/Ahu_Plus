@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import java.time.LocalDate
 
 class ExamViewModel(
@@ -29,6 +31,8 @@ class ExamViewModel(
     val uiState: StateFlow<ExamUiState> = _uiState.asStateFlow()
 
     private val gson = com.ahu_plus.data.GsonProvider.instance
+    private var refreshJob: Job? = null
+    private var requestGeneration = 0L
 
     init {
         viewModelScope.launch { loadFromCache() }
@@ -47,11 +51,19 @@ class ExamViewModel(
             24L * 60 * 60 * 1000
         }
         if (!DataRefreshPolicy.isStale(sessionManager?.getExamsUpdatedAt() ?: 0L, maxAge)) return
-        viewModelScope.launch { loadExams(isRefresh = _uiState.value.exams.isNotEmpty()) }
+        startRefresh()
     }
 
     fun onRefresh() {
-        viewModelScope.launch { loadExams(isRefresh = _uiState.value.exams.isNotEmpty()) }
+        startRefresh()
+    }
+
+    private fun startRefresh() {
+        val generation = ++requestGeneration
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
+            loadExams(isRefresh = _uiState.value.exams.isNotEmpty(), generation)
+        }
     }
 
     /** 从 SessionManager 恢复缓存的考试数据 */
@@ -75,7 +87,7 @@ class ExamViewModel(
         } catch (_: Exception) { false }
     }
 
-    private suspend fun loadExams(isRefresh: Boolean) {
+    private suspend fun loadExams(isRefresh: Boolean, generation: Long) {
         if (!isRefresh) {
             _uiState.update { it.copy(isLoading = true, error = null) }
         } else {
@@ -86,6 +98,7 @@ class ExamViewModel(
             withContext(Dispatchers.IO) {
                 jwAuthRepository.executeWithSessionRetry { examRepository.getExams() }.fold(
                     onSuccess = { list ->
+                        if (generation != requestGeneration) return@fold
                         // 缓存到本地
                         val sm = sessionManager
                         if (sm != null) {
@@ -105,6 +118,7 @@ class ExamViewModel(
                         }
                     },
                     onFailure = { e ->
+                        if (generation != requestGeneration) return@fold
                         // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
                         _uiState.update {
                             it.copy(
@@ -119,7 +133,10 @@ class ExamViewModel(
                     }
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            if (generation != requestGeneration) return
             _uiState.update {
                 it.copy(
                     isLoading = false,

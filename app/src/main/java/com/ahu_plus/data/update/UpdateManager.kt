@@ -263,9 +263,10 @@ class UpdateManager(
             forceUpdate = forceUpdate
         )
 
+        val channel = currentChannel()
         val job = scope.launch {
             try {
-                performDownload(info, forceUpdate)
+                performDownload(info, forceUpdate, channel)
             } catch (e: Throwable) {
                 val cancelled = e is CancellationException || !currentCoroutineContext().isActive
                 if (cancelled) {
@@ -318,8 +319,12 @@ class UpdateManager(
         _uiState.value = UpdateUiState.Idle
     }
 
-    private suspend fun performDownload(info: UpdateInfo, forceUpdate: Boolean) {
-        val targetFile = apkFileFor(info)
+    private suspend fun performDownload(
+        info: UpdateInfo,
+        forceUpdate: Boolean,
+        channel: UpdateChannel,
+    ) {
+        val targetFile = apkFileFor(info, channel)
         cleanupOldApks(targetFile)
 
         val tmpFile = File(targetFile.parentFile, targetFile.name + ".tmp")
@@ -568,8 +573,8 @@ class UpdateManager(
         return dir
     }
 
-    private fun apkFileFor(info: UpdateInfo): File =
-        File(apkDir(), "ahu_plus_${info.latestVersionCode}.apk")
+    private fun apkFileFor(info: UpdateInfo, channel: UpdateChannel): File =
+        File(apkDir(), "ahu_plus_${channel.wireValue}_${info.latestVersionCode}.apk")
 
     /** 删除目录里非当前目标的旧 apk(及其 .tmp),避免越攒越多 */
     private fun cleanupOldApks(keep: File) {
