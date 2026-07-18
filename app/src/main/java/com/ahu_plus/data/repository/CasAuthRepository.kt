@@ -131,7 +131,11 @@ class CasAuthRepository(
     /**
      * 使用用户名和密码登录 CAS,成功后将 JSESSIONID 和凭据保存到 SessionManager。
      */
-    suspend fun login(username: String, password: String): Result<Unit> {
+    suspend fun login(
+        username: String,
+        password: String,
+        generation: Long = sessionManager.currentAccountGeneration(),
+    ): Result<Unit> {
         return try {
             Log.i(TAG, "开始 CAS 登录")
             clearCookies()
@@ -160,8 +164,8 @@ class CasAuthRepository(
 
             // 保存
             currentCoroutineContext().ensureActive()
-            sessionManager.saveSessionId(jsessionid)
-            sessionManager.saveCredentials(username, password)
+            sessionManager.saveSessionId(jsessionid, generation)
+            sessionManager.saveCredentials(username, password, generation)
             Log.d(TAG, "登录成功，JSESSIONID=${jsessionid.take(8)}...")
 
             Result.success(Unit)
@@ -174,11 +178,11 @@ class CasAuthRepository(
     /**
      * 使用已保存的凭据自动登录。
      */
-    suspend fun autoLogin(): Result<Unit> {
+    suspend fun autoLogin(generation: Long = sessionManager.currentAccountGeneration()): Result<Unit> {
         val username = sessionManager.getUsername()
         val password = sessionManager.getPassword()
         return if (username != null && password != null) {
-            login(username, password)
+            login(username, password, generation)
         } else {
             Result.failure(Exception("未保存凭据"))
         }
@@ -196,10 +200,12 @@ class CasAuthRepository(
      *
      * 并发安全:多协程同时调用时只执行一次 login(),其余等待后复用 holder 的 session。
      */
-    suspend fun ensureValidSession(): Result<Unit> {
+    suspend fun ensureValidSession(
+        generation: Long = sessionManager.currentAccountGeneration(),
+    ): Result<Unit> {
         val sessionId = sessionManager.getSessionId()
         if (sessionId.isNullOrBlank()) {
-            return mutexLogin()
+            return mutexLogin(generation)
         }
         val probe = probeSession(sessionId)
         if (probe.isSuccess) return Result.success(Unit)
@@ -212,16 +218,16 @@ class CasAuthRepository(
             }
             clearCookies()
             sessionManager.clearSession()
-            autoLogin()
+            autoLogin(generation)
         }
     }
 
     /** 互斥登录:持锁后复检 sessionId,holder 已写入则跳过 autoLogin */
-    private suspend fun mutexLogin(): Result<Unit> = sessionMutex.withLock {
+    private suspend fun mutexLogin(generation: Long): Result<Unit> = sessionMutex.withLock {
         if (!sessionManager.getSessionId().isNullOrBlank()) {
             Result.success(Unit)
         } else {
-            autoLogin()
+            autoLogin(generation)
         }
     }
 

@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 data class RoomCourseTableUiState(
     val activated: Boolean = false,
@@ -59,6 +60,8 @@ class RoomCourseTableViewModel(
     private val repository: RoomCourseTableRepository,
     sessionManager: SessionManager,
 ) : ViewModel() {
+    private var buildingJob: Job? = null
+    private var buildingRequestGeneration = 0L
     private val _uiState = MutableStateFlow(
         RoomCourseTableUiState(
             loggedIn = authRepository.isLoggedIn(),
@@ -198,17 +201,22 @@ class RoomCourseTableViewModel(
     fun submitSearch() = refreshRooms()
 
     fun setCampus(campusId: Int?) {
+        val generation = ++buildingRequestGeneration
+        buildingJob?.cancel()
         _uiState.value = _uiState.value.copy(
             filter = _uiState.value.filter.copy(campusId = campusId, buildingId = null),
             buildings = emptyList(),
         )
         if (campusId != null) {
-            viewModelScope.launch {
+            buildingJob = viewModelScope.launch {
                 repository.getBuildings(campusId).fold(
                     onSuccess = { buildings ->
-                        _uiState.value = _uiState.value.copy(buildings = buildings.filter { it.enabled })
+                        if (generation == buildingRequestGeneration && _uiState.value.filter.campusId == campusId) {
+                            _uiState.value = _uiState.value.copy(buildings = buildings.filter { it.enabled })
+                        }
                     },
                     onFailure = { error ->
+                        if (generation != buildingRequestGeneration || _uiState.value.filter.campusId != campusId) return@fold
                         handleError(error) { message ->
                             _uiState.value = _uiState.value.copy(error = message)
                         }

@@ -20,6 +20,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 
 class GradeViewModel(
     private val jwAuthRepository: JwAuthRepository,
@@ -31,6 +33,8 @@ class GradeViewModel(
     val uiState: StateFlow<GradeUiState> = _uiState.asStateFlow()
 
     private val gson = com.ahu_plus.data.GsonProvider.instance
+    private var refreshJob: Job? = null
+    private var requestGeneration = 0L
 
     init {
         viewModelScope.launch { loadFromCache() }
@@ -39,12 +43,18 @@ class GradeViewModel(
     fun activate() {
         val updatedAt = sessionManager?.getGradesUpdatedAt() ?: 0L
         if (!DataRefreshPolicy.isStale(updatedAt, 12L * 60 * 60 * 1000)) return
-        viewModelScope.launch { loadGrades(isRefresh = _uiState.value.gradesBySemester.isNotEmpty()) }
+        startRefresh()
     }
 
     fun onRefresh() {
-        viewModelScope.launch {
-            loadGrades(isRefresh = _uiState.value.gradesBySemester.isNotEmpty())
+        startRefresh()
+    }
+
+    private fun startRefresh() {
+        val generation = ++requestGeneration
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
+            loadGrades(isRefresh = _uiState.value.gradesBySemester.isNotEmpty(), generation)
         }
     }
 
@@ -99,7 +109,7 @@ class GradeViewModel(
         } catch (_: Exception) { Log.w(TAG, "Failed to load cached grades"); false }
     }
 
-    private suspend fun loadGrades(isRefresh: Boolean) {
+    private suspend fun loadGrades(isRefresh: Boolean, generation: Long) {
         if (!isRefresh) {
             _uiState.update { it.copy(isLoading = true, error = null) }
         } else {
@@ -121,6 +131,7 @@ class GradeViewModel(
 
                 gradesResult.fold(
                     onSuccess = { resp ->
+                        if (generation != requestGeneration) return@fold
                         // 缓存到本地
                         val sm = sessionManager
                         if (sm != null) {
@@ -162,6 +173,7 @@ class GradeViewModel(
                         }
                     },
                     onFailure = { e ->
+                        if (generation != requestGeneration) return@fold
                         // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
                         _uiState.update {
                             it.copy(
@@ -177,7 +189,10 @@ class GradeViewModel(
                     }
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            if (generation != requestGeneration) return
             _uiState.update {
                 it.copy(
                     isLoading = false,

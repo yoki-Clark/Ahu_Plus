@@ -268,8 +268,9 @@ fun AppNavigation(
                 onLogout = {
                     // Fault injection is process-local and must not survive an account boundary.
                     DeveloperRuntime.resetOverrides()
-                    silentLoginViewModel.cancel()
                     coroutineScope.launch {
+                        sessionManager.invalidateAccountGeneration()
+                        silentLoginViewModel.cancelAndJoin()
                         clearAllCookies()
                         sessionManager.clearJwAppSession()
                         sessionManager.clearAuthData()

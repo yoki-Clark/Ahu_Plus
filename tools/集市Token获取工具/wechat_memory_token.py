@@ -117,7 +117,13 @@ def _market_payload(token: bytes):
     school_id = payload.get("schoolID") or payload.get("schoolId") or payload.get("school_id")
     school = payload.get("school") or payload.get("schoolName") or payload.get("school_name")
     expires_at = payload.get("exp")
-    if not school_id or not school or not expires_at:
+    try:
+        expires_at = float(expires_at)
+        if expires_at > 100_000_000_000:  # tolerate millisecond JWT timestamps
+            expires_at /= 1000
+    except (TypeError, ValueError):
+        return None
+    if not school_id or not school or expires_at <= time.time():
         return None
     return payload
 

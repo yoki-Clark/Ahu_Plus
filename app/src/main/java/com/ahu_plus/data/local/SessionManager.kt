@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicLong
 
 /**
 
@@ -70,6 +71,18 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
     @Volatile private var initialized = false
 
     private val initMutex = Mutex()
+    private val accountStateMutex = Mutex()
+    private val accountGeneration = AtomicLong(0L)
+
+    /** Login work captures this value; logout advances it before clearing state. */
+    fun currentAccountGeneration(): Long = accountGeneration.get()
+
+    suspend fun invalidateAccountGeneration(): Long = accountStateMutex.withLock {
+        accountGeneration.incrementAndGet()
+    }
+
+    private fun isCurrentGeneration(generation: Long?): Boolean =
+        generation == null || generation == accountGeneration.get()
 
     @Volatile private var cachedSessionId: String? = null
 
@@ -489,11 +502,13 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             encryptedKey: String,
             legacyKey: Preferences.Key<String>,
         ): String? {
-            credentialStore.getString(encryptedKey)?.let { return it }
-            val legacy = prefs[legacyKey] ?: return null
-            if (credentialStore.putString(encryptedKey, legacy)) {
-                migratedPlaintextKeys += legacyKey
+            credentialStore.getString(encryptedKey)?.let {
+                if (prefs.contains(legacyKey)) migratedPlaintextKeys += legacyKey
+                return it
             }
+            val legacy = prefs[legacyKey] ?: return null
+            if (credentialStore.putString(encryptedKey, legacy)) migratedPlaintextKeys += legacyKey
+            else if (credentialStore.getString(encryptedKey) != null) migratedPlaintextKeys += legacyKey
             return legacy
         }
 
@@ -1046,8 +1061,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     fun getSessionId(): String? = cachedSessionId
 
-    suspend fun saveSessionId(id: String) {
-
+    suspend fun saveSessionId(id: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
         cachedSessionId = id
         saveEncrypted(EncryptedCredentialStore.PORTAL_SESSION, SESSION_KEY, id)
 
@@ -1073,7 +1088,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     fun getJwPstSid(): String? = cachedJwPstSid
 
-    suspend fun saveJwSession(sessionId: String, pstSid: String) {
+    suspend fun saveJwSession(sessionId: String, pstSid: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
 
         cachedJwSessionId = sessionId
 
@@ -1105,7 +1121,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     // \u2500\u2500 \u51ED\u636E \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-    suspend fun saveCredentials(username: String, password: String) {
+    suspend fun saveCredentials(username: String, password: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
 
         cachedUsername = username
 
@@ -2273,8 +2290,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         }
     }
 
-    suspend fun saveAdwmhSessionId(sessionId: String) {
-
+    suspend fun saveAdwmhSessionId(sessionId: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
         cachedAdwmhSessionId = sessionId
         saveEncrypted(EncryptedCredentialStore.ADWMH_SESSION, ADWMH_SESSION_KEY, sessionId)
 
@@ -2619,8 +2636,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             EncryptedCredentialStore.ACCOUNT_KEYS + setOf(
                 EncryptedCredentialStore.CHAOXING_PHONE,
                 EncryptedCredentialStore.CHAOXING_PASSWORD,
+                EncryptedCredentialStore.CHAOXING_COOKIES,
                 EncryptedCredentialStore.WELEARN_USERNAME,
                 EncryptedCredentialStore.WELEARN_PASSWORD,
+                EncryptedCredentialStore.WELEARN_COOKIES,
             )
         )
 
@@ -3866,9 +3885,9 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
             EMPTY_CLASSROOM_JSON_KEY, EMPTY_CLASSROOM_KEY_KEY, EMPTY_CLASSROOM_UPDATED_AT_KEY,
 
-            CX_PHONE_KEY, CX_PASSWORD_KEY,
+            CX_COOKIES_KEY, CX_PHONE_KEY, CX_PASSWORD_KEY,
 
-            WELEARN_USERNAME_KEY, WELEARN_PASSWORD_KEY,
+            WELEARN_COOKIES_KEY, WELEARN_USERNAME_KEY, WELEARN_PASSWORD_KEY,
 
             CPROG_JWT_KEY, CPROG_JSESSIONID_KEY, CPROG_USER_ID_KEY,
 

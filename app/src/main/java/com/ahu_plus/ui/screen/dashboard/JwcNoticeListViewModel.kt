@@ -123,6 +123,16 @@ class JwcNoticeListViewModel(
         output: OutputStream,
         onProgress: suspend (downloadedBytes: Long, totalBytes: Long) -> Unit,
     ): Result<Long> = repository.downloadAttachment(attachment, output, onProgress)
+        .onFailure { error ->
+            // Attachment requests use the same WAF bootstrap as page/detail requests.
+            // The caller recreates the output target on the next download attempt.
+            handleFailure(
+                key = "attachment:${attachment.url}",
+                error = error,
+                retry = {},
+                onRegularFailure = {},
+            )
+        }
 
     private fun fetchPage(page: Int, replace: Boolean) {
         viewModelScope.launch {

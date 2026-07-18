@@ -1166,6 +1166,7 @@ class HomeViewModel(
         if (payload.isNullOrBlank() || fetchedAt <= 0L) return
         val ageMs = System.currentTimeMillis() - fetchedAt
         if (ageMs > QR_CACHE_MAX_RESTORE_MS) return
+        if (ageMs > QR_STALE_THRESHOLD_MS) return
         _uiState.update { state ->
             if (state.qrCode != null) return@update state
             state.copy(
@@ -1174,7 +1175,7 @@ class HomeViewModel(
                     statusMsg = serverText,
                     fetchedAt = fetchedAt
                 ),
-                qrStale = ageMs > QR_STALE_THRESHOLD_MS,
+                qrStale = false,
                 qrAgeSeconds = (ageMs / 1000).toInt()
             )
         }
@@ -1657,7 +1658,9 @@ class HomeViewModel(
                             state.copy(
                                 qrCountdownSeconds = remaining,
                                 qrAgeSeconds = (ageMs / 1000).toInt(),
-                                qrStale = ageMs > QR_STALE_THRESHOLD_MS
+                                qrStale = ageMs > QR_STALE_THRESHOLD_MS,
+                                qrCode = if (ageMs > QR_STALE_THRESHOLD_MS) null else state.qrCode,
+                                qrError = if (ageMs > QR_STALE_THRESHOLD_MS) "鏀粯鐮佸凡杩囨湡锛岃鍒锋柊" else state.qrError
                             )
                         }
                     }

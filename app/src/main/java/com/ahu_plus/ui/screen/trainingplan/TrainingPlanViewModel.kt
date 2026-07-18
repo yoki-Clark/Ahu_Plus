@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 
 class TrainingPlanViewModel(
     private val jwAuthRepository: JwAuthRepository,
@@ -38,6 +40,8 @@ class TrainingPlanViewModel(
     private val gson = GsonProvider.instance
     // 多级展开：父子模块可同时展开（旧版单一 expandedId 会让展开子模块折叠父模块）
     private var expandedIds: Set<Int> = emptySet()
+    private var refreshJob: Job? = null
+    private var requestGeneration = 0L
 
     init {
         viewModelScope.launch { loadFromCache() }
@@ -46,11 +50,17 @@ class TrainingPlanViewModel(
     fun activate() {
         val updatedAt = sessionManager?.getTrainingPlanUpdatedAt() ?: 0L
         if (!DataRefreshPolicy.isStale(updatedAt, 30L * 24 * 60 * 60 * 1000)) return
-        viewModelScope.launch { loadAll(isRefresh = _uiState.value.topModules.isNotEmpty()) }
+        startRefresh(isRefresh = _uiState.value.topModules.isNotEmpty())
     }
 
     fun onRefresh() {
-        viewModelScope.launch { loadAll(isRefresh = true) }
+        startRefresh(isRefresh = true)
+    }
+
+    private fun startRefresh(isRefresh: Boolean) {
+        val generation = ++requestGeneration
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch { loadAll(isRefresh, generation) }
     }
 
     fun toggleExpand(moduleId: Int) {
@@ -86,7 +96,7 @@ class TrainingPlanViewModel(
         } catch (_: Exception) { false }
     }
 
-    private suspend fun loadAll(isRefresh: Boolean) {
+    private suspend fun loadAll(isRefresh: Boolean, generation: Long) {
         if (!isRefresh) {
             _uiState.update { it.copy(isLoading = true, error = null) }
         } else {
@@ -107,6 +117,7 @@ class TrainingPlanViewModel(
 
                 planResult.fold(
                     onSuccess = { resp ->
+                        if (generation != requestGeneration) return@fold
                         sessionManager?.let { sm ->
                             try { sm.saveTrainingPlanJson(gson.toJson(resp)) }
                             catch (_: Exception) { Log.w(TAG, "Failed to cache training plan JSON") }
@@ -117,6 +128,7 @@ class TrainingPlanViewModel(
                         }
                     },
                     onFailure = { e ->
+                        if (generation != requestGeneration) return@fold
                         // 2026-06-23: SessionExpiredException 时尝试后台静默重连 + 重试一次
                         _uiState.update {
                             it.copy(
@@ -134,12 +146,16 @@ class TrainingPlanViewModel(
 
                 compResult?.fold(
                     onSuccess = { (courses, summary) ->
+                        if (generation != requestGeneration) return@fold
                         applyCompletionData(courses, summary)
                     },
                     onFailure = { /* 完成数据加载失败使用兜底方案 */ }
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            if (generation != requestGeneration) return
             _uiState.update {
                 it.copy(
                     isLoading = false,

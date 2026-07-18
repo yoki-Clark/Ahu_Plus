@@ -13,6 +13,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
@@ -36,6 +38,8 @@ class AdwmhCardRepository(
                 "(KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 " +
                 "NetType/WIFI MicroMessenger/7.0.20.1781 WindowsWechat Flue"
         private const val REQUEST_MIN_GAP_MS = 1_500L
+        private const val RETRY_BACKOFF_BASE_MS = 2_000L
+        private const val RETRY_BACKOFF_MAX_MS = 30_000L
     }
 
     private val gson = GsonProvider.instance
@@ -100,11 +104,12 @@ class AdwmhCardRepository(
     suspend fun autoLogin(
         username: String,
         password: String,
-        concurrentRetry: Boolean = false
+        concurrentRetry: Boolean = false,
+        generation: Long = sessionManager.currentAccountGeneration(),
     ): Result<AdwmhLoginInfo> = withContext(Dispatchers.IO) {
         Log.d(TAG, "autoLogin start (concurrent=$concurrentRetry)")
         // 先尝试无验证码登录
-        val firstTry = doLogin(username, password, "")
+        val firstTry = doLogin(username, password, "", generation)
         Log.d(TAG, "autoLogin firstTry: ${if (firstTry.isSuccess) "OK" else firstTry.exceptionOrNull()?.message}")
         if (firstTry.isSuccess) return@withContext firstTry
 
@@ -112,6 +117,7 @@ class AdwmhCardRepository(
             // 常规模式：单线程顺序 OCR 重试（限制 2 次，减少速率限制风险）
             val maxRetries = 2
             repeat(maxRetries) { attempt ->
+                if (attempt > 0) delay(retryBackoffMs(attempt))
                 val captchaBytes = runCatching {
                     getCaptchaRaw()
                 }.getOrElse { return@repeat }
@@ -120,7 +126,7 @@ class AdwmhCardRepository(
                     ocrCaptcha(captchaBytes)
                 }.getOrElse { return@repeat }
 
-                val result = doLogin(username, password, captcha)
+                val result = doLogin(username, password, captcha, generation)
                 if (result.isSuccess) return@withContext result
             }
             return@withContext Result.failure(AdwmhAuthException("智慧安大登录失败，请稍后重试"))
@@ -132,6 +138,7 @@ class AdwmhCardRepository(
         val maxRetries = 2
         repeat(maxRetries) { attempt ->
             Log.d(TAG, "autoLogin sequential retry ${attempt + 1}/$maxRetries")
+            if (attempt > 0) delay(retryBackoffMs(attempt))
             val captchaBytes = runCatching {
                 getCaptchaRaw()
             }.getOrElse { return@repeat }
@@ -140,11 +147,15 @@ class AdwmhCardRepository(
                 ocrCaptcha(captchaBytes)
             }.getOrElse { return@repeat }
 
-            val result = doLogin(username, password, captcha)
+            val result = doLogin(username, password, captcha, generation)
             if (result.isSuccess) return@withContext result
         }
         Result.failure(AdwmhAuthException("智慧安大登录失败，请稍后重试"))
     }
+
+    private fun retryBackoffMs(attempt: Int): Long =
+        (RETRY_BACKOFF_BASE_MS * (1L shl attempt.coerceAtMost(4)))
+            .coerceAtMost(RETRY_BACKOFF_MAX_MS)
 
     /** 获取验证码图片字节。 */
     private suspend fun getCaptchaRaw(): ByteArray {
@@ -196,7 +207,8 @@ class AdwmhCardRepository(
     private suspend fun doLogin(
         username: String,
         password: String,
-        captcha: String
+        captcha: String,
+        generation: Long = sessionManager.currentAccountGeneration(),
     ): Result<AdwmhLoginInfo> = withContext(Dispatchers.IO) {
         runCatching {
             val formBody = FormBody.Builder()
@@ -236,7 +248,8 @@ class AdwmhCardRepository(
                     ) to jsessionid
                 }
             }
-            if (!jsessionid.isNullOrBlank()) sessionManager.saveAdwmhSessionId(jsessionid)
+            currentCoroutineContext().ensureActive()
+            if (!jsessionid.isNullOrBlank()) sessionManager.saveAdwmhSessionId(jsessionid, generation)
             loginInfo
         }
     }

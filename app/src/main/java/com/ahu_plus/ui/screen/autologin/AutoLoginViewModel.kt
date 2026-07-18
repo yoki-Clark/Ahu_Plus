@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.cancelAndJoin
 
 /**
  * 自动登录 ViewModel。
@@ -49,18 +50,19 @@ class AutoLoginViewModel(
         }
         _uiState.value = AutoLoginState.Loading
         loginJob?.cancel()
+        val generation = sessionManager.currentAccountGeneration()
         loginJob = viewModelScope.launch {
             // CAS 与 adwmh 并发登录，adwmh 在后台静默（不影响页面加载速度）
             val casDeferred = async(Dispatchers.IO) {
                 // 复用仓库互斥锁，避免与课表/JW 启动刷新同时发起重复 CAS 登录。
-                casAuthRepository.ensureValidSession()
+                casAuthRepository.ensureValidSession(generation)
             }
             val adwmhDeferred = if (adwmhCardRepository != null) {
                 async(Dispatchers.IO) {
                     if (adwmhCardRepository.hasSession()) {
                         Result.success(Unit)
                     } else {
-                        adwmhCardRepository.autoLogin(username, password).map { Unit }
+                        adwmhCardRepository.autoLogin(username, password, generation = generation).map { Unit }
                     }
                 }
             } else null
@@ -99,6 +101,11 @@ class AutoLoginViewModel(
 
     fun cancel() {
         loginJob?.cancel()
+    }
+
+    suspend fun cancelAndJoin() {
+        loginJob?.cancelAndJoin()
+        loginJob = null
     }
 
     /** 用户主动退出登录,清除所有凭据和 session,跳回登录页 */
