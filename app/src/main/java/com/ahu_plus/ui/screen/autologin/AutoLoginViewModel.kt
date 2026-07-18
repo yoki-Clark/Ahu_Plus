@@ -102,6 +102,7 @@ class AutoLoginViewModel(
         cancel()
         viewModelScope.launch {
             casAuthRepository.clearCookies() // 纯内存操作,无需切换线程
+            sessionManager.clearJwAppSession()
             sessionManager.clearAuthData()   // DataStore edit 自带调度器
             _uiState.value = AutoLoginState.NoCredentials
         }

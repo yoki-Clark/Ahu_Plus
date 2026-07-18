@@ -422,6 +422,8 @@ fun MainScreen(
     val trainingPlanViewModel: TrainingPlanViewModel = viewModel(factory = factory)
     val emptyClassroomViewModel: com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel =
         viewModel(factory = factory)
+    val roomCourseTableViewModel: com.ahu_plus.ui.screen.roomcoursetable.RoomCourseTableViewModel =
+        viewModel(factory = factory)
     val chaoxingViewModel: ChaoxingViewModel = viewModel(factory = factory)
     val weLearnViewModel: WeLearnViewModel = viewModel(factory = factory)
     val weatherViewModel: WeatherViewModel = viewModel(factory = factory)
@@ -797,6 +799,7 @@ fun MainScreen(
                     examViewModel = examViewModel,
                     trainingPlanViewModel = trainingPlanViewModel,
                     emptyClassroomViewModel = emptyClassroomViewModel,
+                    roomCourseTableViewModel = roomCourseTableViewModel,
                     cardViewModel = cardViewModel,
                     jwcNoticeListViewModel = jwcNoticeListViewModel,
                     jwcNoticeViewModel = jwcNoticeViewModel,

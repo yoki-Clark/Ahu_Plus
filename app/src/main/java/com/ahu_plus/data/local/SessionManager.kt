@@ -81,6 +81,12 @@ class SessionManager(private val appDataStore: AppDataStore) {
 
     @Volatile private var cachedPassword: String? = null
 
+    @Volatile private var cachedJwAppUsername: String? = null
+
+    @Volatile private var cachedJwAppPassword: String? = null
+
+    @Volatile private var cachedJwAppToken: String? = null
+
     @Volatile private var cachedMarketApiIdentity: String? = null
 
     @Volatile private var cachedThemeMode: AppThemeMode = AppThemeMode.SYSTEM
@@ -500,6 +506,12 @@ class SessionManager(private val appDataStore: AppDataStore) {
         cachedUsername = encryptedOrLegacy(EncryptedCredentialStore.CAS_USERNAME, USERNAME_KEY)
 
         cachedPassword = encryptedOrLegacy(EncryptedCredentialStore.CAS_PASSWORD, PASSWORD_KEY)
+
+        cachedJwAppUsername = credentialStore.getString(EncryptedCredentialStore.JWAPP_USERNAME)
+
+        cachedJwAppPassword = credentialStore.getString(EncryptedCredentialStore.JWAPP_PASSWORD)
+
+        cachedJwAppToken = credentialStore.getString(EncryptedCredentialStore.JWAPP_TOKEN)
 
         cachedThemeMode = AppThemeMode.fromStorageValue(prefs[THEME_MODE_KEY])
 
@@ -1260,6 +1272,39 @@ class SessionManager(private val appDataStore: AppDataStore) {
             it[BOTTOM_NAV_SERVICES_KEY] = gson.toJson(cachedBottomNavServices)
             it[BOTTOM_NAV_PREFERENCES_VERSION_KEY] = BOTTOM_NAV_PREFERENCES_VERSION.toString()
         }
+    }
+
+    fun getJwAppUsername(): String? = cachedJwAppUsername
+
+    fun getJwAppPassword(): String? = cachedJwAppPassword
+
+    fun getJwAppToken(): String? = cachedJwAppToken
+
+    suspend fun saveJwAppSession(username: String, password: String, token: String) {
+        cachedJwAppUsername = username
+        cachedJwAppPassword = password
+        cachedJwAppToken = token
+        credentialStore.putString(EncryptedCredentialStore.JWAPP_USERNAME, username)
+        credentialStore.putString(EncryptedCredentialStore.JWAPP_PASSWORD, password)
+        credentialStore.putString(EncryptedCredentialStore.JWAPP_TOKEN, token)
+    }
+
+    suspend fun saveJwAppToken(token: String) {
+        cachedJwAppToken = token
+        credentialStore.putString(EncryptedCredentialStore.JWAPP_TOKEN, token)
+    }
+
+    suspend fun clearJwAppSession() {
+        cachedJwAppUsername = null
+        cachedJwAppPassword = null
+        cachedJwAppToken = null
+        credentialStore.remove(
+            setOf(
+                EncryptedCredentialStore.JWAPP_USERNAME,
+                EncryptedCredentialStore.JWAPP_PASSWORD,
+                EncryptedCredentialStore.JWAPP_TOKEN,
+            )
+        )
     }
 
     suspend fun setMarketEnabled(enabled: Boolean) = setThirdPartyServicesEnabled(enabled)
@@ -2586,6 +2631,12 @@ class SessionManager(private val appDataStore: AppDataStore) {
         // \u5148\u6E05\u9664\u5185\u5B58\u7F13\u5B58
 
         clearCachedAuthData()
+
+        cachedJwAppUsername = null
+
+        cachedJwAppPassword = null
+
+        cachedJwAppToken = null
 
         cachedMarketApiIdentity = null
 

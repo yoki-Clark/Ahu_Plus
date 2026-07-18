@@ -60,6 +60,7 @@ object AppRegistry {
     const val KEY_EXAM = "exam"
     const val KEY_TRAINING_PLAN = "trainingPlan"
     const val KEY_EMPTY_CLASSROOM = "emptyClassroom"
+    const val KEY_ROOM_COURSE_TABLE = "roomCourseTable"
     const val KEY_CARD = "card"
     const val KEY_CARD_ANALYTICS = "cardAnalytics"
     const val KEY_NOTICE_LIST = "noticeList"
@@ -131,6 +132,13 @@ object AppRegistry {
             title = "空教室",
             icon = Icons.Filled.Room,
             tint = AhuGreen,
+            group = LEARNING,
+        ),
+        AppSpec(
+            key = KEY_ROOM_COURSE_TABLE,
+            title = "教室课表",
+            icon = Icons.Filled.Room,
+            tint = AhuBlue,
             group = LEARNING,
         ),
         AppSpec(

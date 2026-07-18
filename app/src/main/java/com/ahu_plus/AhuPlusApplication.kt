@@ -38,6 +38,8 @@ import com.ahu_plus.data.announcement.AnnouncementManager
 import com.ahu_plus.data.weather.WeatherManager
 import com.ahu_plus.data.repository.JwcNoticeRepository
 import com.ahu_plus.data.repository.JwAuthRepository
+import com.ahu_plus.data.repository.JwAppAuthRepository
+import com.ahu_plus.data.repository.RoomCourseTableRepository
 import com.ahu_plus.data.repository.MarketRepository
 import com.ahu_plus.data.repository.RecordRepository
 import com.ahu_plus.data.repository.StudentInfoRepository
@@ -66,6 +68,10 @@ class AhuPlusApplication : Application() {
     lateinit var casAuthRepository: CasAuthRepository
         private set
     lateinit var jwAuthRepository: JwAuthRepository
+        private set
+    lateinit var jwAppAuthRepository: JwAppAuthRepository
+        private set
+    lateinit var roomCourseTableRepository: RoomCourseTableRepository
         private set
     lateinit var courseRepository: CourseRepository
         private set
@@ -155,6 +161,7 @@ class AhuPlusApplication : Application() {
         userTaskRepository.reloadFromSession()
         weLearnAuthRepository.loadPersistedCookies()
         cProgAuthRepository.loadPersistedSession()
+        jwAppAuthRepository.restoreSession()
     }
 
     suspend fun clearAccountScopedRepositoryState() {
@@ -194,6 +201,7 @@ class AhuPlusApplication : Application() {
         // ── 认证层 ────────────────────────────────
         casAuthRepository = CasAuthRepository(sessionManager)
         jwAuthRepository = JwAuthRepository(sessionManager, casAuthRepository)
+        jwAppAuthRepository = JwAppAuthRepository(sessionManager)
 
         // ── 业务 Repository ────────────────────────
         courseRepository = CourseRepository(jwAuthRepository)
@@ -211,6 +219,7 @@ class AhuPlusApplication : Application() {
         gradeRepository = GradeRepository(jwAuthRepository)
         examRepository = ExamRepository(jwAuthRepository)
         emptyClassroomRepository = EmptyClassroomRepository(jwAuthRepository)
+        roomCourseTableRepository = RoomCourseTableRepository(jwAppAuthRepository)
         // 排考预测:从 Gitee yao-enqi/ahu-plus-update 仓库拉取标准化 JSON,
         // 不再走 jwapp JWT 登录流程 (2026-06-23 重构)。
         examDataRepository = ExamDataRepository(sessionManager)
@@ -299,6 +308,7 @@ class AhuPlusApplication : Application() {
     suspend fun clearAllSessions() {
         casAuthRepository.clearCookies()
         jwAuthRepository.clearCookies()
+        jwAppAuthRepository.clearSession()
         ycardRepository.clearCookies()
         adwmhCardRepository.clearCookies()
         sessionManager.clearAll()
