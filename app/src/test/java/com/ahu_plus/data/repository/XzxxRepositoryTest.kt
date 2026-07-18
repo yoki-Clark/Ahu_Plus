@@ -56,6 +56,57 @@ class XzxxRepositoryTest {
     }
 
     @Test
+    fun `list parser accepts source html without implicit tbody`() {
+        val letters = XzxxRepository.parseLetterList(
+            """
+            <html><body><table>
+              <tr><td>42</td><td><a href="show.asp?contentid=123">原始页面信件</a></td><td>2026-07-16</td><td>2026-07-17</td></tr>
+            </table></body></html>
+            """.trimIndent(),
+        )
+
+        assertEquals(1, letters.size)
+        assertEquals("123", letters.single().contentId)
+    }
+
+    @Test
+    fun `list parser accepts unquoted legacy link and flexible column order`() {
+        val letters = XzxxRepository.parseLetterList(
+            """
+            <table>
+              <tr>
+                <td><a href=show.asp?contentid=456 target=_blank>旧式页面信件</a></td>
+                <td>2026-07-16</td><td>2026-07-17</td><td>88</td>
+              </tr>
+            </table>
+            """.trimIndent(),
+        )
+
+        val letter = letters.single()
+        assertEquals("456", letter.contentId)
+        assertEquals("旧式页面信件", letter.title)
+        assertEquals("88", letter.viewCount)
+        assertEquals("2026-07-16", letter.writeDate)
+        assertEquals("2026-07-17", letter.replyDate)
+    }
+
+    @Test
+    fun `detail parser accepts source html without implicit tbody`() {
+        val detail = XzxxRepository.parseLetterDetail(
+            """
+            <html><body><table>
+              <tr><td>主题</td><td>原始页面主题</td></tr>
+              <tr><td>内容</td><td>原始页面正文</td></tr>
+              <tr><td>已回复</td><td>原始页面回复</td></tr>
+            </table></body></html>
+            """.trimIndent(),
+        )
+
+        assertEquals("原始页面正文", detail?.content)
+        assertEquals("原始页面回复", detail?.replyContent)
+    }
+
+    @Test
     fun `412 clears persisted WAF cookie and requests bootstrap`() = runBlocking {
         val server = MockWebServer()
         server.enqueue(MockResponse().setResponseCode(412).setBody("<script>\$_ss={}</script>"))

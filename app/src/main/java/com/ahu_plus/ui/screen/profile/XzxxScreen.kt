@@ -205,7 +205,8 @@ private fun XzxxLetterList(
             total > 0 && lastVisible >= total - 3
         }
     }
-    LaunchedEffect(shouldLoadMore, uiState.hasMore, uiState.isLoadingMore, uiState.isLoading) {
+    val autoLoadAnchor = uiState.letters.lastOrNull()?.contentId
+    LaunchedEffect(shouldLoadMore, uiState.hasMore, autoLoadAnchor) {
         if (shouldLoadMore && uiState.hasMore && !uiState.isLoadingMore && !uiState.isLoading) {
             onLoadMore()
         }
@@ -229,6 +230,19 @@ private fun XzxxLetterList(
                 ) {
                     Text(uiState.error, color = MaterialTheme.colorScheme.error)
                     FilledTonalButton(onClick = onRetry) { Text("重新加载") }
+                }
+            }
+            uiState.letters.isEmpty() -> item {
+                Column(
+                    Modifier.fillMaxWidth().padding(top = 80.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        "暂无公开信件",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FilledTonalButton(onClick = onRetry) { Text("刷新") }
                 }
             }
             else -> {

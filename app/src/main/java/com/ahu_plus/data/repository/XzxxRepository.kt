@@ -78,8 +78,9 @@ class XzxxRepository(
     suspend fun getLetters(page: Int): XzxxPage = withContext(Dispatchers.IO) {
         ensurePersistentCookieLoaded()
         val html = executeHtml(Request.Builder().url(listUrl(page)).get().build())
+        val letters = parseLetterList(html, baseUrl)
         XzxxPage(
-            letters = parseLetterList(html, baseUrl),
+            letters = letters,
             hasMore = parseNextPageUrl(html, page) != null,
         )
     }
@@ -280,8 +281,10 @@ class XzxxRepository(
 
         private val rowRegex = Regex("""<tr\b[^>]*>(.*?)</tr>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         private val cellRegex = Regex("""<td\b[^>]*>(.*?)</td>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        private val anchorRegex = Regex("""<a\b[^>]*?href=["']([^"']+)["'][^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val anchorRegex = Regex("""<a\b([^>]*)>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val hrefRegex = Regex("""\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", RegexOption.IGNORE_CASE)
         private val contentIdRegex = Regex("""contentid=(\d+)""", RegexOption.IGNORE_CASE)
+        private val dateTextRegex = Regex("""\d{4}\s*[-/.年]\s*\d{1,2}\s*[-/.月]\s*\d{1,2}""")
         private val tagRegex = Regex("""<[^>]+>""")
         private val styleScriptRegex = Regex("""<(script|style)\b[^>]*>.*?</\1>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         private val wsRegex = Regex("""\s+""")
@@ -291,23 +294,31 @@ class XzxxRepository(
         private val nextPageLabelRegex = Regex("""<a\b[^>]*?href=["']([^"']+?)["'][^>]*>([^<]*(?:下\s?一\s?页|next)[^<]*)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
         fun parseLetterList(html: String, baseUrl: String = "https://www6.ahu.edu.cn"): List<XzxxLetter> {
-            val tbody = Regex("""<tbody\b[^>]*>(.*?)</tbody>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                .find(html)?.groupValues?.get(1) ?: return emptyList()
-            return rowRegex.findAll(tbody).mapNotNull { match ->
+            return rowRegex.findAll(html).mapNotNull { match ->
                 val row = match.groupValues[1]
-                if (row.contains("<th", true) || row.contains("colspan", true) || row.contains("#41b6f7", true)) return@mapNotNull null
                 val cells = cellRegex.findAll(row).map { it.groupValues[1] }.toList()
-                if (cells.size < 4) return@mapNotNull null
-                val href = extractAnchorHref(cells[1])
+                val titleCellIndex = cells.indexOfFirst { cell ->
+                    contentIdRegex.containsMatchIn(extractAnchorHref(cell))
+                }
+                if (titleCellIndex < 0) return@mapNotNull null
+                val href = extractAnchorHref(cells[titleCellIndex])
                 val contentId = contentIdRegex.find(href)?.groupValues?.get(1).orEmpty()
-                val title = extractAnchorText(cells[1])
+                val title = extractAnchorText(cells[titleCellIndex])
                 if (title.isBlank() || contentId.isBlank()) return@mapNotNull null
+                val metadata = cells.mapIndexedNotNull { index, cell ->
+                    if (index == titleCellIndex) null else plainText(cell).trim()
+                }
+                val dates = metadata.filter(dateTextRegex::containsMatchIn)
+                val viewCount = metadata
+                    .filterNot(dateTextRegex::containsMatchIn)
+                    .firstOrNull { value -> value.any(Char::isDigit) }
+                    .orEmpty()
                 XzxxLetter(
                     contentId = contentId,
-                    viewCount = plainText(cells[0]).trim(),
+                    viewCount = viewCount,
                     title = title,
-                    writeDate = plainText(cells[2]).trim(),
-                    replyDate = plainText(cells[3]).trim(),
+                    writeDate = dates.getOrNull(0).orEmpty(),
+                    replyDate = dates.getOrNull(1).orEmpty(),
                     url = absolutize(href, baseUrl),
                 )
             }.toList()
@@ -324,13 +335,11 @@ class XzxxRepository(
         }
 
         fun parseLetterDetail(html: String): XzxxLetterDetail? {
-            val tbody = Regex("""<tbody\b[^>]*>(.*?)</tbody>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                .find(html)?.groupValues?.get(1) ?: return null
             var title = ""
             var content = ""
             var replyLabel = ""
             var replyContent = ""
-            for (match in rowRegex.findAll(tbody)) {
+            for (match in rowRegex.findAll(html)) {
                 val row = match.groupValues[1]
                 if (row.contains("colspan", true) || row.contains("#41b6f7", true) ||
                     row.contains("校长信箱致辞") || row.contains(".jpg") || row.contains(".png") || row.contains(".gif")) continue
@@ -358,8 +367,16 @@ class XzxxRepository(
         private fun extractAnchorText(cellHtml: String): String =
             plainText(anchorRegex.find(cellHtml)?.groupValues?.get(2) ?: cellHtml)
 
-        private fun extractAnchorHref(cellHtml: String): String =
-            anchorRegex.find(cellHtml)?.groupValues?.get(1)?.let(::htmlDecode)?.trim().orEmpty()
+        private fun extractAnchorHref(cellHtml: String): String {
+            val attributes = anchorRegex.find(cellHtml)?.groupValues?.get(1) ?: return ""
+            val hrefMatch = hrefRegex.find(attributes) ?: return ""
+            return (1..3).asSequence()
+                .map { hrefMatch.groupValues[it] }
+                .firstOrNull { it.isNotBlank() }
+                ?.let(::htmlDecode)
+                ?.trim()
+                .orEmpty()
+        }
 
         private fun absolutize(pathOrUrl: String, baseUrl: String): String {
             if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) return pathOrUrl
