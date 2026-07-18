@@ -2,138 +2,164 @@ package com.ahu_plus.ui.screen.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ahu_plus.data.GsonProvider
+import com.ahu_plus.data.local.DataRefreshPolicy
+import com.ahu_plus.data.local.JwcNoticeCache
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.JwcNoticeDetail
 import com.ahu_plus.data.repository.JwcNoticeRepository
-import com.ahu_plus.data.local.DataRefreshPolicy
-import com.ahu_plus.data.local.SessionManager
-import com.ahu_plus.data.GsonProvider
-import kotlinx.coroutines.Dispatchers
+import com.ahu_plus.data.repository.JwcWafChallengeRequiredException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-/**
- * 首页 "通知公告" preview 的 ViewModel:
- * - 拉通知公告频道第 1 页,只取前 6 条
- * - 点击条目仍然在首页内嵌展开详情
- * - "更多" 按钮跳转独立二级页 [JwcNoticeListViewModel] 处理
- */
+/** 首页教务通告预览，网络传输由 Repository 完成，WebView 仅用于按需 WAF 校验。 */
 class JwcNoticeViewModel(
     private val repository: JwcNoticeRepository,
-    private val sessionManager: SessionManager,
+    private val cache: JwcNoticeCache,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(
-        JwcNoticeUiState(
-            noticeFetchUrl = repository.listUrl(1)
-        )
-    )
+    private val _uiState = MutableStateFlow(JwcNoticeUiState())
     val uiState: StateFlow<JwcNoticeUiState> = _uiState.asStateFlow()
+    private val pendingWafRetries = linkedMapOf<String, () -> Unit>()
 
     init {
-        val cached = sessionManager.getJwcNoticeJson()?.let { raw ->
+        val cached = cache.getJwcNoticeJson()?.let { raw ->
             runCatching { GsonProvider.instance.fromJson(raw, Array<JwcNotice>::class.java).toList() }
                 .getOrNull()
         }.orEmpty()
         if (cached.isNotEmpty()) _uiState.update { it.copy(notices = cached) }
         if (DataRefreshPolicy.isStale(
-                sessionManager.getJwcNoticeUpdatedAt(), 30L * 60 * 1000
-            )) loadNotices()
+                cache.getJwcNoticeUpdatedAt(),
+                30L * 60 * 1000,
+            )
+        ) {
+            loadNotices()
+        }
     }
 
     fun loadNotices() {
-        _uiState.update {
-            it.copy(
-                isLoading = true,
-                error = null,
-                noticeFetchUrl = repository.listUrl(1),
-                noticeFetchKey = it.noticeFetchKey + 1
-            )
-        }
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        fetchNotices()
     }
 
     fun toggleNotice(notice: JwcNotice) {
-        val expandedUrl = _uiState.value.expandedUrl
-        if (expandedUrl == notice.url) {
+        if (_uiState.value.expandedUrl == notice.url) {
             _uiState.update { it.copy(expandedUrl = null) }
             return
         }
-
         _uiState.update { it.copy(expandedUrl = notice.url) }
         if (_uiState.value.details[notice.url] !is NoticeDetailState.Success) {
             loadDetail(notice)
         }
     }
 
-    fun onNoticeHtmlLoaded(fetchUrl: String, html: String) {
-        if (fetchUrl != _uiState.value.noticeFetchUrl) return
+    fun onWafCookieCaptured(cookieHeader: String) {
         viewModelScope.launch {
-            val notices = withContext(Dispatchers.Default) {
-                JwcNoticeRepository.parseNoticeList(html).take(PREVIEW_LIMIT)
+            val accepted = runCatching { repository.acceptWafCookies(cookieHeader) }.getOrDefault(false)
+            if (!accepted) {
+                failWafBootstrap("教务处安全校验凭证无效，请重试")
+                return@launch
             }
-            if (notices.isEmpty()) {
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = "未读取到通知公告"
-                    )
-                }
-            } else {
-                sessionManager.saveJwcNoticeJson(GsonProvider.instance.toJson(notices))
-                _uiState.update {
-                    it.copy(
-                        notices = notices,
-                        isLoading = false,
-                        error = null
-                    )
-                }
-            }
+            val retries = pendingWafRetries.values.toList()
+            pendingWafRetries.clear()
+            _uiState.update { it.copy(wafChallengeUrl = null, error = null) }
+            retries.forEach { it() }
         }
     }
 
-    fun onNoticeHtmlError(fetchUrl: String, message: String) {
-        if (fetchUrl != _uiState.value.noticeFetchUrl) return
-        _uiState.update {
-            it.copy(
-                isLoading = false,
-                error = message
-            )
-        }
+    fun onWafBootstrapError(message: String) {
+        failWafBootstrap(message)
     }
 
-    fun onDetailHtmlLoaded(url: String, html: String) {
+    private fun fetchNotices() {
         viewModelScope.launch {
-            val notice = _uiState.value.notices.firstOrNull { it.url == url }
-                ?: return@launch
-            val detail = withContext(Dispatchers.Default) {
-                JwcNoticeRepository.parseNoticeDetail(html, notice)
-            }
-            _uiState.update {
-                it.copy(
-                    detailFetchUrl = null,
-                    details = it.details + (url to NoticeDetailState.Success(detail))
-                )
-            }
-        }
-    }
-
-    fun onDetailHtmlError(url: String, message: String) {
-        _uiState.update {
-            it.copy(
-                detailFetchUrl = null,
-                details = it.details + (url to NoticeDetailState.Error(message))
-            )
+            repository.getNotices(PREVIEW_LIMIT)
+                .onSuccess { notices ->
+                    cache.saveJwcNoticeJson(GsonProvider.instance.toJson(notices))
+                    _uiState.update {
+                        it.copy(notices = notices, isLoading = false, error = null)
+                    }
+                }
+                .onFailure { error ->
+                    handleFailure(
+                        key = "notices",
+                        error = error,
+                        retry = ::fetchNotices,
+                    ) {
+                        _uiState.update {
+                            it.copy(isLoading = false, error = error.message ?: "教务通告加载失败")
+                        }
+                    }
+                }
         }
     }
 
     private fun loadDetail(notice: JwcNotice) {
         _uiState.update {
-            it.copy(
-                detailFetchUrl = notice.url,
-                details = it.details + (notice.url to NoticeDetailState.Loading)
+            it.copy(details = it.details + (notice.url to NoticeDetailState.Loading))
+        }
+        fetchDetail(notice)
+    }
+
+    private fun fetchDetail(notice: JwcNotice) {
+        viewModelScope.launch {
+            repository.getNoticeDetail(notice)
+                .onSuccess { detail ->
+                    _uiState.update {
+                        it.copy(details = it.details + (notice.url to NoticeDetailState.Success(detail)))
+                    }
+                }
+                .onFailure { error ->
+                    handleFailure(
+                        key = "detail:${notice.url}",
+                        error = error,
+                        retry = { fetchDetail(notice) },
+                    ) {
+                        _uiState.update {
+                            it.copy(
+                                details = it.details + (
+                                    notice.url to NoticeDetailState.Error(
+                                        error.message ?: "通知详情加载失败",
+                                    )
+                                ),
+                            )
+                        }
+                    }
+                }
+        }
+    }
+
+    private fun handleFailure(
+        key: String,
+        error: Throwable,
+        retry: () -> Unit,
+        onRegularFailure: () -> Unit,
+    ) {
+        if (error is JwcWafChallengeRequiredException) {
+            pendingWafRetries[key] = retry
+            _uiState.update {
+                it.copy(
+                    wafChallengeUrl = repository.challengeUrl(),
+                    wafBootstrapKey = it.wafBootstrapKey + 1,
+                )
+            }
+        } else {
+            onRegularFailure()
+        }
+    }
+
+    private fun failWafBootstrap(message: String) {
+        pendingWafRetries.clear()
+        _uiState.update { state ->
+            state.copy(
+                isLoading = false,
+                error = message,
+                wafChallengeUrl = null,
+                details = state.details.mapValues { (_, detailState) ->
+                    if (detailState is NoticeDetailState.Loading) NoticeDetailState.Error(message) else detailState
+                },
             )
         }
     }
@@ -149,9 +175,8 @@ data class JwcNoticeUiState(
     val error: String? = null,
     val expandedUrl: String? = null,
     val details: Map<String, NoticeDetailState> = emptyMap(),
-    val noticeFetchUrl: String,
-    val noticeFetchKey: Int = 0,
-    val detailFetchUrl: String? = null
+    val wafChallengeUrl: String? = null,
+    val wafBootstrapKey: Int = 0,
 )
 
 sealed interface NoticeDetailState {

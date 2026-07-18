@@ -2,38 +2,31 @@ package com.ahu_plus.ui.screen.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ahu_plus.data.GsonProvider
+import com.ahu_plus.data.local.JwcNoticeCache
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.JwcNoticeDetail
 import com.ahu_plus.data.repository.JwcNoticeRepository
-import com.ahu_plus.data.local.SessionManager
-import com.ahu_plus.data.GsonProvider
+import com.ahu_plus.data.repository.JwcWafChallengeRequiredException
 import com.google.gson.reflect.TypeToken
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-/**
- * "通知公告" 二级页 ViewModel:
- * - 进入即拉第 1 页
- * - 滚到底自动加载下一页
- * - 复用首页已有的 WebView 反爬加载器(由 Screen 提供 `JwcHtmlLoader`,回调灌进来)
- * - 点击条目由 Screen 负责调用浏览器打开
- */
+/** 教务通告列表与详情，WebView 只在 Repository 报告 412 时完成一次校验。 */
 class JwcNoticeListViewModel(
     private val repository: JwcNoticeRepository,
-    private val sessionManager: SessionManager,
+    private val cache: JwcNoticeCache,
 ) : ViewModel() {
-
     private val _uiState = MutableStateFlow(JwcNoticeListUiState())
     val uiState: StateFlow<JwcNoticeListUiState> = _uiState.asStateFlow()
     private val cachedDetails = mutableMapOf<String, CachedNoticeDetail>()
+    private val pendingWafRetries = linkedMapOf<String, () -> Unit>()
 
     init {
-        sessionManager.getJwcNoticeDetailsJson()?.let { raw ->
+        cache.getJwcNoticeDetailsJson()?.let { raw ->
             runCatching {
                 val type = object : TypeToken<Map<String, CachedNoticeDetail>>() {}.type
                 val parsed: Map<String, CachedNoticeDetail> = GsonProvider.instance.fromJson(raw, type)
@@ -50,7 +43,6 @@ class JwcNoticeListViewModel(
         if (_uiState.value.currentPage == 0 && !_uiState.value.isLoading) loadFirstPage()
     }
 
-    /** 首次进入或下拉刷新:清空已有数据,重新加载第 1 页。 */
     fun loadFirstPage() {
         _uiState.update {
             it.copy(
@@ -60,154 +52,169 @@ class JwcNoticeListViewModel(
                 error = null,
                 currentPage = 0,
                 hasMore = true,
-                noticeFetchUrl = repository.listUrl(1),
-                noticeFetchKey = it.noticeFetchKey + 1
             )
         }
+        fetchPage(page = 1, replace = true)
     }
 
-    /** 列表滚到底时调用:加载下一页。 */
     fun loadNextPage() {
         val state = _uiState.value
         if (!state.hasMore || state.isLoading || state.isLoadingMore) return
         val nextPage = state.currentPage + 1
-        _uiState.update {
-            it.copy(
-                isLoadingMore = true,
-                error = null,
-                noticeFetchUrl = repository.listUrl(nextPage),
-                noticeFetchKey = it.noticeFetchKey + 1
-            )
-        }
+        _uiState.update { it.copy(isLoadingMore = true, error = null) }
+        fetchPage(page = nextPage, replace = false)
     }
 
-    /** WebView 加载完成回调:解析 HTML 并累加条目。 */
-    fun onNoticeHtmlLoaded(fetchUrl: String, html: String) {
-        if (fetchUrl != _uiState.value.noticeFetchUrl) return
-        viewModelScope.launch {
-            val parsed = withContext(Dispatchers.Default) {
-                JwcNoticeRepository.parseNoticeList(html)
-            }
-            val nextPagePath = withContext(Dispatchers.Default) {
-                JwcNoticeRepository.parseNextPagePath(html)
-            }
-            val incomingPage = pageFromUrl(fetchUrl)
-
-            if (parsed.isEmpty()) {
-                // 当前页没解析到东西:作为分页终点处理,保留已有列表
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        hasMore = false,
-                        currentPage = maxOf(it.currentPage, incomingPage)
-                    )
-                }
-                return@launch
-            }
-
-            val isFirstLoad = _uiState.value.currentPage == 0
-            _uiState.update { prev ->
-                val merged = if (isFirstLoad) {
-                    parsed
-                } else {
-                    // 拼接前按 url 去重,避免同一篇被重复展示
-                    val existing = prev.notices.map { it.url }.toHashSet()
-                    prev.notices + parsed.filterNot { it.url in existing }
-                }
-                prev.copy(
-                    notices = merged,
-                    isLoading = false,
-                    isLoadingMore = false,
-                    currentPage = maxOf(prev.currentPage, incomingPage),
-                    hasMore = nextPagePath != null
-                )
-            }
-        }
-    }
-
-    /** WebView 加载失败回调:仅对"首次加载"置为错误态;翻页失败保留旧数据。 */
-    fun onNoticeHtmlError(fetchUrl: String, message: String) {
-        if (fetchUrl != _uiState.value.noticeFetchUrl) return
-        val isFirstLoad = _uiState.value.currentPage == 0
-        _uiState.update {
-            if (isFirstLoad) {
-                it.copy(isLoading = false, error = message)
-            } else {
-                it.copy(isLoadingMore = false, error = message)
-            }
-        }
-    }
-
-    /** 列表项点击后在模块内打开详情,由隐藏 WebView 拉取正文 HTML。 */
     fun openNotice(notice: JwcNotice) {
-        val detailState = _uiState.value.details[notice.url]
+        val cached = _uiState.value.details[notice.url]
         _uiState.update {
             it.copy(
                 selectedNotice = notice,
-                detailFetchUrl = if (detailState is NoticeDetailState.Success) null else notice.url,
-                detailFetchKey = if (detailState is NoticeDetailState.Success) {
-                    it.detailFetchKey
-                } else {
-                    it.detailFetchKey + 1
-                },
-                details = if (detailState is NoticeDetailState.Success) {
+                details = if (cached is NoticeDetailState.Success) {
                     it.details
                 } else {
                     it.details + (notice.url to NoticeDetailState.Loading)
-                }
+                },
             )
         }
+        if (cached !is NoticeDetailState.Success) fetchDetail(notice)
     }
 
     fun closeNotice() {
-        _uiState.update { it.copy(selectedNotice = null, detailFetchUrl = null) }
+        _uiState.update { it.copy(selectedNotice = null) }
     }
 
     fun retryDetail() {
         val notice = _uiState.value.selectedNotice ?: return
         _uiState.update {
-            it.copy(
-                detailFetchUrl = notice.url,
-                detailFetchKey = it.detailFetchKey + 1,
-                details = it.details + (notice.url to NoticeDetailState.Loading)
-            )
+            it.copy(details = it.details + (notice.url to NoticeDetailState.Loading))
+        }
+        fetchDetail(notice)
+    }
+
+    fun onWafCookieCaptured(cookieHeader: String) {
+        viewModelScope.launch {
+            val accepted = runCatching { repository.acceptWafCookies(cookieHeader) }.getOrDefault(false)
+            if (!accepted) {
+                failWafBootstrap("教务处安全校验凭证无效，请重试")
+                return@launch
+            }
+            val retries = pendingWafRetries.values.toList()
+            pendingWafRetries.clear()
+            _uiState.update { it.copy(wafChallengeUrl = null, error = null) }
+            retries.forEach { it() }
         }
     }
 
-    fun onDetailHtmlLoaded(url: String, html: String) {
-        if (url != _uiState.value.detailFetchUrl) return
+    fun onWafBootstrapError(message: String) {
+        failWafBootstrap(message)
+    }
+
+    suspend fun cookieHeaderFor(url: String): String = repository.getCookieHeader(url)
+
+    private fun fetchPage(page: Int, replace: Boolean) {
         viewModelScope.launch {
-            val notice = _uiState.value.selectedNotice?.takeIf { it.url == url }
-                ?: _uiState.value.notices.firstOrNull { it.url == url }
-                ?: return@launch
-            val detail: JwcNoticeDetail = withContext(Dispatchers.Default) {
-                JwcNoticeRepository.parseNoticeDetail(html, notice)
-            }
+            repository.getNoticePage(page)
+                .onSuccess { result ->
+                    _uiState.update { previous ->
+                        val merged = if (replace) {
+                            result.notices
+                        } else {
+                            val existing = previous.notices.mapTo(hashSetOf()) { it.url }
+                            previous.notices + result.notices.filterNot { it.url in existing }
+                        }
+                        previous.copy(
+                            notices = merged,
+                            isLoading = false,
+                            isLoadingMore = false,
+                            error = null,
+                            currentPage = result.page,
+                            hasMore = result.hasMore,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    handleFailure(
+                        key = "page:$page",
+                        error = error,
+                        retry = { fetchPage(page, replace) },
+                    ) {
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                isLoadingMore = false,
+                                error = error.message ?: "教务通告加载失败",
+                            )
+                        }
+                    }
+                }
+        }
+    }
+
+    private fun fetchDetail(notice: JwcNotice) {
+        viewModelScope.launch {
+            repository.getNoticeDetail(notice)
+                .onSuccess { detail -> saveDetail(notice.url, detail) }
+                .onFailure { error ->
+                    handleFailure(
+                        key = "detail:${notice.url}",
+                        error = error,
+                        retry = { fetchDetail(notice) },
+                    ) {
+                        _uiState.update {
+                            it.copy(
+                                details = it.details + (
+                                    notice.url to NoticeDetailState.Error(
+                                        error.message ?: "通知详情加载失败",
+                                    )
+                                ),
+                            )
+                        }
+                    }
+                }
+        }
+    }
+
+    private suspend fun saveDetail(url: String, detail: JwcNoticeDetail) {
+        _uiState.update {
+            it.copy(details = it.details + (url to NoticeDetailState.Success(detail)))
+        }
+        cachedDetails[url] = CachedNoticeDetail(detail, System.currentTimeMillis())
+        cache.saveJwcNoticeDetailsJson(GsonProvider.instance.toJson(cachedDetails))
+    }
+
+    private fun handleFailure(
+        key: String,
+        error: Throwable,
+        retry: () -> Unit,
+        onRegularFailure: () -> Unit,
+    ) {
+        if (error is JwcWafChallengeRequiredException) {
+            pendingWafRetries[key] = retry
             _uiState.update {
                 it.copy(
-                    detailFetchUrl = null,
-                    details = it.details + (url to NoticeDetailState.Success(detail))
+                    wafChallengeUrl = repository.challengeUrl(),
+                    wafBootstrapKey = it.wafBootstrapKey + 1,
                 )
             }
-            cachedDetails[url] = CachedNoticeDetail(detail, System.currentTimeMillis())
-            sessionManager.saveJwcNoticeDetailsJson(GsonProvider.instance.toJson(cachedDetails))
+        } else {
+            onRegularFailure()
         }
     }
 
-    fun onDetailHtmlError(url: String, message: String) {
-        if (url != _uiState.value.detailFetchUrl) return
-        _uiState.update {
-            it.copy(
-                detailFetchUrl = null,
-                details = it.details + (url to NoticeDetailState.Error(message))
+    private fun failWafBootstrap(message: String) {
+        pendingWafRetries.clear()
+        _uiState.update { state ->
+            state.copy(
+                isLoading = false,
+                isLoadingMore = false,
+                error = message,
+                wafChallengeUrl = null,
+                details = state.details.mapValues { (_, detailState) ->
+                    if (detailState is NoticeDetailState.Loading) NoticeDetailState.Error(message) else detailState
+                },
             )
         }
-    }
-
-    private fun pageFromUrl(url: String): Int {
-        val match = Regex("""list(\d+)\.htm""", RegexOption.IGNORE_CASE).find(url)
-        return match?.groupValues?.get(1)?.toIntOrNull() ?: 1
     }
 }
 
@@ -223,10 +230,8 @@ data class JwcNoticeListUiState(
     val error: String? = null,
     val currentPage: Int = 0,
     val hasMore: Boolean = true,
-    val noticeFetchUrl: String? = null,
-    val noticeFetchKey: Int = 0,
     val selectedNotice: JwcNotice? = null,
     val details: Map<String, NoticeDetailState> = emptyMap(),
-    val detailFetchUrl: String? = null,
-    val detailFetchKey: Int = 0
+    val wafChallengeUrl: String? = null,
+    val wafBootstrapKey: Int = 0,
 )

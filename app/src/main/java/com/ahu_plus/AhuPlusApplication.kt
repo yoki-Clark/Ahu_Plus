@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.data.local.CourseNoteRepository
+import com.ahu_plus.data.local.JwcWafCookieStore
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.local.XzxxWafCookieStore
 import com.ahu_plus.data.repository.AdwmhCardRepository
@@ -212,7 +213,7 @@ class AhuPlusApplication : Application() {
         )
         marketRepository = MarketRepository(sessionManager)
         aiCommentRepository = AiCommentRepository(this, sessionManager)
-        jwcNoticeRepository = JwcNoticeRepository()
+        jwcNoticeRepository = JwcNoticeRepository(JwcWafCookieStore(appDataStore))
         xzxxRepository = XzxxRepository(XzxxWafCookieStore(appDataStore))
         studentInfoRepository = StudentInfoRepository(sessionManager, casAuthRepository)
         // 成绩 / 考试 复用 JwAuthRepository 的 CookieJar
