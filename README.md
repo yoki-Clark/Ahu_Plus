@@ -4,7 +4,7 @@
 ![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?logo=kotlin&logoColor=white)
 ![Compose](https://img.shields.io/badge/Compose_BOM-2026.02.01-4285F4)
-![Version](https://img.shields.io/badge/version-2.2.2.6-2563eb)
+![Version](https://img.shields.io/badge/version-2.2.2.7-2563eb)
 
 安徽大学校园助手 Android 应用。项目把学校门户、教务、一卡通、学习平台和若干公开数据源整合到一个 Jetpack Compose 客户端中。
 

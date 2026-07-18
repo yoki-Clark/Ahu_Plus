@@ -32,8 +32,8 @@ android {
         applicationId = "com.yourname.ahu_plus"
         minSdk = 24
         targetSdk = 36
-        versionCode = 30
-        versionName = "2.2.2.6"
+        versionCode = 31
+        versionName = "2.2.2.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
