@@ -17,8 +17,10 @@
 import json
 import base64
 import os
+import secrets
 import sys
 import time
+from urllib.parse import urlencode
 
 # mitmproxy 的 ctx 用于日志；脚本也可在无 mitmproxy 环境下被 import 做单元自检
 try:
@@ -33,6 +35,7 @@ except Exception:  # pragma: no cover - 仅自检时走到
 TARGET_HOST = "api.zxs-bbs.cn"        # 集市后端域名
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT_FILE = os.path.join(OUT_DIR, "我的集市Token.txt")
+QR_FILE = os.path.join(OUT_DIR, "集市身份导入二维码.png")
 DONE_FLAG = os.path.join(OUT_DIR, ".captured")   # run.ps1 轮询此文件判断是否抓到
 
 
@@ -62,6 +65,37 @@ def _copy_clipboard(text: str) -> bool:
         p.communicate(text.encode("utf-16le"))
         return p.returncode == 0
     except Exception:
+        return False
+
+
+def build_import_uri(token: str) -> str:
+    """生成仅供 Ahu_Plus 导入使用的临时二维码内容。"""
+    raw = token.removeprefix("Bearer ").strip()
+    query = urlencode({
+        "v": "1",
+        "token": raw,
+        "nonce": secrets.token_urlsafe(18),
+    })
+    return "ahuplus://market/import?" + query
+
+
+def _write_qr(token: str) -> bool:
+    """完全在本机生成二维码，不把 Bearer token 发送给第三方服务。"""
+    try:
+        import qrcode
+
+        qr = qrcode.QRCode(
+            version=None,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=8,
+            border=4,
+        )
+        qr.add_data(build_import_uri(token))
+        qr.make(fit=True)
+        qr.make_image(fill_color="black", back_color="white").save(QR_FILE)
+        return True
+    except Exception as e:
+        _log("生成二维码失败: %s" % e)
         return False
 
 
@@ -126,6 +160,7 @@ class TokenCatcher:
             _log("写入 token 文件失败: %s" % e)
 
         copied = _copy_clipboard(token)
+        qr_created = _write_qr(token)
 
         # 写完成标志，供 run.ps1 检测后自动收尾
         try:
@@ -141,6 +176,9 @@ class TokenCatcher:
         if exp_str:
             _log("  有效期至：%s" % exp_str)
         _log("  Token 已保存到：%s" % OUT_FILE)
+        if qr_created:
+            _log("  导入二维码已生成：%s" % QR_FILE)
+            _log("  在 Ahu_Plus 集市身份页点「扫描电脑二维码」即可导入")
         _log("  %s" % ("Token 已复制到剪贴板，回 App 直接粘贴即可" if copied
                         else "（剪贴板复制失败，请手动打开上面的 txt 复制）"))
         _log(bar)
@@ -160,4 +198,7 @@ if __name__ == "__main__" and not _HAS_MITM:
     p = decode_jwt(sample)
     assert p and p.get("schoolID") == 10682, p
     assert p.get("school") == "安徽医科大学", p.get("school")
+    uri = build_import_uri(sample)
+    assert uri.startswith("ahuplus://market/import?")
+    assert "Bearer" not in uri
     print("自检通过：解码出", p.get("school"), "schoolID=", p.get("schoolID"))

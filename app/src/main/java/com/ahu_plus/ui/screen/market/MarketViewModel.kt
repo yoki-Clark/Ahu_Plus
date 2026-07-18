@@ -254,29 +254,66 @@ class MarketViewModel(
             return
         }
 
+        saveIdentityValue(value)
+    }
+
+    fun importIdentity(
+        value: String,
+        onComplete: (Result<String>) -> Unit = {},
+    ) {
+        saveIdentityValue(value, onComplete)
+    }
+
+    private fun saveIdentityValue(
+        value: String,
+        onComplete: (Result<String>) -> Unit = {},
+    ) {
+        val parsed = MarketApi.parseIdentity(value).getOrElse { error ->
+            val message = error.message ?: "集市身份字段格式无效"
+            _uiState.update { it.copy(identityError = message, saveMessage = null) }
+            onComplete(Result.failure(error))
+            return
+        }
+        if (MarketApi.expiryState(parsed.metadata.expiresAtEpochSeconds) ==
+            com.ahu_plus.data.remote.market.MarketIdentityExpiryState.EXPIRED
+        ) {
+            val error = IllegalArgumentException("该集市身份已过期，请重新获取")
+            _uiState.update { it.copy(identityError = error.message, saveMessage = null) }
+            onComplete(Result.failure(error))
+            return
+        }
+
         viewModelScope.launch {
-            val normalized = MarketApi.normalizeIdentity(value)
-            val school = MarketApi.schoolFromIdentity(normalized)
+            val existingIndex = _uiState.value.identities.indexOfFirst { existing ->
+                MarketApi.parseIdentity(existing.token).getOrNull()?.metadata?.schoolId ==
+                    parsed.metadata.schoolId
+            }
+            val existing = _uiState.value.identities.getOrNull(existingIndex)
             val identity = MarketIdentity(
-                id = UUID.randomUUID().toString(),
-                token = normalized,
-                school = school
+                id = existing?.id ?: UUID.randomUUID().toString(),
+                token = parsed.normalizedToken,
+                school = parsed.metadata.school,
             )
-            val updated = _uiState.value.identities + identity
+            val updated = _uiState.value.identities.toMutableList().apply {
+                if (existingIndex >= 0) this[existingIndex] = identity else add(identity)
+            }
             repository.saveMarketIdentities(updated)
             val updatedSelected = _uiState.value.selectedIdentityIds + identity.id
             repository.setSelectedIdentityIds(updatedSelected)
+            val action = if (existing == null) "已添加" else "已更新"
+            val message = "$action ${parsed.metadata.school}"
             _uiState.update {
                 it.copy(
                     identities = updated,
                     selectedIdentityIds = updatedSelected,
                     hasSavedIdentity = true,
-                    school = school,
+                    school = parsed.metadata.school,
                     identityInput = "",
-                    saveMessage = "已添加 ${school ?: "新校区"}",
+                    saveMessage = message,
                     identityError = null
                 )
             }
+            onComplete(Result.success(message))
             refreshTopics()
         }
     }

@@ -4,12 +4,18 @@
 #
 #  做的事：
 #   1) 准备便携版 Python（工具目录内，绝不污染系统）
-#   2) 给它装 mitmproxy（国内镜像加速）
-#   3) 首次运行装 mitmproxy CA 证书到系统受信任根（需管理员）
+#   2) 给它装 mitmproxy + 本地二维码组件（国内镜像加速）
+#   3) 生成临时 CA，仅安装到当前用户受信任根
 #   4) 设置系统代理 -> 127.0.0.1:8080
 #   5) 启动抓包，等用户在电脑微信打开集市小程序点一下
-#   6) 抓到 token 后自动收尾；无论如何都会还原系统代理（finally 保证）
+#   6) 抓到 token 后自动收尾；无论如何都会还原代理并删除证书/私钥
 # =====================================================================
+
+param(
+    [switch]$RuntimeSelfTest,
+    [string]$RuntimeSelfTestPython,
+    [switch]$CertificateSelfTest
+)
 
 $ErrorActionPreference = "Stop"
 $ProxyPort   = 8080
@@ -21,7 +27,10 @@ $PyExe       = $PortablePy                      # 实际使用的 python；Ensur
 $Script      = Join-Path $Root "catch_token.py"
 $DoneFlag    = Join-Path $Root ".captured"
 $TokenFile   = Join-Path $Root "我的集市Token.txt"
-$CertFile    = Join-Path $env:USERPROFILE ".mitmproxy\mitmproxy-ca-cert.cer"
+$QrFile      = Join-Path $Root "集市身份导入二维码.png"
+$CaDir       = Join-Path ([IO.Path]::GetTempPath()) "AhuPlus-Market-CA-$PID"
+$CertFile    = Join-Path $CaDir "mitmproxy-ca-cert.cer"
+$CertMarker  = Join-Path $Root ".market-ca-thumbprint"
 
 # mitmproxy 没有 `python -m mitmproxy.tools.main` 入口（该模块无 __main__ 守卫，
 # -m 会静默什么都不做）。用同目录的启动垫片 _mitmrun.py 显式调用 mitmdump()，
@@ -44,6 +53,37 @@ function Info($m){ Write-Host "  $m" -ForegroundColor Cyan }
 function Ok($m){   Write-Host "  $m" -ForegroundColor Green }
 function Warn($m){ Write-Host "  $m" -ForegroundColor Yellow }
 function Err($m){  Write-Host "  $m" -ForegroundColor Red }
+
+function Invoke-PythonCommand{
+    param(
+        [Parameter(Mandatory=$true)][string]$Python,
+        [Parameter(Mandatory=$true)][string[]]$Arguments,
+        [switch]$Quiet
+    )
+    $previousErrorAction = $ErrorActionPreference
+    $exitCode = 1
+    $output = ""
+    try{
+        # Windows PowerShell 5.1 会在全局 Stop 模式下把原生程序的 stderr
+        # 提升成终止异常。Python 缺模块属于可预期探测结果，必须按退出码处理。
+        $ErrorActionPreference = "Continue"
+        if($Quiet){
+            $output = (& $Python @Arguments 2>$null | Out-String)
+        }else{
+            $lines = & $Python @Arguments 2>&1
+            if($lines){
+                $lines | ForEach-Object { Write-Host "  $($_.ToString())" }
+            }
+        }
+        $exitCode = $LASTEXITCODE
+    }catch{
+        $output = $_.Exception.Message
+        $exitCode = 1
+    }finally{
+        $ErrorActionPreference = $previousErrorAction
+    }
+    return [PSCustomObject]@{ ExitCode = $exitCode; Output = $output }
+}
 
 function Download-File($urls, $dest){
     foreach($u in $urls){
@@ -69,34 +109,40 @@ function Resolve-SystemPython{
         @{ exe="python3"; pre=@() }
     )
     foreach($c in $cands){
-        try{
-            $callArgs = $c.pre + @("-c", $probe)
-            $out = (& $c.exe @callArgs 2>$null | Out-String).Trim()
-            if($LASTEXITCODE -eq 0 -and $out -and (Test-Path $out) -and $out -notmatch 'WindowsApps'){
-                return $out
-            }
-        }catch{}
+        $callArgs = $c.pre + @("-c", $probe)
+        $result = Invoke-PythonCommand -Python $c.exe -Arguments $callArgs -Quiet
+        $out = $result.Output.Trim()
+        if($result.ExitCode -eq 0 -and $out -and
+           [IO.File]::Exists($out) -and $out -notmatch 'WindowsApps'){
+            return $out
+        }
     }
     return $null
 }
 
-function Test-HasMitm($py){
-    return (& $py -c "import mitmproxy,sys;sys.stdout.write('ok')" 2>$null) -eq "ok"
+function Test-HasRuntime($py){
+    if(-not $py){ return $false }
+    $result = Invoke-PythonCommand -Python $py `
+        -Arguments @("-c", "import mitmproxy,qrcode,sys;sys.stdout.write('ok')") -Quiet
+    return $result.ExitCode -eq 0 -and $result.Output.Trim() -eq "ok"
 }
 
 # 决定用哪个 Python：能用系统现成的就用，最后才下载便携版。
 function Ensure-Runtime{
     $sys = Resolve-SystemPython
     if($sys){
-        if(Test-HasMitm $sys){
+        if(Test-HasRuntime $sys){
             $script:PyExe = $sys
-            Ok "检测到系统已装 Python + mitmproxy，直接使用（免下载）。"
+            Ok "检测到系统已装 Python + 抓包组件，直接使用（免下载）。"
             return
         }
         # 有 Python 没组件：装到当前用户目录（--user，不动全局 site-packages）
-        Info "检测到系统 Python，正在为其安装抓包组件 mitmproxy（装到当前用户，不影响全局）…"
-        & $sys -m pip install --user mitmproxy -i $PipIndex --no-warn-script-location
-        if($LASTEXITCODE -eq 0 -and (Test-HasMitm $sys)){
+        Info "检测到系统 Python，正在安装抓包和本地二维码组件（仅当前用户）…"
+        $install = Invoke-PythonCommand -Python $sys -Arguments @(
+            "-m", "pip", "install", "--user", "mitmproxy", "qrcode[pil]",
+            "-i", $PipIndex, "--no-warn-script-location"
+        )
+        if($install.ExitCode -eq 0 -and (Test-HasRuntime $sys)){
             $script:PyExe = $sys
             Ok "已用系统 Python 准备好抓包组件。"
             return
@@ -136,7 +182,10 @@ function Ensure-PortablePython{
     Info "安装 pip…"
     $getpip = Join-Path $Root "get-pip.py"
     if(-not (Download-File $GetPipUrls $getpip)){ throw "get-pip.py 下载失败" }
-    & $PortablePy $getpip --no-warn-script-location -i $PipIndex | Out-Null
+    $getPipResult = Invoke-PythonCommand -Python $PortablePy -Arguments @(
+        $getpip, "--no-warn-script-location", "-i", $PipIndex
+    )
+    if($getPipResult.ExitCode -ne 0){ throw "pip 安装失败" }
     Remove-Item $getpip -Force
     $script:PyExe = $PortablePy
     Ok "Python 环境就绪。"
@@ -144,36 +193,67 @@ function Ensure-PortablePython{
 
 # ---- 2. 便携 Python 装 mitmproxy ----
 function Ensure-PortableMitmproxy{
-    if(Test-HasMitm $PortablePy){ return }
-    Info "安装抓包组件 mitmproxy（首次较慢，请耐心等待）…"
-    & $PortablePy -m pip install mitmproxy -i $PipIndex --no-warn-script-location
-    if($LASTEXITCODE -ne 0){ throw "mitmproxy 安装失败，请检查网络后重试。" }
+    if(Test-HasRuntime $PortablePy){ return }
+    Info "安装抓包和本地二维码组件（首次较慢，请耐心等待）…"
+    $install = Invoke-PythonCommand -Python $PortablePy -Arguments @(
+        "-m", "pip", "install", "mitmproxy", "qrcode[pil]",
+        "-i", $PipIndex, "--no-warn-script-location"
+    )
+    if($install.ExitCode -ne 0){ throw "抓包组件安装失败，请检查网络后重试。" }
     Ok "抓包组件就绪。"
 }
 
-# ---- 3. 生成并安装 CA 证书 ----
+# ---- 3. 生成并安装临时 CA 证书（仅当前用户） ----
+function Remove-InstalledCert{
+    $thumbprint = $script:installedCertThumbprint
+    if(-not $thumbprint -and (Test-Path $CertMarker)){
+        $thumbprint = (Get-Content $CertMarker -Raw -ErrorAction SilentlyContinue).Trim()
+    }
+    if($thumbprint -match '^[0-9A-Fa-f]{40}$'){
+        $certPath = "Cert:\CurrentUser\Root\$thumbprint"
+        if(Test-Path $certPath){
+            Remove-Item -LiteralPath $certPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $script:installedCertThumbprint = $null
+    Remove-Item -LiteralPath $CertMarker -Force -ErrorAction SilentlyContinue
+}
+
 function Ensure-Cert{
+    # 上次若被强制结束，按精确指纹清掉遗留证书。
+    Remove-InstalledCert
+    if(Test-Path $CaDir){ Remove-Item -LiteralPath $CaDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $CaDir -Force | Out-Null
+
     if(-not (Test-Path $CertFile)){
-        Info "生成抓包证书…"
-        # 真正起一次 mitmdump 让它在 ~/.mitmproxy 生成 CA 证书，4 秒后杀掉
-        $p2 = Start-Process -FilePath $PyExe `
-            -ArgumentList "$MitmRun","-p","$ProxyPort","--set","termlog_verbosity=error" `
-            -PassThru -WindowStyle Hidden
-        Start-Sleep -Seconds 4
-        if($p2 -and -not $p2.HasExited){ $p2.Kill() }
-        Start-Sleep -Seconds 1
+        Info "生成本次运行专用的临时抓包证书…"
+        $script:certProcess = Start-Process -FilePath $PyExe `
+            -ArgumentList "$MitmRun","-p","0","--set","confdir=$CaDir","--set","termlog_verbosity=error" `
+            -PassThru -NoNewWindow
+
+        # 首次安装后 Windows Defender/磁盘扫描可能让 Python 冷启动超过 4 秒。
+        # 等待实际产物，而不是固定睡眠；进程提前退出时保留 stderr 作为诊断信息。
+        $deadline = (Get-Date).AddSeconds(30)
+        while((Get-Date) -lt $deadline -and
+              -not (Test-Path $CertFile) -and
+              -not $script:certProcess.HasExited){
+            Start-Sleep -Milliseconds 250
+        }
+        if($script:certProcess -and -not $script:certProcess.HasExited){ $script:certProcess.Kill() }
+        Start-Sleep -Milliseconds 250
     }
     if(-not (Test-Path $CertFile)){
-        Warn "证书尚未生成，稍后抓包启动时会自动生成并安装。"
-        return
+        $exitDetail = if($script:certProcess -and $script:certProcess.HasExited){
+            "子进程退出码 $($script:certProcess.ExitCode)"
+        }else{ "等待 30 秒仍无产物" }
+        throw "临时抓包证书生成失败：$exitDetail。详细错误已显示在当前窗口。"
     }
-    # 是否已在受信任根
-    $installed = certutil -store Root 2>$null | Select-String "mitmproxy"
-    if($installed){ Ok "抓包证书已信任。"; return }
-    Info "安装抓包证书到系统受信任根（会弹一次确认）…"
-    certutil -addstore -f Root "$CertFile" | Out-Null
-    if($LASTEXITCODE -eq 0){ Ok "证书安装成功。" }
-    else{ Warn "证书安装未成功，可能影响抓包；可继续尝试。" }
+    Info "临时信任抓包证书（仅当前 Windows 用户）…"
+    $installed = Import-Certificate -FilePath $CertFile -CertStoreLocation "Cert:\CurrentUser\Root"
+    if(-not $installed){ throw "临时证书安装失败。" }
+    $script:installedCertThumbprint = $installed.Thumbprint
+    Set-Content -LiteralPath $CertMarker -Value $installed.Thumbprint -Encoding ASCII
+    Ok "临时证书已安装，工具结束时会自动删除。"
 }
 
 # ---- 4/6. 系统代理读写 ----
@@ -212,6 +292,35 @@ public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntP
     }catch{}
 }
 
+if($RuntimeSelfTest){
+    $candidate = if($RuntimeSelfTestPython){ $RuntimeSelfTestPython } else { Resolve-SystemPython }
+    if(-not $candidate){ throw "自检失败：未找到可用的 Python" }
+    $available = Test-HasRuntime $candidate
+    Write-Output "Runtime probe completed: available=$available python=$candidate"
+    exit 0
+}
+
+if($CertificateSelfTest){
+    $candidate = Resolve-SystemPython
+    if(-not $candidate -or -not (Test-HasRuntime $candidate)){
+        throw "证书自检失败：没有已安装抓包组件的 Python"
+    }
+    $script:PyExe = $candidate
+    try{
+        Ensure-Cert
+        Write-Output "Certificate lifecycle completed: generated, installed and ready for cleanup"
+    }finally{
+        if($script:certProcess -and -not $script:certProcess.HasExited){
+            $script:certProcess.Kill()
+        }
+        Remove-InstalledCert
+        if(Test-Path $CaDir){
+            Remove-Item -LiteralPath $CaDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    exit 0
+}
+
 # =====================================================================
 #  主流程
 # =====================================================================
@@ -224,6 +333,9 @@ Write-Host ""
 
 $savedProxy = $null
 $proxyChanged = $false
+$mitmProcess = $null
+$certProcess = $null
+$installedCertThumbprint = $null
 
 # 关键：很多同学开着 clash/v2ray，系统代理是 socks=127.0.0.1:xxxx。
 # 便携版 Python 没装 PySocks，pip 走系统 SOCKS 代理会报
@@ -241,6 +353,7 @@ try{
     # 删旧结果
     if(Test-Path $DoneFlag){ Remove-Item $DoneFlag -Force }
     if(Test-Path $TokenFile){ Remove-Item $TokenFile -Force }
+    if(Test-Path $QrFile){ Remove-Item $QrFile -Force }
 
     # 设代理（先存原状态）
     $savedProxy = Get-ProxyState
@@ -259,25 +372,31 @@ try{
 
     # 启动抓包（前台子进程，输出直达本窗口）
     $mitmArgs = @("$MitmRun","-s","$Script","-p","$ProxyPort",
+                  "--set","confdir=$CaDir","--allow-hosts","^api\.zxs-bbs\.cn$",
                   "--set","termlog_verbosity=error","--set","flow_detail=0")
-    $proc = Start-Process -FilePath $PyExe -ArgumentList $mitmArgs -PassThru -NoNewWindow
+    $mitmProcess = Start-Process -FilePath $PyExe -ArgumentList $mitmArgs -PassThru -NoNewWindow
 
     # 轮询 .captured；最多 5 分钟
     $deadline = (Get-Date).AddMinutes(5)
     while((Get-Date) -lt $deadline){
         if(Test-Path $DoneFlag){ Start-Sleep -Milliseconds 800; break }
-        if($proc.HasExited){ break }
+        if($mitmProcess.HasExited){ break }
         Start-Sleep -Milliseconds 600
     }
 
-    if($proc -and -not $proc.HasExited){ $proc.Kill() }
+    if($mitmProcess -and -not $mitmProcess.HasExited){ $mitmProcess.Kill() }
 
     Write-Host ""
     if(Test-Path $TokenFile){
         Ok "已成功获取！Token 已复制到剪贴板，并保存在："
         Write-Host "    $TokenFile" -ForegroundColor White
         Write-Host ""
-        Ok "回到 App 的【集市设置】，粘贴即可。"
+        if(Test-Path $QrFile){
+            Ok "导入二维码已在本机生成并打开，请用 App 扫描："
+            Write-Host "    $QrFile" -ForegroundColor White
+            Start-Process -FilePath $QrFile | Out-Null
+        }
+        Ok "也可以回到 App 的【集市设置】，从剪贴板粘贴。"
     }else{
         Warn "这次没抓到。常见原因："
         Write-Host "    - 还没在电脑微信里打开集市小程序，或没点任何页面" -ForegroundColor White
@@ -293,13 +412,30 @@ catch{
     Write-Host ""
 }
 finally{
-    # 关键：无论成功失败，都还原系统代理，绝不让用户断网
+    if($mitmProcess -and -not $mitmProcess.HasExited){
+        $mitmProcess.Kill()
+    }
+    if($certProcess -and -not $certProcess.HasExited){
+        $certProcess.Kill()
+    }
+    # 无论成功失败，都还原代理并删除本次运行的证书和 CA 私钥。
     if($proxyChanged){
         Info "正在还原系统网络设置…"
         Restore-Proxy $savedProxy
         Ok "网络设置已还原。"
     }
+    Remove-InstalledCert
+    if(Test-Path $CaDir){
+        Remove-Item -LiteralPath $CaDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Ok "临时证书和抓包私钥已清理。"
     Write-Host ""
     Write-Host "  按任意键关闭窗口…" -ForegroundColor DarkGray
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    try{
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    }finally{
+        if(Test-Path $QrFile){
+            Remove-Item -LiteralPath $QrFile -Force -ErrorAction SilentlyContinue
+        }
+    }
 }

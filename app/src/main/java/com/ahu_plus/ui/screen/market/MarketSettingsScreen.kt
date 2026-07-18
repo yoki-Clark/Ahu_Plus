@@ -622,9 +622,15 @@ private fun SavedIdentityRow(
                 fontWeight = FontWeight.Medium
             )
             Text(
-                text = maskToken(identity.token),
+                text = MarketApi.parseIdentity(identity.token).getOrNull()?.metadata?.let {
+                    MarketApi.expiryLabel(it)
+                } ?: "无法读取有效期",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (
+                    MarketApi.parseIdentity(identity.token).getOrNull()?.metadata?.let {
+                        MarketApi.expiryState(it.expiresAtEpochSeconds)
+                    } == com.ahu_plus.data.remote.market.MarketIdentityExpiryState.EXPIRED
+                ) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

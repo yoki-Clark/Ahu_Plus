@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -28,6 +29,7 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -72,6 +74,9 @@ import com.ahu_plus.data.repository.JwAuthRepository
 import com.ahu_plus.data.repository.MarketRepository
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.YcardRepository
+import com.ahu_plus.data.remote.market.MarketApi
+import com.ahu_plus.data.remote.market.MarketIdentityExpiryState
+import com.ahu_plus.data.remote.market.ParsedMarketIdentity
 import com.ahu_plus.ui.screen.apps.AppHubScreen
 import com.ahu_plus.ui.screen.chaoxing.ChaoxingTabScreen
 import com.ahu_plus.ui.screen.chaoxing.ChaoxingSubTab
@@ -210,6 +215,7 @@ fun MainScreen(
     var homePage by rememberSaveable { mutableIntStateOf(HOME_DASHBOARD) }
     // 首页"日程"卡片右上 + → 进日程页并自动弹添加 sheet(一次性)
     var agendaOpenAdd by rememberSaveable { mutableStateOf(false) }
+    var pendingMarketImport by remember { mutableStateOf<ParsedMarketIdentity?>(null) }
 
     // 首次登录初始化冒泡 — SnackbarHost
     val initSnackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
@@ -380,6 +386,73 @@ fun MainScreen(
     val marketPinned = marketVisible && BottomNavService.MARKET in bottomNavServices
     val chaoxingPinned = chaoxingVisible && BottomNavService.CHAOXING in bottomNavServices
     val welearnPinned = welearnVisible && BottomNavService.WELEARN in bottomNavServices
+
+    LaunchedEffect(deepLink) {
+        val importUri = deepLink?.takeIf {
+            it.startsWith(MarketApi.IMPORT_URI_PREFIX, ignoreCase = true)
+        } ?: return@LaunchedEffect
+        val parsed = MarketApi.parseImportUri(importUri)
+        val identity = parsed.getOrNull()
+        if (identity == null) {
+            initSnackbarHostState.showSnackbar(
+                parsed.exceptionOrNull()?.message ?: "无法识别集市身份二维码"
+            )
+        } else if (
+            MarketApi.expiryState(identity.metadata.expiresAtEpochSeconds) ==
+            MarketIdentityExpiryState.EXPIRED
+        ) {
+            initSnackbarHostState.showSnackbar("该集市身份已过期，请重新获取")
+        } else {
+            pendingMarketImport = identity
+        }
+        onDeepLinkConsumed()
+    }
+
+    var lastIdentityWarning by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(marketUiState.identities) {
+        val warning = MarketApi.expiryWarning(marketUiState.identities.map { it.token })
+        if (warning == null) {
+            lastIdentityWarning = null
+        } else if (warning != lastIdentityWarning) {
+            lastIdentityWarning = warning
+            initSnackbarHostState.showSnackbar(warning)
+        }
+    }
+
+    pendingMarketImport?.let { identity ->
+        AlertDialog(
+            onDismissRequest = { pendingMarketImport = null },
+            title = { Text("导入集市身份") },
+            text = {
+                Text(
+                    "学校：${identity.metadata.school}\n" +
+                        "${MarketApi.expiryLabel(identity.metadata)}\n\n" +
+                        "确认后将保存到本机；同一学校的旧身份会被替换。"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingMarketImport = null
+                        marketViewModel.importIdentity(identity.normalizedToken) { result ->
+                            scope.launch {
+                                initSnackbarHostState.showSnackbar(
+                                    result.getOrElse { it.message ?: "集市身份导入失败" }
+                                )
+                            }
+                        }
+                        if (marketVisible) {
+                            selectedTab = TAB_MARKET
+                            marketViewModel.openSettings()
+                        }
+                    }
+                ) { Text("确认导入") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingMarketImport = null }) { Text("取消") }
+            },
+        )
+    }
 
     LaunchedEffect(marketVisible, chaoxingVisible, welearnVisible) {
         val enabled = buildSet {
