@@ -1,11 +1,5 @@
 package com.ahu_plus.ui.screen.dashboard
 
-import android.graphics.Bitmap
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -81,7 +75,6 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -97,7 +90,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.JwcNotice
@@ -125,7 +117,6 @@ import com.ahu_plus.ui.theme.AhuTeal
 import com.ahu_plus.ui.theme.AhuViolet
 import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.screen.home.FavoritesPickerSheet
-import org.json.JSONArray
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -282,21 +273,15 @@ fun DashboardScreen(
                 }
             }
 
-            JwcHtmlLoader(
-                url = noticeUiState.noticeFetchUrl,
-                reloadKey = noticeUiState.noticeFetchKey,
-                onHtml = noticeViewModel::onNoticeHtmlLoaded,
-                onError = noticeViewModel::onNoticeHtmlError
-            )
-
-            val detailFetchUrl = noticeUiState.detailFetchUrl
-            if (detailFetchUrl != null) {
-                JwcHtmlLoader(
-                    url = detailFetchUrl,
-                    reloadKey = detailFetchUrl.hashCode(),
-                    onHtml = { _, html -> noticeViewModel.onDetailHtmlLoaded(detailFetchUrl, html) },
-                    onError = { _, message -> noticeViewModel.onDetailHtmlError(detailFetchUrl, message) }
-                )
+            val wafChallengeUrl = noticeUiState.wafChallengeUrl
+            if (wafChallengeUrl != null) {
+                key(noticeUiState.wafBootstrapKey) {
+                    JwcWafBootstrap(
+                        url = wafChallengeUrl,
+                        onCookie = noticeViewModel::onWafCookieCaptured,
+                        onError = noticeViewModel::onWafBootstrapError,
+                    )
+                }
             }
         }
     }
@@ -498,112 +483,6 @@ private fun JwcNoticeItem(
             }
         }
     }
-}
-
-@Composable
-private fun JwcHtmlLoader(
-    url: String,
-    reloadKey: Int,
-    onHtml: (String, String) -> Unit,
-    onError: (String, String) -> Unit
-) {
-    AndroidView(
-        modifier = Modifier
-            .size(1.dp)
-            .alpha(0f),
-        factory = { context ->
-            WebView(context).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.cacheMode = WebSettings.LOAD_DEFAULT
-                settings.loadsImagesAutomatically = false
-                settings.blockNetworkImage = true
-                settings.userAgentString =
-                    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
-                webViewClient = object : WebViewClient() {
-                    private var pageStartTime = 0L
-
-                    override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-                        pageStartTime = System.currentTimeMillis()
-                    }
-
-                    override fun onPageFinished(view: WebView, url: String?) {
-                        view.postDelayed(
-                            { extractHtml(view, currentRequestUrl(view), onHtml, onError, pageStartTime) },
-                            350
-                        )
-                    }
-
-                    override fun onReceivedHttpError(
-                        view: WebView,
-                        request: WebResourceRequest,
-                        errorResponse: WebResourceResponse
-                    ) {
-                        if (request.isForMainFrame && errorResponse.statusCode != 412) {
-                            onError(
-                                currentRequestUrl(view),
-                                "教务处网站返回 HTTP ${errorResponse.statusCode}"
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        update = { webView ->
-            val requestKey = "$url#$reloadKey"
-            if (webView.tag != requestKey) {
-                webView.tag = requestKey
-                webView.loadUrl(url)
-            }
-        }
-    )
-}
-
-private fun currentRequestUrl(webView: WebView): String {
-    return (webView.tag as? String)?.substringBeforeLast("#") ?: webView.url.orEmpty()
-}
-
-private fun extractHtml(
-    webView: WebView,
-    expectedUrl: String,
-    onHtml: (String, String) -> Unit,
-    onError: (String, String) -> Unit,
-    pageStartTime: Long
-) {
-    webView.evaluateJavascript(
-        """
-            (function() {
-              var block = document.querySelector('#wp_news_w14, .news_list, .wp_articlecontent, .article, .wp_entry');
-              return (block ? block.outerHTML : document.documentElement.outerHTML);
-            })();
-        """.trimIndent()
-    ) { encoded ->
-        val html = decodeJsString(encoded)
-        if (html.isBlank()) {
-            onError(expectedUrl, "教务处页面内容为空")
-            return@evaluateJavascript
-        }
-        val isChallenge = html.contains("\$_ss=") && !html.contains("wp_news_w14") &&
-            !html.contains("news_list") && !html.contains("wp_articlecontent")
-        if (isChallenge && System.currentTimeMillis() - pageStartTime < 12_000L) {
-            webView.postDelayed(
-                { extractHtml(webView, expectedUrl, onHtml, onError, pageStartTime) },
-                600
-            )
-            return@evaluateJavascript
-        }
-        if (isChallenge) {
-            onError(expectedUrl, "教务处网站校验未通过，请稍后重试")
-        } else {
-            onHtml(expectedUrl, html)
-        }
-    }
-}
-
-private fun decodeJsString(value: String?): String {
-    if (value.isNullOrBlank() || value == "null") return ""
-    return runCatching { JSONArray("[$value]").getString(0) }.getOrDefault(value)
 }
 
 @Composable

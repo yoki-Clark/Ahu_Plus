@@ -279,7 +279,7 @@ val guideCategories: List<GuideCategory> = listOf(
                         b("右上角刷新按钮一次性刷新课程和通告")
                     },
                     impl {
-                        p("DashboardScreen 复用 ScheduleViewModel，今日课程经 CourseRepository.toDisplayItems() 按 currentWeek 过滤 weekIndexes（避免「今天 weekday 有课但本周不上」误显示）。倒计时 chip 用 DebugClock.nowTime() + 每 30s tick 重算。日程卡数据来自 AgendaViewModel.eventsByDate（AgendaBuilder 把课表/考试展开成带具体日期的事件，合并 HomeworkRepository 作业 + UserTaskRepository 手动日程，按 LocalDate 分组）。「最近使用」由 AppRegistry.pickRecent() 取最近 3 个、onRecordApp 落点击记录。教务通告 JwcNoticeViewModel 用隐藏 1dp WebView（JwcHtmlLoader）加载教务处页面，JS 抽 #wp_news_w14/.news_list/.wp_articlecontent 正文，并检测 WAF 校验脚本做最多 12s 重试。")
+                        p("DashboardScreen 复用 ScheduleViewModel，今日课程经 CourseRepository.toDisplayItems() 按 currentWeek 过滤 weekIndexes（避免「今天 weekday 有课但本周不上」误显示）。倒计时 chip 用 DebugClock.nowTime() + 每 30s tick 重算。日程卡数据来自 AgendaViewModel.eventsByDate（AgendaBuilder 把课表/考试展开成带具体日期的事件，合并 HomeworkRepository 作业 + UserTaskRepository 手动日程，按 LocalDate 分组）。「最近使用」由 AppRegistry.pickRecent() 取最近 3 个、onRecordApp 落点击记录。教务通告由 JwcNoticeRepository 通过 OkHttp 获取列表、分页和详情，并用 Jsoup 解析；仅在服务端返回 412 时临时启动 JwcWafBootstrap 获取 WAF Cookie，验证后持久化约 6 天并自动重试原操作，附件下载复用同一 Cookie。")
                     },
                 ),
             ),

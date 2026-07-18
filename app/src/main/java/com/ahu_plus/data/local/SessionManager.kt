@@ -57,7 +57,7 @@ import kotlinx.coroutines.sync.withLock
 
  */
 
-class SessionManager(private val appDataStore: AppDataStore) {
+class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     private val credentialStore = appDataStore.credentialStore
 
@@ -1653,10 +1653,10 @@ class SessionManager(private val appDataStore: AppDataStore) {
         appDataStore.dataStore.edit { it[EVALUATION_DATA_JSON_KEY] = json }
     }
 
-    fun getJwcNoticeJson(): String? = cachedJwcNoticeJson
-    fun getJwcNoticeUpdatedAt(): Long = cachedJwcNoticeUpdatedAt
+    override fun getJwcNoticeJson(): String? = cachedJwcNoticeJson
+    override fun getJwcNoticeUpdatedAt(): Long = cachedJwcNoticeUpdatedAt
 
-    suspend fun saveJwcNoticeJson(json: String) {
+    override suspend fun saveJwcNoticeJson(json: String) {
         cachedJwcNoticeJson = json
         cachedJwcNoticeUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit {
@@ -1665,8 +1665,8 @@ class SessionManager(private val appDataStore: AppDataStore) {
         }
     }
 
-    fun getJwcNoticeDetailsJson(): String? = cachedJwcNoticeDetailsJson
-    suspend fun saveJwcNoticeDetailsJson(json: String) {
+    override fun getJwcNoticeDetailsJson(): String? = cachedJwcNoticeDetailsJson
+    override suspend fun saveJwcNoticeDetailsJson(json: String) {
         cachedJwcNoticeDetailsJson = json
         appDataStore.dataStore.edit { it[JWC_NOTICE_DETAILS_JSON_KEY] = json }
     }

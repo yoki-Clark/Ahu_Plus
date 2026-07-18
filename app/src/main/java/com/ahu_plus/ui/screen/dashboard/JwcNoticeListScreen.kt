@@ -2,15 +2,9 @@ package com.ahu_plus.ui.screen.dashboard
 
 import android.app.DownloadManager
 import android.content.Context
-import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Environment
 import android.webkit.CookieManager
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -53,23 +47,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.JwcNoticeAttachment
 import com.ahu_plus.data.model.JwcNoticeDetail
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
-import org.json.JSONArray
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +73,7 @@ fun JwcNoticeListScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val selectedNotice = uiState.selectedNotice
 
     BackHandler(enabled = selectedNotice != null) {
@@ -136,28 +131,26 @@ fun JwcNoticeListScreen(
                     notice = selectedNotice,
                     detailState = uiState.details[selectedNotice.url],
                     onRetry = viewModel::retryDetail,
-                    onDownload = { attachment -> downloadJwcAttachment(context, attachment) }
+                    onDownload = { attachment ->
+                        coroutineScope.launch {
+                            val cookieHeader = runCatching {
+                                viewModel.cookieHeaderFor(attachment.url)
+                            }.getOrDefault("")
+                            downloadJwcAttachment(context, attachment, cookieHeader)
+                        }
+                    }
                 )
             }
 
-            val fetchUrl = uiState.noticeFetchUrl
-            if (fetchUrl != null) {
-                JwcListHtmlLoader(
-                    url = fetchUrl,
-                    reloadKey = uiState.noticeFetchKey,
-                    onHtml = viewModel::onNoticeHtmlLoaded,
-                    onError = viewModel::onNoticeHtmlError
-                )
-            }
-
-            val detailFetchUrl = uiState.detailFetchUrl
-            if (detailFetchUrl != null) {
-                JwcListHtmlLoader(
-                    url = detailFetchUrl,
-                    reloadKey = uiState.detailFetchKey,
-                    onHtml = viewModel::onDetailHtmlLoaded,
-                    onError = viewModel::onDetailHtmlError
-                )
+            val wafChallengeUrl = uiState.wafChallengeUrl
+            if (wafChallengeUrl != null) {
+                key(uiState.wafBootstrapKey) {
+                    JwcWafBootstrap(
+                        url = wafChallengeUrl,
+                        onCookie = viewModel::onWafCookieCaptured,
+                        onError = viewModel::onWafBootstrapError,
+                    )
+                }
             }
         }
     }
@@ -491,67 +484,10 @@ private fun ErrorBlock(
     }
 }
 
-@Composable
-private fun JwcListHtmlLoader(
-    url: String,
-    reloadKey: Int,
-    onHtml: (String, String) -> Unit,
-    onError: (String, String) -> Unit
-) {
-    AndroidView(
-        modifier = Modifier
-            .size(1.dp)
-            .alpha(0f),
-        factory = { ctx ->
-            WebView(ctx).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.cacheMode = WebSettings.LOAD_DEFAULT
-                settings.loadsImagesAutomatically = false
-                settings.blockNetworkImage = true
-                settings.userAgentString = JWC_WEBVIEW_USER_AGENT
-                webViewClient = object : WebViewClient() {
-                    private var pageStartTime = 0L
-
-                    override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-                        pageStartTime = System.currentTimeMillis()
-                    }
-
-                    override fun onPageFinished(view: WebView, url: String?) {
-                        view.postDelayed(
-                            { extractListHtml(view, currentRequestUrl(view), onHtml, onError, pageStartTime) },
-                            350
-                        )
-                    }
-
-                    override fun onReceivedHttpError(
-                        view: WebView,
-                        request: WebResourceRequest,
-                        errorResponse: WebResourceResponse
-                    ) {
-                        if (request.isForMainFrame && errorResponse.statusCode != 412) {
-                            onError(
-                                currentRequestUrl(view),
-                                "教务处网站返回 HTTP ${errorResponse.statusCode}"
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        update = { webView ->
-            val requestKey = "$url#$reloadKey"
-            if (webView.tag != requestKey) {
-                webView.tag = requestKey
-                webView.loadUrl(url)
-            }
-        }
-    )
-}
-
 private fun downloadJwcAttachment(
     context: Context,
-    attachment: JwcNoticeAttachment
+    attachment: JwcNoticeAttachment,
+    persistentCookieHeader: String,
 ) {
     val uri = Uri.parse(attachment.url)
     if (uri.scheme !in setOf("http", "https")) {
@@ -569,8 +505,9 @@ private fun downloadJwcAttachment(
         .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
         .addRequestHeader("User-Agent", JWC_WEBVIEW_USER_AGENT)
 
-    CookieManager.getInstance().getCookie(attachment.url)
-        ?.takeIf { it.isNotBlank() }
+    persistentCookieHeader
+        .ifBlank { CookieManager.getInstance().getCookie(attachment.url).orEmpty() }
+        .takeIf { it.isNotBlank() }
         ?.let { request.addRequestHeader("Cookie", it) }
 
     runCatching {
@@ -602,52 +539,3 @@ private fun resolveDownloadFileName(
         "$sanitized.$urlExtension"
     }
 }
-
-private fun currentRequestUrl(webView: WebView): String {
-    return (webView.tag as? String)?.substringBeforeLast("#") ?: webView.url.orEmpty()
-}
-
-private fun extractListHtml(
-    webView: WebView,
-    expectedUrl: String,
-    onHtml: (String, String) -> Unit,
-    onError: (String, String) -> Unit,
-    pageStartTime: Long
-) {
-    webView.evaluateJavascript(
-        """
-            (function() {
-              return document.documentElement.outerHTML;
-            })();
-        """.trimIndent()
-    ) { encoded ->
-        val html = decodeJsString(encoded)
-        if (html.isBlank()) {
-            onError(expectedUrl, "教务处页面内容为空")
-            return@evaluateJavascript
-        }
-        val isChallenge = html.contains("\$_ss=") && !html.contains("news_list") &&
-            !html.contains("wp_news_w14") && !html.contains("wp_articlecontent")
-        if (isChallenge && System.currentTimeMillis() - pageStartTime < 12_000L) {
-            webView.postDelayed(
-                { extractListHtml(webView, expectedUrl, onHtml, onError, pageStartTime) },
-                600
-            )
-            return@evaluateJavascript
-        }
-        if (isChallenge) {
-            onError(expectedUrl, "教务处网站校验未通过，请稍后重试")
-        } else {
-            onHtml(expectedUrl, html)
-        }
-    }
-}
-
-private fun decodeJsString(value: String?): String {
-    if (value.isNullOrBlank() || value == "null") return ""
-    return runCatching { JSONArray("[$value]").getString(0) }.getOrDefault(value)
-}
-
-private const val JWC_WEBVIEW_USER_AGENT =
-    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
