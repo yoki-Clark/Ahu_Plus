@@ -66,6 +66,7 @@ internal fun IdentityCard(
     modifier: Modifier = Modifier
 ) {
     var showIdentity by rememberSaveable { mutableStateOf(false) }
+    var showScanner by rememberSaveable { mutableStateOf(false) }
 
     Card(
         shape = AhuShapes.Card,
@@ -131,6 +132,15 @@ internal fun IdentityCard(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
             )
 
+            OutlinedButton(
+                onClick = { showScanner = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("扫描电脑二维码")
+            }
+
             uiState.identityError?.let { error ->
                 Text(
                     text = error,
@@ -165,6 +175,17 @@ internal fun IdentityCard(
                 }
             }
         }
+    }
+
+    if (showScanner) {
+        MarketQrScannerDialog(
+            onDismiss = { showScanner = false },
+            onDecoded = { value ->
+                val identity = MarketApi.parseImportUri(value).getOrNull()?.normalizedToken ?: value
+                onIdentityChanged(identity)
+                showScanner = false
+            },
+        )
     }
 }
 
