@@ -3,6 +3,7 @@ package com.ahu_plus.ui.screen.profile
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -374,7 +375,11 @@ private fun AboutAppHeader(onVersionClick: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                .clickable(onClick = onVersionClick)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onVersionClick,
+                )
                 .wrapContentSize(Alignment.Center),
         )
     }

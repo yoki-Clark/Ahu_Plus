@@ -145,7 +145,10 @@ private fun RoomCourseTableLogin(
                 label = { Text("教务系统密码") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done,
+                ),
                 keyboardActions = KeyboardActions(onDone = { viewModel.login() }),
                 modifier = Modifier.fillMaxWidth(),
             )

@@ -1,79 +1,160 @@
-# CODEMAP — 文件级地图
+# CODEMAP
 
-> **用途**：定位「改哪个文件」的索引。需要找某功能落点时读这里，**不要**为了定位去全局搜索或读 `CLAUDE.md`（那个讲架构，这个讲文件）。
-> **维护**：新增/移动文件时更新对应行。功能描述以**代码为准**，本表过时即修。
-> 按「目标模块」分组——这同时也是多模块拆分（task 3）的目标架构。
+本文是当前源码的文件级导航。路径均相对 `app/src/main/java/com/ahu_plus/`，内容只描述仓库中已经存在的实现。
 
-## ⚠️ 体积热点（改动前别整文件加载，优先定位到函数/区段）
+## 入口与组装
 
-| 文件 | 行数 | 备注 |
-|------|-----:|------|
-| `data/local/SessionManager.kt` | 3190 | 139 个 key，扁平无分区。**几乎所有 Repository 都注入它** → 头号上下文黑洞，也是多模块的硬阻塞点 |
-| `data/repository/ChaoxingRepository.kt` | 2275 | 超星核心 API |
-| `ui/screen/market/MarketViewModel.kt` | 1410 | |
-| `ui/screen/home/HomeViewModel.kt` | 1332 | 跨域聚合（余额+支付码+课程+任务） |
-| `ui/screen/chaoxing/ChaoxingViewModel.kt` | 1330 | |
-| `ui/screen/profile/ProfileScreen.kt` | 1285 | 我的页聚合，含多个二级入口（拆分后） |
-| `ui/screen/schedule/ScheduleViewModel.kt` | 1189 | |
-| `ui/screen/market/MarketComponents.kt` | 790 | 集市共享组件（拆分后） |
-| `ui/screen/chaoxing/ChaoxingTabScreen.kt` | 326 | 超星 4 个二级 tab 容器（拆分后） |
-| 其它 >700：`HomeScreen 1054`/`ChaoxingSettingsScreen 1022`/`DashboardScreen 872`/`TrainingPlanScreen 841`/`CardAnalyticsScreen 771`/`YcardRepository 764`/`XzxxScreen 744`/`ScheduleScreen 730`/`MarketSettingsScreen 730`/`ChaoxingStudyRepository 715`/`EmptyClassroomScreen 710`/`GradeScreen 708`/`MarketExportUtils 703`/`MarketRepository 701` | | |
+| 文件 | 职责 |
+|---|---|
+| `MainActivity.kt` | Edge-to-edge Activity、主题订阅、更新/公告弹窗、通知与 `ahuplus://market/import` 深链 |
+| `AhuPlusApplication.kt` | Conscrypt 初始化、手动 DI、Repository 状态恢复和账号数据清理 |
+| `ui/navigation/AppNavigation.kt` | `login`/`main` NavHost、静默登录、显式重认证、退出登录 |
+| `ui/screen/main/MainScreen.kt` | 顶层 6 个候选入口、响应式 NavigationBar/NavigationRail、所有业务页面状态机 |
+| `data/home/AppRegistry.kt` | 应用聚合页与最近使用的 21 个入口元数据 |
 
-## :core — 共享核心（所有领域依赖；多模块时下沉到 :core）
+## 数据基础设施
 
-- `data/local/SessionManager.kt` `AppDataStore.kt` — 单一 DataStore 持久化，全域缓存 key（**待按域拆分**）
-- `data/network/` — OkHttp 工厂、`SessionAuthenticator`(自动续期)、`SecureHttpClientFactory`、`Tls12OnlySocketFactory`、`ResilientDns`(抗 DNS 污染)
-- `data/remote/` — JSON 工具
-- `ui/theme/` — Color/Type/Shape/Spacing/Gradient token
-- `ui/components/` — 跨页共享 Composable
-- `util/` — DES/AES 加密、`TtfGlyphParser`/`CxFontDecoder` 字体解码、`OverlayWindow` 悬浮窗、`DebugClock` 时间注入
-- `data/repository/CasAuthRepository.kt` — CAS SSO 登录基座（portal/jw 会话都从它派生）
-- `data/repository/AnnouncementRepository.kt` — 开发者公告（Gitee 零登录拉取）
-- `data/update/` `UpdateManager` — Gitee 版本检查/下载/安装
+| 目录/文件 | 职责 |
+|---|---|
+| `data/local/AppDataStore.kt` | 单例 `ahu_plus_prefs` DataStore、课程备注和考核方案 |
+| `data/local/SessionManager.kt` | 会话内存镜像、普通偏好、业务缓存、迁移和清理策略 |
+| `data/local/EncryptedCredentialStore.kt` | Keystore 支持的账号、会话、token、API key 加密存储 |
+| `data/GsonProvider.kt` | 全局 Gson 配置 |
+| `data/network/SecureHttpClientFactory.kt` | 系统证书、按需 trust-all、TLS 1.2、CookieJar 和超时策略 |
+| `data/network/SessionAuthenticator.kt` | 失败请求的会话恢复协调 |
+| `data/network/ResilientDns.kt` | DNS 解析和伪 IP 过滤 |
+| `data/network/CancellableCall.kt` | 可取消 OkHttp 调用桥接 |
+| `data/network/ChaoxingTrafficGovernor.kt` | 学习通请求节流、退避和状态 |
+| `data/local/DataRefreshPolicy.kt` | 缓存新鲜度判断 |
+| `data/local/DataSnapshotStatus.kt` | UI 数据来源/时间状态 |
 
-## :feature-jw — 教务（CAS→jw SESSION；key 前缀 jw_/schedule_/grades_/exams_/training_plan_/empty_classroom_/assessment_/record_/homework_/user_tasks_/exam_predictions_）
+## 校园账号与教务
 
-- repos：`JwAuthRepository`(jw SSO 基座) `CourseRepository`(课表) `GradeRepository`(成绩) `ExamRepository`(考试安排) `ExamDataRepository`(排考预测,Gitee) `TrainingPlanRepository` `ProgramCompletionRepository`(培养方案完成度) `EmptyClassroomRepository` `JwcNoticeRepository`(教务通知) `AssessmentRepository`(课程考核) `RecordRepository`(上课记录) `HomeworkRepository`(课程作业) `UserTaskRepository`(待办)
-- screens：`schedule/`(课表,含 sections/ components/) `grade/` `exam/`(含排考预测) `trainingplan/` `emptyclassroom/` `dashboard/`(今日课程+任务+教务通知)
+| 能力 | Repository | UI/状态 |
+|---|---|---|
+| CAS | `CasAuthRepository.kt` | `login/`、`autologin/` |
+| 教务 Web 会话 | `JwAuthRepository.kt` | 多个教务 ViewModel 共用 |
+| 课表/学期 | `CourseRepository.kt` | `schedule/` |
+| 成绩/GPA | `GradeRepository.kt` | `grade/` |
+| 考试 | `ExamRepository.kt` | `exam/` |
+| 培养方案 | `TrainingPlanRepository.kt` | `trainingplan/` |
+| 毕业完成度 | `ProgramCompletionRepository.kt` | 培养方案详情 |
+| 空教室 | `EmptyClassroomRepository.kt` | `emptyclassroom/` |
+| 教务移动端认证 | `JwAppAuthRepository.kt` | `roomcoursetable/` |
+| 教室课表 | `RoomCourseTableRepository.kt` | `roomcoursetable/` |
+| 教学评价 | `EvaluationRepository.kt` | `evaluation/` |
 
-## :feature-portal — 一卡通/门户（CAS→one.ahu JSESSIONID / ycard JWT / adwmh JSESSIONID；key 前缀 student_info_/finance_/attendance_/kqcard_/bills_/adwmh_/ac_/lighting_/new_campus_/bathroom_）
+## 门户、一卡通与个人数据
 
-- repos：`CardRepository`(实时余额) `YcardRepository`(水电费/账单) `FinanceRepository`(财务) `KqAttendanceRepository`(考勤) `StudentInfoRepository`(学生信息) `StudentTableClient`(tp_ep_stu 公共客户端) `XzxxRepository`(学籍/行政信息) `AdwmhCardRepository`(智慧安大支付码,仅 TLS1.2)
-- screens：`home/`(余额+支付码,聚合) `attendance/` `profile/` 的 `CardAnalyticsScreen`/`XzxxScreen`/Finance/StudentInfo 部分
+| 能力 | Repository | UI/状态 |
+|---|---|---|
+| 校园卡门户余额 | `CardRepository.kt` | `home/HomeViewModel.kt` 的支付码余额兜底 |
+| 一卡通账单/生活缴费 | `YcardRepository.kt` | `home/`、`profile/BillScreens.kt`、`UtilityDetailScreens.kt` |
+| 充值 | `YcardPayRepository.kt` | `home/DepositSheet.kt` |
+| 智慧安大支付码 | `AdwmhCardRepository.kt` | `home/CampusQrCodeCard.kt` |
+| 考勤 | `KqAttendanceRepository.kt` | `attendance/`、课表详情、Profile |
+| 学生一张表公共客户端 | `StudentTableClient.kt` | StudentInfo/Finance 共享 |
+| 学生信息 | `StudentInfoRepository.kt` | `profile/MyInfoScreens.kt` |
+| 财务汇总 | `FinanceRepository.kt` | `profile/FinanceViewModel.kt` |
+| 校长信箱 | `XzxxRepository.kt` | `profile/XzxxScreen.kt` |
 
-## :feature-market — 校园集市（独立 Bearer JWT；key 前缀 market_/ai_comment_）
+## 本地学习与日程
 
-- repos：`MarketRepository` `AiCommentRepository`(AI 点评)
-- screens：`market/`（List/Hot/Detail/Notices/Settings/Compose + Components/ExportUtils/ViewModel）
+| 文件 | 职责 |
+|---|---|
+| `data/agenda/AgendaBuilder.kt` | 聚合课程、考试、自定义日程 |
+| `data/calendar/SystemCalendarSync.kt` | 写入和移除系统日历事件 |
+| `data/repository/AssessmentRepository.kt` | 课程考核方案 |
+| `data/repository/RecordRepository.kt` | 课程记录 |
+| `data/repository/HomeworkRepository.kt` | 本地作业 |
+| `data/repository/UserTaskRepository.kt` | 用户待办 |
+| `ui/screen/agenda/` | 日程时间线和编辑器 |
+| `ui/screen/dashboard/` | 首页课程、日程、收藏和教务通知聚合 |
 
-## :feature-cprog — 大学计算机平台（C 语言在线评测,内网 http;独立学号+身份证后6位+验证码;key 前缀 cprog_）
+## 第三方服务
 
-- repos：`CProgAuthRepository`(登录闭环:redirect/login→kaptcha→login/get→login/unified,dfgdfg=jwt1.sub;JSESSIONID+JWT 持久化) `CProgRepository`(只读:section/query·getSubjects·exams/search/query 分页·assign/paper3+paper/message 整卷)
-- screens：`cprog/`（Screen 容器 + Login/List/Paper 三页 + ViewModel 状态机）。入口挂 AppHub「学习」组「大学计算机平台」
-- 合规：仅练习(lianxi)进卷看答案;考试/测试进卷=真开考+监考+耗次数,UI 不放行
-- 网络：内网 172.17.106.232:8080 明文,network_security_config 白名单;baseUrl 登录页高级设置可配
+### 校园集市
 
-## :feature-chaoxing — 超星学习通（独立手机号+密码；key 前缀 cx_）
+- 网络：`data/repository/MarketRepository.kt`
+- URL/节点：`data/remote/market/MarketApi.kt`
+- 请求头：`data/remote/market/MarketHeaders.kt`
+- AI：`data/repository/AiCommentRepository.kt`
+- UI：`ui/screen/market/`
 
-- repos：`ChaoxingRepository`(核心 API) `ChaoxingStudyRepository`(自动学习引擎) `ChaoxingTikuRepository`(题库链+答案标准化) `ChaoxingNotificationRepository`(完成通知)
-- screens：`chaoxing/`（14 文件：Tab/Main/Login/Study/Tiku/Settings/CourseDetail + `sign/` 签到组件）
-- service：`service/ChaoxingStudyService.kt`(前台服务)
+### 超星学习通
 
-## :app — 应用壳与跨域聚合（依赖所有 feature；难以下沉，留在顶层）
+- 核心 API：`ChaoxingRepository.kt`
+- 题库：`ChaoxingTikuRepository.kt`
+- 学习执行：`ChaoxingStudyRepository.kt`
+- 外部通知：`ChaoxingNotificationRepository.kt`
+- UI：`ui/screen/chaoxing/`
+- 前台服务：`service/ChaoxingStudyService.kt`
+- 字体：`util/CxFontDecoder.kt`、`util/TtfGlyphParser.kt`、`assets/font_map_table.json`
 
-- `MainActivity.kt` `AhuPlusApplication.kt`(手动 DI 容器，引用全部 repo) `data/repository/InitCoordinator.kt`(首登串行预热 7 域)
-- `ui/navigation/AppNavigation.kt` `ui/screen/main/`(MainScreen+5 tab) `login/` `autologin/` `apps/`(AppHub)
-- `notification/`(Widget 调度+课程提醒+BootReceiver) `ui/widget/`
-- **跨域聚合页**（多模块时的痛点，触碰多个 feature）：`home/HomeViewModel`(余额+支付码+课程+任务) `dashboard/DashboardScreen` `profile/ProfileScreen`
+### WeLearn
 
-## 多模块依赖方向
+- 认证：`WeLearnAuthRepository.kt`
+- 课程数据：`WeLearnRepository.kt`
+- 课件答案：`WeLearnAnswerRepository.kt`
+- 学习执行：`WeLearnStudyRepository.kt`
+- UI：`ui/screen/welearn/`
+- 前台服务：`service/WeLearnStudyService.kt`
 
+### 大学计算机平台
+
+- 认证和直连/WebVPN 传输：`CProgAuthRepository.kt`、`CProgWebVpnAuthenticator.kt`
+- 业务：`CProgRepository.kt`、`CProgResponseParser.kt`
+- UI：`ui/screen/cprog/`
+
+## 公共内容、天气与升级
+
+| 能力 | 文件 |
+|---|---|
+| 教务通知 | `JwcNoticeRepository.kt`、`ui/screen/dashboard/Jwc*` |
+| WAF Cookie | `data/local/JwcWafCookieStore.kt`、`XzxxWafCookieStore.kt` |
+| 统一消息中心 | `ui/screen/messages/UnifiedMessageCenterScreen.kt` |
+| 天气 | `WeatherRepository.kt`、`data/weather/`、`ui/screen/weather/` |
+| 开发者公告 | `AnnouncementRepository.kt`、`data/announcement/AnnouncementManager.kt` |
+| 应用升级 | `data/update/UpdateManager.kt`、`ui/components/UpdateDialog.kt` |
+| 开发者诊断 | `data/developer/`、`ui/screen/developer/` |
+
+## 通知、Widget 与平台组件
+
+- `notification/CourseReminderScheduler.kt` / `CourseReminderReceiver.kt`
+- `notification/AgendaReminderScheduler.kt` / `AgendaReminderReceiver.kt`
+- `notification/BootReceiver.kt`
+- `notification/WidgetUpdateScheduler.kt`
+- `notification/CampusCardAlertNotifier.kt`
+- `ui/widget/TodayScheduleWidget.kt`
+
+`AndroidManifest.xml` 当前声明 5 个 receiver、2 个前台 service、1 个 FileProvider 和 1 个 Activity。
+
+## 主题与组件
+
+- `ui/theme/Color.kt`、`Theme.kt`、`Type.kt`
+- `ui/theme/Shape.kt`、`Spacing.kt`、`Gradient.kt`
+- `ui/theme/CourseColors.kt`、`MarketColors.kt`
+- `ui/components/`：刷新、状态页、折叠区、图片选择、公告/更新弹窗、天气面板
+
+## 体积热点
+
+按当前行数，修改前应先定位函数而不是整文件通读：
+
+| 文件 | 约行数 |
+|---|---:|
+| `data/local/SessionManager.kt` | 4,046 |
+| `data/repository/ChaoxingRepository.kt` | 2,692 |
+| `ui/screen/home/HomeViewModel.kt` | 1,876 |
+| `ui/screen/chaoxing/ChaoxingViewModel.kt` | 1,749 |
+| `ui/screen/market/MarketViewModel.kt` | 1,596 |
+| `ui/screen/profile/ProfileScreen.kt` | 1,478 |
+| `ui/screen/main/MainScreen.kt` | 1,146 |
+| `ui/screen/schedule/ScheduleViewModel.kt` | 1,114 |
+
+## 测试地图
+
+JVM 测试位于 `app/src/test/java/com/ahu_plus/`，覆盖数据刷新策略、网络客户端、认证解析、通知策略、开发者诊断、教务/集市/天气/WeLearn 解析和 UI 纯逻辑。设备测试入口位于 `app/src/androidTest/`。
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest
 ```
-:app ──► :feature-jw ─┐
-  │   ──► :feature-portal ─┤
-  │   ──► :feature-market ─┼──► :core
-  │   ──► :feature-chaoxing ┘
-  └──► :core
-```
-
-阻塞点：① `SessionManager` 持全域 key → 每个 feature 都被迫依赖它，**必须先按域拆分** ② 聚合页(home/dashboard/profile)跨多 feature → 留 :app ③ `AhuPlusApplication`/`InitCoordinator` 引用全部 repo → 顶层 :app。

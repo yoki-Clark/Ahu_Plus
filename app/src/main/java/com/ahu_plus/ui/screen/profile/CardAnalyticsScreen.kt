@@ -63,6 +63,7 @@ import com.ahu_plus.data.model.FoodSplitStat
 import com.ahu_plus.data.model.MerchantStat
 import com.ahu_plus.data.model.TransactionItem
 import com.ahu_plus.data.model.toAnalyticsReport
+import com.ahu_plus.data.model.jw.SemesterInfo
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
 import java.text.DecimalFormat
@@ -73,12 +74,15 @@ private val PercentFormat = DecimalFormat("0.0%")
 @Composable
 fun CardAnalyticsScreen(
     bills: List<BillRecord>,
+    academicSemesters: List<SemesterInfo> = emptyList(),
     isLoading: Boolean,
     error: String?,
     onBack: () -> Unit,
     onRefresh: () -> Unit
 ) {
-    val report = remember(bills) { bills.toAnalyticsReport() }
+    val report = remember(bills, academicSemesters) {
+        bills.toAnalyticsReport(academicSemesters = academicSemesters)
+    }
     var selectedKind by rememberSaveable { mutableStateOf(AnalyticsPeriodKind.MONTH.name) }
     var selectedMonthId by rememberSaveable(report.currentMonthId) {
         mutableStateOf(report.currentMonthId)
@@ -132,6 +136,7 @@ fun CardAnalyticsScreen(
                         RangeControls(
                             selectedKind = kind,
                             periods = periods,
+                            semesterAvailable = report.semesterPeriods.isNotEmpty(),
                             selectedPeriod = selectedSummary.period,
                             onKindChange = { newKind ->
                                 selectedKind = newKind.name
@@ -176,6 +181,7 @@ fun CardAnalyticsScreen(
 private fun RangeControls(
     selectedKind: AnalyticsPeriodKind,
     periods: List<AnalyticsPeriod>,
+    semesterAvailable: Boolean,
     selectedPeriod: AnalyticsPeriod,
     onKindChange: (AnalyticsPeriodKind) -> Unit,
     onPeriodChange: (AnalyticsPeriod) -> Unit
@@ -191,7 +197,9 @@ private fun RangeControls(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AnalyticsPeriodKind.entries.forEach { kind ->
+                AnalyticsPeriodKind.entries
+                    .filter { it != AnalyticsPeriodKind.SEMESTER || semesterAvailable }
+                    .forEach { kind ->
                     FilterChip(
                         selected = selectedKind == kind,
                         onClick = { onKindChange(kind) },

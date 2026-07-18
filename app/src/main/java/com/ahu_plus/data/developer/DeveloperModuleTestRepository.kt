@@ -4,6 +4,8 @@ import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.BuildConfig
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.home.AppRegistry
+import com.ahu_plus.data.repository.JwcWafChallengeRequiredException
+import com.ahu_plus.data.repository.SessionExpiredException
 import com.google.gson.JsonParser
 import java.io.File
 import java.io.InputStreamReader
@@ -77,7 +79,9 @@ internal suspend fun executeDeveloperModuleTest(
     require(timeoutMillis > 0L) { "timeoutMillis must be positive" }
     val startedNanos = System.nanoTime()
     val outcome = try {
-        DeveloperTestStatus.PASSED to withTimeout(timeoutMillis) { action() }
+        DeveloperTestStatus.PASSED to withContext(Dispatchers.IO) {
+            withTimeout(timeoutMillis) { action() }
+        }
     } catch (_: TimeoutCancellationException) {
         DeveloperTestStatus.TIMED_OUT to "检查超时"
     } catch (error: DeveloperTestUnavailableException) {
@@ -273,8 +277,7 @@ class DeveloperModuleTestRepository(
             description = "校验门户会话并读取一次余额接口，不显示余额内容。",
             risk = DeveloperTestRisk.AUTHENTICATED_READ,
         ) {
-            ensureCasSession()
-            application.cardRepository.getPortalBalance().getOrThrow()
+            getPortalBalanceWithSessionRetry()
             "余额接口响应有效"
         },
         definition(
@@ -294,8 +297,7 @@ class DeveloperModuleTestRepository(
             description = "读取并解析当前账号可用的学期列表。",
             risk = DeveloperTestRisk.AUTHENTICATED_READ,
         ) {
-            ensureJwSession()
-            countSummary("学期", application.courseRepository.getSemesterList().getOrThrow().size)
+            countSummary("学期", withJwSession { application.courseRepository.getSemesterList() }.size)
         },
         definition(
             id = "jw.schedule",
@@ -304,8 +306,7 @@ class DeveloperModuleTestRepository(
             description = "读取默认学期课表并检查解析结果。",
             risk = DeveloperTestRisk.AUTHENTICATED_READ,
         ) {
-            ensureJwSession()
-            val schedule = application.courseRepository.getSchedule().getOrThrow()
+            val schedule = withJwSession { application.courseRepository.getSchedule() }
             countSummary("课程活动", schedule.activities.size)
         },
         definition(
@@ -315,8 +316,7 @@ class DeveloperModuleTestRepository(
             description = "读取全部学期成绩并检查解析结果。",
             risk = DeveloperTestRisk.AUTHENTICATED_READ,
         ) {
-            ensureJwSession()
-            val grades = application.gradeRepository.getGrades().getOrThrow()
+            val grades = withJwSession { application.gradeRepository.getGrades() }
             countSummary("成绩记录", grades.allGrades().size)
         },
         definition(
@@ -326,8 +326,7 @@ class DeveloperModuleTestRepository(
             description = "读取并解析当前账号的考试安排。",
             risk = DeveloperTestRisk.AUTHENTICATED_READ,
         ) {
-            ensureJwSession()
-            countSummary("考试记录", application.examRepository.getExams().getOrThrow().size)
+            countSummary("考试记录", withJwSession { application.examRepository.getExams() }.size)
         },
         definition(
             id = "jw.training_plan",
@@ -336,8 +335,7 @@ class DeveloperModuleTestRepository(
             description = "读取培养方案并检查顶层模块解析。",
             risk = DeveloperTestRisk.AUTHENTICATED_READ,
         ) {
-            ensureJwSession()
-            val plan = application.trainingPlanRepository.getTrainingPlan().getOrThrow()
+            val plan = withJwSession { application.trainingPlanRepository.getTrainingPlan() }
             countSummary("培养方案模块", plan.children.orEmpty().size)
         },
         definition(
@@ -347,8 +345,9 @@ class DeveloperModuleTestRepository(
             description = "读取课程完成状态与汇总，不显示课程或学分内容。",
             risk = DeveloperTestRisk.AUTHENTICATED_READ,
         ) {
-            ensureJwSession()
-            val courses = application.programCompletionRepository.getCompletionData().getOrThrow().first
+            val courses = withJwSession {
+                application.programCompletionRepository.getCompletionData()
+            }.first
             countSummary("完成度课程", courses.size)
         },
         definition(
@@ -502,7 +501,11 @@ class DeveloperModuleTestRepository(
             description = "读取教务处公开通知列表，仅返回数量。",
             risk = DeveloperTestRisk.PUBLIC_READ,
         ) {
-            val notices = application.jwcNoticeRepository.getNotices(limit = 6).getOrThrow()
+            val notices = try {
+                application.jwcNoticeRepository.getNotices(limit = 6).getOrThrow()
+            } catch (_: JwcWafChallengeRequiredException) {
+                skip("需要先在通知公告页面完成安全校验")
+            }
             countSummary("通知", notices.size)
         },
         definition(
@@ -525,21 +528,6 @@ class DeveloperModuleTestRepository(
         ) {
             application.announcementRepository.fetchRemote().getOrThrow()
             countSummary("公告", application.announcementRepository.getAllAnnouncements().size)
-        },
-        definition(
-            id = "public.exam_predictions",
-            category = DeveloperTestCategory.PUBLIC_SERVICE,
-            title = "考试预测数据源",
-            description = "读取公开考试预测数据并校验本地解析结果，仅返回记录数量。",
-            risk = DeveloperTestRisk.PUBLIC_READ,
-            timeoutMillis = LONG_NETWORK_TIMEOUT_MILLIS,
-        ) {
-            withContext(Dispatchers.IO) {
-                application.examDataRepository.fetchRemote().getOrThrow()
-                val records = application.examDataRepository.getCachedExams()
-                    ?: error("考试预测缓存未生成")
-                countSummary("考试预测记录", records.size)
-            }
         },
     )
 
@@ -569,6 +557,19 @@ class DeveloperModuleTestRepository(
 
     private suspend fun ensureJwSession() {
         application.jwAuthRepository.authenticate().getOrThrow()
+    }
+
+    private suspend fun <T> withJwSession(block: suspend () -> Result<T>): T =
+        application.jwAuthRepository.executeWithSessionRetry(block).getOrThrow()
+
+    private suspend fun getPortalBalanceWithSessionRetry() {
+        val first = application.cardRepository.getPortalBalance()
+        if (first.exceptionOrNull() !is SessionExpiredException) {
+            first.getOrThrow()
+            return
+        }
+        ensureCasSession()
+        application.cardRepository.getPortalBalance().getOrThrow()
     }
 
     private fun savedCasCredentials(): Pair<String, String> {

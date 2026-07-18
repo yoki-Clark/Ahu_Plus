@@ -1,5 +1,6 @@
 package com.ahu_plus.data.model
 
+import com.ahu_plus.data.model.jw.SemesterInfo
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -128,7 +129,10 @@ private data class ParsedBill(
     val nonCanteenCategory: String?
 )
 
-fun List<BillRecord>.toAnalyticsReport(today: Date = Date()): CardAnalyticsReport {
+fun List<BillRecord>.toAnalyticsReport(
+    today: Date = Date(),
+    academicSemesters: List<SemesterInfo> = emptyList(),
+): CardAnalyticsReport {
     val expenses = mapNotNull { record ->
         val time = parseDateTime(record.effectDateStr) ?: parseDateTime(record.jndatetimeStr)
         if (time == null || !record.isExpense()) return@mapNotNull null
@@ -149,7 +153,7 @@ fun List<BillRecord>.toAnalyticsReport(today: Date = Date()): CardAnalyticsRepor
     if (expenses.isEmpty()) return CardAnalyticsReport()
 
     val monthPeriods = buildMonthPeriods(expenses, today)
-    val semesterPeriods = buildSemesterPeriods(expenses, today)
+    val semesterPeriods = buildSemesterPeriods(expenses, today, academicSemesters)
     val summaries = (monthPeriods + semesterPeriods).associate { period ->
         period.id to buildSummary(period, expenses)
     }
@@ -323,46 +327,40 @@ private fun buildMonthPeriods(expenses: List<ParsedBill>, today: Date): List<Ana
         }
 }
 
-private fun buildSemesterPeriods(expenses: List<ParsedBill>, today: Date): List<AnalyticsPeriod> {
-    val currentSemesterId = semesterPeriod(today).id
-    return expenses
-        .map { dayCalendar(it.logicalDay)?.time ?: it.time }
-        .map { semesterPeriod(it) }
-        .distinctBy { it.id }
-        .sortedByDescending { it.startDay }
-        .map { it.copy(isCurrent = it.id == currentSemesterId) }
+private fun buildSemesterPeriods(
+    expenses: List<ParsedBill>,
+    today: Date,
+    academicSemesters: List<SemesterInfo>,
+): List<AnalyticsPeriod> {
+    val todayDay = DATE_ONLY_FORMAT.format(today)
+    return academicSemesters
+        .mapNotNull { semester ->
+            val startDay = semester.startDate.toSemesterDayOrNull() ?: return@mapNotNull null
+            val endDay = semester.endDate.toSemesterDayOrNull() ?: return@mapNotNull null
+            if (startDay > endDay) return@mapNotNull null
+            val label = semester.nameZh?.takeIf(String::isNotBlank)
+                ?: semester.code?.takeIf(String::isNotBlank)
+                ?: return@mapNotNull null
+            AnalyticsPeriod(
+                id = "semester-${semester.id ?: "$startDay-$endDay"}",
+                kind = AnalyticsPeriodKind.SEMESTER,
+                label = label,
+                startDay = startDay,
+                endDay = endDay,
+                isCurrent = todayDay in startDay..endDay,
+            )
+        }
+        .distinctBy(AnalyticsPeriod::id)
+        .filter { period ->
+            period.isCurrent || expenses.any { it.logicalDay in period.startDay..period.endDay }
+        }
+        .sortedByDescending(AnalyticsPeriod::startDay)
 }
 
-private fun semesterPeriod(date: Date): AnalyticsPeriod {
-    val cal = Calendar.getInstance().apply { time = date }
-    val year = cal.get(Calendar.YEAR)
-    val month = cal.get(Calendar.MONTH) + 1
-    val (label, startYear, startMonth, endYear, endMonth) = when (month) {
-        in 3..7 -> arrayOf("${year - 1}-${year}-2", "${year}", "3", "${year}", "7")
-        8 -> arrayOf("${year - 1}-${year}-暑假", "${year}", "8", "${year}", "8")
-        in 9..12 -> arrayOf("${year}-${year + 1}-1", "${year}", "9", "${year + 1}", "1")
-        1 -> arrayOf("${year - 1}-${year}-1", "${year - 1}", "9", "${year}", "1")
-        else -> arrayOf("${year - 1}-${year}-寒假", "${year}", "2", "${year}", "2")
-    }
-    val start = Calendar.getInstance().apply {
-        set(startYear.toInt(), startMonth.toInt() - 1, 1, 0, 0, 0)
-        set(Calendar.MILLISECOND, 0)
-    }
-    val end = Calendar.getInstance().apply {
-        set(endYear.toInt(), endMonth.toInt() - 1, 1, 0, 0, 0)
-        set(Calendar.DAY_OF_MONTH, getActualMaximum(Calendar.DAY_OF_MONTH))
-        set(Calendar.HOUR_OF_DAY, 23)
-        set(Calendar.MINUTE, 59)
-        set(Calendar.SECOND, 59)
-        set(Calendar.MILLISECOND, 999)
-    }
-    return AnalyticsPeriod(
-        id = "semester-$label",
-        kind = AnalyticsPeriodKind.SEMESTER,
-        label = label,
-        startDay = DATE_ONLY_FORMAT.format(start.time),
-        endDay = DATE_ONLY_FORMAT.format(end.time)
-    )
+private fun String?.toSemesterDayOrNull(): String? {
+    val day = this?.trim()?.take(10)?.takeIf { it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) }
+        ?: return null
+    return day.takeIf { runCatching { DATE_ONLY_FORMAT.parse(it) }.getOrNull() != null }
 }
 
 private fun parseDateTime(value: String?): Date? {

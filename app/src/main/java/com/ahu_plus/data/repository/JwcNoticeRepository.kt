@@ -50,7 +50,9 @@ class JwcNoticeRepository(
     private val rootUrl = baseUrl.trimEnd('/').toHttpUrl()
     private val cookieStore = ConcurrentHashMap<String, Cookie>()
     private val restoreMutex = Mutex()
+    private val firstPageMutex = Mutex()
     @Volatile private var restored = false
+    @Volatile private var recentFirstPage: Pair<Long, JwcNoticePage>? = null
 
     internal val cookieJar = object : CookieJar {
         override fun loadForRequest(url: HttpUrl): List<Cookie> {
@@ -88,17 +90,16 @@ class JwcNoticeRepository(
         withContext(Dispatchers.IO) {
             ensurePersistentCookieLoaded()
             val safePage = page.coerceAtLeast(1)
-            val html = executeHtml(
-                url = listUrl(safePage),
-                contentMarkers = listOf("news_list", "wp_news_w14"),
-            )
-            val notices = parseNoticeList(html, baseUrl)
-            if (notices.isEmpty()) throw IOException("未读取到通知公告")
-            JwcNoticePage(
-                notices = notices,
-                page = safePage,
-                hasMore = parseNextPagePath(html, safePage) != null,
-            )
+            if (safePage == 1) {
+                firstPageMutex.withLock {
+                    recentFirstPage()
+                        ?: fetchNoticePage(safePage).also {
+                            recentFirstPage = nowMillis() to it
+                        }
+                }
+            } else {
+                fetchNoticePage(safePage)
+            }
         }
     }
 
@@ -260,6 +261,24 @@ class JwcNoticeRepository(
         }
     }
 
+    private suspend fun fetchNoticePage(page: Int): JwcNoticePage {
+        val html = executeHtml(
+            url = listUrl(page),
+            contentMarkers = listOf("news_list", "wp_news_w14"),
+        )
+        val notices = parseNoticeList(html, baseUrl)
+        if (notices.isEmpty()) throw IOException("未读取到通知公告")
+        return JwcNoticePage(
+            notices = notices,
+            page = page,
+            hasMore = parseNextPagePath(html, page) != null,
+        )
+    }
+
+    private fun recentFirstPage(): JwcNoticePage? = recentFirstPage
+        ?.takeIf { (loadedAt, _) -> nowMillis() - loadedAt in 0 until FIRST_PAGE_MEMORY_TTL_MILLIS }
+        ?.second
+
     private fun requestBuilder(url: String): Request.Builder = Request.Builder()
         .url(url)
         .header(
@@ -287,6 +306,7 @@ class JwcNoticeRepository(
     companion object {
         private const val WAF_COOKIE_NAME = "EdaP18tkVMlRP"
         private const val WAF_COOKIE_TTL_MILLIS = 6L * 24 * 60 * 60 * 1000
+        private const val FIRST_PAGE_MEMORY_TTL_MILLIS = 30_000L
         private const val DOWNLOAD_BUFFER_SIZE = 64 * 1024
         private const val DOWNLOAD_PROGRESS_INTERVAL_NANOS = 100L * 1_000_000
         private val dateRegex = Regex("""\d{4}-\d{2}-\d{2}""")

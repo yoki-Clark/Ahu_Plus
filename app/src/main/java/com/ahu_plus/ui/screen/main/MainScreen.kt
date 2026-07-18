@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -102,8 +103,6 @@ import com.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel
 import com.ahu_plus.ui.screen.exam.ExamScreen
 import com.ahu_plus.ui.screen.exam.ExamViewModel
-import com.ahu_plus.ui.screen.exam.ExamPredictionScreen
-import com.ahu_plus.ui.screen.exam.ExamPredictionViewModel
 import com.ahu_plus.ui.screen.grade.GradeScreen
 import com.ahu_plus.ui.screen.grade.GradeViewModel
 import com.ahu_plus.ui.screen.home.HomeViewModel
@@ -144,7 +143,6 @@ private const val HOME_EXAM = 4
 private const val HOME_BILLS = 5
 private const val HOME_TRAINING_PLAN = 6
 private const val HOME_EMPTY_CLASSROOM = 7
-private const val HOME_EXAM_PREDICTION = 8
 private const val HOME_WEATHER = 9
 private const val HOME_AGENDA = 10
 
@@ -336,9 +334,7 @@ fun MainScreen(
         when {
             // 1. 我的 Tab 子页面 → 我的主页 (ProfileScreen 内部 BackHandler 先拦截,这里兜底)
             selectedTab == TAB_PROFILE && profileSubPage != null -> profileSubPage = null
-            // 2. 预测页 → 考试页（精确回退，不回 Dashboard）
-            selectedTab == TAB_HOME && homePage == HOME_EXAM_PREDICTION -> homePage = HOME_EXAM
-            // 3. 首页其他子页面 → Dashboard
+            // 2. 首页其他子页面 → Dashboard
             selectedTab == TAB_HOME && homePage != HOME_DASHBOARD -> homePage = HOME_DASHBOARD
             // 3. 跨 Tab 跳转过来的 → 回到上一页 Tab
             previousTab != null -> {
@@ -548,6 +544,7 @@ fun MainScreen(
         if (selectedTab == TAB_PROFILE) studentInfoViewModel.activate()
     }
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
+    val gradeUiState by gradeViewModel.uiState.collectAsStateWithLifecycle()
     val developerRuntime by DeveloperRuntime.state.collectAsStateWithLifecycle()
     val showTopLevelNavigation = selectedTab != TAB_MARKET || (
         marketUiState.selectedTopic == null &&
@@ -713,18 +710,7 @@ fun MainScreen(
                             viewModel = examViewModel,
                             onBack = { homePage = HOME_DASHBOARD },
                             onNeedsLogin = onReauth,
-                            onOpenPrediction = { homePage = HOME_EXAM_PREDICTION }
                         )
-                        HOME_EXAM_PREDICTION -> {
-                            // 进入排考预测页时才创建 VM,触发首次拉取
-                            val examPredictionViewModel = remember {
-                                ExamPredictionViewModel(app.examDataRepository, sessionManager)
-                            }
-                            ExamPredictionScreen(
-                                viewModel = examPredictionViewModel,
-                                onBack = { homePage = HOME_EXAM }
-                            )
-                        }
                         HOME_BILLS -> {
                             val cardState by cardViewModel.uiState.collectAsStateWithLifecycle()
                             com.ahu_plus.ui.screen.profile.BillDetailScreen(
@@ -944,6 +930,10 @@ fun MainScreen(
                     studentInfoViewModel = studentInfoViewModel,
                     financeViewModel = financeViewModel,
                     scheduleUiState = scheduleUiState,
+                    academicSemesters = (
+                        listOfNotNull(scheduleUiState.semester) + gradeUiState.academicSemesters
+                    ),
+                    onLoadAcademicSemesters = gradeViewModel::activate,
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
                     scrollTarget = profileScrollTarget,
@@ -1121,33 +1111,38 @@ private fun TopLevelNavigationRail(
     NavigationRail(
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
-        destinations.forEach { destination ->
-            val selected = selectedTab == destination.tab
-            NavigationRailItem(
-                selected = selected,
-                onClick = { onSelect(destination.tab) },
-                icon = {
-                    Icon(
-                        imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
-                        contentDescription = null,
-                    )
-                },
-                label = {
-                    Text(
-                        destination.label,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        maxLines = 1,
-                    )
-                },
-                alwaysShowLabel = true,
-                colors = NavigationRailItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            )
+        Column(
+            modifier = Modifier.fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        ) {
+            destinations.forEach { destination ->
+                val selected = selectedTab == destination.tab
+                NavigationRailItem(
+                    selected = selected,
+                    onClick = { onSelect(destination.tab) },
+                    icon = {
+                        Icon(
+                            imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
+                            contentDescription = null,
+                        )
+                    },
+                    label = {
+                        Text(
+                            destination.label,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                        )
+                    },
+                    alwaysShowLabel = true,
+                    colors = NavigationRailItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                )
+            }
         }
     }
 }
