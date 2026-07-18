@@ -93,21 +93,10 @@ internal fun MessagesTabContent(
 
     // 下拉刷新状态
     var isRefreshing by remember { mutableStateOf(false) }
-    val wantsActivities = mergeInbox || MsgTab.entries[selectedMsgTab] == MsgTab.ACTIVITY
-
     // 首次进入时加载消息
     LaunchedEffect(loginState.isLoggedIn) {
         if (loginState.isLoggedIn && messagesState.messages.isEmpty() && !messagesState.isLoading) {
             viewModel.loadMessages()
-        }
-    }
-
-    // Activity messages are fetched lazily. The inbox-only view should not fan
-    // out one request per course until the user opens the activity tab (or has
-    // explicitly enabled the merged inbox setting).
-    LaunchedEffect(loginState.isLoggedIn, selectedMsgTab, mergeInbox) {
-        if (loginState.isLoggedIn && wantsActivities) {
-            viewModel.loadMessages(includeActivities = true)
         }
     }
 
@@ -184,7 +173,7 @@ internal fun MessagesTabContent(
                             style = MaterialTheme.typography.bodyMedium)
                         Spacer(Modifier.height(16.dp))
                         Button(
-                            onClick = { viewModel.loadMessages(force = true, includeActivities = wantsActivities) },
+                            onClick = { viewModel.loadMessages(force = true) },
                             shape = AhuShapes.Card,
                         ) {
                             Text("重试")
@@ -197,7 +186,7 @@ internal fun MessagesTabContent(
                     isRefreshing = isRefreshing,
                     onRefresh = {
                         isRefreshing = true
-                        viewModel.loadMessages(force = true, includeActivities = wantsActivities)
+                        viewModel.loadMessages(force = true)
                     },
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {

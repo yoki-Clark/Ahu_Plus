@@ -157,7 +157,7 @@ internal fun SignConfigSetting(viewModel: ChaoxingViewModel) {
 
 /**
  * 首次登录学习通成功后弹出的一次性警告。
- * 说明客户端只记录真实学习行为，并在平台限制访问时停止请求。
+ * 说明自动学习、签到和访问次数功能的风险，并提示访问限制处理方式。
  *
  * 用户点 "我已知晓" 后通过 SessionManager 持久化标志,不再重复弹出。
  */
@@ -174,7 +174,7 @@ internal fun LoginWarningDialog(onDismiss: () -> Unit) {
         text = {
             Column {
                 Text(
-                    "学习进度应来自您实际进行的课程学习。应用不会自动签到或刷访问次数。",
+                    "视频倍速、自动签到和访问次数更新可能触发平台风控；请按需开启，并回到学习通官方客户端确认结果。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(12.dp))

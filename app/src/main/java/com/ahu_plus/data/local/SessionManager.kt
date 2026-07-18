@@ -399,7 +399,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     @Volatile private var cachedCxConcurrency: String = "1"   // 2026-06-23: 默认 1 节并发,避免速率过高被检测
 
-    @Volatile private var cachedCxNotopenAction: String = "continue"
+    @Volatile private var cachedCxNotopenAction: String = "retry"
 
     @Volatile private var cachedCxAutoSign: String = "false"
 
@@ -910,7 +910,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedCxCoursesProgressJson = prefs[CX_COURSES_PROGRESS_JSON_KEY]
         cachedCxHomeworkJson = prefs[CX_HOMEWORK_JSON_KEY]
         cachedCxHomeworkDetailJson = prefs[CX_HOMEWORK_DETAIL_JSON_KEY]
-        cachedCxVisitBrushEnabled = "false"
+        cachedCxVisitBrushEnabled = prefs[CX_VISIT_BRUSH_ENABLED_KEY] ?: "false"
         cachedCxVisitBrushInterval = prefs[CX_VISIT_BRUSH_INTERVAL_KEY] ?: "30"
         cachedCxDownloadEnabled = prefs[CX_DOWNLOAD_ENABLED_KEY] ?: "false"
         cachedCxHideEndedCourses = prefs[CX_HIDE_ENDED_COURSES_KEY] ?: "true"
@@ -919,13 +919,13 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedCxTikuConfig = prefs[CX_TIKU_CONFIG_KEY]
 
-        cachedCxSpeed = "1.0"
+        cachedCxSpeed = prefs[CX_SPEED_KEY] ?: "1.0"
 
-        cachedCxConcurrency = "1"
+        cachedCxConcurrency = prefs[CX_CONCURRENCY_KEY] ?: "4"
 
-        cachedCxNotopenAction = "continue"
+        cachedCxNotopenAction = prefs[CX_NOTOPEN_ACTION_KEY] ?: "retry"
 
-        cachedCxAutoSign = "false"
+        cachedCxAutoSign = prefs[CX_AUTO_SIGN_KEY] ?: "false"
 
         cachedCxSignLat = prefs[CX_SIGN_LAT_KEY] ?: "-1.0"
 
@@ -3149,11 +3149,11 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         appDataStore.dataStore.edit { it[CX_HOMEWORK_DETAIL_JSON_KEY] = value }
     }
 
-    fun getCxVisitBrushEnabled(): Boolean = false
+    fun getCxVisitBrushEnabled(): Boolean = cachedCxVisitBrushEnabled == "true"
 
     suspend fun saveCxVisitBrushEnabled(v: Boolean) {
-        cachedCxVisitBrushEnabled = "false"
-        appDataStore.dataStore.edit { it[CX_VISIT_BRUSH_ENABLED_KEY] = "false" }
+        cachedCxVisitBrushEnabled = v.toString()
+        appDataStore.dataStore.edit { it[CX_VISIT_BRUSH_ENABLED_KEY] = v.toString() }
     }
 
     // 2026-06-23: 首次登录警告一次性标志。登录成功时若未显示过 → 弹窗;用户关闭后置 true。
@@ -3164,11 +3164,11 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         appDataStore.dataStore.edit { it[CX_LOGIN_WARNING_SHOWN_KEY] = v.toString() }
     }
 
-    fun getCxVisitBrushInterval(): Int = 30
+    fun getCxVisitBrushInterval(): Int = cachedCxVisitBrushInterval.toIntOrNull() ?: 30
 
     suspend fun saveCxVisitBrushInterval(v: Int) {
-        cachedCxVisitBrushInterval = "30"
-        appDataStore.dataStore.edit { it[CX_VISIT_BRUSH_INTERVAL_KEY] = "30" }
+        cachedCxVisitBrushInterval = v.toString()
+        appDataStore.dataStore.edit { it[CX_VISIT_BRUSH_INTERVAL_KEY] = v.toString() }
     }
 
     fun getCxDownloadEnabled(): Boolean = cachedCxDownloadEnabled == "true"
@@ -3247,24 +3247,24 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     // \u2500\u2500 \u8D85\u661F\u8BBE\u7F6E getter/setter \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-    fun getCxSpeed(): Float = 1.0f
+    fun getCxSpeed(): Float = cachedCxSpeed.toFloatOrNull() ?: 1.0f
 
-    suspend fun saveCxSpeed(v: Float) { cachedCxSpeed = "1.0"; appDataStore.dataStore.edit { it[CX_SPEED_KEY] = "1.0" } }
+    suspend fun saveCxSpeed(v: Float) { cachedCxSpeed = v.toString(); appDataStore.dataStore.edit { it[CX_SPEED_KEY] = v.toString() } }
 
-    fun getCxConcurrency(): Int = 1
+    fun getCxConcurrency(): Int = cachedCxConcurrency.toIntOrNull() ?: 1
 
-    suspend fun saveCxConcurrency(v: Int) { cachedCxConcurrency = "1"; appDataStore.dataStore.edit { it[CX_CONCURRENCY_KEY] = "1" } }
+    suspend fun saveCxConcurrency(v: Int) { cachedCxConcurrency = v.toString(); appDataStore.dataStore.edit { it[CX_CONCURRENCY_KEY] = v.toString() } }
 
-    fun getCxNotopenAction(): String = "continue"
+    fun getCxNotopenAction(): String = cachedCxNotopenAction
 
     suspend fun saveCxNotopenAction(v: String) {
-        cachedCxNotopenAction = "continue"
-        appDataStore.dataStore.edit { it[CX_NOTOPEN_ACTION_KEY] = "continue" }
+        cachedCxNotopenAction = v
+        appDataStore.dataStore.edit { it[CX_NOTOPEN_ACTION_KEY] = v }
     }
 
-    fun getCxAutoSign(): Boolean = false
+    fun getCxAutoSign(): Boolean = cachedCxAutoSign == "true"
 
-    suspend fun saveCxAutoSign(v: Boolean) { cachedCxAutoSign = "false"; appDataStore.dataStore.edit { it[CX_AUTO_SIGN_KEY] = "false" } }
+    suspend fun saveCxAutoSign(v: Boolean) { cachedCxAutoSign = v.toString(); appDataStore.dataStore.edit { it[CX_AUTO_SIGN_KEY] = v.toString() } }
 
     // Phase 3 - \u7B7E\u5230\u914D\u7F6E
 

@@ -194,13 +194,10 @@ class ChaoxingStudyService : Service() {
                         return@launch
                     }
 
-                    if (concurrency != 1) {
-                        Log.i(tag, "忽略并发参数=$concurrency，自动学习固定顺序执行")
-                    }
                     app.chaoxingStudyRepository.studyAll(
                         courses = coursesToStudy,
                         speed = speed,
-                        concurrency = 1,
+                        concurrency = concurrency,
                         answerMode = answerMode,
                         enabledTaskTypes = enabledTaskTypes ?: app.sessionManager.getCxTaskTypes(),
                     )
