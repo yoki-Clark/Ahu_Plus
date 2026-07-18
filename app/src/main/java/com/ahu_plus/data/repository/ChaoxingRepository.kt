@@ -21,13 +21,24 @@ import com.ahu_plus.data.model.CxVideoInfo
 import com.ahu_plus.data.model.CxWorkData
 import com.ahu_plus.data.model.CxHomeworkItem
 import com.ahu_plus.data.model.CxQuestion
-import com.ahu_plus.data.network.ChaoxingHeaderInterceptor
+import com.ahu_plus.data.network.ChaoxingAuthExpiredException
+import com.ahu_plus.data.network.ChaoxingTrafficCooldownException
+import com.ahu_plus.data.network.ChaoxingTrafficException
+import com.ahu_plus.data.network.ChaoxingTrafficGovernor
+import com.ahu_plus.data.network.ChaoxingTrafficStateSnapshot
+import com.ahu_plus.data.network.awaitResponse
 import com.ahu_plus.data.network.SecureHttpClientFactory
 import com.ahu_plus.util.AESCipher
 import com.ahu_plus.util.CxFontDecoder
 import kotlinx.coroutines.Dispatchers
-import kotlin.random.Random
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -43,8 +54,8 @@ import okhttp3.Request
 import org.jsoup.Jsoup
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * 超星学习通 Repository。
@@ -61,59 +72,59 @@ class ChaoxingRepository(
         private const val BASE_MOOC2 = "https://mooc2-ans.chaoxing.com"
         private const val BASE_MOOC1 = "https://mooc1.chaoxing.com"
         private const val BASE_MOBILE = "https://mobilelearn.chaoxing.com"
-        /**
-         * 固定单值 User-Agent。
-         *
-         * 历史:曾用 7 个桌面 Chrome UA 池随机切换,实测反而**加重** IP 封号——
-         * 中国学习通 99% 用户是 Android Webview / iOS Safari,7 个全桌面 UA
-         * 随机切换 = 7 倍概率触发"UA 家族 vs 移动 IP 段"不匹配反作弊规则。
-         * 改为固定 1 个桌面 Chrome 120,与 `ChaoxingHeaderInterceptor` 注入的
-         * `sec-ch-ua-platform: "Windows"` / `sec-ch-ua-mobile: ?0` 自洽。
-         *
-         * 参考:https://github.com/Samueli924/chaoxing/blob/main/api/config.py#L7
-         * (fork 源也只用 1 个固定 UA)
-         */
-        private const val UA_FIXED =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        /** Stable, transparent native client identity. Browser flows belong in WebView. */
+        private const val UA_FIXED = "AhuPlus/Android"
 
-        /** @deprecated 用 [UA_FIXED]。保留仅为过渡期兼容,2026-Q3 删除。 */
-        private val UA_POOL = listOf(UA_FIXED)
-        private fun randomUA(): String = UA_FIXED
+        private fun userAgent(): String = UA_FIXED
     }
 
     // ── Cookie 存储 ──────────────────────────────────────────────
-    private val cookieStore = ConcurrentHashMap<String, CopyOnWriteArrayList<Cookie>>()
+    private val gson = Gson()
+    private val cookieStore = ConcurrentHashMap<String, Cookie>()
     private val cxHost = "chaoxing.com"
+    private val cookiePersistScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val cookiePersistLock = Any()
+    private val trafficStateLock = Any()
+    @Volatile private var trafficStateRestored = false
+    @Volatile private var trafficAccountScope = "anonymous"
+    private var trafficStatePersistJob: Job? = null
+    private val trafficGovernor = ChaoxingTrafficGovernor(
+        onStateChanged = { persistTrafficState() },
+    )
+
+    private data class PersistedCookie(
+        val name: String,
+        val value: String,
+        val domain: String,
+        val path: String,
+        val expiresAt: Long,
+        val secure: Boolean,
+        val httpOnly: Boolean,
+        val hostOnly: Boolean,
+        val persistent: Boolean,
+    )
+
+    private fun cookieKey(cookie: Cookie): String =
+        "${cookie.name}\u0000${cookie.domain}\u0000${cookie.path}"
 
     val cookieJar = object : CookieJar {
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-            // 超星所有子域名共享 Cookie（passport2 / mooc1 / mooc2 / mobilelearn 等）
-            val domain = normalizeDomain(url.host)
-            cookieStore.compute(domain) { _, existing ->
-                val merged = existing?.toMutableList() ?: mutableListOf()
-                for (cookie in cookies) {
-                    merged.removeAll { it.name == cookie.name }
-                    merged.add(cookie)
+            val now = System.currentTimeMillis()
+            for (cookie in cookies) {
+                val key = cookieKey(cookie)
+                if (cookie.expiresAt <= now) {
+                    cookieStore.remove(key)
+                } else {
+                    cookieStore[key] = cookie
                 }
-                CopyOnWriteArrayList(merged)
             }
             persistCookies()
         }
 
         override fun loadForRequest(url: HttpUrl): List<Cookie> {
-            val domain = normalizeDomain(url.host)
-            return cookieStore[domain]?.toList() ?: emptyList()
-        }
-
-        /**
-         * 将 *.chaoxing.com 子域名统一归到 "chaoxing.com"，
-         * 保证登录 Cookie 跨子域共享。
-         */
-        private fun normalizeDomain(host: String): String {
-            return if (host.endsWith(".chaoxing.com") || host == "chaoxing.com") {
-                "chaoxing.com"
-            } else {
-                host
+            val now = System.currentTimeMillis()
+            return cookieStore.values.filter { cookie ->
+                cookie.expiresAt > now && cookie.matches(url)
             }
         }
     }
@@ -121,68 +132,140 @@ class ChaoxingRepository(
     private val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = cookieJar,
         followRedirects = true,
+        retryOnConnectionFailure = false,
         trustAll = false,  // 超星用标准 HTTPS 证书
         connectTimeoutSec = 20,
         readTimeoutSec = 30,
-        // 全局补 sec-ch-ua / Accept-Language / Referer / X-Requested-With
-        // 解决 30 分钟 IP 封号(根因:无现代浏览器头 + 无 Referer)。
-        extraInterceptors = listOf(ChaoxingHeaderInterceptor()),
+        extraInterceptors = listOf(
+            trafficGovernor.asEntryTagInterceptor(accountProvider = { trafficAccountKey() }),
+        ),
+        extraNetworkInterceptors = listOf(
+            trafficGovernor.asInterceptor(accountProvider = { trafficAccountKey() }),
+        ),
     )
+    @Volatile private var cachedCourseList: List<CxCourse>? = null
+    @Volatile private var cachedCourseListAt: Long = 0L
+    private data class CacheEntry<T>(val value: T, val storedAt: Long)
+    private val coursePointsCache = ConcurrentHashMap<String, CacheEntry<CxCoursePoints>>()
+    private val jobListCache = ConcurrentHashMap<String, CacheEntry<Pair<List<CxJob>, CxJobInfo>>>()
+    private val activityCache = ConcurrentHashMap<String, CacheEntry<List<CxActivity>>>()
+    private val resourceCache = ConcurrentHashMap<String, CacheEntry<List<CxAttachment>>>()
 
-    private val gson = Gson()
+    fun invalidateJobListCache(course: CxCourse, chapterId: String) {
+        jobListCache.remove("${course.courseId}_${course.clazzId}_$chapterId")
+    }
 
     // ── Cookie 持久化 ────────────────────────────────────────────
 
     @Volatile
     private var cookiesDirty = false
+    private var cookiePersistJob: Job? = null
 
     private fun persistCookies() {
         cookiesDirty = true
+        synchronized(cookiePersistLock) {
+            cookiePersistJob?.cancel()
+            cookiePersistJob = cookiePersistScope.launch {
+                delay(500)
+                flushCookies()
+            }
+        }
     }
 
     /** 将内存中的 Cookie 持久化到 DataStore（需在协程中调用） */
     suspend fun flushCookies() {
         if (!cookiesDirty) return
+        val snapshot = cookieStore.values.map { cookie ->
+            PersistedCookie(
+                name = cookie.name,
+                value = cookie.value,
+                domain = cookie.domain,
+                path = cookie.path,
+                expiresAt = cookie.expiresAt,
+                secure = cookie.secure,
+                httpOnly = cookie.httpOnly,
+                hostOnly = cookie.hostOnly,
+                persistent = cookie.persistent,
+            )
+        }
+        sessionManager.saveCxCookies(gson.toJson(snapshot))
         cookiesDirty = false
-        val all = cookieStore.values.flatMap { it.toList() }
-        val str = all.joinToString(";") { "${it.name}=${it.value}" }
-        sessionManager.saveCxCookies(str)
     }
 
     fun loadPersistedCookies() {
         val raw = sessionManager.getCxCookies() ?: return
         if (raw.isBlank()) return
-        val cookies = raw.split(";").mapNotNull { part ->
-            val eq = part.indexOf('=')
-            if (eq <= 0) return@mapNotNull null
-            Cookie.Builder()
-                .domain(cxHost)
-                .path("/")
-                .name(part.substring(0, eq).trim())
-                .value(part.substring(eq + 1).trim())
-                .build()
+        val now = System.currentTimeMillis()
+        val cookies = if (raw.trimStart().startsWith("[")) {
+            runCatching {
+                gson.fromJson(raw, Array<PersistedCookie>::class.java).mapNotNull { saved ->
+                    if (saved.persistent && saved.expiresAt <= now) return@mapNotNull null
+                    runCatching {
+                        Cookie.Builder()
+                            .name(saved.name)
+                            .value(saved.value)
+                            .path(saved.path)
+                            .apply {
+                                if (saved.hostOnly) hostOnlyDomain(saved.domain) else domain(saved.domain)
+                                if (saved.persistent) expiresAt(saved.expiresAt)
+                                if (saved.secure) secure()
+                                if (saved.httpOnly) httpOnly()
+                            }
+                            .build()
+                    }.getOrNull()
+                }
+            }.getOrDefault(emptyList())
+        } else {
+            // Backward-compatible import of the legacy name=value;name=value format.
+            raw.split(";").mapNotNull { part ->
+                val eq = part.indexOf('=')
+                if (eq <= 0) return@mapNotNull null
+                Cookie.Builder()
+                    .domain(cxHost)
+                    .path("/")
+                    .name(part.substring(0, eq).trim())
+                    .value(part.substring(eq + 1).trim())
+                    .build()
+            }
         }
-        cookieStore[cxHost] = CopyOnWriteArrayList(cookies)
+        cookieStore.clear()
+        cookies.forEach { cookieStore[cookieKey(it)] = it }
+        if (trafficAccountScope == "anonymous") {
+            cookieStore.values.firstOrNull { it.name == "_uid" }?.value?.let {
+                trafficAccountScope = stableTrafficAccountKey(it)
+            }
+        }
     }
 
     suspend fun clearCookies() {
+        synchronized(cookiePersistLock) {
+            cookiePersistJob?.cancel()
+            cookiePersistJob = null
+        }
         cookieStore.clear()
+        cachedCourseList = null
+        cachedCourseListAt = 0L
+        coursePointsCache.clear()
+        jobListCache.clear()
+        activityCache.clear()
+        resourceCache.clear()
+        cookiesDirty = false
         sessionManager.saveCxCookies("")
     }
 
     // ── 获取当前用户 ID ─────────────────────────────────────────
 
     fun getUid(): String {
-        return cookieStore[cxHost]?.firstOrNull { it.name == "_uid" }?.value
+        return cookieStore.values.firstOrNull { it.name == "_uid" && it.expiresAt > System.currentTimeMillis() }?.value
             ?: throw IllegalStateException("未登录超星，无法获取 uid")
     }
 
     fun getFid(): String {
-        return cookieStore[cxHost]?.firstOrNull { it.name == "fid" }?.value ?: "1024"
+        return cookieStore.values.firstOrNull { it.name == "fid" && it.expiresAt > System.currentTimeMillis() }?.value ?: "1024"
     }
 
     fun isLoggedIn(): Boolean {
-        return cookieStore[cxHost]?.any { it.name == "_uid" } == true
+        return cookieStore.values.any { it.name == "_uid" && it.expiresAt > System.currentTimeMillis() }
     }
 
     /**
@@ -197,8 +280,64 @@ class ChaoxingRepository(
 
     /** 返回当前所有 Cookie 的 "name=value;name=value" 字符串，供外部 HTTP 客户端使用。 */
     fun getCookieString(): String {
-        return cookieStore[cxHost]?.joinToString("; ") { "${it.name}=${it.value}" } ?: ""
+        val now = System.currentTimeMillis()
+        return cookieStore.values
+            .filter { it.expiresAt > now }
+            .joinToString("; ") { "${it.name}=${it.value}" }
     }
+
+    private fun trafficAccountKey(): String {
+        ensureTrafficStateRestored()
+        return trafficAccountScope
+    }
+
+    private fun selectTrafficAccount(account: String) {
+        ensureTrafficStateRestored()
+        if (account.isNotBlank()) trafficAccountScope = stableTrafficAccountKey(account)
+    }
+
+    private fun stableTrafficAccountKey(account: String): String {
+        val normalized = account.trim().lowercase(Locale.US)
+        if (normalized.isBlank()) return "anonymous"
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(normalized.toByteArray(Charsets.UTF_8))
+        return "account_" + digest.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    }
+
+    private fun ensureTrafficStateRestored() {
+        if (trafficStateRestored) return
+        synchronized(trafficStateLock) {
+            if (trafficStateRestored) return
+            val persisted = runCatching {
+                gson.fromJson(
+                    sessionManager.getCxTrafficStateJson(),
+                    Array<ChaoxingTrafficStateSnapshot>::class.java,
+                )?.toList().orEmpty()
+            }.getOrDefault(emptyList())
+            trafficGovernor.restore(persisted)
+            val knownAccount = sessionManager.getCxPhone()
+                ?: cookieStore.values.firstOrNull { it.name == "_uid" }?.value
+            if (!knownAccount.isNullOrBlank()) {
+                trafficAccountScope = stableTrafficAccountKey(knownAccount)
+            }
+            trafficStateRestored = true
+        }
+    }
+
+    private fun persistTrafficState() {
+        if (!trafficStateRestored) return
+        val json = gson.toJson(trafficGovernor.snapshot())
+        synchronized(trafficStateLock) {
+            trafficStatePersistJob?.cancel()
+            trafficStatePersistJob = cookiePersistScope.launch {
+                sessionManager.saveCxTrafficStateJson(json)
+            }
+        }
+    }
+
+    fun isTrafficCooldown(error: Throwable): Boolean = error is ChaoxingTrafficCooldownException
+
+    fun isExplicitAuthExpiry(error: Throwable): Boolean = error is ChaoxingAuthExpiredException
 
     // ══════════════════════════════════════════════════════════════
     //  登录
@@ -211,6 +350,7 @@ class ChaoxingRepository(
      * 参数: fid=-1, uname=AES(手机号), password=AES(密码), refer=..., t=true
      */
     suspend fun login(username: String, password: String): Result<String> = withContext(Dispatchers.IO) {
+        selectTrafficAccount(username)
         try {
             val encUser = AESCipher.encrypt(username)
             val encPass = AESCipher.encrypt(password)
@@ -233,8 +373,14 @@ class ChaoxingRepository(
                 .header("User-Agent", UA_FIXED)
                 .build()
 
-            val resp = client.newCall(request).execute()
-            val json = JsonParser.parseString(resp.body?.string() ?: "{}").asJsonObject
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
+            val text = resp.body?.string() ?: "{}"
+            resp.close()
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("登录失败: HTTP $code"))
+            }
+            val json = JsonParser.parseString(text).asJsonObject
 
             if (json.has("status") && json.get("status").asBoolean) {
                 Log.i(TAG, "登录成功")
@@ -242,11 +388,12 @@ class ChaoxingRepository(
                 Result.success("登录成功")
             } else {
                 val msg = json.str("msg2").ifBlank { json.str("msg") }.ifBlank { "未知错误" }
-                Log.w(TAG, "登录失败: $msg")
+                Log.w(TAG, "登录失败: server rejected credentials")
                 Result.failure(Exception(msg))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "登录异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "登录异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -254,7 +401,7 @@ class ChaoxingRepository(
     /**
      * 校验当前 Cookie 是否仍然有效。
      */
-    suspend fun validateSession(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun validateSessionResult(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val body = FormBody.Builder()
                 .add("courseType", "1")
@@ -266,20 +413,40 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url("$BASE_MOOC2/mooc2-ans/visit/courselistdata")
                 .post(body)
-                .header("User-Agent", randomUA())
+                .header("User-Agent", userAgent())
                 .build()
 
-            val resp = client.newCall(request).execute()
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
             val text = resp.body?.string() ?: ""
             resp.close()
 
-            // 如果被重定向到登录页或返回包含 login 字样，说明 Cookie 失效
-            !text.contains("passport2.chaoxing.com") && !text.lowercase().contains("login")
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("校验会话失败: HTTP $code"))
+            }
+            if (looksLikeRiskPage(text)) {
+                return@withContext Result.failure(IOException("校验会话失败: 访问限制页面"))
+            }
+            if (looksLikeLoginPage(text)) return@withContext Result.success(false)
+            if (!looksLikeCourseListDocument(text)) {
+                return@withContext Result.failure(IOException("session validation returned an unexpected document"))
+            }
+            cachedCourseList = decodeCourseList(text)
+            cachedCourseListAt = System.currentTimeMillis()
+            Result.success(true)
+        } catch (_: ChaoxingAuthExpiredException) {
+            // The response interceptor recognizes login forms before this method can
+            // inspect the body. This is the one failure that means "definitely logged
+            // out"; rate limits, challenges and network errors must remain failures.
+            Result.success(false)
         } catch (e: Exception) {
-            Log.e(TAG, "校验会话异常", e)
-            false
+            if (e is CancellationException) throw e
+            Log.e(TAG, "校验会话异常" + ": " + e.javaClass.simpleName)
+            Result.failure(e)
         }
     }
+
+    suspend fun validateSession(): Boolean = validateSessionResult().getOrDefault(false)
 
     // ══════════════════════════════════════════════════════════════
     //  课程列表
@@ -291,8 +458,12 @@ class ChaoxingRepository(
      * POST https://mooc2-ans.chaoxing.com/mooc2-ans/visit/courselistdata
      * 响应: HTML → Jsoup 解析 div.course
      */
-    suspend fun getCourseList(): Result<List<CxCourse>> = withContext(Dispatchers.IO) {
+    suspend fun getCourseList(forceRefresh: Boolean = false): Result<List<CxCourse>> = withContext(Dispatchers.IO) {
         try {
+            val cached = cachedCourseList
+            if (!forceRefresh && cached != null && System.currentTimeMillis() - cachedCourseListAt < 5 * 60_000L) {
+                return@withContext Result.success(cached)
+            }
             val body = FormBody.Builder()
                 .add("courseType", "1")
                 .add("courseFolderId", "0")
@@ -303,19 +474,33 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url("$BASE_MOOC2/mooc2-ans/visit/courselistdata")
                 .post(body)
-                .header("User-Agent", randomUA())
+                .header("User-Agent", userAgent())
                 .header("Referer", "$BASE_MOOC2/mooc2-ans/visit/interaction?moocDomain=https://mooc1-1.chaoxing.com/mooc-ans")
                 .build()
 
-            val resp = client.newCall(request).execute()
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
             val html = resp.body?.string() ?: ""
             resp.close()
 
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("获取课程列表失败: HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(html)) {
+                return@withContext Result.failure(IOException("获取课程列表失败: 登录或访问限制页面"))
+            }
+
+            if (!looksLikeCourseListDocument(html)) {
+                return@withContext Result.failure(IOException("course list returned an unexpected document"))
+            }
             val courses = decodeCourseList(html)
+            cachedCourseList = courses
+            cachedCourseListAt = System.currentTimeMillis()
             Log.i(TAG, "获取课程列表成功: ${courses.size} 门")
             Result.success(courses)
         } catch (e: Exception) {
-            Log.e(TAG, "获取课程列表异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "获取课程列表异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -325,7 +510,7 @@ class ChaoxingRepository(
     // ══════════════════════════════════════════════════════════════
 
     /**
-     * 批量获取所有课程的任务点进度（后台并行）。
+     * 批量获取所有课程的任务点进度（严格串行）。
      *
      * 遍历每门课 -> 拉取章节列表 -> 汇总 jobCount / hasFinished。
      *
@@ -333,20 +518,27 @@ class ChaoxingRepository(
      */
     suspend fun getAllCoursesProgress(courses: List<CxCourse>): Map<String, CxCourseProgress> =
         withContext(Dispatchers.IO) {
-            courses.mapNotNull { course ->
-                try {
-                    val key = course.courseId + "_" + course.clazzId
-                    val points = getCoursePoints(course).getOrNull()?.points ?: return@mapNotNull null
-                    if (points.isEmpty()) return@mapNotNull key to CxCourseProgress()
+            val progress = linkedMapOf<String, CxCourseProgress>()
+            // Keep this deliberately sequential. A progress refresh is an optional
+            // fan-out operation; concurrent chapter requests add load without improving
+            // the information shown to the user. A typed restriction is terminal for the
+            // refresh so later courses do not continue probing the same account.
+            for (course in courses) {
+                val key = course.courseId + "_" + course.clazzId
+                val points = getCoursePoints(course).getOrThrow().points
+                if (points.isEmpty()) {
+                    progress[key] = CxCourseProgress()
+                    continue
+                }
 
-                    val totalJobs = points.sumOf { it.jobCount }
-                    val completedJobs = points.sumOf { if (it.hasFinished) it.jobCount else 0 }
-                    key to CxCourseProgress(
-                        totalJobs = totalJobs,
-                        completedJobs = minOf(completedJobs, totalJobs),
-                    )
-                } catch (_: Exception) { null }
-            }.toMap()
+                val totalJobs = points.sumOf { it.jobCount }
+                val completedJobs = points.sumOf { if (it.hasFinished) it.jobCount else 0 }
+                progress[key] = CxCourseProgress(
+                    totalJobs = totalJobs,
+                    completedJobs = minOf(completedJobs, totalJobs),
+                )
+            }
+            progress
         }
 
     /**
@@ -354,26 +546,44 @@ class ChaoxingRepository(
      *
      * GET https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/studentcourse?courseid=X&clazzid=Y&cpi=Z&ut=s
      */
-    suspend fun getCoursePoints(course: CxCourse): Result<CxCoursePoints> = withContext(Dispatchers.IO) {
+    suspend fun getCoursePoints(
+        course: CxCourse,
+        forceRefresh: Boolean = false,
+    ): Result<CxCoursePoints> = withContext(Dispatchers.IO) {
         try {
+            val cacheKey = "${course.courseId}_${course.clazzId}"
+            val cached = coursePointsCache[cacheKey]
+            if (!forceRefresh && cached != null && System.currentTimeMillis() - cached.storedAt < 2 * 60_000L) {
+                return@withContext Result.success(cached.value)
+            }
             val url = "$BASE_MOOC2/mooc2-ans/mycourse/studentcourse" +
                 "?courseid=${course.courseId}&clazzid=${course.clazzId}&cpi=${course.cpi}&ut=s"
 
             val request = Request.Builder()
                 .url(url)
                 .get()
-                .header("User-Agent", randomUA())
+                .header("User-Agent", userAgent())
                 .build()
 
-            val resp = client.newCall(request).execute()
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
             val html = resp.body?.string() ?: ""
             resp.close()
 
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("获取章节失败: HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(html)) {
+                return@withContext Result.failure(IOException("获取章节失败: 登录或访问限制页面"))
+            }
+
             val points = decodeCoursePoints(html)
+            coursePointsCache[cacheKey] = CacheEntry(points, System.currentTimeMillis())
             Log.i(TAG, "获取章节成功: ${points.points.size} 个")
             Result.success(points)
         } catch (e: Exception) {
-            Log.e(TAG, "获取章节异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "获取章节异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -388,14 +598,27 @@ class ChaoxingRepository(
      * GET https://mooc1.chaoxing.com/mooc-ans/knowledge/cards
      * 响应: JS+HTML → 正则提取 mArg JSON → 解析 attachments
      */
-    suspend fun getJobList(course: CxCourse, chapter: CxChapter): Result<Pair<List<CxJob>, CxJobInfo>> =
+    suspend fun getJobList(
+        course: CxCourse,
+        chapter: CxChapter,
+        forceRefresh: Boolean = false,
+    ): Result<Pair<List<CxJob>, CxJobInfo>> =
         withContext(Dispatchers.IO) {
             try {
+                val cacheKey = "${course.courseId}_${course.clazzId}_${chapter.id}"
+                val cached = jobListCache[cacheKey]
+                if (!forceRefresh && cached != null && System.currentTimeMillis() - cached.storedAt < 10 * 60_000L) {
+                    return@withContext Result.success(cached.value)
+                }
                 val allJobs = mutableListOf<CxJob>()
                 var jobInfo = CxJobInfo()
+                val seenJobs = mutableSetOf<String>()
+                val expectedJobs = chapter.jobCount.coerceAtLeast(0)
+                var sawStructuredCard = false
 
-                // 遍历可能的 num 值 (0~6)
-                for (num in "0123456") {
+                // Card count is not present on every course page. Walk forward only while
+                // each response contributes a new card, and stop on the first terminal card.
+                for (num in 0..6) {
                     val url = "$BASE_MOOC1/mooc-ans/knowledge/cards" +
                         "?clazzid=${course.clazzId}&courseid=${course.courseId}" +
                         "&knowledgeid=${chapter.id}&ut=s&cpi=${course.cpi}" +
@@ -404,41 +627,60 @@ class ChaoxingRepository(
                     val request = Request.Builder()
                         .url(url)
                         .get()
-                        .header("User-Agent", randomUA())
+                        .header("User-Agent", userAgent())
                         .header("Referer", "https://mooc2-ans.chaoxing.com/mycourse/studentcourse")
                         .build()
 
-                    val resp = client.newCall(request).execute()
+                    val resp = client.newCall(request).awaitResponse()
+                    val code = resp.code
                     val html = resp.body?.string() ?: ""
-                    Log.d(TAG, "getJobList num=$num code=${resp.code} finalUrl=${resp.request.url} htmlLen=${html.length}")
-                    if (num == '0') {
-                        // 搜索 mArg 关键字
-                        val mIdx = html.indexOf("mArg")
-                        Log.d(TAG, "mArg 位置: $mIdx, html 总长: ${html.length}")
-                        if (mIdx >= 0) {
-                            Log.d(TAG, "mArg 上下文: ${html.substring(maxOf(0, mIdx - 20), minOf(html.length, mIdx + 200))}")
-                        } else {
-                            Log.d(TAG, "html 内容 (前 3000 字): ${html.take(3000)}")
-                        }
-                    }
                     resp.close()
+                    Log.d(TAG, "getJobList num=$num code=$code htmlLen=${html.length}")
+
+                    if (code !in 200..299) {
+                        return@withContext Result.failure(IOException("获取任务卡失败: HTTP $code"))
+                    }
+                    if (looksLikeBlockedOrLoginPage(html)) {
+                        return@withContext Result.failure(IOException("获取任务卡失败: 登录或访问限制页面"))
+                    }
 
                     // 检查章节未开放
                     if (html.contains("章节未开放")) {
                         return@withContext Result.success(Pair(emptyList(), CxJobInfo()))
                     }
 
+                    val hasStructuredCard = extractMArgJson(html) != null
+                    if (!hasStructuredCard) {
+                        if (num == 0 && expectedJobs > 0 && !chapter.hasFinished) {
+                            return@withContext Result.failure(
+                                IOException("获取任务卡失败: 响应缺少任务卡数据"),
+                            )
+                        }
+                        break
+                    }
+                    sawStructuredCard = true
+
                     val (jobs, info) = decodeCourseCard(html)
                     if (info.knowledgeid.isNotEmpty()) {
                         jobInfo = info
                     }
-                    allJobs.addAll(jobs)
+                    val freshJobs = jobs.filter { job ->
+                        seenJobs.add("${job.type}:${job.jobid}:${job.objectid}")
+                    }
+                    if (freshJobs.isEmpty()) break
+                    allJobs.addAll(freshJobs)
+                    if (expectedJobs > 0 && allJobs.size >= expectedJobs) break
                 }
 
                 Log.i(TAG, "获取任务点成功: ${allJobs.size} 个")
-                Result.success(Pair(allJobs, jobInfo))
+                val result = Pair(allJobs, jobInfo)
+                if (sawStructuredCard || expectedJobs == 0) {
+                    jobListCache[cacheKey] = CacheEntry(result, System.currentTimeMillis())
+                }
+                Result.success(result)
             } catch (e: Exception) {
-                Log.e(TAG, "获取任务点异常", e)
+                if (e is CancellationException) throw e
+                Log.e(TAG, "获取任务点异常" + ": " + e.javaClass.simpleName)
                 Result.failure(e)
             }
         }
@@ -458,13 +700,21 @@ class ChaoxingRepository(
             val request = Request.Builder()
                 .url(url)
                 .get()
-                .header("User-Agent", randomUA())
+                .header("User-Agent", userAgent())
                 .header("Referer", "https://mooc1.chaoxing.com/ananas/modules/video/index.html")
                 .build()
 
-            val resp = client.newCall(request).execute()
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
             val json = resp.body?.string() ?: "{}"
             resp.close()
+
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("获取视频信息失败: HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(json)) {
+                return@withContext Result.failure(IOException("获取视频信息失败: 登录或访问限制页面"))
+            }
 
             val obj = JsonParser.parseString(json).asJsonObject
             val info = CxVideoInfo(
@@ -482,7 +732,8 @@ class ChaoxingRepository(
                 Result.failure(Exception("视频状态异常: ${info.status}"))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "获取视频信息异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "获取视频信息异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -509,8 +760,7 @@ class ChaoxingRepository(
         try {
             val enc = getEnc(course.clazzId, job.jobid, job.objectid, playingTime, duration, getUid())
 
-            // rt 参数处理（对齐原仓库 base.py video_progress_log）
-            // 优先用 job.rt，为空则从 otherInfo 中解析 -rt_1 / -rt_d
+            // Resolve rt once. Access-control failures must never trigger parameter probing.
             var rt = job.rt
             if (rt.isBlank()) {
                 val rtMatch = Regex("""-rt_([1d])""").find(job.otherinfo)
@@ -518,57 +768,48 @@ class ChaoxingRepository(
                     rt = if (rtMatch.groupValues[1] == "d") "0.9" else "1"
                 }
             }
-            val rtValues = if (rt.isNotBlank()) listOf(rt) else listOf("0.9", "1")
+            if (rt.isBlank()) rt = "1"
 
-            // 原仓库：rt 为空时依次尝试 0.9 和 1
-            var lastError: Exception? = null
-            for (tryRt in rtValues) {
-                val url = "$BASE_MOOC1/mooc-ans/multimedia/log/a/${course.cpi}/$dtoken" +
-                    "?clazzId=${course.clazzId}&playingTime=$playingTime&duration=$duration" +
-                    "&clipTime=0_$duration&objectId=${job.objectid}" +
-                    "&otherInfo=${job.otherinfo}&courseId=${course.courseId}" +
-                    "&jobid=${job.jobid}&userid=${getUid()}" +
-                    "&isdrag=$isdrag&view=pc&enc=$enc&dtype=Video" +
-                    "&rt=$tryRt&_t=${System.currentTimeMillis()}"
+            val url = "$BASE_MOOC1/mooc-ans/multimedia/log/a/${course.cpi}/$dtoken" +
+                "?clazzId=${course.clazzId}&playingTime=$playingTime&duration=$duration" +
+                "&clipTime=0_$duration&objectId=${job.objectid}" +
+                "&otherInfo=${job.otherinfo}&courseId=${course.courseId}" +
+                "&jobid=${job.jobid}&userid=${getUid()}" +
+                "&isdrag=$isdrag&view=pc&enc=$enc&dtype=Video" +
+                "&rt=$rt&_t=${System.currentTimeMillis()}"
 
-                val extraParams = buildString {
-                    if (job.videoFaceCaptureEnc.isNotEmpty()) append("&videoFaceCaptureEnc=${job.videoFaceCaptureEnc}")
-                    if (job.attDuration.isNotEmpty()) append("&attDuration=${job.attDuration}")
-                    if (job.attDurationEnc.isNotEmpty()) append("&attDurationEnc=${job.attDurationEnc}")
-                }
-
-                val request = Request.Builder()
-                    .url(url + extraParams)
-                    .get()
-                    .header("User-Agent", randomUA())
-                    .header("Referer", "https://mooc1.chaoxing.com/ananas/modules/video/index.html")
-                    .build()
-
-                val resp = client.newCall(request).execute()
-                val code = resp.code
-                val text = resp.body?.string() ?: ""
-                resp.close()
-
-                when (code) {
-                    200 -> {
-                        val json = JsonParser.parseString(text).asJsonObject
-                        val isPassed = json.get("isPassed")?.asBoolean ?: false
-                        return@withContext Result.success(isPassed)
-                    }
-                    403 -> {
-                        lastError = Exception("403 Forbidden")
-                        // 403 尝试下一个 rt
-                        continue
-                    }
-                    else -> {
-                        lastError = Exception("HTTP $code")
-                        continue
-                    }
-                }
+            val extraParams = buildString {
+                if (job.videoFaceCaptureEnc.isNotEmpty()) append("&videoFaceCaptureEnc=${job.videoFaceCaptureEnc}")
+                if (job.attDuration.isNotEmpty()) append("&attDuration=${job.attDuration}")
+                if (job.attDurationEnc.isNotEmpty()) append("&attDurationEnc=${job.attDurationEnc}")
             }
-            return@withContext Result.failure(lastError ?: Exception("上报失败"))
+
+            val request = Request.Builder()
+                .url(url + extraParams)
+                .get()
+                .header("User-Agent", userAgent())
+                .header("Referer", "https://mooc1.chaoxing.com/ananas/modules/video/index.html")
+                .build()
+
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
+            val text = resp.body?.string() ?: ""
+            resp.close()
+
+            if (code != 200) {
+                return@withContext Result.failure(IOException("视频进度上报失败: HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(text)) {
+                return@withContext Result.failure(IOException("视频进度上报失败: 登录或访问限制页面"))
+            }
+            val json = runCatching { JsonParser.parseString(text).asJsonObject }.getOrNull()
+                ?: return@withContext Result.failure(IOException("视频进度上报失败: 非预期响应"))
+            val passed = json.get("isPassed")
+                ?: return@withContext Result.failure(IOException("视频进度上报失败: 缺少 isPassed"))
+            Result.success(passed.asBoolean)
         } catch (e: Exception) {
-            Log.e(TAG, "视频进度上报异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "视频进度上报异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -587,10 +828,12 @@ class ChaoxingRepository(
         job: CxJob,
         jobInfo: CxJobInfo,
     ): Result<CxWorkData> = withContext(Dispatchers.IO) {
-        val maxRetries = 3
+        // Automatic retries are intentionally disabled. A user refresh is safer than
+        // multiplying requests after an ambiguous server or network failure.
+        val maxAttempts = 1
         var lastException: Exception? = null
 
-        for (attempt in 1..maxRetries) {
+        for (attempt in 1..maxAttempts) {
             try {
                 val url = "$BASE_MOOC1/mooc-ans/api/work" +
                     "?api=1&workId=${job.jobid.removePrefix("work-")}" +
@@ -603,24 +846,29 @@ class ChaoxingRepository(
                 val request = Request.Builder()
                     .url(url)
                     .get()
-                    .header("User-Agent", randomUA())
+                    .header("User-Agent", userAgent())
                     .build()
 
-                val resp = client.newCall(request).execute()
+                val resp = client.newCall(request).awaitResponse()
                 val html = resp.body?.string() ?: ""
                 val code = resp.code
                 resp.close()
 
+                if (looksLikeBlockedOrLoginPage(html)) {
+                    return@withContext Result.failure(IOException("获取题目失败: 登录或访问限制页面"))
+                }
+
                 // 检查"教师未创建完成该测验" (与 Python study_work 一致)
                 if (html.contains("教师未创建完成该测验")) {
-                    Log.w(TAG, "获取题目: 教师未创建完成该测验 (attempt $attempt/$maxRetries)")
+                    Log.w(TAG, "获取题目: 教师未创建完成该测验")
                     return@withContext Result.failure(IllegalStateException("教师未创建完成该测验，暂无法作答"))
                 }
 
                 if (code != 200 || html.isBlank()) {
-                    if (attempt < maxRetries) {
-                        val delayMs = 1000L * (1 shl (attempt - 1)) // 1s, 2s, 4s 指数退避
-                        Log.w(TAG, "获取题目 HTTP $code 或空响应, ${delayMs}ms 后重试 (attempt $attempt/$maxRetries)")
+                    val retryable = code in 500..599 || (code == 200 && html.isBlank())
+                    if (retryable && attempt < maxAttempts) {
+                        val delayMs = 2_000L
+                        Log.w(TAG, "获取题目短暂失败 HTTP $code, ${delayMs}ms 后重试")
                         delay(delayMs)
                         continue
                     }
@@ -629,28 +877,27 @@ class ChaoxingRepository(
 
                 val workData = decodeQuestions(html)
                 if (workData.questions.isEmpty()) {
-                    if (attempt < maxRetries) {
-                        val delayMs = 1000L * (1 shl (attempt - 1))
-                        Log.w(TAG, "解析到 0 道题目, ${delayMs}ms 后重试 (attempt $attempt/$maxRetries)")
-                        delay(delayMs)
-                        continue
-                    }
-                    return@withContext Result.failure(IllegalStateException("题目解析失败：未找到题目 (已重试 $maxRetries 次)"))
+                    return@withContext Result.failure(IllegalStateException("题目解析失败：未找到题目"))
                 }
 
                 Log.i(TAG, "获取题目成功: ${workData.questions.size} 道")
                 return@withContext Result.success(workData)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 lastException = e
-                if (attempt < maxRetries) {
-                    val delayMs = 1000L * (1 shl (attempt - 1))
-                    Log.w(TAG, "获取题目异常: ${e.message}, ${delayMs}ms 后重试 (attempt $attempt/$maxRetries)")
+                if (attempt < maxAttempts && e is IOException && !isNonRetryableCxFailure(e)) {
+                    val delayMs = 2_000L
+                    Log.w(TAG, "获取题目网络异常: ${e.javaClass.simpleName}, ${delayMs}ms 后重试")
                     delay(delayMs)
+                } else {
+                    break
                 }
             }
         }
 
-        Log.e(TAG, "获取题目失败，已达最大重试次数", lastException)
+        Log.e(TAG, "获取题目失败: ${lastException?.javaClass?.simpleName ?: "unknown"}")
         Result.failure(lastException ?: IOException("获取题目失败"))
     }
 
@@ -700,13 +947,8 @@ class ChaoxingRepository(
                 }
             }
 
-            // 诊断日志 — 完整请求体
             val body = formBuilder.build()
-            val bodySize = body.size
-            val bodyStr = (0 until bodySize).joinToString("&") { i ->
-                "${body.encodedName(i)}=${body.encodedValue(i)}"
-            }
-            Log.i(TAG, "[submit] pyFlag='${workData.pyFlag}', body=${bodyStr.take(1000)}")
+            Log.i(TAG, "[submit] fields=${body.size}")
 
             val request = Request.Builder()
                 .url("$BASE_MOOC1/mooc-ans/work/addStudentWorkNew")
@@ -714,211 +956,67 @@ class ChaoxingRepository(
                 .header("User-Agent", UA_FIXED)
                 .build()
 
-            val resp = client.newCall(request).execute()
+            val resp = client.newCall(request).awaitResponse()
             val code = resp.code
             val json = resp.body?.string() ?: "{}"
             resp.close()
 
-            Log.i(TAG, "[submit] HTTP $code, pyFlag='${workData.pyFlag}', 响应: ${json.take(500)}")
+            Log.i(TAG, "[submit] HTTP $code, response body omitted")
+
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("提交失败: HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(json)) {
+                return@withContext Result.failure(IOException("提交失败: 登录或访问限制页面"))
+            }
 
             val obj = JsonParser.parseString(json).asJsonObject
             if (obj.get("status")?.asBoolean == true) {
                 Result.success(obj.str("msg").ifBlank { "成功" })
             } else {
-                val errMsg = obj.str("msg").ifBlank { "提交失败, 服务端返回: ${json.take(200)}" }
-                Log.e(TAG, "[submit] 失败: $errMsg")
+                val errMsg = obj.str("msg").ifBlank { "提交失败: server did not confirm success" }
+                Log.e(TAG, "[submit] server rejected request")
                 Result.failure(Exception(errMsg))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "提交答案异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "提交答案异常: ${e.javaClass.simpleName}")
             Result.failure(e)
         }
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  文档 / 阅读 / 空页面任务
+    //  Disabled synthetic completion operations
     // ══════════════════════════════════════════════════════════════
 
-    /**
-     * 校验 ananas/job 系列被动任务上报的服务器响应。
-     *
-     * 这些接口失败时通常仍返回 HTTP 200，错误信息藏在 body 里
-     * （jtoken 失效 / knowledgeid 不对 / 任务未解锁），因此不能只看状态码。
-     *
-     * 判定规则（保守，未拿到全部抓包样本前避免反向误判）：
-     *  - HTTP 非 2xx → 失败
-     *  - body 含明确失败信号（"status":false / 错误关键字）→ 失败
-     *  - body 为 {"status":true} 或其他未知但无失败信号的内容 → 成功
-     *
-     * @param label 任务类型，用于日志与错误消息
-     */
-    private fun checkJobResponse(label: String, code: Int, body: String): Result<Unit> {
-        val trimmed = body.trim()
-
-        if (code !in 200..299) {
-            Log.w(TAG, "[$label] HTTP $code, body=${trimmed.take(200)}")
-            return Result.failure(Exception("$label 上报失败: HTTP $code"))
-        }
-
-        // 尝试 JSON 解析 status 字段（ananas 接口最常见格式 {"status":true/false}）
-        val statusFromJson: Boolean? = runCatching {
-            val el = JsonParser.parseString(trimmed)
-            if (el.isJsonObject) {
-                val obj = el.asJsonObject
-                when {
-                    obj.has("status") -> obj.get("status").let { if (it.isJsonPrimitive) it.asBoolean else null }
-                    else -> null
-                }
-            } else null
-        }.getOrNull()
-
-        if (statusFromJson == false) {
-            val msg = runCatching { JsonParser.parseString(trimmed).asJsonObject.str("msg") }.getOrNull().orEmpty()
-            Log.w(TAG, "[$label] status=false, msg=$msg, body=${trimmed.take(200)}")
-            return Result.failure(Exception("$label 上报被拒: ${msg.ifBlank { "status=false" }}"))
-        }
-
-        // 非 JSON 或无 status 字段时，扫描明确的失败关键字（兜底，待抓包校准）
-        if (statusFromJson == null) {
-            val failSignals = listOf("\"status\":false", "登录", "失效", "error", "异常", "无权限", "未开放")
-            val hit = failSignals.firstOrNull { trimmed.contains(it, ignoreCase = true) }
-            if (hit != null) {
-                Log.w(TAG, "[$label] 命中失败信号 '$hit', body=${trimmed.take(200)}")
-                return Result.failure(Exception("$label 上报失败: $hit"))
-            }
-            Log.i(TAG, "[$label] 未知响应格式(暂判成功，待抓包校准): ${trimmed.take(200)}")
-        }
-
-        return Result.success(Unit)
-    }
-
-    /** 文档任务 */
+    @Deprecated("Instant document completion is disabled")
     suspend fun studyDocument(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val nodeId = Regex("""nodeId_(\d+)-""").find(job.otherinfo)?.groupValues?.get(1) ?: ""
-                val url = "$BASE_MOOC1/ananas/job/document" +
-                    "?jobid=${job.jobid}&knowledgeid=$nodeId" +
-                    "&courseid=${course.courseId}&clazzid=${course.clazzId}" +
-                    "&jtoken=${job.jtoken}&_dc=${System.currentTimeMillis()}"
+        disabledCompletionResult()
 
-                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-                val resp = client.newCall(request).execute()
-                val code = resp.code
-                val body = resp.body?.string() ?: ""
-                resp.close()
-                // 模拟真人阅读/查看时间(15~90s 随机),避免 0 秒完成的工具指纹
-                // 真实用户在文档任务点停留至少 60~300s
-                delay(Random.nextLong(15_000L, 90_000L))
-                checkJobResponse("document", code, body)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
-
-    /** 阅读任务 */
+    @Deprecated("Instant reading completion is disabled")
     suspend fun studyRead(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val url = "$BASE_MOOC1/ananas/job/readv2" +
-                    "?jobid=${job.jobid}&knowledgeid=${jobInfo.knowledgeid}" +
-                    "&jtoken=${job.jtoken}&courseid=${course.courseId}" +
-                    "&clazzid=${course.clazzId}"
+        disabledCompletionResult()
 
-                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-                val resp = client.newCall(request).execute()
-                val code = resp.code
-                val body = resp.body?.string() ?: ""
-                resp.close()
-                // 模拟真人阅读时间(15~90s),阅读任务点真实停留 30~600s
-                delay(Random.nextLong(15_000L, 90_000L))
-                checkJobResponse("read", code, body)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
-
-    /** 音频任务 */
+    @Deprecated("Instant audio completion is disabled")
     suspend fun studyAudio(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val url = "$BASE_MOOC1/ananas/job/audio" +
-                    "?jobid=${job.jobid}&knowledgeid=${jobInfo.knowledgeid}" +
-                    "&jtoken=${job.jtoken}&courseid=${course.courseId}" +
-                    "&clazzid=${course.clazzId}&_dc=${System.currentTimeMillis()}"
+        disabledCompletionResult()
 
-                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-                val resp = client.newCall(request).execute()
-                val code = resp.code
-                val body = resp.body?.string() ?: ""
-                resp.close()
-                // 模拟真人听音频时间(15~90s,等于任务点最小停留)
-                delay(Random.nextLong(15_000L, 90_000L))
-                checkJobResponse("audio", code, body)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
-
-    /** 直播回放任务 */
+    @Deprecated("Instant live completion is disabled")
     suspend fun studyLive(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val url = "$BASE_MOOC1/ananas/job/live" +
-                    "?jobid=${job.jobid}&knowledgeid=${jobInfo.knowledgeid}" +
-                    "&jtoken=${job.jtoken}&courseid=${course.courseId}" +
-                    "&clazzid=${course.clazzId}&_dc=${System.currentTimeMillis()}"
+        disabledCompletionResult()
 
-                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-                val resp = client.newCall(request).execute()
-                val code = resp.code
-                val body = resp.body?.string() ?: ""
-                resp.close()
-                // 直播回放按音频节奏(15~90s)
-                delay(Random.nextLong(15_000L, 90_000L))
-                checkJobResponse("live", code, body)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
-
-    /** 空页面任务 */
+    @Deprecated("Synthetic empty-page completion is disabled")
     suspend fun studyEmptyPage(course: CxCourse, chapter: CxChapter): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val url = "$BASE_MOOC1/mooc-ans/mycourse/studentstudyAjax" +
-                    "?courseId=${course.courseId}&clazzid=${course.clazzId}" +
-                    "&chapterId=${chapter.id}&cpi=${course.cpi}" +
-                    "&verificationcode=&mooc2=1&microTopicId=0&editorPreview=0"
+        disabledCompletionResult()
 
-                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-                val resp = client.newCall(request).execute()
-                val code = resp.code
-                val body = resp.body?.string() ?: ""
-                resp.close()
-                checkJobResponse("emptyPage", code, body)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
+    private fun disabledCompletionResult(): Result<Unit> = Result.failure(
+        UnsupportedOperationException("后台瞬时完成任务已禁用"),
+    )
 
-    /** 刷课程访问次数（调用 studentstudyAjax 模拟访问） */
+    /** Disabled: synthetic visit-count mutations are not a supported client operation. */
+    @Deprecated("Synthetic visit-count reporting is disabled")
     suspend fun brushVisitCount(course: CxCourse, chapter: CxChapter): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val url = "$BASE_MOOC1/mooc-ans/mycourse/studentstudyAjax" +
-                    "?courseId=${course.courseId}&clazzid=${course.clazzId}" +
-                    "&chapterId=${chapter.id}&cpi=${course.cpi}" +
-                    "&verificationcode=&mooc2=1&microTopicId=0&editorPreview=0"
-
-                val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-                val resp = client.newCall(request).execute()
-                resp.close()
-                Result.success(Unit)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
+        Result.failure(UnsupportedOperationException("刷访问次数功能已禁用"))
 
     /**
      * 获取课程章节的资源附件列表。
@@ -928,15 +1026,26 @@ class ChaoxingRepository(
         course: CxCourse, chapter: CxChapter
     ): Result<List<CxAttachment>> = withContext(Dispatchers.IO) {
         try {
+            val cacheKey = "${course.courseId}_${course.clazzId}_${chapter.id}"
+            val cached = resourceCache[cacheKey]
+            if (cached != null && System.currentTimeMillis() - cached.storedAt < 10 * 60_000L) {
+                return@withContext Result.success(cached.value)
+            }
             val url = "$BASE_MOOC1/mooc-ans/mycourse/studentstudyAjax" +
                 "?courseId=${course.courseId}&clazzid=${course.clazzId}" +
                 "&chapterId=${chapter.id}&cpi=${course.cpi}" +
                 "&verificationcode=&mooc2=1&microTopicId=0&editorPreview=0"
 
-            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-            val resp = client.newCall(request).execute()
-            val html = resp.body?.string() ?: ""
-            resp.close()
+            val request = Request.Builder().url(url).get().header("User-Agent", userAgent()).build()
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
+            val html = resp.use { it.body?.string().orEmpty() }
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("resource list returned HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(html)) {
+                return@withContext Result.failure(IOException("resource list returned a login or access-control page"))
+            }
 
             val doc = org.jsoup.Jsoup.parse(html)
             val allowedExts = setOf("mp4", "pdf", "pptx", "ppt", "png", "jpg", "doc", "docx", "zip", "rar")
@@ -956,8 +1065,10 @@ class ChaoxingRepository(
                     objectId = "",
                 )
             }
+            resourceCache[cacheKey] = CacheEntry(resources, System.currentTimeMillis())
             Result.success(resources)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         }
     }
@@ -972,25 +1083,80 @@ class ChaoxingRepository(
         fileName: String,
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder().url(url).get()
-                .header("User-Agent", randomUA())
-                .header("Referer", "https://mooc1.chaoxing.com/")
-                .build()
-            val resp = client.newCall(request).execute()
-            val body = resp.body ?: return@withContext Result.failure(Exception("空响应体"))
+            val parsedUrl = runCatching { url.toHttpUrl() }
+                .getOrElse { return@withContext Result.failure(IOException("invalid resource URL")) }
+            if (parsedUrl.scheme !in setOf("http", "https") ||
+                !(parsedUrl.host == "chaoxing.com" || parsedUrl.host.endsWith(".chaoxing.com") ||
+                    parsedUrl.host == "cldisk.com" || parsedUrl.host.endsWith(".cldisk.com"))
+            ) {
+                return@withContext Result.failure(IOException("resource host is not allowed"))
+            }
             val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
                 ?: context.filesDir
-            if (!dir.exists()) dir.mkdirs()
-            val safeName = fileName.replace(Regex("""[\\/:*?"<>|]"""), "_")
-            val file = java.io.File(dir, safeName)
-            body.byteStream().use { input ->
-                file.outputStream().use { output ->
-                    input.copyTo(output)
-                }
+            if (!dir.exists() && !dir.mkdirs() && !dir.isDirectory) {
+                return@withContext Result.failure(IOException("resource directory is unavailable"))
             }
-            resp.close()
-            Result.success(file.absolutePath)
+            val baseName = fileName.substringAfterLast('/').substringAfterLast('\\')
+            val safeName = baseName.replace(Regex("""[\\/:*?"<>|]"""), "_")
+                .trim().ifBlank { "resource_${System.currentTimeMillis()}" }
+                .let { if (it == "." || it == "..") "resource_${System.currentTimeMillis()}" else it }
+            val file = java.io.File(dir, safeName)
+            if (file.isFile && file.length() > 0L) {
+                return@withContext Result.success(file.absolutePath)
+            }
+            val partFile = java.io.File(dir, ".${safeName}.${System.nanoTime()}.part")
+            val request = Request.Builder().url(parsedUrl).get()
+                .header("User-Agent", userAgent())
+                .header("Referer", "https://mooc1.chaoxing.com/")
+                .build()
+            val response = client.newCall(request).awaitResponse()
+            val cancellationHandle = currentCoroutineContext()[Job]?.invokeOnCompletion { response.close() }
+            try {
+                val code = response.code
+                if (code !in 200..299) {
+                    return@withContext Result.failure(IOException("resource download returned HTTP $code"))
+                }
+                val sample = runCatching { response.peekBody(16L * 1024L).string() }.getOrDefault("")
+                if (looksLikeBlockedOrLoginPage(sample)) {
+                    return@withContext Result.failure(IOException("resource download returned a login or access-control page"))
+                }
+                val body = response.body
+                    ?: return@withContext Result.failure(IOException("resource response body is empty"))
+                try {
+                    body.byteStream().use { input ->
+                        partFile.outputStream().use { output ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            while (true) {
+                                currentCoroutineContext().ensureActive()
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                output.write(buffer, 0, read)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    partFile.delete()
+                    throw e
+                }
+                if (file.exists() && file.length() > 0L) {
+                    partFile.delete()
+                    return@withContext Result.success(file.absolutePath)
+                }
+                if (file.exists()) file.delete()
+                if (!partFile.renameTo(file)) {
+                    partFile.delete()
+                    return@withContext Result.failure(IOException("resource file could not be finalized"))
+                }
+                Result.success(file.absolutePath)
+            } finally {
+                cancellationHandle?.dispose()
+                response.close()
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         }
     }
@@ -1000,20 +1166,36 @@ class ChaoxingRepository(
     // ══════════════════════════════════════════════════════════════
 
     /** 获取签到活动列表 */
-    suspend fun getActivityList(course: CxCourse): Result<List<CxActivity>> = withContext(Dispatchers.IO) {
+    suspend fun getActivityList(
+        course: CxCourse,
+        forceRefresh: Boolean = false,
+    ): Result<List<CxActivity>> = withContext(Dispatchers.IO) {
         try {
+            val cacheKey = "${course.courseId}_${course.clazzId}"
+            val cached = activityCache[cacheKey]
+            if (!forceRefresh && cached != null && System.currentTimeMillis() - cached.storedAt < 30_000L) {
+                return@withContext Result.success(cached.value)
+            }
             val url = "$BASE_MOBILE/v2/apis/active/student/activelist" +
                 "?fid=${getFid()}&courseId=${course.courseId}&classId=${course.clazzId}" +
                 "&showNotStartedActive=0&_=${System.currentTimeMillis()}"
 
-            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-            val resp = client.newCall(request).execute()
+            val request = Request.Builder().url(url).get().header("User-Agent", userAgent()).build()
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
             val json = resp.body?.string() ?: "{}"
             resp.close()
 
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("获取活动失败: HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(json)) {
+                return@withContext Result.failure(IOException("获取活动失败: 登录或访问限制页面"))
+            }
+
             val obj = JsonParser.parseString(json).asJsonObject
             if (obj.get("result")?.asInt != 1) {
-                return@withContext Result.success(emptyList())
+                return@withContext Result.failure(IOException("获取活动失败: 服务端未确认成功"))
             }
 
             val list = obj.getAsJsonObject("data").getAsJsonArray("activeList")
@@ -1036,9 +1218,11 @@ class ChaoxingRepository(
                     signType = com.ahu_plus.data.model.CxSignType.fromCode(typeCode),
                 )
             }
+            activityCache[cacheKey] = CacheEntry(activities, System.currentTimeMillis())
             Result.success(activities)
         } catch (e: Exception) {
-            Log.e(TAG, "获取签到活动异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "获取签到活动异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -1057,10 +1241,25 @@ class ChaoxingRepository(
                 "&uid=${getUid()}&activePrimaryId=$activityId" +
                 "&courseId=${course.courseId}&classId=${course.clazzId}"
 
-            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-            val resp = client.newCall(request).execute()
+            val request = Request.Builder().url(url).get().header("User-Agent", userAgent()).build()
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
             val text = resp.body?.string() ?: ""
             resp.close()
+
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("preSign 失败: HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(text)) {
+                return@withContext Result.failure(IOException("preSign 失败: 登录或访问限制页面"))
+            }
+            val looksLikeSignPage = text.contains("otherId", ignoreCase = true) ||
+                text.contains("ifphoto", ignoreCase = true) ||
+                text.contains("签到") ||
+                text.contains("activePrimaryId", ignoreCase = true)
+            if (!looksLikeSignPage) {
+                return@withContext Result.failure(IOException("preSign 失败: 非预期响应"))
+            }
 
             // otherId / ifphoto 可能形如 otherId=3 / "otherId":3 / ifphoto=1,做宽松匹配
             val otherId = Regex("""otherId['"]?\s*[=:]\s*['"]?(\d+)""").find(text)
@@ -1068,10 +1267,40 @@ class ChaoxingRepository(
             val ifPhoto = Regex("""ifphoto['"]?\s*[=:]\s*['"]?(\d+)""", RegexOption.IGNORE_CASE).find(text)
                 ?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val signType = CxSignType.fromPreSign(otherId, ifPhoto)
-            Log.i(TAG, "preSign: activityId=$activityId otherId=$otherId ifphoto=$ifPhoto → $signType")
+            Log.i(TAG, "preSign parsed: type=$signType")
             Result.success(CxPreSignInfo(signType = signType, otherId = otherId, ifPhoto = ifPhoto, raw = text))
         } catch (e: Exception) {
-            Log.e(TAG, "preSign 异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "preSign 异常" + ": " + e.javaClass.simpleName)
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun executeSignRequest(label: String, url: String): Result<String> {
+        return try {
+            val request = Request.Builder().url(url).get().header("User-Agent", userAgent()).build()
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
+            val text = resp.body?.string().orEmpty()
+            resp.close()
+
+            if (code !in 200..299) {
+                return Result.failure(IOException("$label 失败: HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(text)) {
+                return Result.failure(IOException("$label 失败: 登录或访问限制页面"))
+            }
+            val confirmed = text.contains("成功") ||
+                text.contains("success", ignoreCase = true) ||
+                text.contains("已签到") ||
+                text.contains("already", ignoreCase = true)
+            if (!confirmed) {
+                return Result.failure(IOException("$label 结果未确认: ${text.take(80)}"))
+            }
+            Result.success(text)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.e(TAG, "$label 异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -1088,23 +1317,13 @@ class ChaoxingRepository(
         longitude: Double,
         address: String = "",
     ): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val url = "$BASE_MOBILE/pptSign/stuSignajax" +
-                "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
-                "&courseId=${course.courseId}&classId=${course.clazzId}" +
-                "&clientip=&objectId=aaa" +
-                "&name=${java.net.URLEncoder.encode(address, "UTF-8")}" +
-                "&useragent=&latitude=$latitude&longitude=$longitude&appType=15"
-
-            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-            val resp = client.newCall(request).execute()
-            val text = resp.body?.string() ?: ""
-            resp.close()
-            Result.success(text)
-        } catch (e: Exception) {
-            Log.e(TAG, "位置签到异常", e)
-            Result.failure(e)
-        }
+        val url = "$BASE_MOBILE/pptSign/stuSignajax" +
+            "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
+            "&courseId=${course.courseId}&classId=${course.clazzId}" +
+            "&clientip=&objectId=aaa" +
+            "&name=${java.net.URLEncoder.encode(address, "UTF-8")}" +
+            "&useragent=&latitude=$latitude&longitude=$longitude&appType=15"
+        executeSignRequest("位置签到", url)
     }
 
     /**
@@ -1118,42 +1337,22 @@ class ChaoxingRepository(
         activityId: Long,
         gestureCode: String,
     ): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val url = "$BASE_MOBILE/pptSign/stuSignajax" +
-                "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
-                "&courseId=${course.courseId}&classId=${course.clazzId}" +
-                "&clientip=&objectId=aaa" +
-                "&name=${java.net.URLEncoder.encode(gestureCode, "UTF-8")}" +
-                "&useragent=&latitude=-1&longitude=-1&appType=15&signCode=$gestureCode"
-
-            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-            val resp = client.newCall(request).execute()
-            val text = resp.body?.string() ?: ""
-            resp.close()
-            Result.success(text)
-        } catch (e: Exception) {
-            Log.e(TAG, "手势签到异常", e)
-            Result.failure(e)
-        }
+        val url = "$BASE_MOBILE/pptSign/stuSignajax" +
+            "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
+            "&courseId=${course.courseId}&classId=${course.clazzId}" +
+            "&clientip=&objectId=aaa" +
+            "&name=${java.net.URLEncoder.encode(gestureCode, "UTF-8")}" +
+            "&useragent=&latitude=-1&longitude=-1&appType=15&signCode=${java.net.URLEncoder.encode(gestureCode, "UTF-8")}"
+        executeSignRequest("手势签到", url)
     }
 
     /** 执行普通签到 */
     suspend fun signNormal(course: CxCourse, activityId: Long): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val url = "$BASE_MOBILE/pptSign/stuSignajax" +
-                "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
-                "&courseId=${course.courseId}&classId=${course.clazzId}" +
-                "&clientip=&objectId=aaa&name=&useragent=&latitude=-1&longitude=-1&appType=15"
-
-            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-            val resp = client.newCall(request).execute()
-            val text = resp.body?.string() ?: ""
-            resp.close()
-            Result.success(text)
-        } catch (e: Exception) {
-            Log.e(TAG, "签到异常", e)
-            Result.failure(e)
-        }
+        val url = "$BASE_MOBILE/pptSign/stuSignajax" +
+            "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
+            "&courseId=${course.courseId}&classId=${course.clazzId}" +
+            "&clientip=&objectId=aaa&name=&useragent=&latitude=-1&longitude=-1&appType=15"
+        executeSignRequest("签到", url)
     }
 
     /**
@@ -1163,22 +1362,12 @@ class ChaoxingRepository(
      * 当前按社区公认形态(signCode=<code>)实现,待用测试账号抓真实请求修正。
      */
     suspend fun signInSignCode(course: CxCourse, activityId: Long, code: String): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val url = "$BASE_MOBILE/pptSign/stuSignajax" +
-                "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
-                "&courseId=${course.courseId}&classId=${course.clazzId}" +
-                "&clientip=&objectId=&name=&useragent=&latitude=-1&longitude=-1&appType=15" +
-                "&signCode=${java.net.URLEncoder.encode(code, "UTF-8")}"
-
-            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-            val resp = client.newCall(request).execute()
-            val text = resp.body?.string() ?: ""
-            resp.close()
-            Result.success(text)
-        } catch (e: Exception) {
-            Log.e(TAG, "签到码签到异常", e)
-            Result.failure(e)
-        }
+        val url = "$BASE_MOBILE/pptSign/stuSignajax" +
+            "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
+            "&courseId=${course.courseId}&classId=${course.clazzId}" +
+            "&clientip=&objectId=&name=&useragent=&latitude=-1&longitude=-1&appType=15" +
+            "&signCode=${java.net.URLEncoder.encode(code, "UTF-8")}"
+        executeSignRequest("签到码签到", url)
     }
 
     /**
@@ -1196,24 +1385,14 @@ class ChaoxingRepository(
         longitude: Double = -1.0,
         address: String = "",
     ): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val url = "$BASE_MOBILE/pptSign/stuSignajax" +
-                "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
-                "&courseId=${course.courseId}&classId=${course.clazzId}" +
-                "&clientip=&objectId=&useragent=&appType=15" +
-                "&enc=${java.net.URLEncoder.encode(enc, "UTF-8")}" +
-                "&name=${java.net.URLEncoder.encode(address, "UTF-8")}" +
-                "&latitude=$latitude&longitude=$longitude"
-
-            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-            val resp = client.newCall(request).execute()
-            val text = resp.body?.string() ?: ""
-            resp.close()
-            Result.success(text)
-        } catch (e: Exception) {
-            Log.e(TAG, "二维码签到异常", e)
-            Result.failure(e)
-        }
+        val url = "$BASE_MOBILE/pptSign/stuSignajax" +
+            "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
+            "&courseId=${course.courseId}&classId=${course.clazzId}" +
+            "&clientip=&objectId=&useragent=&appType=15" +
+            "&enc=${java.net.URLEncoder.encode(enc, "UTF-8")}" +
+            "&name=${java.net.URLEncoder.encode(address, "UTF-8")}" +
+            "&latitude=$latitude&longitude=$longitude"
+        executeSignRequest("二维码签到", url)
     }
 
     /**
@@ -1228,27 +1407,83 @@ class ChaoxingRepository(
         activityId: Long,
         objectId: String,
     ): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val url = "$BASE_MOBILE/pptSign/stuSignajax" +
-                "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
-                "&courseId=${course.courseId}&classId=${course.clazzId}" +
-                "&clientip=&objectId=${java.net.URLEncoder.encode(objectId, "UTF-8")}" +
-                "&name=&useragent=&latitude=-1&longitude=-1&appType=15"
-
-            val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-            val resp = client.newCall(request).execute()
-            val text = resp.body?.string() ?: ""
-            resp.close()
-            Result.success(text)
-        } catch (e: Exception) {
-            Log.e(TAG, "拍照签到异常", e)
-            Result.failure(e)
-        }
+        val url = "$BASE_MOBILE/pptSign/stuSignajax" +
+            "?activeId=$activityId&uid=${getUid()}&fid=${getFid()}" +
+            "&courseId=${course.courseId}&classId=${course.clazzId}" +
+            "&clientip=&objectId=${java.net.URLEncoder.encode(objectId, "UTF-8")}" +
+            "&name=&useragent=&latitude=-1&longitude=-1&appType=15"
+        executeSignRequest("拍照签到", url)
     }
 
     // ══════════════════════════════════════════════════════════════
     //  工具方法
     // ══════════════════════════════════════════════════════════════
+
+    private fun looksLikeLoginPage(body: String): Boolean {
+        if (body.isBlank()) return false
+        val lower = body.lowercase()
+        return lower.contains("passport2.chaoxing.com") ||
+            (lower.contains("fanyalogin") && lower.contains("uname")) ||
+            (lower.contains("name=\"password\"") && lower.contains("name=\"uname\""))
+    }
+
+    private fun looksLikeRiskPage(body: String): Boolean {
+        if (body.isBlank()) return false
+        val lower = body.lowercase()
+        return lower.contains("captcha") ||
+            lower.contains("verifycode") ||
+            lower.contains("validatecode") ||
+            body.contains("访问过于频繁") ||
+            body.contains("操作过于频繁") ||
+            body.contains("访问受限") ||
+            body.contains("安全验证") ||
+            body.contains("账号异常")
+    }
+
+    private fun looksLikeBlockedOrLoginPage(body: String): Boolean =
+        looksLikeLoginPage(body) || looksLikeRiskPage(body)
+
+    /**
+     * Course-list endpoints normally return an HTML shell even when the account
+     * has no enrolled courses. Treat an unrelated 2xx document as a failure so a
+     * malformed/login proxy page cannot be cached as an empty course list.
+     */
+    private fun looksLikeCourseListDocument(body: String): Boolean {
+        if (body.isBlank()) return false
+        val lower = body.lowercase()
+        val doc = Jsoup.parse(body)
+        if (doc.select("div.course, li.course, .course-list, .courseList, #courseList").isNotEmpty()) {
+            return true
+        }
+        if (doc.select("input.courseId, input.clazzId, [data-courseid], [data-clazzid]").isNotEmpty()) {
+            return true
+        }
+        val shellMarkers = listOf(
+            "courselistdata",
+            "coursefolderid",
+            "course-list",
+            "courselist",
+            "course_type",
+            "mooc2-ans",
+        )
+        val emptyMarkers = listOf(
+            "no course",
+            "no courses",
+            "暂无课程",
+            "没有课程",
+        )
+        return shellMarkers.any(lower::contains) || emptyMarkers.any(body::contains)
+    }
+
+    private fun isNonRetryableCxFailure(error: Throwable): Boolean {
+        if (error is ChaoxingTrafficException) return true
+        val message = error.message.orEmpty()
+        return message.contains("HTTP 401") ||
+            message.contains("HTTP 403") ||
+            message.contains("HTTP 429") ||
+            message.contains("访问限制") ||
+            message.contains("登录")
+    }
 
     /** 视频进度 enc 签名 */
     private fun getEnc(clazzId: String, jobid: String, objectId: String, playingTime: Int, duration: Int, userid: String): String {
@@ -1359,17 +1594,22 @@ class ChaoxingRepository(
         val json = try {
             JsonParser.parseString(mArgStr).asJsonObject
         } catch (e: Exception) {
-            Log.e(TAG, "mArg JSON 解析失败: ${e.message}", e)
-            return Pair(emptyList(), CxJobInfo())
+            if (e is CancellationException) throw e
+            throw IOException("任务卡 JSON 解析失败", e)
         }
 
         // 提取 jobInfo
         val defaults = json.getAsJsonObject("defaults")
         val jobInfo = CxJobInfo(
             ktoken = defaults?.str("ktoken") ?: "",
+            mtEnc = defaults?.str("mtEnc") ?: "",
+            reportTimeInterval = defaults?.get("reportTimeInterval")?.asInt
+                ?: json.get("reportTimeInterval")?.asInt
+                ?: 60,
             defenc = defaults?.str("defenc") ?: "",
             cardid = defaults?.str("cardid") ?: "",
             cpi = defaults?.str("cpi") ?: "",
+            qnenc = defaults?.str("qnenc") ?: "",
             knowledgeid = defaults?.str("knowledgeid") ?: "",
         )
 
@@ -1708,9 +1948,17 @@ class ChaoxingRepository(
                     .header("User-Agent", UA_FIXED)
                     .build()
 
-                val resp = client.newCall(request).execute()
+                val resp = client.newCall(request).awaitResponse()
+                val code = resp.code
                 val json = resp.body?.string() ?: "{}"
                 resp.close()
+
+                if (code !in 200..299) {
+                    return@withContext Result.failure(IOException("获取通知失败: HTTP $code"))
+                }
+                if (looksLikeBlockedOrLoginPage(json)) {
+                    return@withContext Result.failure(IOException("获取通知失败: 登录或访问限制页面"))
+                }
 
                 val obj = JsonParser.parseString(json).asJsonObject
                 val notices = obj.getAsJsonObject("notices") ?: run {
@@ -1740,14 +1988,16 @@ class ChaoxingRepository(
                             attachments = parseAttachments(o.str("attachment")),
                         )
                     } catch (e: Exception) {
-                        Log.w(TAG, "解析通知失败: ${e.message}")
+                        if (e is CancellationException) throw e
+                        Log.w(TAG, "解析通知失败: ${e.javaClass.simpleName}")
                         null
                     }
                 }
-                Log.i(TAG, "getNoticeList: ${messages.size} 条, nextCursor=${nextCursor.take(16)}")
+                Log.i(TAG, "getNoticeList: ${messages.size} 条")
                 Result.success(Pair(messages, nextCursor))
             } catch (e: Exception) {
-                Log.e(TAG, "getNoticeList 异常", e)
+                if (e is CancellationException) throw e
+                Log.e(TAG, "getNoticeList 异常" + ": " + e.javaClass.simpleName)
                 Result.failure(e)
             }
         }
@@ -1762,38 +2012,80 @@ class ChaoxingRepository(
             try {
                 val allMessages = mutableListOf<CxMessage>()
                 for (course in courses) {
+                    val cacheKey = "${course.courseId}_${course.clazzId}"
+                    val cached = activityCache[cacheKey]
+                    if (cached != null && System.currentTimeMillis() - cached.storedAt < 30_000L) {
+                        allMessages += cached.value.map { activity ->
+                            CxMessage(
+                                id = "act_${activity.id}",
+                                source = CxMessageSource.ACTIVITY,
+                                title = activity.name,
+                                content = "",
+                                senderName = course.title,
+                                time = activity.startTime,
+                                type = activity.type,
+                                typeName = activityTypeName(activity.type),
+                                courseId = course.courseId,
+                                courseName = course.title,
+                                activityStatus = activity.status,
+                            )
+                        }
+                        continue
+                    }
                     val url = "$BASE_MOBILE/v2/apis/active/student/activelist" +
                         "?fid=${getFid()}&courseId=${course.courseId}&classId=${course.clazzId}" +
                         "&showNotStartedActive=0&_=${System.currentTimeMillis()}"
 
-                    val request = Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-                    val resp = client.newCall(request).execute()
+                    val request = Request.Builder().url(url).get().header("User-Agent", userAgent()).build()
+                    val resp = client.newCall(request).awaitResponse()
+                    val code = resp.code
                     val json = resp.body?.string() ?: "{}"
                     resp.close()
 
+                    if (code !in 200..299) {
+                        return@withContext Result.failure(IOException("获取课程活动失败: HTTP $code"))
+                    }
+                    if (looksLikeBlockedOrLoginPage(json)) {
+                        return@withContext Result.failure(IOException("获取课程活动失败: 登录或访问限制页面"))
+                    }
+
                     val obj = JsonParser.parseString(json).asJsonObject
-                    if (obj.get("result")?.asInt != 1) continue
+                    if (obj.get("result")?.asInt != 1) {
+                        return@withContext Result.failure(IOException("获取课程活动失败: 服务端未确认成功"))
+                    }
 
                     val data = obj.getAsJsonObject("data") ?: continue
                     val list = data.getAsJsonArray("activeList") ?: continue
+                    val courseActivities = mutableListOf<CxActivity>()
 
                     for (el in list) {
                         try {
                             val o = el.asJsonObject
                             val actType = o.get("type")?.asInt ?: 0
-                            val typeName = when (actType) {
-                                2 -> "签到"
-                                11 -> "选人"
-                                42 -> "随堂练习"
-                                45 -> "通知"
-                                62 -> "分组任务"
-                                else -> "活动"
-                            }
+                            val typeName = activityTypeName(actType)
+                            val activityId = o.get("id")?.asLong ?: 0
+                            val activityName = o.str("nameOne").ifBlank { o.str("name") }
+                            val status = o.get("status")?.asInt ?: 0
+                            val otherInfo = o.str("otherInfo")
+                            val signTypeCode = Regex("""type=(\d+)""").find(otherInfo)
+                                ?.groupValues?.get(1)?.toIntOrNull()
+                                ?: actType
+                            courseActivities += CxActivity(
+                                id = activityId,
+                                name = activityName,
+                                type = actType,
+                                status = status,
+                                courseId = course.courseId,
+                                classId = course.clazzId,
+                                startTime = o.get("startTime")?.asLong ?: 0,
+                                endTime = o.get("endTime")?.asLong ?: 0,
+                                signType = CxSignType.fromCode(signTypeCode),
+                            )
                             allMessages.add(
                                 CxMessage(
-                                    id = "act_${o.get("id")?.asLong ?: 0}",
+                                    id = "act_$activityId",
                                     source = CxMessageSource.ACTIVITY,
-                                    title = o.str("nameOne").ifBlank { o.str("name") },
+                                    title = activityName,
                                     content = "",
                                     senderName = course.title,
                                     time = o.get("startTime")?.asLong ?: 0,
@@ -1803,24 +2095,36 @@ class ChaoxingRepository(
                                     courseId = course.courseId,
                                     courseName = course.title,
                                     logo = o.str("logo"),
-                                    activityStatus = o.get("status")?.asInt ?: 0,
+                                    activityStatus = status,
                                     userStatus = o.get("userStatus")?.asInt ?: 0,
                                     attendNum = o.get("attendNum")?.asInt ?: 0,
                                     releaseNum = o.get("releaseNum")?.asInt ?: 0,
                                 )
                             )
                         } catch (e: Exception) {
-                            Log.w(TAG, "解析活动失败: ${e.message}")
+                            if (e is CancellationException) throw e
+                            Log.w(TAG, "解析活动失败: ${e.javaClass.simpleName}")
                         }
                     }
+                    activityCache[cacheKey] = CacheEntry(courseActivities, System.currentTimeMillis())
                 }
                 Log.i(TAG, "getActivityMessages: ${allMessages.size} 条")
                 Result.success(allMessages)
             } catch (e: Exception) {
-                Log.e(TAG, "getActivityMessages 异常", e)
+                if (e is CancellationException) throw e
+                Log.e(TAG, "getActivityMessages 异常" + ": " + e.javaClass.simpleName)
                 Result.failure(e)
             }
         }
+
+    private fun activityTypeName(type: Int): String = when (type) {
+        2 -> "签到"
+        11 -> "选人"
+        42 -> "随堂练习"
+        45 -> "通知"
+        62 -> "分组任务"
+        else -> "活动"
+    }
 
     /**
      * 获取附件的真实下载 URL。
@@ -1833,10 +2137,16 @@ class ChaoxingRepository(
             val previewUrl = att.preview
             if (previewUrl.isBlank()) return@withContext Result.failure(Exception("无预览地址"))
 
-            val request = Request.Builder().url(previewUrl).get().header("User-Agent", randomUA()).build()
-            val resp = client.newCall(request).execute()
-            val html = resp.body?.string() ?: ""
-            resp.close()
+            val request = Request.Builder().url(previewUrl).get().header("User-Agent", userAgent()).build()
+            val resp = client.newCall(request).awaitResponse()
+            val code = resp.code
+            val html = resp.use { it.body?.string().orEmpty() }
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("attachment preview returned HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(html)) {
+                return@withContext Result.failure(IOException("attachment preview returned a login or access-control page"))
+            }
 
             // 从 HTML 中提取 d0.cldisk.com/download/... 签名 URL
             val match = Regex("""https?://d\d+\.cldisk\.com/download/[^"'\s]+""").find(html)
@@ -1847,7 +2157,8 @@ class ChaoxingRepository(
                 Result.failure(Exception("未找到下载链接"))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "获取下载链接异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "获取下载链接异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -1918,14 +2229,22 @@ class ChaoxingRepository(
                 .build()
 
             val courseResp = client.newCall(
-                Request.Builder().url(courseUrlWithParams).get().header("User-Agent", randomUA()).build()
-            ).execute()
+                Request.Builder().url(courseUrlWithParams).get().header("User-Agent", userAgent()).build()
+            ).awaitResponse()
 
+            val courseCode = courseResp.code
             val courseHtml = courseResp.body?.string() ?: ""
             val finalUrl = courseResp.request.url.toString()
             courseResp.close()
 
-            Log.i(TAG, "getHomeworkList: 访问课程页 finalUrl=${finalUrl.take(120)}")
+            if (courseCode !in 200..299) {
+                return@withContext Result.failure(IOException("获取课程作业入口失败: HTTP $courseCode"))
+            }
+            if (looksLikeBlockedOrLoginPage(courseHtml)) {
+                return@withContext Result.failure(IOException("获取课程作业入口失败: 登录或访问限制页面"))
+            }
+
+            Log.i(TAG, "getHomeworkList: course page loaded")
 
             val urlParams = finalUrl.toHttpUrl().queryParameterNames.associateWith {
                 finalUrl.toHttpUrl().queryParameter(it) ?: ""
@@ -1959,14 +2278,21 @@ class ChaoxingRepository(
                 Request.Builder()
                     .url(workUrl)
                     .get()
-                    .header("User-Agent", randomUA())
-                    .header("Host", "mooc1.chaoxing.com")
+                    .header("User-Agent", userAgent())
                     .header("Referer", "https://mooc2-ans.chaoxing.com/")
                     .build()
-            ).execute()
+            ).awaitResponse()
 
+            val workCode = workResp.code
             val workHtml = workResp.body?.string() ?: ""
             workResp.close()
+
+            if (workCode !in 200..299) {
+                return@withContext Result.failure(IOException("获取作业列表失败: HTTP $workCode"))
+            }
+            if (looksLikeBlockedOrLoginPage(workHtml)) {
+                return@withContext Result.failure(IOException("获取作业列表失败: 登录或访问限制页面"))
+            }
 
             // 3. 解析作业列表 HTML
             val workDoc = Jsoup.parse(workHtml)
@@ -2025,7 +2351,8 @@ class ChaoxingRepository(
                         enc = queryMap["enc"] ?: "",
                     )
                 } catch (e: Exception) {
-                    Log.w(TAG, "解析作业项失败: ${e.message}")
+                    if (e is CancellationException) throw e
+                    Log.w(TAG, "解析作业项失败: ${e.javaClass.simpleName}")
                     null
                 }
             }
@@ -2033,7 +2360,8 @@ class ChaoxingRepository(
             Log.i(TAG, "getHomeworkList: ${items.size} 个作业")
             Result.success(items)
         } catch (e: Exception) {
-            Log.e(TAG, "getHomeworkList 异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "getHomeworkList 异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -2060,24 +2388,28 @@ class ChaoxingRepository(
                 Request.Builder()
                     .url(workUrl)
                     .get()
-                    .header("User-Agent", randomUA())
+                    .header("User-Agent", userAgent())
                     .header("Referer", "$BASE_MOOC1/mooc2/work/list?courseId=$courseId&classId=$classId&cpi=$cpi&ut=s")
-                    .header("Host", "mooc1.chaoxing.com")
                     .build()
-            ).execute()
+            ).awaitResponse()
 
+            val code = resp.code
             val html = resp.body?.string() ?: ""
             resp.close()
 
-            if (html.length < 10000 && html.contains("验证码")) {
-                return@withContext Result.failure(Exception("触发验证码保护，请稍后重试"))
+            if (code !in 200..299) {
+                return@withContext Result.failure(IOException("获取作业页面失败: HTTP $code"))
+            }
+            if (looksLikeBlockedOrLoginPage(html)) {
+                return@withContext Result.failure(IOException("获取作业页面失败: 登录或访问限制页面"))
             }
 
             val workData = decodeQuestions(html)
             Log.i(TAG, "getHomeworkPage: ${workData.questions.size} 道题")
             Result.success(workData)
         } catch (e: Exception) {
-            Log.e(TAG, "getHomeworkPage 异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "getHomeworkPage 异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -2130,42 +2462,47 @@ class ChaoxingRepository(
 
                 // 验证提交 URL 合法性 (避免解析错误时发到错误端点)
                 if (!actionUrl.contains("addStudentWorkNew", ignoreCase = true)) {
-                    Log.e(TAG, "[submitHomework] 非法提交 URL: $actionUrl")
+                    Log.e(TAG, "[submitHomework] 非法提交 URL")
                     return@withContext Result.failure(Exception("提交地址异常，请刷新后重试"))
                 }
 
                 val body = formBuilder.build()
-                val bodyStr = (0 until body.size).joinToString("&") { i ->
-                    "${body.encodedName(i)}=${body.encodedValue(i)}"
-                }
-                Log.i(TAG, "[submitHomework] pyFlag='${workData.pyFlag}', 共 ${body.size} 字段, body=${bodyStr.take(800)}")
+                Log.i(TAG, "[submitHomework] fields=${body.size}")
 
                 val request = Request.Builder()
                     .url(actionUrl)
                     .post(body)
-                    .header("User-Agent", randomUA())
+                    .header("User-Agent", userAgent())
                     .header("X-Requested-With", "XMLHttpRequest")
                     .header("Accept", "*/*")
-                    .header("Accept-Language", "zh-CN,zh;q=0.9")
                     .header("Origin", BASE_MOOC1)
                     .header("Referer", actionUrl.takeWhile { it != '?' })
                     .build()
 
-                val resp = client.newCall(request).execute()
+                val resp = client.newCall(request).awaitResponse()
+                val code = resp.code
                 val json = resp.body?.string() ?: "{}"
                 resp.close()
 
-                Log.i(TAG, "[submitHomework] HTTP ${resp.code}, 响应: ${json.take(500)}")
+                Log.i(TAG, "[submitHomework] HTTP $code, response body omitted")
+
+                if (code !in 200..299) {
+                    return@withContext Result.failure(IOException("提交作业失败: HTTP $code"))
+                }
+                if (looksLikeBlockedOrLoginPage(json)) {
+                    return@withContext Result.failure(IOException("提交作业失败: 登录或访问限制页面"))
+                }
 
                 val obj = JsonParser.parseString(json).asJsonObject
                 if (obj.get("status")?.asBoolean == true) {
                     Result.success(obj.str("msg").ifBlank { "提交成功" })
                 } else {
-                    val errMsg = obj.str("msg").ifBlank { "提交失败: ${json.take(200)}" }
+                    val errMsg = obj.str("msg").ifBlank { "提交失败: server did not confirm success" }
                     Result.failure(Exception(errMsg))
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "submitHomework 异常", e)
+                if (e is CancellationException) throw e
+                Log.e(TAG, "submitHomework 异常" + ": " + e.javaClass.simpleName)
                 Result.failure(e)
             }
         }
@@ -2196,16 +2533,26 @@ class ChaoxingRepository(
             val url = urlBuilder.build()
 
             val resp = client.newCall(
-                Request.Builder().url(url).get().header("User-Agent", randomUA()).build()
-            ).execute()
+                Request.Builder().url(url).get().header("User-Agent", userAgent()).build()
+            ).awaitResponse()
 
+            val code = resp.code
             val json = resp.body?.string() ?: "{}"
             resp.close()
 
+            if (code !in 200..299 || looksLikeBlockedOrLoginPage(json)) {
+                return@withContext Result.failure(IOException("重做作业失败: HTTP $code"))
+            }
+
             val obj = JsonParser.parseString(json).asJsonObject
-            Result.success(obj.get("status")?.asBoolean ?: false)
+            if (obj.get("status")?.asBoolean == true) {
+                Result.success(true)
+            } else {
+                Result.failure(IOException("重做作业失败: 服务端未确认成功"))
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "redoHomework 异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "redoHomework 异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -2224,10 +2571,15 @@ class ChaoxingRepository(
             // 1. 获取上传 token 和 puid
             val configUrl = "https://noteyd.chaoxing.com/pc/files/getUploadConfig"
             val configResp = client.newCall(
-                Request.Builder().url(configUrl).get().header("User-Agent", randomUA()).build()
-            ).execute()
+                Request.Builder().url(configUrl).get().header("User-Agent", userAgent()).build()
+            ).awaitResponse()
+            val configCode = configResp.code
             val configJson = configResp.body?.string() ?: "{}"
             configResp.close()
+
+            if (configCode !in 200..299 || looksLikeBlockedOrLoginPage(configJson)) {
+                return@withContext Result.failure(IOException("获取上传凭证失败: HTTP $configCode"))
+            }
 
             val configObj = JsonParser.parseString(configJson).asJsonObject
             val token = configObj.getAsJsonObject("msg")?.get("token")?.asString
@@ -2241,9 +2593,16 @@ class ChaoxingRepository(
             val uploadClient = SecureHttpClientFactory.create(
                 cookieJar = cookieJar,
                 followRedirects = true,
+                retryOnConnectionFailure = false,
                 trustAll = false,
                 connectTimeoutSec = 30,
                 readTimeoutSec = 60,
+                extraInterceptors = listOf(
+                    trafficGovernor.asEntryTagInterceptor(accountProvider = { trafficAccountKey() }),
+                ),
+                extraNetworkInterceptors = listOf(
+                    trafficGovernor.asInterceptor(accountProvider = { trafficAccountKey() }),
+                ),
             )
             val requestBody = okhttp3.MultipartBody.Builder()
                 .setType(okhttp3.MultipartBody.FORM)
@@ -2259,11 +2618,16 @@ class ChaoxingRepository(
                 Request.Builder()
                     .url("https://pan-yz.chaoxing.com/upload")
                     .post(requestBody)
-                    .header("User-Agent", randomUA())
+                    .header("User-Agent", userAgent())
                     .build()
-            ).execute()
+            ).awaitResponse()
+            val uploadCode = uploadResp.code
             val uploadJson = uploadResp.body?.string() ?: "{}"
             uploadResp.close()
+
+            if (uploadCode !in 200..299 || looksLikeBlockedOrLoginPage(uploadJson)) {
+                return@withContext Result.failure(IOException("上传失败: HTTP $uploadCode"))
+            }
 
             val uploadObj = JsonParser.parseString(uploadJson).asJsonObject
             val objectId = uploadObj.getAsJsonObject("msg")?.get("objectId")?.asString
@@ -2271,7 +2635,7 @@ class ChaoxingRepository(
                 ?: uploadObj.getAsJsonObject("data")?.get("objectId")?.asString
                 ?: return@withContext Result.failure(Exception("上传失败: ${uploadJson.take(200)}"))
 
-            Log.i(TAG, "uploadHomeworkFile: $fileName → objectId=$objectId")
+            Log.i(TAG, "uploadHomeworkFile: upload completed")
 
             // 3. 注册文件资源
             val params = """[{"Key":"$objectId","Cataid":"100000019"}]"""
@@ -2282,13 +2646,29 @@ class ChaoxingRepository(
                 .addQueryParameter("params", params)
                 .build()
             val regResp = client.newCall(
-                Request.Builder().url(registerUrl).get().header("User-Agent", randomUA()).build()
-            ).execute()
+                Request.Builder().url(registerUrl).get().header("User-Agent", userAgent()).build()
+            ).awaitResponse()
+            val registerCode = regResp.code
+            val registerBody = regResp.body?.string().orEmpty()
             regResp.close()
+
+            if (registerCode !in 200..299 || looksLikeBlockedOrLoginPage(registerBody)) {
+                return@withContext Result.failure(IOException("注册上传资源失败: HTTP $registerCode"))
+            }
+            val registerConfirmed = runCatching {
+                val obj = JsonParser.parseString(registerBody).asJsonObject
+                obj.get("status")?.asBoolean == true ||
+                    obj.get("result")?.let { it.asInt == 1 } == true ||
+                    obj.get("success")?.asBoolean == true
+            }.getOrDefault(false) || registerBody.trim().equals("success", ignoreCase = true)
+            if (!registerConfirmed) {
+                return@withContext Result.failure(IOException("注册上传资源失败: 服务端未确认成功"))
+            }
 
             Result.success(objectId)
         } catch (e: Exception) {
-            Log.e(TAG, "uploadHomeworkFile 异常", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "uploadHomeworkFile 异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }

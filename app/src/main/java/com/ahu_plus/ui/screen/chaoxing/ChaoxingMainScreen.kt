@@ -113,7 +113,7 @@ fun ChaoxingMainScreen(
                             }
                         },
                         actions = {
-                            IconButton(onClick = { viewModel.loadCourses() }) {
+                            IconButton(onClick = { viewModel.loadCourses(force = true) }) {
                                 Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                             }
                             IconButton(onClick = { showSettings = true }) {
@@ -169,7 +169,7 @@ fun ChaoxingMainScreen(
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(coursesState.error!!, color = MaterialTheme.colorScheme.error)
                                         Spacer(Modifier.height(16.dp))
-                                        OutlinedButton(onClick = { viewModel.loadCourses() }) { Text("重试") }
+                                        OutlinedButton(onClick = { viewModel.loadCourses(force = true) }) { Text("重试") }
                                     }
                                 }
                             }

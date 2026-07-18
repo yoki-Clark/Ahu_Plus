@@ -44,7 +44,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -200,91 +199,14 @@ private fun SettingsContent(
 
         Card(shape = AhuShapes.Card, elevation = CardDefaults.cardElevation(1.dp)) {
             Column(modifier = Modifier.padding(16.dp)) {
-                SettingItem(title = "视频倍速", subtitle = "%.1fx".format(settingsState.speed))
-                Slider(
-                    value = settingsState.speed,
-                    onValueChange = { viewModel.updateSpeed("%.1f".format(it).toFloat()) },
-                    valueRange = 1.0f..2.0f,
-                    steps = 9,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Spacer(Modifier.height(12.dp))
-
-                SettingItem(title = "并发章节数", subtitle = "${settingsState.concurrency} 个")
-                Slider(
-                    value = settingsState.concurrency.toFloat(),
-                    onValueChange = { viewModel.updateConcurrency(it.toInt()) },
-                    valueRange = 1f..4f,
-                    steps = 2,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Spacer(Modifier.height(12.dp))
-
                 SettingItem(title = "未开放章节", subtitle = null)
                 Spacer(Modifier.height(4.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("retry" to "重试", "ask" to "询问", "continue" to "跳过").forEach { (v, label) ->
-                        FilterChip(
-                            selected = settingsState.notOpenAction == v,
-                            onClick = { viewModel.updateNotOpenAction(v) },
-                            label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("自动签到", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
-                        Text(
-                            "老师发起签到时自动用下方预设完成",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = settingsState.autoSign,
-                        onCheckedChange = { viewModel.updateAutoSign(it) },
-                    )
-                }
-
-                // 签到参数预设仅服务于"自动签到":开启后才需要、才显示。
-                // 手动签到走"立即签到"按钮当场输入,无需预设。
-                AnimatedVisibility(visible = settingsState.autoSign) {
-                    Column {
-                        Spacer(Modifier.height(12.dp))
-                        SignConfigSetting(viewModel = viewModel)
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                SwitchSetting(
-                    title = "刷访问次数",
-                    subtitle = "学习完成后遍历章节模拟访问，提升学习次数统计",
-                    checked = settingsState.visitBrushEnabled,
-                    onCheckedChange = { viewModel.updateVisitBrushEnabled(it) },
+                Text(
+                    text = "未开放章节会跳过，不会重复请求。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                AnimatedVisibility(visible = settingsState.visitBrushEnabled) {
-                    Column {
-                        Spacer(Modifier.height(8.dp))
-                        SettingItem(title = "访问间隔", subtitle = "${settingsState.visitBrushInterval} 秒")
-                        Slider(
-                            value = settingsState.visitBrushInterval.toFloat(),
-                            onValueChange = { viewModel.updateVisitBrushInterval(it.toInt()) },
-                            valueRange = 5f..120f,
-                            steps = 22,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
             }
         }
 

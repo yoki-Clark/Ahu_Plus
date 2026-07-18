@@ -557,14 +557,14 @@ val guideCategories: List<GuideCategory> = listOf(
                     impl {
                         p("登录 ChaoxingRepository 用 AES/CBC 加密手机号密码，Cookie 持久化。正文字体加密：CxFontDecoder 启动时加载 font_map_table.json（3 万+ 字形映射），TtfGlyphParser 纯 Kotlin 解析 TTF glyf 表，逐字形 MD5 反查汉字。")
                         p("题库回退链 ChaoxingTikuRepository：CACHE → YANXI → GO → LIKE → ADAPTER → AI → SILICONFLOW；normalizeAnswer() 标准化（单选取字母、多选模糊匹配、判断映射 true/false）。")
-                        p("自动学习 ChaoxingStudyRepository：任务优先级 document > read > audio > live > workid > video；403 指数退避 2s→4s→8s；ChaoxingStudyService ForegroundService + OverlayWindow 悬浮窗。")
-                        p("反作弊/封号加固：新增 ChaoxingHeaderInterceptor 补全 sec-ch-ua* / Accept-Language / 按 URL 智能分发 Referer / 跨域 POST 加 Origin；UA 从 7 池随机改为单固定 UA；视频心跳 30~90s 改为 5~10s；document/read/audio/live 任务点上报后 delay 15~90s 模拟真人停留。")
+                        p("学习请求由 ChaoxingTrafficGovernor 按账号和主机串行；403、429、验证码或限制页会停止当前批次，并按 Retry-After 冷却。")
+                        p("视频进度只按服务端 reportTimeInterval 上报按真实经过时间计算的进度；不支持瞬间完成、自动签到、刷访问次数或伪装浏览器指纹。")
                         p("签到 sign/SignFlowDialog：preSign 接口类型标记不可靠，改用响应内容关键字二次校验；GesturePad 九宫格手势绘制；位置签到读 LocationPicker 预设坐标。")
                     },
                     problems {
                         b("被动任务（document/read/audio）曾上报无脑返回成功虚标完成，改为 checkJobResponse() 校验；答题覆盖率 <80% 标 SKIPPED「仅保存未提交」。")
                         b("TTF 解析有 bbox 漏读、cmap4 偏移量、cmap12 对齐三处 Bug，均已修复。")
-                        b("封号风险：早期 UA 池 + 请求头不全 + 视频心跳 30~90s、任务点 0s 完成易被反作弊识别。已做 UA 单值、请求头补全、真人节奏等加固，但仍存在被封可能，不放心建议不刷。")
+                        b("访问限制处理：不再伪装浏览器或模拟停留节奏；首个 403、429、验证码或限制页会触发账号/主机级熔断，禁止请求放大。")
                     },
                     unresolved {
                         b("悬浮窗需手动授权 SYSTEM_ALERT_WINDOW，拒绝后只有通知。")

@@ -112,7 +112,7 @@ internal fun SignConfigSetting(viewModel: ChaoxingViewModel) {
                 "已保存:%.5f, %.5f%s".format(
                     signState.configuredLat, signState.configuredLon,
                     if (signState.configuredAddress.isNotBlank()) " · ${signState.configuredAddress}" else "",
-                ) else "未配置;选择下方任一来源即保存为自动签到用坐标"
+                ) else "未配置;选择下方任一来源即可保存位置签到坐标"
             Text(savedLoc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             com.ahu_plus.ui.screen.chaoxing.sign.LocationPicker(
@@ -157,10 +157,7 @@ internal fun SignConfigSetting(viewModel: ChaoxingViewModel) {
 
 /**
  * 首次登录学习通成功后弹出的一次性警告。
- * 警告内容:
- *  - 非必要不要开倍速 / 并发 / 刷访问次数,可能导致账号异常
- *  - 后果由用户自行承担
- *  - 备注:支持后台刷,不影响前台使用,挂在后台即可
+ * 说明客户端只记录真实学习行为，并在平台限制访问时停止请求。
  *
  * 用户点 "我已知晓" 后通过 SessionManager 持久化标志,不再重复弹出。
  */
@@ -177,25 +174,13 @@ internal fun LoginWarningDialog(onDismiss: () -> Unit) {
         text = {
             Column {
                 Text(
-                    "非必要情况下,请勿开启：",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "• 视频倍速\n• 多节并发\n• 刷访问次数",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "异常配置可能触发平台风控,导致账号异常。开启上述选项产生的所有后果,由您自行承担。",
+                    "学习进度应来自您实际进行的课程学习。应用不会自动签到或刷访问次数。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "提示:现已支持后台自动刷课,不会影响您前台正常使用,挂到后台即可。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    "遇到登录失效、访问限制或验证码时，请在学习通官方客户端完成处理；本应用会停止当前批次，不会连续重试。",
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
         },

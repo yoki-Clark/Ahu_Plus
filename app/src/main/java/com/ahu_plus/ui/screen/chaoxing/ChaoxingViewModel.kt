@@ -14,7 +14,6 @@ import com.ahu_plus.data.model.CxHomeworkItem
 import com.ahu_plus.data.model.CxHomeworkListState
 import com.ahu_plus.data.model.CxHomeworkDetailState
 import com.ahu_plus.data.model.CxJob
-import com.ahu_plus.data.model.CxQuestion
 import com.ahu_plus.data.model.CxJobInfo
 import com.ahu_plus.data.model.CxMessage
 import com.ahu_plus.data.model.CxMessageSource
@@ -22,19 +21,18 @@ import com.ahu_plus.data.model.CxSignType
 import com.ahu_plus.data.model.CxStudyUiState
 import com.ahu_plus.data.model.CxWorkData
 import com.ahu_plus.data.repository.ChaoxingRepository
+import com.ahu_plus.data.repository.CxAnswerMode
 import com.ahu_plus.data.repository.ChaoxingStudyRepository
 import com.ahu_plus.data.repository.ChaoxingTikuRepository
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.util.Collections
 
 internal fun providerChainForTikuType(tikuType: String): String =
     if (tikuType == "DISABLED") "DISABLED" else "CACHE,$tikuType"
@@ -93,6 +91,51 @@ class ChaoxingViewModel(
     private var homeworkDetailRequestId = 0L
     private var homeworkDetailWorkId: String? = null
 
+    /** ViewModel-level admission control for UI re-entry and recomposition. */
+    private companion object {
+        const val COURSES_TTL_MS = 5 * 60 * 1000L
+        const val MESSAGES_TTL_MS = 2 * 60 * 1000L
+        const val HOMEWORK_TTL_MS = 5 * 60 * 1000L
+        const val CHAPTER_JOBS_TTL_MS = 10 * 60 * 1000L
+        const val SIGN_ACTIVITIES_TTL_MS = 60 * 1000L
+        const val FAILURE_COOLDOWN_MS = 30 * 1000L
+        const val AUTH_FAILURE_COOLDOWN_MS = 15 * 1000L
+    }
+
+    private val requestLock = Any()
+    private var authJob: Job? = null
+    private var authFailureAt = 0L
+    private var coursesJob: Job? = null
+    private var coursesLoadedAt = 0L
+    private var coursesFailureAt = 0L
+    private var messagesJob: Job? = null
+    private var messagesMoreJob: Job? = null
+    private var messagesLoadedAt = 0L
+    private var messagesActivitiesLoadedAt = 0L
+    private var messagesFailureAt = 0L
+    private var messagesPendingForce = false
+    private var messagesPendingActivities = false
+    private var homeworkJob: Job? = null
+    private var homeworkLoadedAt = 0L
+    private var homeworkFailureAt = 0L
+    private var signActivitiesJob: Job? = null
+    private var signActivitiesLoadedAt = 0L
+    private var signActivitiesFailureAt = 0L
+    private var signFlowJob: Job? = null
+    private var signSubmitJob: Job? = null
+    private var signFlowGeneration = 0L
+    private val signJobsInFlight = mutableMapOf<Long, Job>()
+    private val signFailureAt = mutableMapOf<Long, Long>()
+    private val photoObjectIds = mutableMapOf<Long, String>()
+    private val chapterJobsInFlight = mutableMapOf<String, Job>()
+    private val chapterJobsLoadedAt = mutableMapOf<String, Long>()
+    private val chapterFailureAt = mutableMapOf<String, Long>()
+
+    private fun nowMs(): Long = System.currentTimeMillis()
+
+    private fun inWindow(timestamp: Long, windowMs: Long, now: Long = nowMs()): Boolean =
+        timestamp > 0L && now - timestamp < windowMs
+
     private fun beginHomeworkDetailRequest(workId: String): Long {
         homeworkDetailJob?.cancel()
         homeworkDetailWorkId = workId
@@ -150,23 +193,23 @@ class ChaoxingViewModel(
     }
 
     fun updateSpeed(v: Float) {
-        _settingsState.value = _settingsState.value.copy(speed = v)
+        _settingsState.value = _settingsState.value.copy(speed = 1.0f)
         viewModelScope.launch { sessionManager.saveCxSpeed(v) }
     }
 
     fun updateConcurrency(v: Int) {
-        _settingsState.value = _settingsState.value.copy(concurrency = v)
+        _settingsState.value = _settingsState.value.copy(concurrency = 1)
         viewModelScope.launch { sessionManager.saveCxConcurrency(v) }
     }
 
     fun updateNotOpenAction(v: String) {
-        _settingsState.value = _settingsState.value.copy(notOpenAction = v)
-        viewModelScope.launch { sessionManager.saveCxNotopenAction(v) }
+        _settingsState.value = _settingsState.value.copy(notOpenAction = "continue")
+        viewModelScope.launch { sessionManager.saveCxNotopenAction("continue") }
     }
 
     fun updateAutoSign(v: Boolean) {
-        _settingsState.value = _settingsState.value.copy(autoSign = v)
-        viewModelScope.launch { sessionManager.saveCxAutoSign(v) }
+        _settingsState.value = _settingsState.value.copy(autoSign = false)
+        viewModelScope.launch { sessionManager.saveCxAutoSign(false) }
     }
 
     fun updateSubmitMode(v: String) {
@@ -217,6 +260,13 @@ class ChaoxingViewModel(
     fun updateMessagesMergeInbox(v: Boolean) {
         _settingsState.value = _settingsState.value.copy(messagesMergeInbox = v)
         viewModelScope.launch { sessionManager.saveCxMessagesMerge(v) }
+        if (v) {
+            viewModelScope.launch {
+                val pending = synchronized(requestLock) { messagesJob }
+                pending?.join()
+                loadMessages(includeActivities = true)
+            }
+        }
     }
 
     fun updateShowOverlay(v: Boolean) {
@@ -228,7 +278,7 @@ class ChaoxingViewModel(
         _settingsState.value = _settingsState.value.copy(hideEndedCourses = v)
         viewModelScope.launch { sessionManager.saveCxHideEndedCourses(v) }
         // 重新加载作业列表以应用过滤
-        if (_coursesState.value.courses.isNotEmpty()) loadHomework()
+        if (_coursesState.value.courses.isNotEmpty()) loadHomework(force = true)
     }
 
     /** 切换单门课程的隐藏状态。key = "${courseId}_${clazzId}" */
@@ -239,7 +289,7 @@ class ChaoxingViewModel(
         viewModelScope.launch { sessionManager.saveCxHiddenCourses(current) }
         // 过滤课程列表和作业列表
         applyHiddenCourseFilter()
-        loadHomework()
+        loadHomework(force = true)
     }
 
     /** 批量更新隐藏课程 */
@@ -247,7 +297,7 @@ class ChaoxingViewModel(
         _settingsState.value = _settingsState.value.copy(hiddenCourseKeys = keys)
         viewModelScope.launch { sessionManager.saveCxHiddenCourses(keys) }
         applyHiddenCourseFilter()
-        loadHomework()
+        loadHomework(force = true)
     }
 
     /** 对已加载的课程列表应用隐藏过滤（从 allCourses 重新计算 visible courses） */
@@ -261,13 +311,13 @@ class ChaoxingViewModel(
     }
 
     fun updateVisitBrushEnabled(v: Boolean) {
-        _settingsState.value = _settingsState.value.copy(visitBrushEnabled = v)
-        viewModelScope.launch { sessionManager.saveCxVisitBrushEnabled(v) }
+        _settingsState.value = _settingsState.value.copy(visitBrushEnabled = false)
+        viewModelScope.launch { sessionManager.saveCxVisitBrushEnabled(false) }
     }
 
     fun updateVisitBrushInterval(v: Int) {
-        _settingsState.value = _settingsState.value.copy(visitBrushInterval = v)
-        viewModelScope.launch { sessionManager.saveCxVisitBrushInterval(v) }
+        _settingsState.value = _settingsState.value.copy(visitBrushInterval = 30)
+        viewModelScope.launch { sessionManager.saveCxVisitBrushInterval(30) }
     }
 
     fun updateDownloadEnabled(v: Boolean) {
@@ -287,7 +337,7 @@ class ChaoxingViewModel(
             val s = _settingsState.value
             // ★ 关键修复: 从 tikuType 派生 providerChain,不再读 sessionManager 的旧缓存
             val chainStr = providerChainForTikuType(s.tikuType)
-            Log.d("CxVM", "applyTikuConfig: tikuType=${s.tikuType}, chain=$chainStr, aiKey=${s.aiApiKey.take(8)}...")
+            Log.d("CxVM", "applyTikuConfig: tikuType=${s.tikuType}, chain=$chainStr")
             tikuRepo.configure(
                 providerChainStr = chainStr,
                 yanxiTokensStr = sessionManager.getCxTokensYanxi().ifEmpty { sessionManager.getCxTikuToken() },
@@ -333,58 +383,136 @@ class ChaoxingViewModel(
     // ════════════════════════════════════════════════════════
 
     fun login(username: String, password: String) {
-        viewModelScope.launch {
+        synchronized(requestLock) {
+            if (authJob?.isActive == true) return
+            if (inWindow(authFailureAt, AUTH_FAILURE_COOLDOWN_MS)) {
+                _loginState.value = CxLoginState(error = "认证请求暂在冷却中，请稍后再试")
+                return
+            }
+            val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             _loginState.value = CxLoginState(isLoading = true)
             val result = cxRepo.login(username, password)
-            result.onSuccess {
-                val valid = cxRepo.validateSession()
-                if (valid) {
-                    // 保存凭据供自动登录
+            if (result.isFailure) {
+                authFailureAt = nowMs()
+                _loginState.value = CxLoginState(error = result.exceptionOrNull()?.message ?: "登录失败")
+                return@launch
+            }
+
+            when (val validation = cxRepo.validateSessionResult()) {
+                Result.success(true) -> {
+                    // 保存凭据供用户明确同意的会话续期使用。
                     sessionManager.saveCxCredentials(username, password)
-                    // 2026-06-23: 首次登录时弹出免责警告;已确认过则不再弹
                     val shouldWarn = !sessionManager.getCxLoginWarningShown()
                     _loginState.value = CxLoginState(isLoggedIn = true, showLoginWarning = shouldWarn)
                     loadCourses()
-                } else {
-                    _loginState.value = CxLoginState(error = "登录成功但会话验证失败")
+                }
+                else -> {
+                    authFailureAt = nowMs()
+                    _loginState.value = CxLoginState(
+                        error = if (validation.isSuccess) {
+                            "登录成功但会话已过期"
+                        } else {
+                            validation.exceptionOrNull()?.message ?: "会话验证失败，请稍后重试"
+                        },
+                    )
                 }
             }
-            result.onFailure { e ->
-                _loginState.value = CxLoginState(error = e.message ?: "登录失败")
             }
+            authJob = job
+            job.invokeOnCompletion {
+                synchronized(requestLock) {
+                    if (authJob === job) authJob = null
+                }
+            }
+            job.start()
         }
     }
 
     fun checkLogin() {
-        viewModelScope.launch {
-            if (cxRepo.isLoggedIn()) {
-                val valid = cxRepo.validateSession()
-                if (valid) {
-                    // 2026-06-23: 首次登录警告(自动登录复用同样逻辑)
+        synchronized(requestLock) {
+            if (authJob?.isActive == true) return
+            if (inWindow(authFailureAt, AUTH_FAILURE_COOLDOWN_MS)) {
+                _loginState.value = CxLoginState(error = "认证请求暂在冷却中，请稍后再试")
+                return
+            }
+            val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            if (!cxRepo.isLoggedIn()) return@launch
+
+            when (val validation = cxRepo.validateSessionResult()) {
+                Result.success(true) -> {
                     val shouldWarn = !sessionManager.getCxLoginWarningShown()
                     _loginState.value = CxLoginState(isLoggedIn = true, showLoginWarning = shouldWarn)
                     loadCourses()
-                } else {
-                    // 会话过期 → 尝试自动续期
-                    if (sessionManager.hasCxCredentials()) {
-                        _loginState.value = CxLoginState(isLoading = true)
-                        val success = cxRepo.autoLogin()
-                        if (success) {
-                            val shouldWarn = !sessionManager.getCxLoginWarningShown()
-                            _loginState.value = CxLoginState(isLoggedIn = true, showLoginWarning = shouldWarn)
-                            loadCourses()
-                        } else {
-                            _loginState.value = CxLoginState(error = "自动登录失败，请手动登录")
-                        }
-                    } else {
+                }
+                Result.success(false) -> {
+                    // Only an explicit login-page result permits credential replay.
+                    if (!sessionManager.hasCxCredentials()) {
+                        authFailureAt = nowMs()
                         _loginState.value = CxLoginState(error = "会话已过期，请重新登录")
+                        return@launch
+                    }
+                    _loginState.value = CxLoginState(isLoading = true)
+                    if (cxRepo.autoLogin()) {
+                        val shouldWarn = !sessionManager.getCxLoginWarningShown()
+                        _loginState.value = CxLoginState(isLoggedIn = true, showLoginWarning = shouldWarn)
+                        loadCourses()
+                    } else {
+                        authFailureAt = nowMs()
+                        _loginState.value = CxLoginState(error = "自动登录失败，请手动登录")
                     }
                 }
+                else -> {
+                    // Network/risk-control failures must not trigger credential replay.
+                    authFailureAt = nowMs()
+                    _loginState.value = CxLoginState(
+                        error = validation.exceptionOrNull()?.message ?: "会话验证失败，请稍后重试",
+                    )
+                }
             }
+            }
+            authJob = job
+            job.invokeOnCompletion {
+                synchronized(requestLock) {
+                    if (authJob === job) authJob = null
+                }
+            }
+            job.start()
         }
     }
 
     fun logout() {
+        synchronized(requestLock) {
+            authJob?.cancel()
+            authJob = null
+            authFailureAt = 0L
+            coursesJob?.cancel()
+            messagesJob?.cancel()
+            messagesMoreJob?.cancel()
+            homeworkJob?.cancel()
+            signActivitiesJob?.cancel()
+            signFlowJob?.cancel()
+            signSubmitJob?.cancel()
+            signJobsInFlight.values.forEach { it.cancel() }
+            chapterJobsInFlight.values.forEach { it.cancel() }
+            signJobsInFlight.clear()
+            chapterJobsInFlight.clear()
+            coursesLoadedAt = 0L
+            coursesFailureAt = 0L
+            messagesLoadedAt = 0L
+            messagesActivitiesLoadedAt = 0L
+            messagesFailureAt = 0L
+            messagesPendingForce = false
+            messagesPendingActivities = false
+            homeworkLoadedAt = 0L
+            homeworkFailureAt = 0L
+            signActivitiesLoadedAt = 0L
+            signActivitiesFailureAt = 0L
+            signFlowJob = null
+            chapterJobsLoadedAt.clear()
+            chapterFailureAt.clear()
+            signFailureAt.clear()
+            photoObjectIds.clear()
+        }
         invalidateHomeworkDetailRequests()
         viewModelScope.launch {
             cxRepo.clearCookies()
@@ -422,9 +550,48 @@ class ChaoxingViewModel(
      * 1. 有缓存 → 立即显示，后台用 cursor 追加新通知 + 刷新活动状态
      * 2. 无缓存 → 全量拉取，写入缓存
      */
-    fun loadMessages() {
-        viewModelScope.launch {
-            val courses = _coursesState.value.courses
+    fun loadMessages(
+        force: Boolean = false,
+        includeActivities: Boolean = _settingsState.value.messagesMergeInbox,
+    ) {
+        synchronized(requestLock) {
+            if (messagesJob?.isActive == true) {
+                messagesPendingForce = messagesPendingForce || force
+                messagesPendingActivities = messagesPendingActivities || includeActivities
+                return
+            }
+            val now = nowMs()
+            val noticesFresh = inWindow(messagesLoadedAt, MESSAGES_TTL_MS, now)
+            val activitiesFresh = !includeActivities || inWindow(messagesActivitiesLoadedAt, MESSAGES_TTL_MS, now)
+            if (!force && noticesFresh && activitiesFresh) return
+            if (!force && inWindow(messagesFailureAt, FAILURE_COOLDOWN_MS, now)) return
+            _messagesState.value = _messagesState.value.copy(isLoading = true, error = null)
+            val job = viewModelScope.launch {
+                try {
+            var courses = _coursesState.value.courses
+            if (includeActivities && courses.isEmpty()) {
+                val pendingCourses = synchronized(requestLock) { coursesJob }
+                pendingCourses?.join()
+                courses = _coursesState.value.courses
+            }
+            val activityOnly = !force && includeActivities && noticesFresh && !activitiesFresh
+            if (activityOnly) {
+                if (courses.isEmpty()) {
+                    _messagesState.value = _messagesState.value.copy(isLoading = false)
+                    return@launch
+                }
+                val activities = cxRepo.getActivityMessages(courses).getOrThrow()
+                val current = _messagesState.value
+                val merged = (current.messages.filter { it.source == CxMessageSource.NOTICE } + activities)
+                    .distinctBy { "${it.source}:${it.id}" }
+                    .sortedByDescending { it.time }
+                _messagesState.value = current.copy(isLoading = false, messages = merged, error = null)
+                sessionManager.saveCxMessagesJson(gson.toJson(merged), current.lastNoticeId)
+                messagesActivitiesLoadedAt = nowMs()
+                messagesFailureAt = 0L
+                return@launch
+            }
+            val fetchedActivities = includeActivities && courses.isNotEmpty()
             val cachedJson = sessionManager.getCxMessagesJson()
             val cachedCursor = sessionManager.getCxMessagesCursor()
 
@@ -447,7 +614,13 @@ class ChaoxingViewModel(
                     val existingNoticeIds = cached.filter { it.source == CxMessageSource.NOTICE }.map { it.id }.toSet()
 
                     val noticeResult = cxRepo.getNoticeList(cachedCursor)
-                    val activityResult = if (courses.isNotEmpty()) cxRepo.getActivityMessages(courses) else Result.success(emptyList())
+                    val activityResult = if (fetchedActivities) {
+                        cxRepo.getActivityMessages(courses)
+                    } else {
+                        Result.success(emptyList())
+                    }
+                    noticeResult.exceptionOrNull()?.let { throw it }
+                    activityResult.exceptionOrNull()?.let { throw it }
 
                     val newNotices = (noticeResult.getOrNull()?.first ?: emptyList())
                         .filter { it.id !in existingNoticeIds }
@@ -467,13 +640,22 @@ class ChaoxingViewModel(
                         hasMore = newNotices.isNotEmpty() || nextCursor.isNotBlank(),
                     )
                     sessionManager.saveCxMessagesJson(gson.toJson(merged), nextCursor)
+                    messagesLoadedAt = nowMs()
+                    if (fetchedActivities) messagesActivitiesLoadedAt = nowMs()
+                    messagesFailureAt = 0L
                     return@launch
                 }
             }
 
             // ── 无缓存：全量拉取 ─────────────────────────────
             val noticeResult = cxRepo.getNoticeList()
-            val activityResult = if (courses.isNotEmpty()) cxRepo.getActivityMessages(courses) else Result.success(emptyList())
+            val activityResult = if (fetchedActivities) {
+                cxRepo.getActivityMessages(courses)
+            } else {
+                Result.success(emptyList())
+            }
+            noticeResult.exceptionOrNull()?.let { throw it }
+            activityResult.exceptionOrNull()?.let { throw it }
 
             val notices = noticeResult.getOrNull()?.first ?: emptyList()
             val nextCursor = noticeResult.getOrNull()?.second ?: ""
@@ -488,6 +670,31 @@ class ChaoxingViewModel(
                 hasMore = notices.isNotEmpty() || nextCursor.isNotBlank(),
             )
             sessionManager.saveCxMessagesJson(gson.toJson(merged), nextCursor)
+            messagesLoadedAt = nowMs()
+            if (fetchedActivities) messagesActivitiesLoadedAt = nowMs()
+            messagesFailureAt = 0L
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    messagesFailureAt = nowMs()
+                    _messagesState.value = _messagesState.value.copy(
+                        isLoading = false,
+                        error = e.message ?: "加载消息失败",
+                    )
+                } finally {
+                    val pending = synchronized(requestLock) {
+                        messagesJob = null
+                        val next = messagesPendingForce to messagesPendingActivities
+                        messagesPendingForce = false
+                        messagesPendingActivities = false
+                        next
+                    }
+                    if (pending.first || pending.second) {
+                        loadMessages(force = pending.first, includeActivities = pending.second)
+                    }
+                }
+            }
+            messagesJob = job
         }
     }
 
@@ -497,8 +704,10 @@ class ChaoxingViewModel(
     fun loadMoreMessages() {
         val current = _messagesState.value
         if (current.isLoadingMore || !current.hasMore || current.lastNoticeId.isBlank()) return
-
-        viewModelScope.launch {
+        synchronized(requestLock) {
+            if (messagesJob?.isActive == true || messagesMoreJob?.isActive == true) return
+            val job = viewModelScope.launch {
+                try {
             _messagesState.value = current.copy(isLoadingMore = true)
 
             val result = cxRepo.getNoticeList(current.lastNoticeId)
@@ -523,6 +732,18 @@ class ChaoxingViewModel(
                     error = "加载更多失败: ${e.message}",
                 )
             }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _messagesState.value = _messagesState.value.copy(
+                        isLoadingMore = false,
+                        error = e.message ?: "加载更多失败",
+                    )
+                } finally {
+                    messagesMoreJob = null
+                }
+            }
+            messagesMoreJob = job
         }
     }
 
@@ -544,10 +765,16 @@ class ChaoxingViewModel(
     //  课程列表 + 多选
     // ════════════════════════════════════════════════════════
 
-    fun loadCourses() {
-        viewModelScope.launch {
+    fun loadCourses(force: Boolean = false) {
+        synchronized(requestLock) {
+            if (coursesJob?.isActive == true) return
+            val now = nowMs()
+            if (!force && inWindow(coursesLoadedAt, COURSES_TTL_MS, now)) return
+            if (!force && inWindow(coursesFailureAt, FAILURE_COOLDOWN_MS, now)) return
+            val job = viewModelScope.launch {
+                try {
             _coursesState.value = _coursesState.value.copy(isLoading = true, error = null)
-            val result = cxRepo.getCourseList()
+            val result = cxRepo.getCourseList(forceRefresh = force)
             result.onSuccess { courses ->
                 val hidden = _settingsState.value.hiddenCourseKeys
                 val filtered = courses.filter { "${it.courseId}_${it.clazzId}" !in hidden }
@@ -556,16 +783,38 @@ class ChaoxingViewModel(
                 )
                 sessionManager.saveCxCoursesJson(gson.toJson(courses))  // 缓存完整列表
                 // 后台加载课程进度
-                loadCourseProgress(courses)
+                // Progress is an optional, sequential fan-out. Reuse the current
+                // snapshot unless this is an explicit refresh or a new course has
+                // no cached entry yet.
+                val knownProgress = _coursesState.value.courseProgress
+                if (force || courses.any { "${it.courseId}_${it.clazzId}" !in knownProgress }) {
+                    loadCourseProgress(courses)
+                }
+                coursesLoadedAt = nowMs()
+                coursesFailureAt = 0L
             }
             result.onFailure { e ->
+                coursesFailureAt = nowMs()
                 _coursesState.value = _coursesState.value.copy(isLoading = false, error = e.message ?: "获取课程列表失败")
             }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    coursesFailureAt = nowMs()
+                    _coursesState.value = _coursesState.value.copy(
+                        isLoading = false,
+                        error = e.message ?: "获取课程列表失败",
+                    )
+                } finally {
+                    coursesJob = null
+                }
+            }
+            coursesJob = job
         }
     }
 
     /**
-     * 后台并行加载所有课程的任务点进度（本地缓存优先 + 后台刷新）。
+     * 后台串行加载所有课程的任务点进度（本地缓存优先 + 后台刷新）。
      */
     private suspend fun loadCourseProgress(courses: List<CxCourse>) {
         if (courses.isEmpty()) return
@@ -594,16 +843,21 @@ class ChaoxingViewModel(
         // 2. 后台网络刷新
         try {
             val progress = cxRepo.getAllCoursesProgress(courses)
+            val courseKeys = courses.map { "${it.courseId}_${it.clazzId}" }.toSet()
+            val mergedProgress = (_coursesState.value.courseProgress + progress)
+                .filterKeys { it in courseKeys }
             _coursesState.value = _coursesState.value.copy(
-                courseProgress = progress,
+                courseProgress = mergedProgress,
                 isProgressLoading = false,
             )
             // 网络成功后缓存
-            if (progress.isNotEmpty()) {
-                sessionManager.saveCxCoursesProgressJson(gson.toJson(progress))
+            if (mergedProgress.isNotEmpty()) {
+                sessionManager.saveCxCoursesProgressJson(gson.toJson(mergedProgress))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.w("CxVM", "加载课程进度失败: ${e.message}")
+            Log.w("CxVM", "加载课程进度失败: ${e.javaClass.simpleName}")
             // 网络失败时保留缓存数据
             _coursesState.value = _coursesState.value.copy(isProgressLoading = false)
         }
@@ -656,8 +910,14 @@ class ChaoxingViewModel(
      * 遍历已加载的课程,合并所有 activeList。
      * 同时从 SessionManager 读取已配置的经纬度 / 手势码。
      */
-    fun loadSignActivities() {
-        viewModelScope.launch {
+    fun loadSignActivities(force: Boolean = false) {
+        synchronized(requestLock) {
+            if (signActivitiesJob?.isActive == true) return
+            val now = nowMs()
+            if (!force && inWindow(signActivitiesLoadedAt, SIGN_ACTIVITIES_TTL_MS, now)) return
+            if (!force && inWindow(signActivitiesFailureAt, FAILURE_COOLDOWN_MS, now)) return
+            val job = viewModelScope.launch {
+                try {
             _signState.value = _signState.value.copy(isLoading = true, error = null)
             val lat = sessionManager.getCxSignLat()
             val lon = sessionManager.getCxSignLon()
@@ -676,16 +936,37 @@ class ChaoxingViewModel(
             }
             val merged = mutableListOf<CxActivity>()
             var firstError: String? = null
+            var stopAfterFailure = false
             for (c in courses) {
                 val r = cxRepo.getActivityList(c)
-                r.onSuccess { merged.addAll(it.filter { a -> a.status == 1 }) }
-                r.onFailure { if (firstError == null) firstError = it.message }
+                r.onSuccess {
+                    merged.addAll(it.filter { a -> a.status == 1 && a.type == 2 })
+                }
+                r.onFailure {
+                    if (firstError == null) firstError = it.message
+                    if (cxRepo.isTrafficCooldown(it) || cxRepo.isExplicitAuthExpiry(it)) {
+                        stopAfterFailure = true
+                    }
+                }
+                if (stopAfterFailure) break
             }
             _signState.value = _signState.value.copy(
                 isLoading = false,
                 activities = merged,
                 error = firstError,
             )
+            signActivitiesLoadedAt = if (firstError == null) nowMs() else 0L
+            if (firstError == null) signActivitiesFailureAt = 0L else signActivitiesFailureAt = nowMs()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    signActivitiesFailureAt = nowMs()
+                    _signState.value = _signState.value.copy(isLoading = false, error = e.message ?: "加载签到失败")
+                } finally {
+                    signActivitiesJob = null
+                }
+            }
+            signActivitiesJob = job
         }
     }
 
@@ -698,61 +979,85 @@ class ChaoxingViewModel(
      *   - GESTURE → signInGesture(用配置的手势码)
      */
     fun signActivity(activity: CxActivity) {
-        viewModelScope.launch {
-            val current = _signState.value.signingIds.toMutableSet()
-            current.add(activity.id)
-            _signState.value = _signState.value.copy(signingIds = current)
-
-            val course = _coursesState.value.courses.firstOrNull {
-                it.courseId == activity.courseId && it.clazzId == activity.classId
-            } ?: run {
-                _signState.value = _signState.value.copy(
-                    signingIds = _signState.value.signingIds - activity.id,
-                    error = "找不到对应课程",
-                )
-                return@launch
+        if (activity.type != 2 || activity.status != 1) return
+        synchronized(requestLock) {
+            if (signJobsInFlight[activity.id]?.isActive == true || activity.id in _signState.value.signingIds) return
+            if (inWindow(signFailureAt[activity.id] ?: 0L, FAILURE_COOLDOWN_MS)) {
+                _signState.value = _signState.value.copy(error = "该签到活动暂不可重试，请稍后再试")
+                return
             }
-
-            // preSign 前置(对 NORMAL/PRE_SIGN 友好,LOCATION/GESTURE 通常也走)
-            if (activity.signType == CxSignType.PRE_SIGN || activity.signType == CxSignType.NORMAL) {
-                cxRepo.preSign(course, activity.id)
-            }
-
-            val result = when (activity.signType) {
-                CxSignType.LOCATION -> {
-                    val lat = _signState.value.configuredLat
-                    val lon = _signState.value.configuredLon
-                    val address = _signState.value.configuredAddress
-                    if (lat < 0 || lon < 0) {
-                        Result.failure<String>(IllegalStateException("请先在设置页配置经纬度"))
-                    } else {
-                        cxRepo.signInLocation(course, activity.id, lat, lon, address)
+            _signState.value = _signState.value.copy(
+                signingIds = _signState.value.signingIds + activity.id,
+                error = null,
+            )
+            val job = viewModelScope.launch {
+                try {
+                    val course = _coursesState.value.allCourses
+                        .ifEmpty { _coursesState.value.courses }
+                        .firstOrNull { it.courseId == activity.courseId && it.clazzId == activity.classId }
+                    if (course == null) {
+                        signFailureAt[activity.id] = nowMs()
+                        _signState.value = _signState.value.copy(error = "找不到对应课程")
+                        return@launch
                     }
-                }
-                CxSignType.GESTURE -> {
-                    val code = _signState.value.configuredGesture
-                    if (code.isBlank()) {
-                        Result.failure<String>(IllegalStateException("请先在设置页配置手势码"))
-                    } else {
-                        cxRepo.signInGesture(course, activity.id, code)
-                    }
-                }
-                else -> cxRepo.signNormal(course, activity.id)
-            }
 
-            result.onSuccess { msg ->
-                _signState.value = _signState.value.copy(
-                    signingIds = _signState.value.signingIds - activity.id,
-                    activities = _signState.value.activities.filter { it.id != activity.id },
-                    error = if ("成功" in msg || "签到成功" in msg) null else "签到结果: $msg",
-                )
+                    if (activity.signType == CxSignType.PRE_SIGN || activity.signType == CxSignType.NORMAL) {
+                        val pre = cxRepo.preSign(course, activity.id)
+                        if (pre.isFailure) {
+                            signFailureAt[activity.id] = nowMs()
+                            _signState.value = _signState.value.copy(
+                                error = "签到预检查失败: ${pre.exceptionOrNull()?.message.orEmpty()}",
+                            )
+                            return@launch
+                        }
+                    }
+
+                    val result = when (activity.signType) {
+                        CxSignType.LOCATION -> {
+                            val state = _signState.value
+                            if (state.configuredLat < 0 || state.configuredLon < 0) {
+                                Result.failure<String>(IllegalStateException("请先在设置页配置经纬度"))
+                            } else {
+                                cxRepo.signInLocation(
+                                    course, activity.id, state.configuredLat, state.configuredLon, state.configuredAddress,
+                                )
+                            }
+                        }
+                        CxSignType.GESTURE -> {
+                            val code = _signState.value.configuredGesture
+                            if (code.isBlank()) Result.failure<String>(IllegalStateException("请先在设置页配置手势码"))
+                            else cxRepo.signInGesture(course, activity.id, code)
+                        }
+                        else -> cxRepo.signNormal(course, activity.id)
+                    }
+
+                    result.onSuccess { msg ->
+                        val confirmed = "成功" in msg || "success" in msg.lowercase() || "already" in msg.lowercase()
+                        if (confirmed) {
+                            _signState.value = _signState.value.copy(
+                                activities = _signState.value.activities.filter { it.id != activity.id },
+                                error = null,
+                            )
+                        } else {
+                            signFailureAt[activity.id] = nowMs()
+                            _signState.value = _signState.value.copy(error = "签到结果未确认: ${msg.take(80)}")
+                        }
+                    }
+                    result.onFailure { e ->
+                        signFailureAt[activity.id] = nowMs()
+                        _signState.value = _signState.value.copy(error = "签到失败: ${e.message}")
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    signFailureAt[activity.id] = nowMs()
+                    _signState.value = _signState.value.copy(error = "签到失败: ${e.message}")
+                } finally {
+                    _signState.value = _signState.value.copy(signingIds = _signState.value.signingIds - activity.id)
+                    signJobsInFlight.remove(activity.id)
+                }
             }
-            result.onFailure { e ->
-                _signState.value = _signState.value.copy(
-                    signingIds = _signState.value.signingIds - activity.id,
-                    error = "签到失败: ${e.message}",
-                )
-            }
+            signJobsInFlight[activity.id] = job
         }
     }
 
@@ -794,7 +1099,12 @@ class ChaoxingViewModel(
      * 汇总成待处理队列。无活动则提示。
      */
     fun startSignFlow() {
-        viewModelScope.launch {
+        synchronized(requestLock) {
+            if (signFlowJob?.isActive == true || inWindow(signActivitiesFailureAt, FAILURE_COOLDOWN_MS)) return
+            val generation = ++signFlowGeneration
+            val job = viewModelScope.launch {
+                try {
+            if (generation != signFlowGeneration) return@launch
             _signFlowState.value = CxSignFlowState(isSearching = true)
             val courses = _coursesState.value.courses
             if (courses.isEmpty()) {
@@ -803,24 +1113,54 @@ class ChaoxingViewModel(
             }
             val pending = mutableListOf<CxSignTask>()
             for (course in courses) {
-                val acts = cxRepo.getActivityList(course).getOrNull().orEmpty()
-                for (act in acts.filter { it.status == 1 }) {
+                val activityResult = cxRepo.getActivityList(course)
+                if (activityResult.isFailure) {
+                    val error = activityResult.exceptionOrNull()
+                        ?: IllegalStateException("activity list failed")
+                    throw error
+                }
+                val acts = activityResult.getOrNull().orEmpty()
+                for (act in acts.filter { it.status == 1 && it.type == 2 }) {
                     // 真实类型以 preSign 为准
-                    val info = cxRepo.preSign(course, act.id).getOrNull()
-                    val type = info?.signType ?: act.signType
-                    pending.add(CxSignTask(course = course, activity = act, signType = type))
+                    val pre = cxRepo.preSign(course, act.id)
+                    if (pre.isSuccess) {
+                        pending.add(CxSignTask(course = course, activity = act, signType = pre.getOrNull()?.signType ?: act.signType))
+                    } else {
+                        val error = pre.exceptionOrNull() ?: IllegalStateException("preSign failed")
+                        throw error
+                    }
                 }
             }
             if (pending.isEmpty()) {
                 _signFlowState.value = CxSignFlowState(message = "当前没有进行中的签到")
                 return@launch
             }
-            _signFlowState.value = CxSignFlowState(tasks = pending, currentIndex = 0)
+            if (generation == signFlowGeneration) {
+                _signFlowState.value = CxSignFlowState(tasks = pending, currentIndex = 0)
+            }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    signActivitiesFailureAt = nowMs()
+                    _signFlowState.value = CxSignFlowState(error = e.message ?: "查找签到失败")
+                } finally {
+                    signFlowJob = null
+                }
+            }
+            signFlowJob = job
         }
     }
 
     /** 关闭签到流程(取消或全部完成) */
     fun dismissSignFlow() {
+        synchronized(requestLock) {
+            signFlowGeneration++
+            signFlowJob?.cancel()
+            signSubmitJob?.cancel()
+            signFlowJob = null
+            signSubmitJob = null
+            photoObjectIds.clear()
+        }
         _signFlowState.value = CxSignFlowState()
     }
 
@@ -845,54 +1185,93 @@ class ChaoxingViewModel(
      * 成功后自动前进到下一个待签任务。
      */
     fun submitCurrentSign(params: SignParams) {
-        val s = _signFlowState.value
-        val task = s.current ?: return
-        viewModelScope.launch {
-            _signFlowState.value = s.copy(submitting = true, error = null)
-            val r = when (params) {
-                is SignParams.Normal -> cxRepo.signNormal(task.course, task.activity.id)
-                is SignParams.Location -> cxRepo.signInLocation(
-                    task.course, task.activity.id, params.lat, params.lon, params.address,
-                )
-                is SignParams.Gesture -> cxRepo.signInGesture(task.course, task.activity.id, params.code)
-                is SignParams.SignCode -> cxRepo.signInSignCode(task.course, task.activity.id, params.code)
-                is SignParams.QrCode -> cxRepo.signInQrCode(
-                    task.course, task.activity.id, params.enc, params.lat, params.lon, params.address,
-                )
-                is SignParams.Photo -> cxRepo.signInPhoto(task.course, task.activity.id, params.objectId)
-            }
-            r.onSuccess { msg ->
-                val ok = "成功" in msg || "success" in msg.lowercase()
-                if (ok) {
-                    // 前进到下一个或结束
-                    val next = s.currentIndex + 1
-                    if (next >= s.tasks.size) {
-                        _signFlowState.value = CxSignFlowState(message = "签到完成 ✓")
-                    } else {
-                        _signFlowState.value = s.copy(currentIndex = next, submitting = false, error = null)
-                    }
-                } else {
-                    _signFlowState.value = s.copy(submitting = false, error = "签到结果: ${msg.take(80)}")
+        synchronized(requestLock) {
+            val state = _signFlowState.value
+            val task = state.current ?: return
+            if (state.submitting || signSubmitJob?.isActive == true) return
+            val generation = signFlowGeneration
+            _signFlowState.value = state.copy(submitting = true, error = null)
+            val job = viewModelScope.launch {
+                try {
+                    if (generation != signFlowGeneration) return@launch
+                    handleSignResult(task, submitSignParams(task, params))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _signFlowState.value = _signFlowState.value.copy(submitting = false, error = "签到失败: ${e.message}")
+                } finally {
+                    signSubmitJob = null
                 }
             }
-            r.onFailure { e ->
-                _signFlowState.value = s.copy(submitting = false, error = "签到失败: ${e.message}")
+            signSubmitJob = job
+        }
+    }
+
+    private suspend fun submitSignParams(task: CxSignTask, params: SignParams): Result<String> = when (params) {
+        is SignParams.Normal -> cxRepo.signNormal(task.course, task.activity.id)
+        is SignParams.Location -> cxRepo.signInLocation(task.course, task.activity.id, params.lat, params.lon, params.address)
+        is SignParams.Gesture -> cxRepo.signInGesture(task.course, task.activity.id, params.code)
+        is SignParams.SignCode -> cxRepo.signInSignCode(task.course, task.activity.id, params.code)
+        is SignParams.QrCode -> cxRepo.signInQrCode(task.course, task.activity.id, params.enc, params.lat, params.lon, params.address)
+        is SignParams.Photo -> cxRepo.signInPhoto(task.course, task.activity.id, params.objectId)
+    }
+
+    private fun handleSignResult(task: CxSignTask, result: Result<String>) {
+        result.onSuccess { msg ->
+            val ok = "成功" in msg || "success" in msg.lowercase() || "already" in msg.lowercase()
+            if (ok) {
+                photoObjectIds.remove(task.activity.id)
+                val state = _signFlowState.value
+                val next = state.currentIndex + 1
+                if (next >= state.tasks.size) {
+                    _signFlowState.value = CxSignFlowState(message = "签到完成 ✓")
+                } else {
+                    _signFlowState.value = state.copy(currentIndex = next, submitting = false, error = null)
+                }
+            } else {
+                _signFlowState.value = _signFlowState.value.copy(submitting = false, error = "签到结果未确认: ${msg.take(80)}")
             }
+        }
+        result.onFailure { e ->
+            _signFlowState.value = _signFlowState.value.copy(submitting = false, error = "签到失败: ${e.message}")
         }
     }
 
     /** 拍照签到:先上传图片拿 objectId,再提交 */
     fun submitPhotoSign(imageBytes: ByteArray, fileName: String, mimeType: String) {
-        val s = _signFlowState.value
-        val task = s.current ?: return
-        viewModelScope.launch {
-            _signFlowState.value = s.copy(submitting = true, error = null)
-            val objId = cxRepo.uploadHomeworkFile(imageBytes, fileName, mimeType).getOrNull()
-            if (objId == null) {
-                _signFlowState.value = s.copy(submitting = false, error = "图片上传失败,请重试")
-                return@launch
+        synchronized(requestLock) {
+            val state = _signFlowState.value
+            val task = state.current ?: return
+            if (state.submitting || signSubmitJob?.isActive == true) return
+            val generation = signFlowGeneration
+            _signFlowState.value = state.copy(submitting = true, error = null)
+            val job = viewModelScope.launch {
+                try {
+                    if (generation != signFlowGeneration) return@launch
+                    val objectId = photoObjectIds[task.activity.id] ?: run {
+                        val uploaded = cxRepo.uploadHomeworkFile(imageBytes, fileName, mimeType)
+                        val id = uploaded.getOrElse {
+                            _signFlowState.value = _signFlowState.value.copy(
+                                submitting = false,
+                                error = "图片上传失败: ${it.message}",
+                            )
+                            return@launch
+                        }
+                        photoObjectIds[task.activity.id] = id
+                        id
+                    }
+                    if (generation == signFlowGeneration) {
+                        handleSignResult(task, submitSignParams(task, SignParams.Photo(objectId)))
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _signFlowState.value = _signFlowState.value.copy(submitting = false, error = "签到失败: ${e.message}")
+                } finally {
+                    signSubmitJob = null
+                }
             }
-            submitCurrentSign(SignParams.Photo(objId))
+            signSubmitJob = job
         }
     }
 
@@ -921,20 +1300,48 @@ class ChaoxingViewModel(
         viewModelScope.launch { sessionManager.saveCustomSignLocations(list) }
     }
 
-    fun loadChapterJobs(course: CxCourse, chapter: CxChapter) {
-        viewModelScope.launch {
+    fun loadChapterJobs(course: CxCourse, chapter: CxChapter, force: Boolean = false) {
+        val key = "${course.courseId}_${course.clazzId}_${chapter.id}"
+        synchronized(requestLock) {
+            if (chapterJobsInFlight[key]?.isActive == true) return
+            if (!force && inWindow(chapterJobsLoadedAt[key] ?: 0L, CHAPTER_JOBS_TTL_MS)) return
+            if (!force && inWindow(chapterFailureAt[key] ?: 0L, FAILURE_COOLDOWN_MS)) return
             val current = _detailState.value
-            val loading = current.loadingChapters.toMutableSet().apply { add(chapter.id) }
-            _detailState.value = current.copy(loadingChapters = loading)
-
-            val result = cxRepo.getJobList(course, chapter)
-            val newJobs = current.chapterJobs.toMutableMap()
-            val newInfo = current.chapterJobInfo.toMutableMap()
-            result.onSuccess { (jobs, info) -> newJobs[chapter.id] = jobs; newInfo[chapter.id] = info }
-            result.onFailure { newJobs[chapter.id] = emptyList() }
-
-            loading.remove(chapter.id)
-            _detailState.value = current.copy(chapterJobs = newJobs, chapterJobInfo = newInfo, loadingChapters = loading)
+            _detailState.value = current.copy(loadingChapters = current.loadingChapters + chapter.id)
+            val job = viewModelScope.launch {
+                try {
+                    val result = cxRepo.getJobList(course, chapter, forceRefresh = force)
+                    val state = _detailState.value
+                    val newJobs = state.chapterJobs.toMutableMap()
+                    val newInfo = state.chapterJobInfo.toMutableMap()
+                    result.onSuccess { (jobs, info) ->
+                        newJobs[chapter.id] = jobs
+                        newInfo[chapter.id] = info
+                        chapterJobsLoadedAt[key] = nowMs()
+                        chapterFailureAt.remove(key)
+                    }
+                    result.onFailure { e ->
+                        chapterFailureAt[key] = nowMs()
+                        _detailState.value = _detailState.value.copy(error = e.message)
+                    }
+                    _detailState.value = _detailState.value.copy(
+                        chapterJobs = newJobs,
+                        chapterJobInfo = newInfo,
+                        loadingChapters = _detailState.value.loadingChapters - chapter.id,
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    chapterFailureAt[key] = nowMs()
+                    _detailState.value = _detailState.value.copy(
+                        loadingChapters = _detailState.value.loadingChapters - chapter.id,
+                        error = e.message ?: "获取任务点失败",
+                    )
+                } finally {
+                    chapterJobsInFlight.remove(key)
+                }
+            }
+            chapterJobsInFlight[key] = job
         }
     }
 
@@ -942,11 +1349,15 @@ class ChaoxingViewModel(
     //  课程作业 (2026-06-22)
     // ════════════════════════════════════════════════════════
 
-    fun loadHomework() {
-        if (_homeworkState.value.isLoading) return
+    fun loadHomework(force: Boolean = false) {
+        synchronized(requestLock) {
+            if (homeworkJob?.isActive == true) return
+            val now = nowMs()
+            if (!force && inWindow(homeworkLoadedAt, HOMEWORK_TTL_MS, now)) return
+            if (!force && inWindow(homeworkFailureAt, FAILURE_COOLDOWN_MS, now)) return
         _homeworkState.value = _homeworkState.value.copy(isLoading = true, error = null)
 
-        viewModelScope.launch {
+        val job = viewModelScope.launch {
             try {
                 // 1. 优先加载缓存 (快速显示)
                 val cachedJson = sessionManager.getCxHomeworkJson()
@@ -966,15 +1377,11 @@ class ChaoxingViewModel(
                 }
 
                 var courses = _coursesState.value.courses
-                // 如果课程列表为空，等待加载（最多等待 8 秒）
+                // If the course request is already in flight, wait for that single request.
                 if (courses.isEmpty()) {
-                    Log.w("CxVM", "loadHomework: 课程列表为空，等待加载...")
-                    var waited = 0
-                    while (courses.isEmpty() && waited < 40) {
-                        delay(200)
-                        waited++
-                        courses = _coursesState.value.courses
-                    }
+                    val pendingCourses = synchronized(requestLock) { coursesJob }
+                    pendingCourses?.join()
+                    courses = _coursesState.value.courses
                     if (courses.isEmpty()) {
                         _homeworkState.value = CxHomeworkListState(error = "请先加载课程列表")
                         return@launch
@@ -986,30 +1393,27 @@ class ChaoxingViewModel(
                 val visibleCourses = courses.filter { "${it.courseId}_${it.clazzId}" !in hidden }
                 Log.d("CxVM", "loadHomework: ${visibleCourses.size}/${courses.size} 门可见课程 (隐藏了 ${hidden.size} 门)")
 
-                // 2. 并发请求所有课程的作业列表
-                val allHomework = Collections.synchronizedList(mutableListOf<CxHomeworkItem>())
-                val errors = Collections.synchronizedList(mutableListOf<String>())
-
-                kotlinx.coroutines.coroutineScope {
-                    visibleCourses.map { course ->
-                        async {
-                            val courseUrl = course.url.ifBlank {
-                                "https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction" +
-                                    "?courseid=${course.courseId}&clazzid=${course.clazzId}&cpi=${course.cpi}"
-                            }
-                            val result = cxRepo.getHomeworkList(courseUrl)
-                            result.onSuccess { items ->
-                                items.forEach { item ->
-                                    allHomework.add(item.copy(courseName = course.title))
-                                }
-                                Log.d("CxVM", "loadHomework: ${course.title.take(16)} → ${items.size} 个作业")
-                            }
-                            result.onFailure { e ->
-                                Log.w("CxVM", "loadHomework: ${course.title.take(16)} 失败: ${e.message}")
-                                errors.add("${course.title.take(12)}: ${e.message}")
-                            }
-                        }
-                    }.forEach { it.await() }
+                // Keep one course request in flight at a time; the repository also caches
+                // the short-lived course response, so repeated tab entry is cheap.
+                val allHomework = mutableListOf<CxHomeworkItem>()
+                val errors = mutableListOf<String>()
+                var stopAfterFailure = false
+                for (course in visibleCourses) {
+                    val courseUrl = course.url.ifBlank {
+                        "https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction" +
+                            "?courseid=${course.courseId}&clazzid=${course.clazzId}&cpi=${course.cpi}"
+                    }
+                    val result = cxRepo.getHomeworkList(courseUrl)
+                    result.onSuccess { items ->
+                        items.forEach { item -> allHomework += item.copy(courseName = course.title) }
+                        Log.d("CxVM", "loadHomework: ${items.size} 个作业")
+                    }
+                    result.onFailure { e ->
+                        Log.w("CxVM", "loadHomework 请求失败: ${e.javaClass.simpleName}")
+                        errors += "${course.title.take(12)}: ${e.message}"
+                        stopAfterFailure = true
+                    }
+                    if (stopAfterFailure) break
                 }
 
                 // 过滤已结束课程（启用时：只保留有未完成/待审批作业的课程）
@@ -1038,8 +1442,12 @@ class ChaoxingViewModel(
                 if (sorted.isNotEmpty()) {
                     sessionManager.saveCxHomeworkJson(gson.toJson(sorted))
                 }
+                homeworkLoadedAt = if (errors.isEmpty()) nowMs() else 0L
+                if (errors.isEmpty()) homeworkFailureAt = 0L else homeworkFailureAt = nowMs()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.e("CxVM", "loadHomework 异常", e)
+                Log.e("CxVM", "loadHomework 异常: ${e.javaClass.simpleName}")
                 // 网络失败时保留缓存数据
                 if (_homeworkState.value.homework.isNotEmpty()) {
                     _homeworkState.value = _homeworkState.value.copy(isLoading = false)
@@ -1049,12 +1457,17 @@ class ChaoxingViewModel(
                         error = e.message ?: "加载作业失败",
                     )
                 }
+                homeworkFailureAt = nowMs()
+            } finally {
+                homeworkJob = null
             }
+        }
+        homeworkJob = job
         }
     }
 
     fun refreshHomework() {
-        loadHomework()
+        loadHomework(force = true)
     }
 
     fun loadHomeworkDetail(work: CxHomeworkItem) {
@@ -1154,61 +1567,51 @@ class ChaoxingViewModel(
         )
 
         viewModelScope.launch {
-            // 填充答案：优先用户输入 → 题库 → 随机
-            val filledFormFields = workData.formFields.toMutableMap()
-            var foundCount = 0
-            for (q in workData.questions) {
-                val userAns = userAnswers[q.id]?.takeIf { it.isNotBlank() }
-                val finalAnswer = if (userAns != null) {
+            try {
+                // Unknown answers are a hard stop. Never submit a guessed or empty answer.
+                val filledFormFields = workData.formFields.toMutableMap()
+                var foundCount = 0
+                for (q in workData.questions) {
+                    val userAns = userAnswers[q.id]?.takeIf { it.isNotBlank() }
+                    val finalAnswer = userAns ?: tikuRepo.query(q)
+                    if (finalAnswer.isNullOrBlank()) {
+                        _homeworkDetailState.value = _homeworkDetailState.value.copy(
+                            isSubmitting = false,
+                            error = "题库未命中“${q.title.take(24)}”，请补充答案后再提交",
+                        )
+                        return@launch
+                    }
                     foundCount++
-                    userAns
-                } else {
-                    val tikuAns = tikuRepo.query(q)
-                    if (tikuAns != null) { foundCount++; tikuAns }
-                    else generateRandomAnswerForHomework(q)
+                    filledFormFields["answer${q.id}"] = finalAnswer
+                    filledFormFields["answertype${q.id}"] = q.answerField["answertype${q.id}"] ?: ""
                 }
-                filledFormFields["answer${q.id}"] = finalAnswer
-                filledFormFields["answertype${q.id}"] = q.answerField["answertype${q.id}"] ?: ""
-            }
-            val coverage = if (workData.questions.isNotEmpty()) foundCount.toFloat() / workData.questions.size else 0f
-            Log.i("CxVM", "submitHomework: 覆盖率 ${(coverage * 100).toInt()}% ($foundCount/${workData.questions.size})")
+                Log.i("CxVM", "submitHomework: 已确认答案 $foundCount/${workData.questions.size}")
 
-            val result = cxRepo.submitHomework(
-                workData.copy(formFields = filledFormFields, pyFlag = ""),
-                formActionUrl,
-            )
-            result.onSuccess { msg ->
-                _homeworkDetailState.value = _homeworkDetailState.value.copy(
-                    isSubmitting = false, submitResult = msg.ifBlank { "提交成功" },
+                val result = cxRepo.submitHomework(
+                    workData.copy(formFields = filledFormFields, pyFlag = ""),
+                    formActionUrl,
                 )
-                sessionManager.saveCxHomeworkDetailJson("")  // 清除缓存
-                refreshHomework()
-            }
-            result.onFailure { e ->
+                result.onSuccess { msg ->
+                    _homeworkDetailState.value = _homeworkDetailState.value.copy(
+                        isSubmitting = false, submitResult = msg.ifBlank { "提交成功" },
+                    )
+                    sessionManager.saveCxHomeworkDetailJson("")  // 清除缓存
+                    refreshHomework()
+                }
+                result.onFailure { e ->
+                    _homeworkDetailState.value = _homeworkDetailState.value.copy(
+                        isSubmitting = false,
+                        error = e.message ?: "提交失败",
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 _homeworkDetailState.value = _homeworkDetailState.value.copy(
                     isSubmitting = false,
                     error = e.message ?: "提交失败",
                 )
             }
-        }
-    }
-
-    /** 作业Tab随机答案生成 (与 ChaoxingStudyRepository.generateRandomAnswer 对齐) */
-    private fun generateRandomAnswerForHomework(q: CxQuestion): String {
-        return when (q.type) {
-            "single" -> {
-                val opts = q.options.split("\n").filter { it.isNotBlank() }
-                if (opts.isNotEmpty()) opts.random().take(1) else ""
-            }
-            "multiple" -> {
-                val opts = q.options.split("\n").filter { it.isNotBlank() }
-                if (opts.size >= 3) opts.shuffled().take(2).map { it.take(1) }.sorted().joinToString("")
-                else if (opts.isNotEmpty()) opts.random().take(1) else ""
-            }
-            "judgement" -> if (kotlin.random.Random.nextBoolean()) "true" else "false"
-            "completion" -> "暂未作答"
-            "shortanswer" -> "暂未作答"
-            else -> ""
         }
     }
 
@@ -1224,9 +1627,9 @@ class ChaoxingViewModel(
         viewModelScope.launch {
             studyRepo.studyAll(
                 courses = courses,
-                speed = s.speed,
-                concurrency = s.concurrency,
-                autoSubmit = s.submitMode == "auto",
+                speed = 1.0f,
+                concurrency = 1,
+                answerMode = CxAnswerMode.fromSetting(s.submitMode),
                 enabledTaskTypes = s.enabledTaskTypes,
             )
         }
@@ -1240,8 +1643,8 @@ class ChaoxingViewModel(
         viewModelScope.launch {
             studyRepo.studyCourse(
                 course = course,
-                speed = s.speed,
-                autoSubmit = s.submitMode == "auto",
+                speed = 1.0f,
+                answerMode = CxAnswerMode.fromSetting(s.submitMode),
                 enabledTaskTypes = s.enabledTaskTypes,
             )
         }
@@ -1285,8 +1688,8 @@ data class CxDetailState(
 
 data class CxSettingsState(
     val speed: Float = 1.0f,             // 2026-06-23: 默认 1x 倍速
-    val concurrency: Int = 1,            // 2026-06-23: 默认 1 节并发,避免速率过高被检测
-    val notOpenAction: String = "retry",
+    val concurrency: Int = 1,            // 固定串行，控制请求量
+    val notOpenAction: String = "continue",
     val autoSign: Boolean = false,
     val submitMode: String = "auto",         // auto / save / skip
     val tikuType: String = "CACHE",          // DISABLED / CACHE / YANXI / AI
