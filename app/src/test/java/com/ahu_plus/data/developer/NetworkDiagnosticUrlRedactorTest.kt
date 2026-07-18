@@ -61,4 +61,39 @@ class NetworkDiagnosticUrlRedactorTest {
         assertTrue(sanitized.contains("access_token=REDACTED"))
         assertTrue(sanitized.contains("page=3"))
     }
+
+    @Test
+    fun `log route removes student ids and opaque path tokens`() {
+        val route = NetworkDiagnosticUrlRedactor.routeForLog(
+            "https://jw.ahu.edu.cn/api/grade/2023123456/550e8400e29b41d4a716446655440000?semester=1",
+        )
+
+        assertEquals("/api/grade/REDACTED/REDACTED", route)
+        assertFalse(route.contains("2023123456"))
+        assertFalse(route.contains("semester"))
+    }
+
+    @Test
+    fun `general URL redaction also protects dynamic path identifiers`() {
+        val redacted = NetworkDiagnosticUrlRedactor.redact(
+            "https://example.com/student/2023123456/profile?page=2",
+        )
+
+        assertTrue(redacted.contains("/student/REDACTED/profile"))
+        assertFalse(redacted.contains("2023123456"))
+    }
+
+    @Test
+    fun `diagnostic text removes standalone credentials and tickets`() {
+        val source = "Authorization: Bearer top-secret; password=hunter2 ticket=ST-123456-api " +
+            "jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij123456"
+
+        val sanitized = NetworkDiagnosticUrlRedactor.sanitizeDiagnosticText(source)
+
+        assertFalse(sanitized.contains("top-secret"))
+        assertFalse(sanitized.contains("hunter2"))
+        assertFalse(sanitized.contains("ST-123456-api"))
+        assertFalse(sanitized.contains("eyJhbGci"))
+        assertTrue(sanitized.contains("REDACTED"))
+    }
 }

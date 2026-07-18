@@ -4,6 +4,15 @@ import com.ahu_plus.data.developer.DeveloperModuleTest
 import com.ahu_plus.data.developer.DeveloperTestCategory
 import com.ahu_plus.data.developer.DeveloperTestRisk
 import com.ahu_plus.data.developer.DeveloperTestStatus
+import com.ahu_plus.data.developer.NetworkDiagnosticError
+import com.ahu_plus.data.developer.NetworkDiagnosticErrorKind
+import com.ahu_plus.data.developer.NetworkDiagnosticCategory
+import com.ahu_plus.data.developer.NetworkDiagnosticResult
+import com.ahu_plus.data.developer.NetworkDiagnosticStatus
+import com.ahu_plus.data.developer.NetworkHostSpec
+import com.ahu_plus.data.developer.NetworkProbeMethod
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -76,6 +85,50 @@ class DeveloperCenterUiLogicTest {
         assertEquals(0f, DeveloperModuleBatchProgress(total = 0, completed = 0).fraction)
         assertEquals(0.5f, DeveloperModuleBatchProgress(total = 4, completed = 2).fraction)
         assertEquals(1f, DeveloperModuleBatchProgress(total = 2, completed = 3).fraction)
+        assertEquals(0.5f, DeveloperNetworkBatchProgress(total = 6, completed = 3).fraction)
+    }
+
+    @Test
+    fun `network fault target accepts hosts and rejects URLs`() {
+        assertNull(developerTargetHostError(""))
+        assertNull(developerTargetHostError("*.ahu.edu.cn"))
+        assertNull(developerTargetHostError("jw.ahu.edu.cn"))
+        assertEquals(
+            "仅输入主机名，不要包含协议、端口或路径",
+            developerTargetHostError("https://jw.ahu.edu.cn/api"),
+        )
+    }
+
+    @Test
+    fun `single network export is sanitized defensively`() {
+        val host = NetworkHostSpec(
+            id = "test",
+            displayName = "Test",
+            url = "https://example.com/student/2023123456?token=secret",
+            category = NetworkDiagnosticCategory.PUBLIC_DATA,
+        )
+        val result = NetworkDiagnosticResult(
+            hostSpec = host,
+            status = NetworkDiagnosticStatus.FAILED,
+            startedAtEpochMillis = 1L,
+            http = com.ahu_plus.data.developer.NetworkHttpResult(
+                method = NetworkProbeMethod.HEAD,
+                requestedUrl = host.redactedUrl,
+                finalUrl = "https://example.com/student/2023123456?token=secret",
+                status = NetworkDiagnosticStatus.FAILED,
+                error = NetworkDiagnosticError(
+                    kind = NetworkDiagnosticErrorKind.NETWORK_IO,
+                    type = "IOException",
+                    message = "password=hunter2",
+                ),
+            ),
+        )
+
+        val exported = networkResultExportText(result)
+
+        assertFalse(exported.contains("2023123456"))
+        assertFalse(exported.contains("secret"))
+        assertFalse(exported.contains("hunter2"))
     }
 
     private fun moduleTest(

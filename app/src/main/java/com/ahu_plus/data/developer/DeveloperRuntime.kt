@@ -106,8 +106,8 @@ object DeveloperEventRecorder {
             timestampMillis = System.currentTimeMillis(),
             level = level,
             category = category,
-            message = message.take(500),
-            detail = detail.take(2_000),
+            message = NetworkDiagnosticUrlRedactor.sanitizeDiagnosticText(message).take(500),
+            detail = NetworkDiagnosticUrlRedactor.sanitizeDiagnosticText(detail).take(2_000),
         )
         _entries.update { current -> (current + entry).takeLast(MAX_ENTRIES) }
     }
@@ -174,7 +174,7 @@ class DeveloperNetworkInterceptor : Interceptor {
                     DeveloperEventRecorder.record(
                         category = "网络",
                         message = "${request.method} $host -> ${response.code}",
-                        detail = "${request.url.encodedPath} · ${elapsedMs}ms",
+                        detail = "${NetworkDiagnosticUrlRedactor.routeForLog(request.url.toString())} · ${elapsedMs}ms",
                         level = if (response.isSuccessful) DeveloperLogLevel.INFO else DeveloperLogLevel.WARNING,
                     )
                 }
@@ -195,7 +195,7 @@ class DeveloperNetworkInterceptor : Interceptor {
         DeveloperEventRecorder.record(
             category = "故障模拟",
             message = "${request.method} ${request.url.host} -> $code",
-            detail = request.url.encodedPath,
+            detail = NetworkDiagnosticUrlRedactor.routeForLog(request.url.toString()),
             level = DeveloperLogLevel.WARNING,
         )
         return Response.Builder()

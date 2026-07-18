@@ -2,9 +2,12 @@ package com.ahu_plus.ui.screen.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
@@ -13,6 +16,8 @@ import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
@@ -20,6 +25,7 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -28,6 +34,7 @@ import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,6 +50,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -56,6 +65,8 @@ import kotlinx.coroutines.launch
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.MainActivity
 import com.ahu_plus.data.debug.DebugClock
+import com.ahu_plus.data.developer.DeveloperRuntime
+import com.ahu_plus.data.developer.DeveloperRuntimeState
 import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.local.BottomNavService
 import com.ahu_plus.data.local.reconcileBottomNavServices
@@ -537,6 +548,7 @@ fun MainScreen(
         if (selectedTab == TAB_PROFILE) studentInfoViewModel.activate()
     }
     val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
+    val developerRuntime by DeveloperRuntime.state.collectAsStateWithLifecycle()
     val showTopLevelNavigation = selectedTab != TAB_MARKET || (
         marketUiState.selectedTopic == null &&
             !marketUiState.showCompose &&
@@ -589,12 +601,20 @@ fun MainScreen(
         contentWindowInsets = WindowInsets(0),
         snackbarHost = { androidx.compose.material3.SnackbarHost(initSnackbarHostState) },
         bottomBar = {
-            if (showTopLevelNavigation && !useNavigationRail) {
-                TopLevelNavigationBar(
-                    destinations = navigationDestinations,
-                    selectedTab = selectedTab,
-                    onSelect = onSelectTopLevelDestination,
-                )
+            Column {
+                if (developerRuntime.hasActiveOverrides) {
+                    DeveloperFaultBanner(
+                        state = developerRuntime,
+                        applyNavigationBarInset = !showTopLevelNavigation || useNavigationRail,
+                    )
+                }
+                if (showTopLevelNavigation && !useNavigationRail) {
+                    TopLevelNavigationBar(
+                        destinations = navigationDestinations,
+                        selectedTab = selectedTab,
+                        onSelect = onSelectTopLevelDestination,
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -1013,6 +1033,43 @@ fun MainScreen(
         }       // Row close
     }       // Scaffold trailing lambda close
 }       // MainScreen close
+
+@Composable
+private fun DeveloperFaultBanner(
+    state: DeveloperRuntimeState,
+    applyNavigationBarInset: Boolean,
+) {
+    Surface(color = MaterialTheme.colorScheme.errorContainer) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (applyNavigationBarInset) Modifier.navigationBarsPadding() else Modifier)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                Icons.Filled.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "开发者故障覆盖已启用",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "${state.networkFault.title} · ${state.targetHost.ifBlank { "全部主机" }}",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            IconButton(onClick = DeveloperRuntime::resetOverrides) {
+                Icon(Icons.Filled.Restore, contentDescription = "恢复正常网络")
+            }
+        }
+    }
+}
 
 @Composable
 private fun TopLevelNavigationBar(
