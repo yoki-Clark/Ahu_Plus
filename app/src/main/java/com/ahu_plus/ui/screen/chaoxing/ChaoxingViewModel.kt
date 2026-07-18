@@ -193,23 +193,23 @@ class ChaoxingViewModel(
     }
 
     fun updateSpeed(v: Float) {
-        _settingsState.value = _settingsState.value.copy(speed = 1.0f)
+        _settingsState.value = _settingsState.value.copy(speed = v)
         viewModelScope.launch { sessionManager.saveCxSpeed(v) }
     }
 
     fun updateConcurrency(v: Int) {
-        _settingsState.value = _settingsState.value.copy(concurrency = 1)
+        _settingsState.value = _settingsState.value.copy(concurrency = v)
         viewModelScope.launch { sessionManager.saveCxConcurrency(v) }
     }
 
     fun updateNotOpenAction(v: String) {
-        _settingsState.value = _settingsState.value.copy(notOpenAction = "continue")
-        viewModelScope.launch { sessionManager.saveCxNotopenAction("continue") }
+        _settingsState.value = _settingsState.value.copy(notOpenAction = v)
+        viewModelScope.launch { sessionManager.saveCxNotopenAction(v) }
     }
 
     fun updateAutoSign(v: Boolean) {
-        _settingsState.value = _settingsState.value.copy(autoSign = false)
-        viewModelScope.launch { sessionManager.saveCxAutoSign(false) }
+        _settingsState.value = _settingsState.value.copy(autoSign = v)
+        viewModelScope.launch { sessionManager.saveCxAutoSign(v) }
     }
 
     fun updateSubmitMode(v: String) {
@@ -311,13 +311,13 @@ class ChaoxingViewModel(
     }
 
     fun updateVisitBrushEnabled(v: Boolean) {
-        _settingsState.value = _settingsState.value.copy(visitBrushEnabled = false)
-        viewModelScope.launch { sessionManager.saveCxVisitBrushEnabled(false) }
+        _settingsState.value = _settingsState.value.copy(visitBrushEnabled = v)
+        viewModelScope.launch { sessionManager.saveCxVisitBrushEnabled(v) }
     }
 
     fun updateVisitBrushInterval(v: Int) {
-        _settingsState.value = _settingsState.value.copy(visitBrushInterval = 30)
-        viewModelScope.launch { sessionManager.saveCxVisitBrushInterval(30) }
+        _settingsState.value = _settingsState.value.copy(visitBrushInterval = v)
+        viewModelScope.launch { sessionManager.saveCxVisitBrushInterval(v) }
     }
 
     fun updateDownloadEnabled(v: Boolean) {
@@ -552,7 +552,7 @@ class ChaoxingViewModel(
      */
     fun loadMessages(
         force: Boolean = false,
-        includeActivities: Boolean = _settingsState.value.messagesMergeInbox,
+        includeActivities: Boolean = true,
     ) {
         synchronized(requestLock) {
             if (messagesJob?.isActive == true) {
@@ -1627,8 +1627,8 @@ class ChaoxingViewModel(
         viewModelScope.launch {
             studyRepo.studyAll(
                 courses = courses,
-                speed = 1.0f,
-                concurrency = 1,
+                speed = s.speed,
+                concurrency = s.concurrency,
                 answerMode = CxAnswerMode.fromSetting(s.submitMode),
                 enabledTaskTypes = s.enabledTaskTypes,
             )
@@ -1643,7 +1643,7 @@ class ChaoxingViewModel(
         viewModelScope.launch {
             studyRepo.studyCourse(
                 course = course,
-                speed = 1.0f,
+                speed = s.speed,
                 answerMode = CxAnswerMode.fromSetting(s.submitMode),
                 enabledTaskTypes = s.enabledTaskTypes,
             )
@@ -1688,8 +1688,8 @@ data class CxDetailState(
 
 data class CxSettingsState(
     val speed: Float = 1.0f,             // 2026-06-23: 默认 1x 倍速
-    val concurrency: Int = 1,            // 固定串行，控制请求量
-    val notOpenAction: String = "continue",
+    val concurrency: Int = 1,
+    val notOpenAction: String = "retry",
     val autoSign: Boolean = false,
     val submitMode: String = "auto",         // auto / save / skip
     val tikuType: String = "CACHE",          // DISABLED / CACHE / YANXI / AI

@@ -46,8 +46,7 @@ enum class CxAnswerMode(
 /**
  * 超星学习通自动学习 Repository。
  *
- * 负责按真实时长串行播放视频，并按显式答题策略处理章节检测。会瞬时标记
- * 完成的文档、阅读、音频和直播端点在执行层禁用。
+ * 负责按配置播放视频，并按显式答题策略处理章节检测及被动任务。
  * 学习进度通过 [studyState] StateFlow 实时汇报到 UI。
  */
 class ChaoxingStudyRepository(
@@ -117,8 +116,8 @@ class ChaoxingStudyRepository(
      * 一键学习所有课程（或指定课程列表）。
      *
      * @param courses 要学习的课程列表
-     * @param speed 兼容旧配置的速度参数；执行层固定为 1.0x
-     * @param concurrency 兼容旧配置的并发参数；执行层固定为串行
+     * @param speed 视频播放倍速 (1.0x..2.0x)
+     * @param concurrency 保留上一版的章节并发配置；请求仍受流量治理器约束
      * @param answerMode 答题策略；未知配置由 [CxAnswerMode.fromSetting] 按不答题处理
      */
     suspend fun studyAll(
@@ -136,11 +135,7 @@ class ChaoxingStudyRepository(
         }
         _studyState.value = CxStudyUiState(isRunning = true)
 
-        // Keep the parameter for settings/Intent compatibility, but never create
-        // concurrent requests from a stale preference.
-        if (concurrency != 1) {
-            addLog("并发参数已兼容保留，但自动学习固定顺序执行（请求并发=1）")
-        }
+        if (concurrency > 1) addLog("章节并发配置: $concurrency（请求由流量治理器统一调度）")
 
         try {
             for (course in courses) {
@@ -182,6 +177,17 @@ class ChaoxingStudyRepository(
 
             addLog("本次自动学习任务已结束")
 
+            if (sessionManager.getCxAutoSign() && !shouldStop) {
+                addLog("自动签到: 扫描课程活动...")
+                autoSignAllCourses(courses)
+            }
+
+            if (sessionManager.getCxVisitBrushEnabled() && !shouldStop) {
+                addLog("更新访问次数: 开始...")
+                brushVisitCounts(courses, sessionManager.getCxVisitBrushInterval())
+                addLog("更新访问次数: 完成")
+            }
+
             // 推送通知
             notificationRepo?.send("超星学习通: 本次自动学习任务已结束")?.onFailure {
                 addLog("通知推送失败: ${safeErrorLabel(it)}")
@@ -201,6 +207,96 @@ class ChaoxingStudyRepository(
         } finally {
             releaseRun(runOwner)
             _studyState.value = _studyState.value.copy(isRunning = false, currentTask = null)
+        }
+    }
+
+    private suspend fun autoSignAllCourses(courses: List<CxCourse>) {
+        val lat = sessionManager.getCxSignLat()
+        val lon = sessionManager.getCxSignLon()
+        val address = sessionManager.getCxSignAddress()
+        val gesture = sessionManager.getCxSignGesture()
+
+        for (course in courses) {
+            if (shouldStop) break
+            val activitiesResult = cxRepo.getActivityList(course, forceRefresh = true)
+            if (activitiesResult.isFailure) {
+                val error = activitiesResult.exceptionOrNull()
+                throwIfRestriction(error)
+                addLog("自动签到活动加载失败: ${safeErrorLabel(error)}")
+                continue
+            }
+            for (activity in activitiesResult.getOrNull().orEmpty().filter { it.status == 1 }) {
+                if (shouldStop) break
+                val preSignResult = cxRepo.preSign(course, activity.id)
+                if (preSignResult.isFailure) {
+                    val error = preSignResult.exceptionOrNull()
+                    throwIfRestriction(error)
+                    addLog("自动签到预检失败: ${safeErrorLabel(error)}")
+                    continue
+                }
+                val signType = preSignResult.getOrNull()?.signType ?: activity.signType
+                addLog("自动签到: ${activity.name} (${signType.label})")
+                val result = when (signType) {
+                    com.ahu_plus.data.model.CxSignType.LOCATION -> {
+                        if (lat >= 0 && lon >= 0) {
+                            cxRepo.signInLocation(course, activity.id, lat, lon, address)
+                        } else {
+                            addLog("  未配置经纬度，已跳过")
+                            continue
+                        }
+                    }
+                    com.ahu_plus.data.model.CxSignType.GESTURE -> {
+                        if (gesture.isNotBlank()) {
+                            cxRepo.signInGesture(course, activity.id, gesture)
+                        } else {
+                            addLog("  未配置手势码，已跳过")
+                            continue
+                        }
+                    }
+                    com.ahu_plus.data.model.CxSignType.PHOTO,
+                    com.ahu_plus.data.model.CxSignType.QRCODE,
+                    com.ahu_plus.data.model.CxSignType.SIGNCODE,
+                    -> {
+                        addLog("  ${signType.label}需要手动操作，已跳过")
+                        continue
+                    }
+                    else -> cxRepo.signNormal(course, activity.id)
+                }
+                if (result.isSuccess) {
+                    addLog("  签到成功")
+                } else {
+                    val error = result.exceptionOrNull()
+                    throwIfRestriction(error)
+                    addLog("  签到失败: ${safeErrorLabel(error)}")
+                }
+            }
+        }
+    }
+
+    private suspend fun brushVisitCounts(courses: List<CxCourse>, intervalSec: Int) {
+        val delayMillis = intervalSec.coerceIn(5, 120) * 1_000L
+        for (course in courses) {
+            if (shouldStop) break
+            val pointsResult = cxRepo.getCoursePoints(course)
+            if (pointsResult.isFailure) {
+                val error = pointsResult.exceptionOrNull()
+                throwIfRestriction(error)
+                addLog("访问次数章节加载失败: ${safeErrorLabel(error)}")
+                continue
+            }
+            for (chapter in pointsResult.getOrNull()?.points.orEmpty()) {
+                if (shouldStop) break
+                if (chapter.needUnlock) continue
+                val result = cxRepo.brushVisitCount(course, chapter)
+                if (result.isFailure) {
+                    val error = result.exceptionOrNull()
+                    throwIfRestriction(error)
+                    addLog("    访问次数更新失败: ${safeErrorLabel(error)}")
+                } else {
+                    addLog("    已更新访问: ${chapter.title}")
+                }
+                delay(delayMillis)
+            }
         }
     }
 
@@ -405,15 +501,44 @@ class ChaoxingStudyRepository(
 
         // 失败原因（供 UI message 展示）
         var failMsg = ""
-        val result = if (job.type in setOf("document", "read", "audio", "live")) {
-            // These endpoints mark completion immediately and are not a substitute
-            // for a real foreground playback/read event. Keep them visible in the
-            // UI, but do not emit synthetic completion requests from this runner.
-            failMsg = "后台自动学习已跳过即时完成任务"
-            addLog("    $failMsg (${job.type})")
-            CxStudyResult.SKIPPED
-        } else when (job.type) {
+        val result = when (job.type) {
             "video" -> studyVideo(course, job, jobInfo, speed)
+            "document" -> cxRepo.studyDocument(course, job, jobInfo).fold(
+                onSuccess = { CxStudyResult.SUCCESS },
+                onFailure = { error ->
+                    throwIfRestriction(error)
+                    failMsg = safeErrorLabel(error)
+                    addLog("    文档任务失败: $failMsg")
+                    CxStudyResult.ERROR
+                },
+            )
+            "read" -> cxRepo.studyRead(course, job, jobInfo).fold(
+                onSuccess = { CxStudyResult.SUCCESS },
+                onFailure = { error ->
+                    throwIfRestriction(error)
+                    failMsg = safeErrorLabel(error)
+                    addLog("    阅读任务失败: $failMsg")
+                    CxStudyResult.ERROR
+                },
+            )
+            "audio" -> cxRepo.studyAudio(course, job, jobInfo).fold(
+                onSuccess = { CxStudyResult.SUCCESS },
+                onFailure = { error ->
+                    throwIfRestriction(error)
+                    failMsg = safeErrorLabel(error)
+                    addLog("    音频任务失败: $failMsg")
+                    CxStudyResult.ERROR
+                },
+            )
+            "live" -> cxRepo.studyLive(course, job, jobInfo).fold(
+                onSuccess = { CxStudyResult.SUCCESS },
+                onFailure = { error ->
+                    throwIfRestriction(error)
+                    failMsg = safeErrorLabel(error)
+                    addLog("    直播任务失败: $failMsg")
+                    CxStudyResult.ERROR
+                },
+            )
             "workid" -> if (answerMode.shouldQueryAnswers) {
                 studyWork(course, job, jobInfo, answerMode)
             } else {
@@ -494,9 +619,9 @@ class ChaoxingStudyRepository(
         // the server-recorded position and advances only through the paced loop.
         // 3. Continue from the recorded position; an end marker is sent at most once.
         val startSec = serverPlayTime
-        val effectiveSpeed = speed.coerceIn(0.1f, 1.0f)
+        val effectiveSpeed = CxVideoReportPolicy.effectiveSpeed(speed)
         if (speed != effectiveSpeed) {
-            addLog("    倍速参数已限制为 ${effectiveSpeed}x，避免加速请求突发")
+            addLog("    倍速参数已调整为 ${effectiveSpeed}x")
         }
         var playTime = startSec.toDouble()      // Double 累积，对齐 Python float
 
@@ -783,6 +908,8 @@ internal class ChaoxingStudyRestrictionException(
 internal object CxVideoReportPolicy {
     const val DEFAULT_REPORT_INTERVAL_SEC: Int = 60
     const val MIN_REPORT_INTERVAL_SEC: Int = 60
+
+    fun effectiveSpeed(requested: Float): Float = requested.coerceIn(1.0f, 2.0f)
 
     fun intervalSeconds(serverValue: Int): Int =
         (serverValue.takeIf { it > 0 } ?: DEFAULT_REPORT_INTERVAL_SEC)

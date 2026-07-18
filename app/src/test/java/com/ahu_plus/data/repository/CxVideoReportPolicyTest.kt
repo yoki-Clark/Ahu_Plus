@@ -1,10 +1,18 @@
 package com.ahu_plus.data.repository
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CxVideoReportPolicyTest {
+
+    @Test
+    fun `video speed supports previous one to two times range`() {
+        assertEquals(1.0f, CxVideoReportPolicy.effectiveSpeed(0.5f))
+        assertEquals(1.5f, CxVideoReportPolicy.effectiveSpeed(1.5f))
+        assertEquals(2.0f, CxVideoReportPolicy.effectiveSpeed(3.0f))
+    }
 
     @Test
     fun `invalid duration never schedules a report`() {

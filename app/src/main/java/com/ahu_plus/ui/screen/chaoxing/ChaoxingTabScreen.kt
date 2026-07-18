@@ -199,8 +199,8 @@ fun ChaoxingTabScreen(
                 ChaoxingStudyService.start(
                     context = context,
                     courseKeys = listOf("${course.courseId}_${course.clazzId}"),
-                    speed = 1.0f,
-                    concurrency = 1,
+                    speed = settingsState.speed,
+                    concurrency = settingsState.concurrency,
                     answerMode = CxAnswerMode.fromSetting(settingsState.submitMode),
                     enabledTaskTypes = settingsState.enabledTaskTypes,
                 )
@@ -242,8 +242,8 @@ fun ChaoxingTabScreen(
                     ChaoxingStudyService.start(
                         context = context,
                         courseKeys = courseKeys,
-                        speed = 1.0f,
-                        concurrency = 1,
+                        speed = settingsState.speed,
+                        concurrency = settingsState.concurrency,
                         answerMode = CxAnswerMode.fromSetting(settingsState.submitMode),
                         enabledTaskTypes = settingsState.enabledTaskTypes,
                     )

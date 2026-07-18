@@ -56,6 +56,7 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.random.Random
 
 /**
  * 超星学习通 Repository。
@@ -986,37 +987,87 @@ class ChaoxingRepository(
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  Disabled synthetic completion operations
+    //  文档 / 阅读 / 音频 / 直播任务
     // ══════════════════════════════════════════════════════════════
 
-    @Deprecated("Instant document completion is disabled")
-    suspend fun studyDocument(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
-        disabledCompletionResult()
+    private fun checkJobResponse(label: String, code: Int, body: String): Result<Unit> {
+        val result = CxPassiveJobResponsePolicy.validate(label, code, body)
+        if (result.isSuccess && !body.contains("status", ignoreCase = true)) {
+            Log.i(TAG, "[$label] response format has no status field")
+        }
+        return result
+    }
 
-    @Deprecated("Instant reading completion is disabled")
-    suspend fun studyRead(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
-        disabledCompletionResult()
+    private suspend fun executePassiveJob(label: String, url: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder().url(url).get().header("User-Agent", userAgent()).build()
+                val response = client.newCall(request).awaitResponse()
+                val code = response.code
+                val body = response.use { it.body?.string().orEmpty() }
+                val result = checkJobResponse(label, code, body)
+                if (result.isSuccess) delay(Random.nextLong(15_000L, 90_000L))
+                result
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "$label 上报异常: ${e.javaClass.simpleName}")
+                Result.failure(e)
+            }
+        }
 
-    @Deprecated("Instant audio completion is disabled")
-    suspend fun studyAudio(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
-        disabledCompletionResult()
+    suspend fun studyDocument(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> {
+        val nodeId = Regex("""nodeId_(\d+)-""").find(job.otherinfo)?.groupValues?.get(1).orEmpty()
+        val url = "$BASE_MOOC1/ananas/job/document" +
+            "?jobid=${job.jobid}&knowledgeid=$nodeId" +
+            "&courseid=${course.courseId}&clazzid=${course.clazzId}" +
+            "&jtoken=${job.jtoken}&_dc=${System.currentTimeMillis()}"
+        return executePassiveJob("document", url)
+    }
 
-    @Deprecated("Instant live completion is disabled")
-    suspend fun studyLive(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> =
-        disabledCompletionResult()
+    suspend fun studyRead(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> {
+        val url = "$BASE_MOOC1/ananas/job/readv2" +
+            "?jobid=${job.jobid}&knowledgeid=${jobInfo.knowledgeid}" +
+            "&jtoken=${job.jtoken}&courseid=${course.courseId}" +
+            "&clazzid=${course.clazzId}"
+        return executePassiveJob("read", url)
+    }
 
-    @Deprecated("Synthetic empty-page completion is disabled")
-    suspend fun studyEmptyPage(course: CxCourse, chapter: CxChapter): Result<Unit> =
-        disabledCompletionResult()
+    suspend fun studyAudio(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> {
+        val url = "$BASE_MOOC1/ananas/job/audio" +
+            "?jobid=${job.jobid}&knowledgeid=${jobInfo.knowledgeid}" +
+            "&jtoken=${job.jtoken}&courseid=${course.courseId}" +
+            "&clazzid=${course.clazzId}&_dc=${System.currentTimeMillis()}"
+        return executePassiveJob("audio", url)
+    }
 
-    private fun disabledCompletionResult(): Result<Unit> = Result.failure(
-        UnsupportedOperationException("后台瞬时完成任务已禁用"),
-    )
+    suspend fun studyLive(course: CxCourse, job: CxJob, jobInfo: CxJobInfo): Result<Unit> {
+        val url = "$BASE_MOOC1/ananas/job/live" +
+            "?jobid=${job.jobid}&knowledgeid=${jobInfo.knowledgeid}" +
+            "&jtoken=${job.jtoken}&courseid=${course.courseId}" +
+            "&clazzid=${course.clazzId}&_dc=${System.currentTimeMillis()}"
+        return executePassiveJob("live", url)
+    }
 
-    /** Disabled: synthetic visit-count mutations are not a supported client operation. */
-    @Deprecated("Synthetic visit-count reporting is disabled")
     suspend fun brushVisitCount(course: CxCourse, chapter: CxChapter): Result<Unit> =
-        Result.failure(UnsupportedOperationException("刷访问次数功能已禁用"))
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$BASE_MOOC1/mooc-ans/mycourse/studentstudyAjax" +
+                    "?courseId=${course.courseId}&clazzid=${course.clazzId}" +
+                    "&chapterId=${chapter.id}&cpi=${course.cpi}" +
+                    "&verificationcode=&mooc2=1&microTopicId=0&editorPreview=0"
+                val request = Request.Builder().url(url).get().header("User-Agent", userAgent()).build()
+                val response = client.newCall(request).awaitResponse()
+                val code = response.code
+                val body = response.use { it.body?.string().orEmpty() }
+                checkJobResponse("visit", code, body)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "访问次数更新异常: ${e.javaClass.simpleName}")
+                Result.failure(e)
+            }
+        }
 
     /**
      * 获取课程章节的资源附件列表。
@@ -2671,5 +2722,42 @@ class ChaoxingRepository(
             Log.e(TAG, "uploadHomeworkFile 异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
+    }
+}
+
+/** Pure response validation for passive task endpoints. */
+internal object CxPassiveJobResponsePolicy {
+    fun validate(label: String, code: Int, body: String): Result<Unit> {
+        val trimmed = body.trim()
+        if (code !in 200..299) {
+            return Result.failure(IOException("$label 上报失败: HTTP $code"))
+        }
+
+        val lower = trimmed.lowercase(Locale.US)
+        val blocked = lower.contains("passport2.chaoxing.com") ||
+            lower.contains("fanyalogin") || lower.contains("captcha") ||
+            lower.contains("verifycode") || lower.contains("access denied") ||
+            trimmed.contains("访问过于频繁") || trimmed.contains("操作过于频繁") ||
+            trimmed.contains("访问受限") || trimmed.contains("安全验证") || trimmed.contains("账号异常")
+        if (blocked) {
+            return Result.failure(IOException("$label 上报失败: 登录或访问限制页面"))
+        }
+
+        val response = runCatching { JsonParser.parseString(trimmed).asJsonObject }.getOrNull()
+        val status = response?.get("status")?.let { value ->
+            runCatching { value.asBoolean }.getOrNull()
+        }
+        if (status == false) {
+            val message = response?.get("msg")?.let { runCatching { it.asString }.getOrNull() }
+                .orEmpty().ifBlank { "status=false" }
+            return Result.failure(IOException("$label 上报被拒: $message"))
+        }
+
+        if (status == null) {
+            val failureSignals = listOf("\"status\":false", "登录", "失效", "error", "异常", "无权限", "未开放")
+            val signal = failureSignals.firstOrNull { trimmed.contains(it, ignoreCase = true) }
+            if (signal != null) return Result.failure(IOException("$label 上报失败: $signal"))
+        }
+        return Result.success(Unit)
     }
 }
