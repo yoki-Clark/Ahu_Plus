@@ -236,7 +236,7 @@ fun AboutScreen(
                         HorizontalDivider()
                         SettingsRow(
                             title = "使用帮助",
-                            description = "功能说明、操作指引与常见问题",
+                            description = "功能说明、操作指引与已知边界",
                             iconColor = Color(0xFF2F80ED),
                             icon = { Icon(Icons.AutoMirrored.Filled.Help, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.GUIDE }

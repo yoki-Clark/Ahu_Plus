@@ -63,14 +63,12 @@ import androidx.compose.ui.unit.dp
 import com.ahu_plus.ui.theme.AhuShapes
 
 /**
- * 使用帮助（使用指南 + 常见问题 合并版）。
+ * 使用帮助。常见问题由 [FaqScreen] 独立展示。
  *
  * 单一 Composable 内含自己的导航栈，三种页面：
  *  - [GuidePage.Root]   分类 → 条目列表，顶部置一个「未来更新计划」入口
  *  - [GuidePage.Entry]  某条目的详情（按小节渲染）
- *  - [GuidePage.Roadmap] 聚合所有「未来的计划」的路线图
- *
- * 关键交互：从路线图点进某条目，返回时回到路线图（而非根），符合需求
+ *  - [GuidePage.Roadmap] 保留路线图页面结构，当前入口关闭
  * 「点击可以跳转到对应位置，返回之后就会返回此页面」。
  *
  * @param introSeen 首开说明弹窗是否已展示过（持久化，退登不清）。
@@ -632,7 +630,7 @@ private fun IntroDialog(onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "这里整合了原来的「使用指南」和「常见问题」。每一项功能尽量从以下几个角度说明（不一定每项都齐全）：",
+                    text = "这里按当前版本代码整理功能说明。每一项只展示与该功能有关、能够从现有实现确认的内容：",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 GuideSectionKind.entries.forEach { kind ->
@@ -654,7 +652,7 @@ private fun IntroDialog(onDismiss: () -> Unit) {
                     }
                 }
                 Text(
-                    text = "顶部「未来更新计划」汇总了所有计划中的功能，点进去能直接跳到对应说明。",
+                    text = "「未来更新计划」入口当前关闭，不作为后续功能承诺；用户问答请到「常见问题」查看。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
