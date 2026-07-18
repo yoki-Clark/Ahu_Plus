@@ -2,6 +2,8 @@ package com.ahu_plus.data.developer
 
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.BuildConfig
+import com.ahu_plus.data.debug.DebugClock
+import com.ahu_plus.data.home.AppRegistry
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
@@ -49,6 +51,7 @@ data class DeveloperModuleTest(
     val status: DeveloperTestStatus = DeveloperTestStatus.NOT_RUN,
     val result: String? = null,
     val durationMillis: Long? = null,
+    val lastRunAtMillis: Long? = null,
 )
 
 internal data class DeveloperTestExecution(
@@ -106,6 +109,7 @@ class DeveloperModuleTestRepository(
             status = DeveloperTestStatus.RUNNING,
             result = null,
             durationMillis = null,
+            lastRunAtMillis = null,
         )
         replace(running)
 
@@ -117,6 +121,7 @@ class DeveloperModuleTestRepository(
                     status = DeveloperTestStatus.CANCELLED,
                     result = "检查已取消",
                     durationMillis = null,
+                    lastRunAtMillis = System.currentTimeMillis(),
                 )
             )
             throw cancelled
@@ -126,6 +131,7 @@ class DeveloperModuleTestRepository(
             status = execution.status,
             result = execution.result,
             durationMillis = execution.durationMillis,
+            lastRunAtMillis = System.currentTimeMillis(),
         ).also(::replace)
     }
 
@@ -163,6 +169,47 @@ class DeveloperModuleTestRepository(
             check(BuildConfig.BUILD_TYPE.isNotBlank())
             check(BuildConfig.APPLICATION_ID == application.packageName)
             "构建配置有效"
+        },
+        definition(
+            id = "local.datastore",
+            category = DeveloperTestCategory.LOCAL,
+            title = "DataStore 健康",
+            description = "扫描持久化数据的类型与 JSON 结构，仅统计条目，不读取或展示敏感值。",
+            risk = DeveloperTestRisk.LOCAL_ONLY,
+            timeoutMillis = LOCAL_TIMEOUT_MILLIS,
+        ) {
+            val report = DeveloperCacheRepository(application.appDataStore).inspect()
+            check(report.invalidJsonCount == 0) {
+                "发现 ${report.invalidJsonCount} 个异常 JSON 项"
+            }
+            "${report.totalEntryCount} 项，JSON ${report.validJsonCount} 项均有效"
+        },
+        definition(
+            id = "local.app_registry",
+            category = DeveloperTestCategory.LOCAL,
+            title = "应用注册表",
+            description = "检查应用入口 key、标题和分组是否完整且没有重复。",
+            risk = DeveloperTestRisk.LOCAL_ONLY,
+            timeoutMillis = LOCAL_TIMEOUT_MILLIS,
+        ) {
+            val apps = AppRegistry.all()
+            check(apps.isNotEmpty())
+            check(apps.map { it.key }.distinct().size == apps.size)
+            check(apps.all { it.key.isNotBlank() && it.title.isNotBlank() && it.group.isNotBlank() })
+            "${apps.size} 个应用入口，key 均唯一"
+        },
+        definition(
+            id = "local.debug_clock",
+            category = DeveloperTestCategory.LOCAL,
+            title = "调试时钟",
+            description = "检查统一时间入口的日期、分钟范围和格式化结果。",
+            risk = DeveloperTestRisk.LOCAL_ONLY,
+            timeoutMillis = LOCAL_TIMEOUT_MILLIS,
+        ) {
+            val minutes = DebugClock.currentMinutes()
+            check(minutes in 0..1439)
+            check(DebugClock.formatMinutes(minutes).matches(Regex("\\d{2}:\\d{2}")))
+            if (DebugClock.isFrozen()) "时间覆盖生效中 · ${DebugClock.now()}" else "真实时间 · ${DebugClock.now()}"
         },
         definition(
             id = "cas.session",

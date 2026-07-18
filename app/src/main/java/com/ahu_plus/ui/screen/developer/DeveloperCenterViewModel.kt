@@ -17,6 +17,7 @@ import com.ahu_plus.data.developer.DeveloperPayloadAnalysis
 import com.ahu_plus.data.developer.DeveloperPayloadAnalyzer
 import com.ahu_plus.data.developer.DeveloperPayloadType
 import com.ahu_plus.data.developer.DeveloperTestStatus
+import com.ahu_plus.data.developer.DeveloperTestRisk
 import com.ahu_plus.data.developer.NetworkDiagnosticCategory
 import com.ahu_plus.data.developer.NetworkDiagnosticCancelTarget
 import com.ahu_plus.data.developer.NetworkDiagnosticEngine
@@ -64,6 +65,9 @@ class DeveloperCenterViewModel(
     private val _runningAllModules = MutableStateFlow(false)
     val runningAllModules: StateFlow<Boolean> = _runningAllModules.asStateFlow()
 
+    private val _moduleBatchProgress = MutableStateFlow(DeveloperModuleBatchProgress())
+    val moduleBatchProgress: StateFlow<DeveloperModuleBatchProgress> = _moduleBatchProgress.asStateFlow()
+
     private val _runningNetworkBatch = MutableStateFlow(false)
     val runningNetworkBatch: StateFlow<Boolean> = _runningNetworkBatch.asStateFlow()
 
@@ -110,19 +114,71 @@ class DeveloperCenterViewModel(
     }
 
     fun runAllModuleTests() {
+        runModuleTests(moduleRepository.getTests().map { it.id }, "全部测试")
+    }
+
+    fun runLocalModuleTests() {
+        runModuleTests(
+            moduleRepository.getTests().filter { it.risk == DeveloperTestRisk.LOCAL_ONLY }.map { it.id },
+            "本地检查",
+        )
+    }
+
+    fun runPublicModuleTests() {
+        runModuleTests(
+            moduleRepository.getTests().filter { it.risk == DeveloperTestRisk.PUBLIC_READ }.map { it.id },
+            "公开服务",
+        )
+    }
+
+    fun runAuthenticatedModuleTests() {
+        runModuleTests(
+            moduleRepository.getTests().filter { it.risk == DeveloperTestRisk.AUTHENTICATED_READ }.map { it.id },
+            "账号服务",
+        )
+    }
+
+    fun rerunFailedModuleTests() {
+        val retryable = moduleRepository.getTests().filter {
+            it.status in setOf(
+                DeveloperTestStatus.FAILED,
+                DeveloperTestStatus.TIMED_OUT,
+                DeveloperTestStatus.CANCELLED,
+            )
+        }
+        runModuleTests(retryable.map { it.id }, "异常复测")
+    }
+
+    private fun runModuleTests(ids: List<String>, label: String) {
+        val knownIds = moduleRepository.getTests().mapTo(hashSetOf()) { it.id }
+        val selectedIds = ids.distinct().filter(knownIds::contains)
+        if (selectedIds.isEmpty()) return
         if (!moduleRunCoordinator.tryStartBatch()) return
         moduleBatchJob = viewModelScope.launch {
             _runningAllModules.value = true
-            DeveloperEventRecorder.record("模块测试", "开始全部只读模块测试")
+            _moduleBatchProgress.value = DeveloperModuleBatchProgress(
+                isRunning = true,
+                label = label,
+                completed = 0,
+                total = selectedIds.size,
+            )
+            DeveloperEventRecorder.record("模块测试", "开始$label，共 ${selectedIds.size} 项")
             try {
-                for (test in moduleRepository.getTests()) {
-                    moduleRepository.run(test.id)
+                selectedIds.forEachIndexed { index, id ->
+                    val test = moduleRepository.getTests().first { it.id == id }
+                    _moduleBatchProgress.value = _moduleBatchProgress.value.copy(currentTitle = test.title)
+                    moduleRepository.run(id)
+                    _moduleBatchProgress.value = _moduleBatchProgress.value.copy(completed = index + 1)
                 }
-                DeveloperEventRecorder.record("模块测试", "全部只读模块测试已完成")
+                DeveloperEventRecorder.record("模块测试", "$label 已完成")
             } catch (_: CancellationException) {
-                DeveloperEventRecorder.record("模块测试", "批量测试已取消", level = DeveloperLogLevel.WARNING)
+                DeveloperEventRecorder.record("模块测试", "$label 已取消", level = DeveloperLogLevel.WARNING)
             } finally {
                 _runningAllModules.value = false
+                _moduleBatchProgress.value = _moduleBatchProgress.value.copy(
+                    isRunning = false,
+                    currentTitle = null,
+                )
                 moduleRunCoordinator.finishBatch()
                 moduleBatchJob = null
                 refreshOverview()
@@ -296,8 +352,17 @@ class DeveloperCenterViewModel(
             appendOverview("Sessions", overviewSnapshot.sessions)
             appendOverview("Runtime", overviewSnapshot.runtime)
             appendLine("[Module tests]")
-            moduleRepository.getTests().forEach {
-                appendLine("${it.id}\t${it.status}\t${it.durationMillis ?: "-"}ms\t${it.result.orEmpty()}")
+            val moduleTests = moduleRepository.getTests()
+            appendLine(
+                "Summary\ttotal=${moduleTests.size}\tpassed=${moduleTests.count { it.status == DeveloperTestStatus.PASSED }}\t" +
+                    "failed=${moduleTests.count { it.status in setOf(DeveloperTestStatus.FAILED, DeveloperTestStatus.TIMED_OUT) }}\t" +
+                    "skipped=${moduleTests.count { it.status == DeveloperTestStatus.SKIPPED }}",
+            )
+            moduleTests.forEach {
+                appendLine(
+                    "${it.id}\t${it.status}\t${it.durationMillis ?: "-"}ms\t" +
+                        "lastRun=${it.lastRunAtMillis ?: "-"}\t${it.result.orEmpty()}",
+                )
             }
             appendLine()
             appendLine("[Network diagnostics]")
@@ -355,6 +420,17 @@ class DeveloperCenterViewModel(
             .withZone(ZoneId.systemDefault())
         const val MAX_PAYLOAD_CHARS = 2_000_000
     }
+}
+
+data class DeveloperModuleBatchProgress(
+    val isRunning: Boolean = false,
+    val label: String = "",
+    val completed: Int = 0,
+    val total: Int = 0,
+    val currentTitle: String? = null,
+) {
+    val fraction: Float
+        get() = if (total <= 0) 0f else (completed.toFloat() / total).coerceIn(0f, 1f)
 }
 
 internal class DeveloperModuleRunCoordinator {

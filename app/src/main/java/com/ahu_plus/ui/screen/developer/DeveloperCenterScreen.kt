@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
@@ -46,6 +48,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Surface
@@ -128,6 +131,7 @@ fun DeveloperCenterScreen(onBack: () -> Unit) {
     val networkResults by viewModel.networkResults.collectAsState()
     val runningNetworkIds by viewModel.runningNetworkIds.collectAsState()
     val runningModules by viewModel.runningAllModules.collectAsState()
+    val moduleBatchProgress by viewModel.moduleBatchProgress.collectAsState()
     val runningNetworkBatch by viewModel.runningNetworkBatch.collectAsState()
     val runtime by DeveloperRuntime.state.collectAsState()
 
@@ -241,6 +245,7 @@ fun DeveloperCenterScreen(onBack: () -> Unit) {
                     cacheEntryCount = (cacheState as? DeveloperDataUiState.Ready)?.report?.totalEntryCount,
                     networkResults = networkResults,
                     isRunningTests = runningModules,
+                    batchProgress = moduleBatchProgress,
                     onRefresh = viewModel::refreshOverview,
                     onRunTests = viewModel::runAllModuleTests,
                     onCancelTests = viewModel::cancelAllModuleTests,
@@ -248,9 +253,14 @@ fun DeveloperCenterScreen(onBack: () -> Unit) {
                 DeveloperTab.MODULES -> DeveloperModulesTab(
                     tests = tests,
                     isRunningAll = runningModules,
+                    batchProgress = moduleBatchProgress,
                     onRun = viewModel::runModuleTest,
                     onCancel = viewModel::cancelModuleTest,
                     onRunAll = viewModel::runAllModuleTests,
+                    onRunLocal = viewModel::runLocalModuleTests,
+                    onRunPublic = viewModel::runPublicModuleTests,
+                    onRunAuthenticated = viewModel::runAuthenticatedModuleTests,
+                    onRerunFailed = viewModel::rerunFailedModuleTests,
                     onCancelAll = viewModel::cancelAllModuleTests,
                 )
                 DeveloperTab.NETWORK -> DeveloperNetworkTab(
@@ -314,12 +324,14 @@ private fun DeveloperOverviewTab(
     cacheEntryCount: Int?,
     networkResults: Map<String, NetworkDiagnosticResult>,
     isRunningTests: Boolean,
+    batchProgress: DeveloperModuleBatchProgress,
     onRefresh: () -> Unit,
     onRunTests: () -> Unit,
     onCancelTests: () -> Unit,
 ) {
     val passed = tests.count { it.status == DeveloperTestStatus.PASSED }
     val failed = tests.count { it.status in setOf(DeveloperTestStatus.FAILED, DeveloperTestStatus.TIMED_OUT) }
+    val executed = tests.count { it.status !in setOf(DeveloperTestStatus.NOT_RUN, DeveloperTestStatus.RUNNING) }
     val networkFailed = networkResults.values.count { it.status == NetworkDiagnosticStatus.FAILED }
 
     LazyColumn(
@@ -328,13 +340,22 @@ private fun DeveloperOverviewTab(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SummaryMetric("模块通过", "$passed/${tests.size}", if (failed > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, Modifier.weight(1f))
-                SummaryMetric("网络结果", "${networkResults.size}", if (networkFailed > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
-                SummaryMetric("缓存项", cacheEntryCount?.toString() ?: "-", MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SummaryMetric("已执行", "$executed/${tests.size}", MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+                    SummaryMetric("通过", passed.toString(), if (failed > 0) MaterialTheme.colorScheme.error else developerSuccessColor(), Modifier.weight(1f))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SummaryMetric("异常", (failed + networkFailed).toString(), if (failed + networkFailed > 0) MaterialTheme.colorScheme.error else developerSuccessColor(), Modifier.weight(1f))
+                    SummaryMetric("网络覆盖", "${networkResults.size}/${NetworkDiagnosticHosts.all.size}", if (networkFailed > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SummaryMetric("本地缓存", cacheEntryCount?.toString() ?: "-", MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
+                    SummaryMetric("待运行", (tests.size - executed).coerceAtLeast(0).toString(), MaterialTheme.colorScheme.onSurfaceVariant, Modifier.weight(1f))
+                }
             }
         }
         item {
@@ -355,7 +376,29 @@ private fun DeveloperOverviewTab(
                 }
             }
         }
-        if (isRunningTests) item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+        if (isRunningTests) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            batchProgress.currentTitle ?: batchProgress.label,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            "${batchProgress.completed}/${batchProgress.total}",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { batchProgress.fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
         item { StatusSection("构建信息", overview.build) }
         item { StatusSection("设备环境", overview.device) }
         item { StatusSection("权限与系统能力", overview.permissions) }
@@ -432,16 +475,100 @@ private fun StatusSection(title: String, items: List<DeveloperStatusItem>) {
 private fun DeveloperModulesTab(
     tests: List<DeveloperModuleTest>,
     isRunningAll: Boolean,
+    batchProgress: DeveloperModuleBatchProgress,
     onRun: (String) -> Unit,
     onCancel: (String) -> Unit,
     onRunAll: () -> Unit,
+    onRunLocal: () -> Unit,
+    onRunPublic: () -> Unit,
+    onRunAuthenticated: () -> Unit,
+    onRerunFailed: () -> Unit,
     onCancelAll: () -> Unit,
 ) {
     var selectedCategory by rememberSaveable { mutableStateOf<DeveloperTestCategory?>(null) }
-    val filtered = tests.filter { selectedCategory == null || it.category == selectedCategory }
+    var statusFilter by rememberSaveable { mutableStateOf(DeveloperTestStatusFilter.ALL) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var selectedTest by remember { mutableStateOf<DeveloperModuleTest?>(null) }
+    val filtered = filterDeveloperModuleTests(tests, selectedCategory, statusFilter, query)
     val hasRunningSingle = !isRunningAll && tests.any { it.status == DeveloperTestStatus.RUNNING }
+    val failedCount = tests.count { it.status in DeveloperTestStatusFilter.ATTENTION.statuses }
+
+    selectedTest?.let { test ->
+        ModuleTestDetailDialog(test = test, onDismiss = { selectedTest = null })
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            shape = AhuShapes.Card,
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("测试套件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "所有检查均为本地或只读请求",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (isRunningAll) {
+                        IconButton(onClick = onCancelAll) {
+                            Icon(Icons.Filled.Stop, contentDescription = "停止批量测试")
+                        }
+                    }
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(onClick = onRunLocal, enabled = !isRunningAll && !hasRunningSingle) { Text("本地") }
+                    OutlinedButton(onClick = onRunPublic, enabled = !isRunningAll && !hasRunningSingle) { Text("公开服务") }
+                    OutlinedButton(onClick = onRunAuthenticated, enabled = !isRunningAll && !hasRunningSingle) { Text("账号服务") }
+                    Button(onClick = onRunAll, enabled = !isRunningAll && !hasRunningSingle) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("全部")
+                    }
+                }
+                if (isRunningAll) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${batchProgress.label} · ${batchProgress.currentTitle.orEmpty()}",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text("${batchProgress.completed}/${batchProgress.total}", style = MaterialTheme.typography.labelMedium)
+                    }
+                    LinearProgressIndicator(
+                        progress = { batchProgress.fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            placeholder = { Text("搜索测试名称、说明或结果") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            singleLine = true,
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -458,31 +585,37 @@ private fun DeveloperModulesTab(
                 )
             }
         }
-        FlowRow(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = AhuSpacing.ScreenHorizontal, vertical = AhuSpacing.xs),
-            horizontalArrangement = Arrangement.spacedBy(AhuSpacing.sm),
-            verticalArrangement = Arrangement.spacedBy(AhuSpacing.xs),
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Button(
-                onClick = if (isRunningAll) onCancelAll else onRunAll,
-                enabled = isRunningAll || !hasRunningSingle,
-            ) {
-                Icon(if (isRunningAll) Icons.Filled.Stop else Icons.Filled.PlayArrow, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (isRunningAll) "停止" else "全部运行")
+            DeveloperTestStatusFilter.entries.forEach { filter ->
+                FilterChip(
+                    selected = statusFilter == filter,
+                    onClick = { statusFilter = filter },
+                    label = { Text(filter.label) },
+                )
             }
-            Text(
-                "${tests.count { it.status == DeveloperTestStatus.PASSED }} 通过 · " +
-                    "${tests.count { it.status == DeveloperTestStatus.FAILED }} 失败 · " +
-                    "${tests.count { it.status == DeveloperTestStatus.SKIPPED }} 跳过",
-                modifier = Modifier.padding(vertical = AhuSpacing.md),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (failedCount > 0) {
+                FilterChip(
+                    selected = false,
+                    onClick = onRerunFailed,
+                    enabled = !isRunningAll && !hasRunningSingle,
+                    label = { Text("复测异常 $failedCount") },
+                    leadingIcon = { Icon(Icons.Filled.Replay, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                )
+            }
         }
-        if (isRunningAll) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        Text(
+            "显示 ${filtered.size}/${tests.size} · ${tests.count { it.status == DeveloperTestStatus.PASSED }} 通过 · " +
+                "$failedCount 异常 · ${tests.count { it.status == DeveloperTestStatus.SKIPPED }} 跳过",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
@@ -494,7 +627,23 @@ private fun DeveloperModulesTab(
                     runEnabled = !isRunningAll,
                     onRun = { onRun(test.id) },
                     onCancel = { if (isRunningAll) onCancelAll() else onCancel(test.id) },
+                    onOpen = { selectedTest = test },
                 )
+            }
+            if (filtered.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Text("没有匹配的测试", fontWeight = FontWeight.SemiBold)
+                        Text("调整搜索词、分类或状态筛选", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
             item { Spacer(Modifier.height(72.dp)) }
         }
@@ -507,8 +656,17 @@ private fun ModuleTestRow(
     runEnabled: Boolean,
     onRun: () -> Unit,
     onCancel: () -> Unit,
+    onOpen: () -> Unit,
 ) {
-    Surface(shape = AhuShapes.Card, color = MaterialTheme.colorScheme.surface) {
+    Surface(
+        shape = AhuShapes.Card,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.clickable(
+            onClickLabel = "查看 ${test.title} 测试详情",
+            role = Role.Button,
+            onClick = onOpen,
+        ),
+    ) {
         ListItem(
             headlineContent = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -522,7 +680,8 @@ private fun ModuleTestRow(
                     test.result?.let { Text(it, color = test.status.color(), style = MaterialTheme.typography.bodySmall) }
                     Text(
                         "${test.category.displayText()} · ${test.risk.displayText()}" +
-                            (test.durationMillis?.let { " · ${it}ms" } ?: ""),
+                            (test.durationMillis?.let { " · ${it}ms" } ?: "") +
+                            (test.lastRunAtMillis?.let { " · ${formatModuleRunTime(it)}" } ?: ""),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -543,6 +702,67 @@ private fun ModuleTestRow(
         )
     }
 }
+
+internal enum class DeveloperTestStatusFilter(
+    val label: String,
+    val statuses: Set<DeveloperTestStatus>,
+) {
+    ALL("全部状态", DeveloperTestStatus.entries.toSet()),
+    ATTENTION("异常", setOf(DeveloperTestStatus.FAILED, DeveloperTestStatus.TIMED_OUT, DeveloperTestStatus.CANCELLED)),
+    NOT_RUN("未运行", setOf(DeveloperTestStatus.NOT_RUN)),
+    FINISHED("已完成", setOf(DeveloperTestStatus.PASSED, DeveloperTestStatus.FAILED, DeveloperTestStatus.TIMED_OUT, DeveloperTestStatus.SKIPPED, DeveloperTestStatus.CANCELLED)),
+}
+
+internal fun filterDeveloperModuleTests(
+    tests: List<DeveloperModuleTest>,
+    category: DeveloperTestCategory?,
+    statusFilter: DeveloperTestStatusFilter,
+    query: String,
+): List<DeveloperModuleTest> {
+    val normalizedQuery = query.trim()
+    return tests.filter { test ->
+        (category == null || test.category == category) &&
+            test.status in statusFilter.statuses &&
+            (normalizedQuery.isBlank() || listOf(test.title, test.description, test.result.orEmpty(), test.id)
+                .any { it.contains(normalizedQuery, ignoreCase = true) })
+    }
+}
+
+@Composable
+private fun ModuleTestDetailDialog(test: DeveloperModuleTest, onDismiss: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(test.title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SmallStatusLabel(test.status.displayText(), test.status.color())
+                    SmallStatusLabel(test.risk.displayText(), MaterialTheme.colorScheme.primary)
+                }
+                Text(test.description)
+                test.result?.let {
+                    Surface(shape = AhuShapes.Card, color = test.status.color().copy(alpha = 0.08f)) {
+                        Text(it, modifier = Modifier.padding(10.dp), color = test.status.color())
+                    }
+                }
+                Text("测试 ID\n${test.id}", style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                Text(
+                    buildString {
+                        append("分类：${test.category.displayText()}")
+                        test.durationMillis?.let { append("\n耗时：${it} ms") }
+                        test.lastRunAtMillis?.let { append("\n最近运行：${formatModuleRunTime(it)}") }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+}
+
+private fun formatModuleRunTime(timestampMillis: Long): String =
+    SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(Date(timestampMillis))
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
