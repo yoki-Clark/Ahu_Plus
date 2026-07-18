@@ -3,6 +3,10 @@ python/
 我的集市Token.txt
 集市身份导入二维码.png
 .captured
+.target_seen
+.auth_seen
+.invalid_auth_seen
+.tls_failed
 .market-ca-thumbprint
 py-embed.zip
 get-pip.py
