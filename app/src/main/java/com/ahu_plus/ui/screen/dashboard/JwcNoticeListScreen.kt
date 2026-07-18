@@ -1,10 +1,13 @@
 package com.ahu_plus.ui.screen.dashboard
 
-import android.app.DownloadManager
+import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
-import android.webkit.CookieManager
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -30,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
@@ -48,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -58,12 +63,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.FileProvider
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.JwcNoticeAttachment
 import com.ahu_plus.data.model.JwcNoticeDetail
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
+import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStream
+import java.net.URLConnection
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +87,7 @@ fun JwcNoticeListScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val attachmentDownloads = remember { mutableStateMapOf<String, AttachmentDownloadState>() }
     val selectedNotice = uiState.selectedNotice
 
     BackHandler(enabled = selectedNotice != null) {
@@ -131,12 +145,28 @@ fun JwcNoticeListScreen(
                     notice = selectedNotice,
                     detailState = uiState.details[selectedNotice.url],
                     onRetry = viewModel::retryDetail,
+                    downloadStates = attachmentDownloads,
                     onDownload = { attachment ->
+                        val current = attachmentDownloads[attachment.url]
+                        if (current is AttachmentDownloadState.Success) {
+                            openJwcAttachment(context, current)
+                            return@NoticeDetailBody
+                        }
+                        if (current is AttachmentDownloadState.Starting ||
+                            current is AttachmentDownloadState.Downloading
+                        ) {
+                            return@NoticeDetailBody
+                        }
+                        attachmentDownloads[attachment.url] = AttachmentDownloadState.Starting
                         coroutineScope.launch {
-                            val cookieHeader = runCatching {
-                                viewModel.cookieHeaderFor(attachment.url)
-                            }.getOrDefault("")
-                            downloadJwcAttachment(context, attachment, cookieHeader)
+                            downloadJwcAttachmentToDownloads(
+                                context = context,
+                                viewModel = viewModel,
+                                attachment = attachment,
+                                onStateChanged = { state ->
+                                    attachmentDownloads[attachment.url] = state
+                                },
+                            )
                         }
                     }
                 )
@@ -281,6 +311,7 @@ private fun NoticeDetailBody(
     notice: JwcNotice,
     detailState: NoticeDetailState?,
     onRetry: () -> Unit,
+    downloadStates: Map<String, AttachmentDownloadState>,
     onDownload: (JwcNoticeAttachment) -> Unit
 ) {
     LazyColumn(
@@ -318,6 +349,7 @@ private fun NoticeDetailBody(
                     items(items = detailState.detail.attachments, key = { it.url }) { attachment ->
                         AttachmentRow(
                             attachment = attachment,
+                            downloadState = downloadStates[attachment.url],
                             onDownload = { onDownload(attachment) }
                         )
                     }
@@ -388,15 +420,18 @@ private fun SectionTitle(text: String) {
 @Composable
 private fun AttachmentRow(
     attachment: JwcNoticeAttachment,
+    downloadState: AttachmentDownloadState?,
     onDownload: () -> Unit
 ) {
+    val isDownloading = downloadState is AttachmentDownloadState.Starting ||
+        downloadState is AttachmentDownloadState.Downloading
     Surface(
         shape = AhuShapes.Card,
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 1.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onDownload)
+            .clickable(enabled = !isDownloading, onClick = onDownload)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -419,17 +454,67 @@ private fun AttachmentRow(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = attachment.url,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                AttachmentDownloadStatus(attachment.url, downloadState)
             }
-            Icon(
+            AttachmentDownloadIndicator(downloadState)
+        }
+    }
+}
+
+@Composable
+private fun AttachmentDownloadStatus(
+    url: String,
+    state: AttachmentDownloadState?,
+) {
+    val text = when (state) {
+        AttachmentDownloadState.Starting -> "正在准备下载..."
+        is AttachmentDownloadState.Downloading -> state.progress?.let { "下载中 ${it}%" } ?: "正在下载..."
+        is AttachmentDownloadState.Success -> "点击打开文件"
+        is AttachmentDownloadState.Error -> state.message
+        null -> url
+    }
+    val color = when (state) {
+        is AttachmentDownloadState.Success -> MaterialTheme.colorScheme.primary
+        is AttachmentDownloadState.Error -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun AttachmentDownloadIndicator(state: AttachmentDownloadState?) {
+    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+        when (state) {
+            AttachmentDownloadState.Starting -> CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 2.dp,
+            )
+            is AttachmentDownloadState.Downloading -> {
+                val progress = state.progress
+                if (progress == null) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                } else {
+                    CircularProgressIndicator(
+                        progress = { progress / 100f },
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            }
+            is AttachmentDownloadState.Success -> Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = "下载完成",
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            else -> Icon(
                 imageVector = Icons.Filled.Download,
-                contentDescription = "下载"
+                contentDescription = if (state is AttachmentDownloadState.Error) "重试下载" else "下载",
             )
         }
     }
@@ -484,40 +569,146 @@ private fun ErrorBlock(
     }
 }
 
-private fun downloadJwcAttachment(
+private suspend fun downloadJwcAttachmentToDownloads(
     context: Context,
+    viewModel: JwcNoticeListViewModel,
     attachment: JwcNoticeAttachment,
-    persistentCookieHeader: String,
+    onStateChanged: (AttachmentDownloadState) -> Unit,
 ) {
     val uri = Uri.parse(attachment.url)
     if (uri.scheme !in setOf("http", "https")) {
-        Toast.makeText(context, "附件链接无效", Toast.LENGTH_SHORT).show()
+        onStateChanged(AttachmentDownloadState.Error("附件链接无效"))
         return
     }
 
-    val fileName = resolveDownloadFileName(attachment, uri)
-    val request = DownloadManager.Request(uri)
-        .setTitle(fileName)
-        .setDescription("安徽大学教务处附件")
-        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        .setAllowedOverMetered(true)
-        .setAllowedOverRoaming(true)
-        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-        .addRequestHeader("User-Agent", JWC_WEBVIEW_USER_AGENT)
-
-    persistentCookieHeader
-        .ifBlank { CookieManager.getInstance().getCookie(attachment.url).orEmpty() }
-        .takeIf { it.isNotBlank() }
-        ?.let { request.addRequestHeader("Cookie", it) }
-
-    runCatching {
-        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        manager.enqueue(request)
-    }.onSuccess {
-        Toast.makeText(context, "已开始下载：$fileName", Toast.LENGTH_SHORT).show()
-    }.onFailure { error ->
-        Toast.makeText(context, error.message ?: "下载启动失败", Toast.LENGTH_SHORT).show()
+    val target = try {
+        withContext(Dispatchers.IO) {
+            createJwcDownloadTarget(context, resolveDownloadFileName(attachment, uri))
+        }
+    } catch (error: Throwable) {
+        onStateChanged(AttachmentDownloadState.Error(error.message ?: "无法创建下载文件"))
+        return
     }
+
+    try {
+        viewModel.downloadAttachment(attachment, target.output) { downloaded, total ->
+            val progress = if (total > 0L) {
+                ((downloaded * 100L) / total).toInt().coerceIn(0, 100)
+            } else {
+                null
+            }
+            withContext(Dispatchers.Main.immediate) {
+                onStateChanged(AttachmentDownloadState.Downloading(progress))
+            }
+        }.getOrThrow()
+        withContext(Dispatchers.IO) { target.complete() }
+        onStateChanged(AttachmentDownloadState.Success(target.fileName, target.uri, target.mimeType))
+        Toast.makeText(context, "已保存到下载目录：${target.fileName}", Toast.LENGTH_SHORT).show()
+    } catch (error: CancellationException) {
+        withContext(Dispatchers.IO) { target.discard() }
+        throw error
+    } catch (error: Throwable) {
+        withContext(Dispatchers.IO) { target.discard() }
+        onStateChanged(AttachmentDownloadState.Error(error.message ?: "下载失败，请点击重试"))
+    }
+}
+
+private fun createJwcDownloadTarget(context: Context, requestedName: String): JwcDownloadTarget {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val resolver = context.contentResolver
+        val mimeType = URLConnection.guessContentTypeFromName(requestedName) ?: "application/octet-stream"
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, requestedName)
+            put(MediaStore.Downloads.MIME_TYPE, mimeType)
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("无法创建下载文件")
+        val output = resolver.openOutputStream(uri, "w") ?: run {
+            resolver.delete(uri, null, null)
+            throw IllegalStateException("无法写入下载文件")
+        }
+        return JwcDownloadTarget(
+            fileName = requestedName,
+            uri = uri,
+            mimeType = mimeType,
+            output = output,
+            complete = {
+                output.close()
+                resolver.update(
+                    uri,
+                    ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
+                    null,
+                    null,
+                )
+            },
+            discard = {
+                runCatching { output.close() }
+                resolver.delete(uri, null, null)
+            },
+        )
+    }
+
+    @Suppress("DEPRECATION")
+    val directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+    if (!directory.exists() && !directory.mkdirs()) throw IllegalStateException("无法创建下载目录")
+    val file = uniqueDownloadFile(directory, requestedName)
+    val mimeType = URLConnection.guessContentTypeFromName(file.name) ?: "application/octet-stream"
+    val output = FileOutputStream(file)
+    return JwcDownloadTarget(
+        fileName = file.name,
+        uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file),
+        mimeType = mimeType,
+        output = output,
+        complete = {
+            output.close()
+            MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), null, null)
+        },
+        discard = {
+            runCatching { output.close() }
+            file.delete()
+        },
+    )
+}
+
+private fun uniqueDownloadFile(directory: File, requestedName: String): File {
+    val initial = File(directory, requestedName)
+    if (!initial.exists()) return initial
+    val extension = requestedName.substringAfterLast('.', missingDelimiterValue = "")
+    val baseName = if (extension.isBlank()) requestedName else requestedName.removeSuffix(".$extension")
+    var index = 1
+    while (true) {
+        val suffix = if (extension.isBlank()) " ($index)" else " ($index).$extension"
+        File(directory, baseName + suffix).takeIf { !it.exists() }?.let { return it }
+        index++
+    }
+}
+
+private data class JwcDownloadTarget(
+    val fileName: String,
+    val uri: Uri,
+    val mimeType: String,
+    val output: OutputStream,
+    val complete: () -> Unit,
+    val discard: () -> Unit,
+)
+
+private sealed interface AttachmentDownloadState {
+    data object Starting : AttachmentDownloadState
+    data class Downloading(val progress: Int?) : AttachmentDownloadState
+    data class Success(val fileName: String, val uri: Uri, val mimeType: String) : AttachmentDownloadState
+    data class Error(val message: String) : AttachmentDownloadState
+}
+
+private fun openJwcAttachment(context: Context, state: AttachmentDownloadState.Success) {
+    val intent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(state.uri, state.mimeType)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            Toast.makeText(context, "没有可打开此文件的应用", Toast.LENGTH_SHORT).show()
+        }
 }
 
 private fun resolveDownloadFileName(

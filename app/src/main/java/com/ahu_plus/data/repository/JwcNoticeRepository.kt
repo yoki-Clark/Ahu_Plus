@@ -7,9 +7,11 @@ import com.ahu_plus.data.model.JwcNoticeAttachment
 import com.ahu_plus.data.model.JwcNoticeDetail
 import com.ahu_plus.data.network.SecureHttpClientFactory
 import java.io.IOException
+import java.io.OutputStream
 import java.net.URI
 import java.net.URLDecoder
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -162,6 +164,63 @@ class JwcNoticeRepository(
         cookieJar.loadForRequest(httpUrl).joinToString("; ") { "${it.name}=${it.value}" }
     }
 
+    suspend fun downloadAttachment(
+        attachment: JwcNoticeAttachment,
+        output: OutputStream,
+        onProgress: suspend (downloadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> },
+    ): Result<Long> = try {
+        val downloaded = withContext(Dispatchers.IO) {
+            ensurePersistentCookieLoaded()
+            val request = requestBuilder(attachment.url)
+                .header("Accept", "*/*")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.code == 412) {
+                    invalidateWafCookie()
+                    throw JwcWafChallengeRequiredException()
+                }
+                if (!response.isSuccessful) {
+                    throw IOException("附件下载失败：HTTP ${response.code}")
+                }
+                val body = response.body ?: throw IOException("附件内容为空")
+                val contentType = body.contentType()?.toString().orEmpty()
+                if (contentType.startsWith("text/html", ignoreCase = true)) {
+                    val html = body.string()
+                    if (isChallengePage(html, emptyList())) invalidateWafCookie()
+                    throw IOException("附件地址返回了网页内容")
+                }
+
+                val total = body.contentLength()
+                var copied = 0L
+                var lastReportedAt = 0L
+                onProgress(0L, total)
+                body.byteStream().use { input ->
+                    val buffer = ByteArray(DOWNLOAD_BUFFER_SIZE)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        copied += count
+                        val now = System.nanoTime()
+                        if (now - lastReportedAt >= DOWNLOAD_PROGRESS_INTERVAL_NANOS || copied == total) {
+                            onProgress(copied, total)
+                            lastReportedAt = now
+                        }
+                    }
+                }
+                output.flush()
+                onProgress(copied, total)
+                copied
+            }
+        }
+        Result.success(downloaded)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
     private suspend fun ensurePersistentCookieLoaded() {
         if (restored) return
         restoreMutex.withLock {
@@ -228,6 +287,8 @@ class JwcNoticeRepository(
     companion object {
         private const val WAF_COOKIE_NAME = "EdaP18tkVMlRP"
         private const val WAF_COOKIE_TTL_MILLIS = 6L * 24 * 60 * 60 * 1000
+        private const val DOWNLOAD_BUFFER_SIZE = 64 * 1024
+        private const val DOWNLOAD_PROGRESS_INTERVAL_NANOS = 100L * 1_000_000
         private val dateRegex = Regex("""\d{4}-\d{2}-\d{2}""")
         private val attachmentExtensionRegex = Regex(
             """\.(pdf|docx?|xlsx?|pptx?|zip|rar|7z|txt|wps|et|jpg|jpeg|png)(?:[?#].*)?$""",

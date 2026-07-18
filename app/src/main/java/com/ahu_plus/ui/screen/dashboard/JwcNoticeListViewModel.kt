@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.local.JwcNoticeCache
 import com.ahu_plus.data.model.JwcNotice
+import com.ahu_plus.data.model.JwcNoticeAttachment
 import com.ahu_plus.data.model.JwcNoticeDetail
 import com.ahu_plus.data.repository.JwcNoticeRepository
 import com.ahu_plus.data.repository.JwcWafChallengeRequiredException
 import com.google.gson.reflect.TypeToken
+import java.io.OutputStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +28,13 @@ class JwcNoticeListViewModel(
     private val pendingWafRetries = linkedMapOf<String, () -> Unit>()
 
     init {
+        cache.getJwcNoticeJson()?.let { raw ->
+            runCatching {
+                GsonProvider.instance.fromJson(raw, Array<JwcNotice>::class.java).toList()
+            }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { notices ->
+                _uiState.update { it.copy(notices = notices) }
+            }
+        }
         cache.getJwcNoticeDetailsJson()?.let { raw ->
             runCatching {
                 val type = object : TypeToken<Map<String, CachedNoticeDetail>>() {}.type
@@ -46,7 +55,6 @@ class JwcNoticeListViewModel(
     fun loadFirstPage() {
         _uiState.update {
             it.copy(
-                notices = emptyList(),
                 isLoading = true,
                 isLoadingMore = false,
                 error = null,
@@ -110,7 +118,11 @@ class JwcNoticeListViewModel(
         failWafBootstrap(message)
     }
 
-    suspend fun cookieHeaderFor(url: String): String = repository.getCookieHeader(url)
+    suspend fun downloadAttachment(
+        attachment: JwcNoticeAttachment,
+        output: OutputStream,
+        onProgress: suspend (downloadedBytes: Long, totalBytes: Long) -> Unit,
+    ): Result<Long> = repository.downloadAttachment(attachment, output, onProgress)
 
     private fun fetchPage(page: Int, replace: Boolean) {
         viewModelScope.launch {
