@@ -71,6 +71,7 @@ class HomeViewModel(
     private val buildingCatalogMutex = Mutex()
     private var buildingCatalog: FeeItemBuildingCatalog? = null
     private var qrRefreshJob: Job? = null
+    private var qrLoadJob: Job? = null
     private var visible = false
 
     init {
@@ -117,8 +118,8 @@ class HomeViewModel(
         if (visible == value) return
         visible = value
         if (value) {
-            loadBalanceAndBills()
             startQrAutoRefresh()
+            loadBalanceAndBills()
         } else {
             qrRefreshJob?.cancel()
             qrRefreshJob = null
@@ -231,6 +232,7 @@ class HomeViewModel(
                     _uiState.update {
                         it.copy(
                             balance = balance,
+                            qrBalance = balance,
                             timestamp = DebugClock.nowMillis(),
                             isLoading = false,
                             error = null,
@@ -1185,7 +1187,8 @@ class HomeViewModel(
 
     fun loadCampusQrCode() {
         val qrRepository = adwmhCardRepository ?: return
-        viewModelScope.launch {
+        if (qrLoadJob?.isActive == true) return
+        qrLoadJob = viewModelScope.launch {
             _uiState.update { it.copy(qrLoading = true, qrError = null) }
             withContext(Dispatchers.IO) {
                 // 先尝试直接加载（用已有 session）
@@ -1194,11 +1197,10 @@ class HomeViewModel(
                     qrConsecutiveFailures = 0
                     val qr = qrResult.getOrThrow()
                     persistQr(qr)
-                    val balanceResult = qrRepository.getBalance()
                     _uiState.update { state ->
                         state.copy(
                             qrCode = qr,
-                            qrBalance = balanceResult.getOrNull() ?: state.qrBalance,
+                            qrBalance = state.qrBalance ?: state.balance.takeIf { it > 0.0 },
                             qrLoading = false,
                             qrError = null,
                             qrStale = false,
@@ -1228,13 +1230,12 @@ class HomeViewModel(
                         if (loginResult.isSuccess) {
                             qrConsecutiveFailures = 0
                             val retryQr = qrRepository.getQrCode()
-                            val balanceResult = qrRepository.getBalance()
                             _uiState.update { state ->
                                 retryQr.fold(
                                     onSuccess = { qr ->
                                         state.copy(
                                             qrCode = qr,
-                                            qrBalance = balanceResult.getOrNull() ?: state.qrBalance,
+                                            qrBalance = state.qrBalance ?: state.balance.takeIf { it > 0.0 },
                                             qrLoading = false,
                                             qrError = null,
                                             qrStale = false,
@@ -1392,8 +1393,8 @@ class HomeViewModel(
         exceptionOrNull() is YcardAuthExpiredException
 
     fun onRefresh() {
-        loadBalanceAndBills(forceBills = true)
         loadCampusQrCode()
+        loadBalanceAndBills(forceBills = true)
     }
 
     // ─── 水电费充值 (2026-06-29 接入) ────────────────────────────────

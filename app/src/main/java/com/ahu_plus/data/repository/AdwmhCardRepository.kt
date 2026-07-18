@@ -1,6 +1,7 @@
 package com.ahu_plus.data.repository
 
 import android.util.Log
+import android.os.SystemClock
 import com.google.gson.JsonObject
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.local.SessionManager
@@ -34,22 +35,26 @@ class AdwmhCardRepository(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 " +
                 "NetType/WIFI MicroMessenger/7.0.20.1781 WindowsWechat Flue"
+        private const val REQUEST_MIN_GAP_MS = 1_500L
     }
 
     private val gson = GsonProvider.instance
     private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+    private val cookieLock = Any()
 
     private val cookieJar = object : CookieJar {
         override fun loadForRequest(url: HttpUrl): List<Cookie> {
             seedSessionCookie()
-            return cookieStore[url.host] ?: emptyList()
+            return synchronized(cookieLock) { cookieStore[url.host]?.toList().orEmpty() }
         }
 
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-            val hostCookies = cookieStore.getOrPut(url.host) { mutableListOf() }
-            for (cookie in cookies) {
-                hostCookies.removeAll { it.name == cookie.name }
-                hostCookies.add(cookie)
+            synchronized(cookieLock) {
+                val hostCookies = cookieStore.getOrPut(url.host) { mutableListOf() }
+                for (cookie in cookies) {
+                    hostCookies.removeAll { it.name == cookie.name }
+                    hostCookies.add(cookie)
+                }
             }
         }
     }
@@ -67,21 +72,23 @@ class AdwmhCardRepository(
         readTimeoutSec = 12
     )
 
-    /** 两次请求之间的最小间隔（ms），adwmh 服务器有严格速率限制 */
-    @Volatile
-    private var lastRequestTimeMs = 0L
+    /**
+     * adwmh 对重叠请求和突发请求都很敏感。锁必须覆盖完整 HTTP 往返，而不是只保护
+     * 请求开始时间；否则前一个请求卡住时，后续请求仍会在 1.5 秒后并发发出。
+     */
+    private val requestMutex = Mutex()
+    private var lastRequestCompletedAtMs = 0L
 
-    /** 协程互斥锁:取代旧的 Thread.sleep + @Synchronized,避免阻塞 IO 线程。 */
-    private val cooldownMutex = Mutex()
-
-    /** 确保两次请求之间有足够间隔，避免触发服务器速率限制 */
-    private suspend fun cooldown() = cooldownMutex.withLock {
-        val elapsed = System.currentTimeMillis() - lastRequestTimeMs
-        val minGap = 1500L  // 1.5 秒最小间隔（太大会拖慢整个流程）
-        if (elapsed < minGap && lastRequestTimeMs > 0) {
-            delay(minGap - elapsed)
+    private suspend fun <T> executeThrottled(request: () -> T): T = requestMutex.withLock {
+        val elapsed = SystemClock.elapsedRealtime() - lastRequestCompletedAtMs
+        if (lastRequestCompletedAtMs > 0L && elapsed < REQUEST_MIN_GAP_MS) {
+            delay(REQUEST_MIN_GAP_MS - elapsed)
         }
-        lastRequestTimeMs = System.currentTimeMillis()
+        try {
+            request()
+        } finally {
+            lastRequestCompletedAtMs = SystemClock.elapsedRealtime()
+        }
     }
 
     // ── 自动登录（参考 AHUTong 项目）─────────────────────
@@ -141,7 +148,6 @@ class AdwmhCardRepository(
 
     /** 获取验证码图片字节。 */
     private suspend fun getCaptchaRaw(): ByteArray {
-        cooldown()
         val request = Request.Builder()
             .url("https://$HOST/remind/authcode")
             .header("User-Agent", WECHAT_UA)
@@ -149,9 +155,11 @@ class AdwmhCardRepository(
             .header("X-Requested-With", "XMLHttpRequest")
             .get()
             .build()
-        return client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw AdwmhAuthException("验证码获取失败")
-            response.body?.bytes() ?: throw AdwmhAuthException("验证码为空")
+        return executeThrottled {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw AdwmhAuthException("验证码获取失败")
+                response.body?.bytes() ?: throw AdwmhAuthException("验证码为空")
+            }
         }
     }
 
@@ -190,7 +198,6 @@ class AdwmhCardRepository(
         password: String,
         captcha: String
     ): Result<AdwmhLoginInfo> = withContext(Dispatchers.IO) {
-        cooldown()
         runCatching {
             val formBody = FormBody.Builder()
                 .add("username", username)
@@ -206,26 +213,31 @@ class AdwmhCardRepository(
                 .header("Referer", "https://$HOST/www/index.html")
                 .post(formBody)
                 .build()
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) throw AdwmhAuthException("登录失败(${response.code})")
-                val json = gson.fromJson(body, JsonObject::class.java)
-                    ?: throw AdwmhAuthException("登录响应为空")
-                val code = json.get("code")?.asInt ?: -1
-                if (code != 10000) {
-                    val msg = json.get("msg")?.asString ?: "登录失败"
-                    throw AdwmhAuthException(msg)
+            val (loginInfo, jsessionid) = executeThrottled {
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) throw AdwmhAuthException("登录失败(${response.code})")
+                    val json = gson.fromJson(body, JsonObject::class.java)
+                        ?: throw AdwmhAuthException("登录响应为空")
+                    val code = json.get("code")?.asInt ?: -1
+                    if (code != 10000) {
+                        val msg = json.get("msg")?.asString ?: "登录失败"
+                        throw AdwmhAuthException(msg)
+                    }
+                    val jsessionid = synchronized(cookieLock) {
+                        cookieStore[HOST]?.firstOrNull { it.name == SESSION_COOKIE }?.value
+                    }
+                    val obj = json.getAsJsonObject("object")
+                    val user = obj?.getAsJsonObject("user")
+                    AdwmhLoginInfo(
+                        userName = user?.get("userName")?.asString ?: username,
+                        cardId = user?.get("cardId")?.asString ?: "",
+                        unitName = user?.get("unitName")?.asString ?: ""
+                    ) to jsessionid
                 }
-                val jsessionid = cookieStore[HOST]?.firstOrNull { it.name == SESSION_COOKIE }?.value
-                if (!jsessionid.isNullOrBlank()) sessionManager.saveAdwmhSessionId(jsessionid)
-                val obj = json.getAsJsonObject("object")
-                val user = obj?.getAsJsonObject("user")
-                AdwmhLoginInfo(
-                    userName = user?.get("userName")?.asString ?: username,
-                    cardId = user?.get("cardId")?.asString ?: "",
-                    unitName = user?.get("unitName")?.asString ?: ""
-                )
             }
+            if (!jsessionid.isNullOrBlank()) sessionManager.saveAdwmhSessionId(jsessionid)
+            loginInfo
         }
     }
 
@@ -240,7 +252,7 @@ class AdwmhCardRepository(
     }
 
     fun clearCookies() {
-        cookieStore.clear()
+        synchronized(cookieLock) { cookieStore.clear() }
     }
 
     // ── 业务 API ─────────────────────────────────────────
@@ -293,26 +305,29 @@ class AdwmhCardRepository(
 
     private fun seedSessionCookie() {
         val sessionId = sessionManager.getAdwmhSessionId()?.takeIf { it.isNotBlank() } ?: return
-        val hasCookie = cookieStore[HOST]?.any { it.name == SESSION_COOKIE } == true
+        val hasCookie = synchronized(cookieLock) {
+            cookieStore[HOST]?.any { it.name == SESSION_COOKIE } == true
+        }
         if (!hasCookie) setSessionCookie(sessionId)
     }
 
     private fun setSessionCookie(sessionId: String) {
-        val hostCookies = cookieStore.getOrPut(HOST) { mutableListOf() }
-        hostCookies.removeAll { it.name == SESSION_COOKIE }
-        hostCookies.add(
-            Cookie.Builder()
-                .domain(HOST)
-                .path("/")
-                .name(SESSION_COOKIE)
-                .value(sessionId)
-                .httpOnly()
-                .build()
-        )
+        synchronized(cookieLock) {
+            val hostCookies = cookieStore.getOrPut(HOST) { mutableListOf() }
+            hostCookies.removeAll { it.name == SESSION_COOKIE }
+            hostCookies.add(
+                Cookie.Builder()
+                    .domain(HOST)
+                    .path("/")
+                    .name(SESSION_COOKIE)
+                    .value(sessionId)
+                    .httpOnly()
+                    .build()
+            )
+        }
     }
 
     private suspend fun getJson(path: String, method: String = "GET"): JsonObject {
-        cooldown()
         val url = "https://$HOST$path"
         Log.d(TAG, "$method $url")
         val requestBuilder = Request.Builder()
@@ -329,25 +344,27 @@ class AdwmhCardRepository(
         }
 
         try {
-            client.newCall(requestBuilder.build()).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                Log.d(TAG, "$method $path → ${response.code} (body len=${body.length})")
-                if (response.code == 401 || response.code == 403 || response.code in 300..399) {
-                    throw AdwmhAuthException("智慧安大会话已过期，请重新登录")
+            return executeThrottled {
+                client.newCall(requestBuilder.build()).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    Log.d(TAG, "$method $path → ${response.code} (body len=${body.length})")
+                    if (response.code == 401 || response.code == 403 || response.code in 300..399) {
+                        throw AdwmhAuthException("智慧安大会话已过期，请重新登录")
+                    }
+                    if (!response.isSuccessful) {
+                        throw AdwmhAuthException("智慧安大 HTTP ${response.code}")
+                    }
+                    if (body.trimStart().startsWith("<")) {
+                        throw AdwmhAuthException("智慧安大返回 HTML，请重新登录")
+                    }
+                    val json = gson.fromJson(body, JsonObject::class.java)
+                        ?: throw AdwmhAuthException("智慧安大响应为空")
+                    val code = json.get("code")?.asInt
+                    if (code != 10000) {
+                        throw AdwmhAuthException(json.get("msg")?.asString ?: "智慧安大请求失败")
+                    }
+                    json
                 }
-                if (!response.isSuccessful) {
-                    throw AdwmhAuthException("智慧安大 HTTP ${response.code}")
-                }
-                if (body.trimStart().startsWith("<")) {
-                    throw AdwmhAuthException("智慧安大返回 HTML，请重新登录")
-                }
-                val json = gson.fromJson(body, JsonObject::class.java)
-                    ?: throw AdwmhAuthException("智慧安大响应为空")
-                val code = json.get("code")?.asInt
-                if (code != 10000) {
-                    throw AdwmhAuthException(json.get("msg")?.asString ?: "智慧安大请求失败")
-                }
-                return json
             }
         } catch (e: SocketTimeoutException) {
             Log.e(TAG, "$method $path → TIMEOUT: ${e.message}")
