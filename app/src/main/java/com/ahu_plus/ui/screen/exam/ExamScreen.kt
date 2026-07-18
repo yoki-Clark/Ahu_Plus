@@ -70,7 +70,6 @@ fun ExamScreen(
     viewModel: ExamViewModel,
     onBack: () -> Unit,
     onNeedsLogin: () -> Unit,
-    onOpenPrediction: () -> Unit = {}  // 排考预测入口
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -81,11 +80,6 @@ fun ExamScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    TextButton(onClick = onOpenPrediction) {
-                        Text("预测", fontWeight = FontWeight.Bold)
                     }
                 }
             )

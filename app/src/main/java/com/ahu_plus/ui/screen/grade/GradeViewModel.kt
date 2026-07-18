@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.jw.GpaMetadata
 import com.ahu_plus.data.model.jw.Grade
+import com.ahu_plus.data.model.jw.GradeResponse
+import com.ahu_plus.data.model.jw.SemesterInfo
 import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.local.DataSnapshotStatus
 import com.ahu_plus.data.repository.GradeRepository
@@ -93,6 +95,7 @@ class GradeViewModel(
                         isLoading = false,
                         gradesBySemester = gradesBySem,
                         availableSemesterIds = semesterIds,
+                        academicSemesters = resp.academicSemesters(),
                         selectedSemesterId = defaultSem,
                         semesterName = defaultSem?.let { id ->
                             gradesBySem[id.toString()]?.firstOrNull()?.semesterName
@@ -156,6 +159,7 @@ class GradeViewModel(
                                 isLoading = false,
                                 gradesBySemester = gradesBySem,
                                 availableSemesterIds = semesterIds,
+                                academicSemesters = resp.academicSemesters(),
                                 selectedSemesterId = defaultSem,
                                 semesterName = defaultSem?.let { id ->
                                     gradesBySem[id.toString()]?.firstOrNull()?.semesterName
@@ -240,6 +244,7 @@ class GradeViewModel(
                 isLoading = false,
                 gradesBySemester = gradesBySem,
                 availableSemesterIds = semesterIds,
+                academicSemesters = resp.academicSemesters(),
                 selectedSemesterId = defaultSem,
                 semesterName = defaultSem?.let { id ->
                     gradesBySem[id.toString()]?.firstOrNull()?.semesterName
@@ -252,11 +257,22 @@ class GradeViewModel(
     }
 }
 
+private fun GradeResponse.academicSemesters(): List<SemesterInfo> =
+    (semesters.orEmpty() + id2semesters.orEmpty().values)
+        .sortedWith(
+            compareByDescending<SemesterInfo> {
+                !it.startDate.isNullOrBlank() && !it.endDate.isNullOrBlank()
+            }.thenByDescending { it.id },
+        )
+        .distinctBy { it.id ?: it.nameZh }
+        .sortedByDescending { it.id }
+
 data class GradeUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val gradesBySemester: Map<String, List<Grade>> = emptyMap(),
     val availableSemesterIds: List<Int> = emptyList(),
+    val academicSemesters: List<SemesterInfo> = emptyList(),
     val selectedSemesterId: Int? = null,
     val semesterName: String? = null,
     val gpaMetadata: GpaMetadata? = null,

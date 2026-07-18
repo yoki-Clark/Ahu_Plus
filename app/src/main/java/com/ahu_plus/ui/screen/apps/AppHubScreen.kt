@@ -76,8 +76,6 @@ import com.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.ahu_plus.ui.screen.messages.UnifiedMessageCenterScreen
 import com.ahu_plus.ui.screen.exam.ExamScreen
 import com.ahu_plus.ui.screen.exam.ExamViewModel
-import com.ahu_plus.ui.screen.exam.ExamPredictionScreen
-import com.ahu_plus.ui.screen.exam.ExamPredictionViewModel
 import com.ahu_plus.ui.screen.grade.GradeScreen
 import com.ahu_plus.ui.screen.grade.GradeViewModel
 import com.ahu_plus.ui.screen.home.HomeViewModel
@@ -106,7 +104,6 @@ private const val PAGE_AGENDA = "agenda"
 private const val PAGE_SCHEDULE = "schedule"
 private const val PAGE_GRADE = "grade"
 private const val PAGE_EXAM = "exam"
-private const val PAGE_EXAM_PREDICTION = "examPrediction"
 private const val PAGE_NOTICES = "notices"
 private const val PAGE_MESSAGE_CENTER = "messageCenter"
 private const val PAGE_BILLS = "bills"
@@ -197,6 +194,8 @@ fun AppHubScreen(
     var messagePreviewCount by remember { mutableStateOf(sessionManager.getMessagePreviewCount()) }
 
     val cardUiState by cardViewModel.uiState.collectAsStateWithLifecycle()
+    val scheduleUiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
+    val gradeUiState by gradeViewModel.uiState.collectAsStateWithLifecycle()
     val studentInfoUiState by studentInfoViewModel.uiState.collectAsStateWithLifecycle()
     val financeUiState by financeViewModel.uiState.collectAsStateWithLifecycle()
     val attendanceUiState by attendanceViewModel.uiState.collectAsStateWithLifecycle()
@@ -224,7 +223,6 @@ fun AppHubScreen(
     BackHandler(enabled = currentPage != null) {
         currentPage = when (currentPage) {
             PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO, PAGE_ACADEMIC_WARNING -> PAGE_MY_INFO_HUB
-            PAGE_EXAM_PREDICTION -> PAGE_EXAM
             PAGE_EVALUATION_DETAIL -> PAGE_EVALUATION
             PAGE_ANALYTICS -> if (analyticsFromBills) PAGE_BILLS else null
             else -> null
@@ -235,6 +233,7 @@ fun AppHubScreen(
     LaunchedEffect(currentPage, authRefreshVersion) {
         when (currentPage) {
             PAGE_GRADE -> gradeViewModel.activate()
+            PAGE_ANALYTICS -> gradeViewModel.activate()
             PAGE_EXAM -> examViewModel.activate()
             PAGE_TRAINING_PLAN -> trainingPlanViewModel.activate()
             PAGE_ROOM_COURSE_TABLE -> roomCourseTableViewModel.activate()
@@ -286,18 +285,7 @@ fun AppHubScreen(
             viewModel = examViewModel,
             onBack = { currentPage = null },
             onNeedsLogin = onNeedsLogin,
-            onOpenPrediction = { currentPage = PAGE_EXAM_PREDICTION }
         )
-        PAGE_EXAM_PREDICTION -> {
-            // 进入排考预测页时才创建 VM,触发首次拉取
-            val examPredictionViewModel = remember {
-                ExamPredictionViewModel(app.examDataRepository, sessionManager)
-            }
-            ExamPredictionScreen(
-                viewModel = examPredictionViewModel,
-                onBack = { currentPage = PAGE_EXAM }
-            )
-        }
         PAGE_TRAINING_PLAN -> TrainingPlanScreen(
             viewModel = trainingPlanViewModel,
             onBack = { currentPage = null },
@@ -317,7 +305,7 @@ fun AppHubScreen(
             onBack = { currentPage = null }
         )
         PAGE_CPROG -> {
-            // 进入时才建 VM(触发登录态判定/首次拉列表),对齐排考预测懒创建
+            // 进入页面时再创建 VM，避免未使用时触发登录态判定和首次拉取。
             val cProgViewModel = remember {
                 com.ahu_plus.ui.screen.cprog.CProgViewModel(app)
             }
@@ -403,6 +391,9 @@ fun AppHubScreen(
         )
         PAGE_ANALYTICS -> CardAnalyticsScreen(
             bills = cardUiState.bills,
+            academicSemesters = (
+                listOfNotNull(scheduleUiState.semester) + gradeUiState.academicSemesters
+            ),
             isLoading = cardUiState.billsLoading,
             error = cardUiState.billsError,
             onBack = {

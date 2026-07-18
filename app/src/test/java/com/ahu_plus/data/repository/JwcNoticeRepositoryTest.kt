@@ -255,6 +255,24 @@ class JwcNoticeRepositoryTest {
     }
 
     @Test
+    fun `first notice page is reused briefly across callers`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(listResponse())
+        server.start()
+        try {
+            val now = 1_000_000L
+            val repository = repository(server, FakeWafCookieStorage(), now)
+
+            repository.getNotices().getOrThrow()
+            repository.getNoticePage(1).getOrThrow()
+
+            assertEquals(1, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun `http 412 invalidates persisted waf cookie`() = runBlocking {
         val server = MockWebServer()
         server.enqueue(MockResponse().setResponseCode(412))

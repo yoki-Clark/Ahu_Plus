@@ -59,11 +59,6 @@ val faqCategories: List<FaqCategory> = listOf(
                     "两条链都失败会显示错误，不会把旧余额当作当前余额。"
             ),
             FaqItem(
-                question = "为什么排考预测和正式考试安排不一样？",
-                answer = "正式考试来自教务系统。排考预测使用公开托管的教室占用扫描结果，" +
-                    "再按课程号与个人课表匹配，只能作为辅助信息。请以教务系统和学院通知为准。"
-            ),
-            FaqItem(
                 question = "为什么教务通知或校长信箱先显示安全校验？",
                 answer = "相关网站使用 WAF。App 会通过隐藏 WebView 完成站点的 JavaScript 校验，" +
                     "取得短期 Cookie 后再继续原生加载。校验失败时可以重试。"
@@ -95,8 +90,8 @@ val faqCategories: List<FaqCategory> = listOf(
             ),
             FaqItem(
                 question = "学习通视频支持多倍速或并发学习吗？",
-                answer = "视频倍速可配置为 1.0x 到 2.0x。并发章节数设置已恢复，但请求仍由流量治理器" +
-                    "按账号和主机控制；遇到 403、429 或验证码时会停止当前批次。"
+                answer = "视频倍速可配置为 0.1x 到 1.0x，当前不会高于正常速度。课程、章节和任务串行执行；" +
+                    "并发章节数仅保留兼容配置。遇到 403、429 或验证码时会停止当前批次。"
             ),
             FaqItem(
                 question = "学习通签到可靠吗？",

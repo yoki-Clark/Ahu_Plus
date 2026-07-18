@@ -72,7 +72,7 @@ fun CacheCleanupScreen(
             CacheGroupDef("finance_attendance", "财务与考勤", "财务汇总、考勤记录、一卡通账单"),
             CacheGroupDef("campus_services", "校园服务", "水电配置、浴室电话、评教、作业等"),
             CacheGroupDef("chaoxing", "超星学习通", "课程列表、进度、作业、消息（登录态保留）"),
-            CacheGroupDef("public_data", "公开数据", "开发者公告、天气、排考预测"),
+            CacheGroupDef("public_data", "公开数据", "开发者公告、天气"),
             CacheGroupDef("app_records", "应用记录", "最近使用应用、已关闭的公告"),
             CacheGroupDef("download", "下载的安装包", "过往 APK 文件，共 ${downloadCount} 个"),
         )

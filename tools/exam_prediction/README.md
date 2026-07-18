@@ -1,135 +1,83 @@
-# 排考预测数据采集 (exam_prediction)
+# 排考预测数据采集工具
 
-存放 Ahu_Plus「排考预测」功能依赖的全部数据采集脚本与原始/中间产物。
+本目录曾用于生成 `ExamDataRepository` 消费的公开排考预测 JSON。排考预测入口已停用，Android 当前不会进入对应页面或触发这条远程数据链；这里仅保留历史工具和格式说明，后续逻辑将改为设备端直连 jwapp 后再重新设计。
 
-## 工作流
+## 当前代码边界
 
-```
-  ┌─────────────────────────────────────────────────────────────┐
-  │  本机 (Windows / macOS / Linux)                              │
-  │                                                              │
-  │  1. 智慧安大 WebView → 抓 idToken → 写入 .jwt_token         │
-  │  2. python scan_exams.py [start_date] [end_date]             │
-  │     ├─ cache_full_scan.json   原始扫描缓存 (供 --reuse 重导) │
-  │     ├─ exam_predictions.json  标准化产物 ←── 待上传          │
-  │     ├─ output_*.csv / output_*.md   人看报表                │
-  │  3. git push exam_predictions/exam_predictions.json 到 Gitee │
-  └─────────────────────────────────────────────────────────────┘
-                                 │
-                                 │  Android 客户端启动时
-                                 ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │  yao-enqi/ahu-plus-update (Gitee 公开仓库)                    │
-  │   exam_predictions/exam_predictions.json                     │
-  │                                                              │
-  │  Ahu_Plus App → ExamDataRepository.fetch()                  │
-  │   → 缓存到 DataStore → 与用户课表匹配 → 展示                │
-  └─────────────────────────────────────────────────────────────┘
+`scan_exams.py` 是面向 2025-2026-2 学期期末阶段的日期绑定脚本，当前常量为：
+
+```text
+DEFAULT_START_DATE = 2026-07-06
+DEFAULT_END_DATE   = 2026-07-15
+SEMESTER_LABEL     = 2025-2026-2
+OUTPUT_CSV         = output_7.6-7.15.csv
+OUTPUT_MD          = output_7.6-7.15.md
 ```
 
-## 文件清单
+进入新学期时必须先更新这些常量和输出文件名，不能直接把默认结果当成当前学期数据。
 
-| 文件 | 用途 | 是否上传 Gitee |
-|------|------|----------------|
-| `scan_exams.py` | **主入口**。扫 jwapp API、生成 `exam_predictions.json` + 报表 | — |
-| `scan_exams_probe.py` | demo 数据演示匹配逻辑,日常不用 | — |
-| `exam_predictions.json` | **标准化产物**,直接推送到 Gitee | ✅ 是 |
-| `exam_predictions_probe.json` | probe 输出,日常不用 | ❌ |
-| `cache_full_scan.json` | 原始 API 响应缓存,`--reuse` 重导用 | ❌ |
-| `cache_scan.json` / `cache_probe_result.json` | 历史遗留缓存,可清理 | ❌ |
-| `output_7.6-7.15.csv` / `.md` | 人看报表 (Excel / Notion 分享用) | ❌ |
-| `.jwt_token` | 单行 JWT idToken (智慧安大 WebView 抓取) | ❌ **别提交!** |
+## 历史数据流（当前停用）
 
-## 快速开始
-
-### 1) 准备 JWT token
-
-智慧安大 WebView 加载 `https://jwapp.ahu.edu.cn/eams-room-occupy-app/index.html`,
-CAS SSO 登录后 SPA 会用 ST 换 idToken,出现在 URL 中。手动复制后写入:
-
-```bash
-echo "eyJ0eXAiOiJKV1Qi..." > .jwt_token
+```text
+jwapp idToken
+  -> scan_exams.py 按日期、校区、楼栋扫描 Exam 占用
+  -> cache_daily.jsonl 断点续扫
+  -> cache_full_scan.json 原始缓存
+  -> exam_predictions.json 标准化公开产物
+  -> Gitee
+  -> Android ExamDataRepository
+  -> 按 course_code 与用户课表精确匹配
 ```
 
-Token 30 天左右过期,过期后重抓。
+停用前的 Android 链路不读取本目录缓存和报表，只拉取下列远程产物；当前客户端不会发起该请求：
 
-### 2) 跑扫描
-
-```bash
-# 默认 7.6 ~ 7.15
-python scan_exams.py
-
-# 自定义日期范围
-python scan_exams.py 2026-07-06 2026-07-15
-
-# 用缓存快速重导 (不调 API)
-python scan_exams.py --reuse
-```
-
-输出:
-- `exam_predictions.json` (Gitee 拉的数据源,顶层 meta + exams)
-- `output_*.csv` / `output_*.md` (报表)
-- `cache_full_scan.json` (原始响应,`--reuse` 时复用)
-
-### 3) 推到 Gitee
-
-`exam_predictions.json` 上传到仓库 `yao-enqi/ahu-plus-update` 的
-`exam_predictions/exam_predictions.json`。Android 客户端 raw URL:
-
-```
+```text
 https://gitee.com/yao-enqi/ahu-plus-update/raw/master/exam_predictions/exam_predictions.json
 ```
 
-推送流程示例:
+## 运行
 
-```bash
-cd /path/to/gitee-ahu-plus-update
-cp /path/to/this/folder/exam_predictions.json exam_predictions/exam_predictions.json
-git add exam_predictions/exam_predictions.json
-git commit -m "update exam predictions $(date +%F)"
-git push origin master
+要求 Python 3 和 `requests`。令牌只允许放在本目录的 `.jwt_token`，或按具体脚本支持的环境变量传入；不得写入 README、命令历史示例或源码。
+
+```powershell
+python tools/exam_prediction/scan_exams.py 2026-07-06 2026-07-15
+python tools/exam_prediction/scan_exams.py --reuse
 ```
 
-## 数据 schema (Gitee JSON)
+正常扫描会逐栋拉取数据并每天写入 `cache_daily.jsonl`。`--reuse` 仅在 `cache_full_scan.json` 存在时重建标准化 JSON 和报表，不访问 API。
 
-```json
-{
-  "version": 1,
-  "generated_at": "2026-06-23T18:00:00+08:00",
-  "semester": "2025-2026-2",
-  "date_range": ["2026-07-06", "2026-07-15"],
-  "campuses": ["磬苑校区", "龙河校区", "金寨路校区"],
-  "source": "jwapp.ahu.edu.cn 教室占用 API (activityType=Exam)",
-  "count": 1247,
-  "summary_by_date": [
-    {"date": "2026-07-10", "count": 287, "campuses": ["磬苑校区"], "elapsed_sec": 12.3}
-  ],
-  "exams": [
-    {
-      "date": "2026-07-10", "start": "08:00", "end": "10:00",
-      "course_name": "国民经济核算",
-      "course_code": "ZH58202", "section": "001",
-      "full_code": "202520262-ZH58202.001", "semester": "202520262",
-      "college": "大数据与统计学院",
-      "room_name": "博学北楼A101", "room_code": "A101",
-      "campus": "磬苑校区", "building_id": 18,
-      "teacher": "主监考：xxx；副监考：xxx",
-      "activity_id": 12345
-    }
-  ]
-}
-```
+## 文件分类
 
-## 客户端匹配逻辑
+| 文件 | 类型 | 是否是当前 App 行为依据 |
+|---|---|---|
+| `scan_exams.py` | 当前采集实现 | 是，工具行为依据 |
+| `exam_predictions.json` | 历史标准化数据 | 否，当前客户端不消费 |
+| `cache_daily.jsonl` | 断点缓存 | 否 |
+| `cache_full_scan.json` | 原始扫描缓存 | 否 |
+| `output_7.6-7.15.csv/.md` | 特定日期的人读报表 | 否 |
+| `scan_exams_probe.py` | 演示/探针 | 否 |
+| `jwapp_api_exploration.py` | API 探索脚本 | 否 |
+| `.jwt_token` | 本地敏感凭据 | 绝不发布 |
 
-Android `ExamDataRepository` 拉取 JSON → 解析 → 用 `course_code` 与用户课表缓存
-(`SessionManager.getScheduleJson()` 里的 `courseCode`) 做精确匹配。
-匹配结果按 `(date, start)` 排序,按日期分组展示。
+历史输出和缓存是生成快照。它们不应被其他文档引用为当前考试安排，也不应提交真实教师、学生或账号信息。
 
-## 注意事项
+## 标准化 Schema
 
-- `.jwt_token` 不要提交到 git;`.gitignore` 已加 `exam_prediction/.jwt_token`
-- API 限速:每页间隔不要太快,默认 30s 内 60 页足够
-- 多课程合并占用:一条 Exam 可能含多门课,JSON 已展开为多条 `exams[]` 记录,
-  共享 `room_name/date/start/end/campus/teacher/building_id`
-- 期末考试周一般在 7.5 ~ 7.20,具体日期需要从教务处通知或扫描 6 月底数据时发现
+遗留客户端模型位于 `data/model/exam/ExamPredictionsDto.kt`。顶层字段包括：
+
+- `version`、`generated_at`、`semester`、`date_range`。
+- `campuses`、`source`、`count`、`summary_by_date`。
+- `exams`。
+
+单条 `exams` 记录包括日期、起止时间、课程号、教学班号、完整课程标识、学院、教室、校区、楼栋、教师描述和活动 ID。遗留逻辑使用 `course_code` 匹配个人课表，并按日期和时间排序。
+
+## 历史发布检查
+
+1. 确认扫描学期、日期范围和校区正确。
+2. 检查 `generated_at`、`semester`、`date_range` 和 `count`。
+3. 抽样核对多课程合并占用是否正确展开。
+4. 扫描输出中不得包含 Token、Cookie、学生标识或无关个人数据。
+5. 仅在功能重新设计并恢复入口后，才评估是否仍需发布 `exam_predictions.json`。
+6. 不得把旧数据链重新接回当前 App；恢复功能前应先完成设备端 jwapp 方案和隐私边界评审。
+
+排考预测只是教室占用数据推导结果，不能替代教务系统的正式考试安排。

@@ -72,6 +72,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -170,7 +171,9 @@ fun DeveloperCenterScreen(onBack: () -> Unit) {
     }
 
     BackHandler(onBack = onBack)
+    val topBarScrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
+        modifier = Modifier.nestedScroll(topBarScrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
                 title = { Text("开发者中心") },
@@ -217,6 +220,7 @@ fun DeveloperCenterScreen(onBack: () -> Unit) {
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
+                scrollBehavior = topBarScrollBehavior,
             )
         },
         containerColor = MaterialTheme.colorScheme.background,

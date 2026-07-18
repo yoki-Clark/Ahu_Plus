@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** 教务通告列表与详情，WebView 只在 Repository 报告 412 时完成一次校验。 */
@@ -26,6 +27,7 @@ class JwcNoticeListViewModel(
     val uiState: StateFlow<JwcNoticeListUiState> = _uiState.asStateFlow()
     private val cachedDetails = mutableMapOf<String, CachedNoticeDetail>()
     private val pendingWafRetries = linkedMapOf<String, () -> Unit>()
+    private var pageJob: Job? = null
 
     init {
         cache.getJwcNoticeJson()?.let { raw ->
@@ -53,6 +55,7 @@ class JwcNoticeListViewModel(
     }
 
     fun loadFirstPage() {
+        if (pageJob?.isActive == true) return
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -85,7 +88,9 @@ class JwcNoticeListViewModel(
                 },
             )
         }
-        if (cached !is NoticeDetailState.Success) fetchDetail(notice)
+        if (cached !is NoticeDetailState.Success && cached !is NoticeDetailState.Loading) {
+            fetchDetail(notice)
+        }
     }
 
     fun closeNotice() {
@@ -135,7 +140,8 @@ class JwcNoticeListViewModel(
         }
 
     private fun fetchPage(page: Int, replace: Boolean) {
-        viewModelScope.launch {
+        if (pageJob?.isActive == true) return
+        pageJob = viewModelScope.launch {
             repository.getNoticePage(page)
                 .onSuccess { result ->
                     _uiState.update { previous ->

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** 首页教务通告预览，网络传输由 Repository 完成，WebView 仅用于按需 WAF 校验。 */
@@ -23,6 +24,7 @@ class JwcNoticeViewModel(
     private val _uiState = MutableStateFlow(JwcNoticeUiState())
     val uiState: StateFlow<JwcNoticeUiState> = _uiState.asStateFlow()
     private val pendingWafRetries = linkedMapOf<String, () -> Unit>()
+    private var noticesJob: Job? = null
 
     init {
         val cached = cache.getJwcNoticeJson()?.let { raw ->
@@ -40,6 +42,7 @@ class JwcNoticeViewModel(
     }
 
     fun loadNotices() {
+        if (noticesJob?.isActive == true) return
         _uiState.update { it.copy(isLoading = true, error = null) }
         fetchNotices()
     }
@@ -50,7 +53,9 @@ class JwcNoticeViewModel(
             return
         }
         _uiState.update { it.copy(expandedUrl = notice.url) }
-        if (_uiState.value.details[notice.url] !is NoticeDetailState.Success) {
+        if (_uiState.value.details[notice.url] !is NoticeDetailState.Success &&
+            _uiState.value.details[notice.url] !is NoticeDetailState.Loading
+        ) {
             loadDetail(notice)
         }
     }
@@ -74,7 +79,8 @@ class JwcNoticeViewModel(
     }
 
     private fun fetchNotices() {
-        viewModelScope.launch {
+        if (noticesJob?.isActive == true) return
+        noticesJob = viewModelScope.launch {
             repository.getNotices(PREVIEW_LIMIT)
                 .onSuccess { notices ->
                     cache.saveJwcNoticeJson(GsonProvider.instance.toJson(notices))

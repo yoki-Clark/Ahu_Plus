@@ -109,6 +109,7 @@ import com.ahu_plus.data.model.FinanceSummary
 import com.ahu_plus.data.model.StudentInfo
 import com.ahu_plus.data.model.StudentInfoCodeLookup
 import com.ahu_plus.data.model.StudentInfoField
+import com.ahu_plus.data.model.jw.SemesterInfo
 import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.ui.components.AhuInfoRow
@@ -153,6 +154,8 @@ fun ProfileScreen(
     studentInfoViewModel: StudentInfoViewModel,
     financeViewModel: FinanceViewModel,
     scheduleUiState: ScheduleUiState,
+    academicSemesters: List<SemesterInfo> = emptyList(),
+    onLoadAcademicSemesters: () -> Unit = {},
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
     scrollTarget: String? = null,
@@ -253,10 +256,15 @@ fun ProfileScreen(
         }
     }
 
+    LaunchedEffect(showCardAnalytics) {
+        if (showCardAnalytics) onLoadAcademicSemesters()
+    }
+
     if (showCardAnalytics) {
         BackHandler(enabled = true) { showCardAnalytics = false }
         CardAnalyticsScreen(
             bills = cardUiState.bills,
+            academicSemesters = academicSemesters,
             isLoading = cardUiState.billsLoading,
             error = cardUiState.billsError,
             onBack = { showCardAnalytics = false },

@@ -26,12 +26,17 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -138,7 +143,13 @@ fun WeekGrid(
     val horScroll = rememberScrollState()
     val verScroll = sharedVerScroll ?: rememberScrollState()
 
-    val gridWidth = colWidth * visibleDays.size
+    var viewportWidthPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val viewportColumnWidth = with(density) {
+        (viewportWidthPx.toFloat() / visibleDays.size).toDp()
+    }
+    val effectiveColWidth = maxOf(colWidth, viewportColumnWidth)
+    val gridWidth = effectiveColWidth * visibleDays.size
     val bodyHeight = rowHeight * totalRows
     val dayToColIndex: Map<Int, Int> = remember(visibleDays) {
         visibleDays.withIndex().associate { (i, d) -> d to i }
@@ -220,7 +231,12 @@ fun WeekGrid(
     // 注意:左侧"时间列"已上移到 ScheduleScreen 作为固定列(切换周次时不随页面滑动 — 2026-06-25)。
     // 本组件只渲染:① 顶部星期头(含日期号) ② 网格体(课程卡片 + 当前时间线)。
     // 网格体与固定时间列共享 [verScroll],垂直滚动同步。
-    Column(modifier = modifier.fillMaxSize().background(backgroundVisuals.canvas)) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .onSizeChanged { viewportWidthPx = it.width }
+            .background(backgroundVisuals.canvas),
+    ) {
         // ── 顶部星期头(随 Pager 换页,日期号随选中周变化)──
         Box(
             modifier = Modifier
@@ -236,7 +252,7 @@ fun WeekGrid(
                         dateNumber = cellDate.dayOfMonth,
                         isToday = isCurrentWeek && d == todayDayOfWeek,
                         lineColor = lineColor,
-                        colWidth = colWidth,
+                        colWidth = effectiveColWidth,
                         fontScale = fontScale,
                         backgroundVisuals = backgroundVisuals,
                     )
@@ -283,9 +299,9 @@ fun WeekGrid(
                             RoundedCornerShape(backgroundConfig.blockRadiusDp.coerceIn(0f, 18f).dp)
                         } else RoundedCornerShape(0.dp)
                         var cellModifier = Modifier
-                            .offset(colWidth * colIdx + inset, rowHeight * row + inset)
+                            .offset(effectiveColWidth * colIdx + inset, rowHeight * row + inset)
                             .size(
-                                (colWidth - inset * 2).coerceAtLeast(1.dp),
+                                (effectiveColWidth - inset * 2).coerceAtLeast(1.dp),
                                 (rowHeight - inset * 2).coerceAtLeast(1.dp),
                             )
                             .clip(shape)
@@ -310,9 +326,9 @@ fun WeekGrid(
                     } else {
                         0
                     }
-                    val overlapW = colWidth / overlapCount
+                    val overlapW = effectiveColWidth / overlapCount
 
-                    val x = colWidth * col + overlapW * overlapIdx + 3.dp
+                    val x = effectiveColWidth * col + overlapW * overlapIdx + 3.dp
                     val y = rowHeight * rowStart + 3.dp
                     val w = overlapW - 6.dp
                     val h = rowHeight * rowSpan - 6.dp
@@ -335,15 +351,15 @@ fun WeekGrid(
                     if (todayCol != null) {
                         Box(
                             modifier = Modifier
-                                .offset(colWidth * todayCol + 5.dp, currentTimeLineY - 4.dp)
+                                .offset(effectiveColWidth * todayCol + 5.dp, currentTimeLineY - 4.dp)
                                 .size(8.dp, 8.dp)
                                 .zIndex(10f)
                                 .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(999.dp))
                         )
                         Box(
                             modifier = Modifier
-                                .offset(colWidth * todayCol + 10.dp, currentTimeLineY - 1.dp)
-                                .size(colWidth - 14.dp, 2.dp)
+                                .offset(effectiveColWidth * todayCol + 10.dp, currentTimeLineY - 1.dp)
+                                .size(effectiveColWidth - 14.dp, 2.dp)
                                 .zIndex(10f)
                                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
                         )
