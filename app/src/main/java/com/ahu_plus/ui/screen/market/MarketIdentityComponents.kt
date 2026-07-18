@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Visibility
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.ahu_plus.data.remote.market.MarketApi
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.MarketColors
 
@@ -204,6 +206,7 @@ fun CompactIdentityCard(
     modifier: Modifier = Modifier
 ) {
     var showDialog by rememberSaveable { mutableStateOf(false) }
+    var showScanner by rememberSaveable { mutableStateOf(false) }
     val identityCount = uiState.identities.size
 
     Card(
@@ -285,7 +288,25 @@ fun CompactIdentityCard(
             onSave = {
                 onAddIdentity()
                 showDialog = false
-            }
+            },
+            onScan = {
+                showDialog = false
+                showScanner = true
+            },
+        )
+    }
+    if (showScanner) {
+        MarketQrScannerDialog(
+            onDismiss = {
+                showScanner = false
+                showDialog = true
+            },
+            onDecoded = { value ->
+                val identity = MarketApi.parseImportUri(value).getOrNull()?.normalizedToken ?: value
+                onIdentityChanged(identity)
+                showScanner = false
+                showDialog = true
+            },
         )
     }
 }
@@ -295,7 +316,8 @@ private fun IdentityInputDialog(
     initialValue: String,
     onValueChange: (String) -> Unit,
     onDismiss: () -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
+    onScan: () -> Unit,
 ) {
     var showToken by rememberSaveable { mutableStateOf(false) }
     Dialog(
@@ -317,7 +339,7 @@ private fun IdentityInputDialog(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "在电脑上运行 tools\\get_market_token.cmd 自动提取，\n或手动抓包获取 Bearer JWT 后粘贴到下方",
+                    text = "在电脑上运行“集市Token获取工具”生成二维码，\n扫码导入，或从剪贴板粘贴 Bearer JWT",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -342,6 +364,14 @@ private fun IdentityInputDialog(
                     else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
                 )
+                OutlinedButton(
+                    onClick = onScan,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("扫描电脑二维码")
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
@@ -359,10 +389,3 @@ private fun IdentityInputDialog(
         }
     }
 }
-
-/** 把 Token 字符串截断到合适长度用于 UI 展示。 */
-internal fun maskToken(token: String): String {
-    val t = if (token.startsWith("Bearer ", ignoreCase = true)) token.drop(7) else token
-    return if (t.length > 24) "${t.take(12)}…${t.takeLast(8)}" else t
-}
-

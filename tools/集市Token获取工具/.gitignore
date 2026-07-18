@@ -1,6 +1,8 @@
 # 运行时产物（绝不提交）
 python/
 我的集市Token.txt
+集市身份导入二维码.png
 .captured
+.market-ca-thumbprint
 py-embed.zip
 get-pip.py

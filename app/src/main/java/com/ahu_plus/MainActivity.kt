@@ -41,6 +41,12 @@ class MainActivity : ComponentActivity() {
 
         /** 深链到 WeLearn Tab */
         const val DEEP_LINK_WELEARN = "welearn"
+
+        private fun deepLinkFrom(intent: Intent?): String? {
+            return intent?.dataString?.takeIf {
+                it.startsWith("ahuplus://market/import", ignoreCase = true)
+            } ?: intent?.getStringExtra(EXTRA_DEEP_LINK)
+        }
     }
 
     /**
@@ -52,7 +58,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        deepLink = intent?.getStringExtra(EXTRA_DEEP_LINK)
+        deepLink = deepLinkFrom(intent)
         val app = application as AhuPlusApplication
         setContent {
             val themeMode by app.sessionManager.themeModeFlow.collectAsStateWithLifecycle(
@@ -138,6 +144,6 @@ class MainActivity : ComponentActivity() {
         // App 已在前台/后台栈顶被通知再次拉起(FLAG_ACTIVITY_CLEAR_TOP):
         // 更新当前 intent 并刷新 deepLink,触发 MainScreen 重新跳转。
         setIntent(intent)
-        intent.getStringExtra(EXTRA_DEEP_LINK)?.let { deepLink = it }
+        deepLinkFrom(intent)?.let { deepLink = it }
     }
 }
