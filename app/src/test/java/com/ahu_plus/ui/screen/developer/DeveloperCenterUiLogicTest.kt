@@ -1,5 +1,9 @@
 package com.ahu_plus.ui.screen.developer
 
+import com.ahu_plus.data.developer.DeveloperModuleTest
+import com.ahu_plus.data.developer.DeveloperTestCategory
+import com.ahu_plus.data.developer.DeveloperTestRisk
+import com.ahu_plus.data.developer.DeveloperTestStatus
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -48,4 +52,43 @@ class DeveloperCenterUiLogicTest {
             developerDataResultState(totalEntryCount = 8, visibleEntryCount = 3),
         )
     }
+
+    @Test
+    fun `module filter combines category status and search query`() {
+        val tests = listOf(
+            moduleTest("local.storage", "应用存储", DeveloperTestCategory.LOCAL, DeveloperTestStatus.PASSED),
+            moduleTest("jw.schedule", "课表接口", DeveloperTestCategory.ACADEMIC, DeveloperTestStatus.FAILED),
+            moduleTest("jw.grade", "成绩接口", DeveloperTestCategory.ACADEMIC, DeveloperTestStatus.NOT_RUN),
+        )
+
+        val filtered = filterDeveloperModuleTests(
+            tests = tests,
+            category = DeveloperTestCategory.ACADEMIC,
+            statusFilter = DeveloperTestStatusFilter.ATTENTION,
+            query = "schedule",
+        )
+
+        assertEquals(listOf("jw.schedule"), filtered.map { it.id })
+    }
+
+    @Test
+    fun `batch progress handles empty partial and complete states`() {
+        assertEquals(0f, DeveloperModuleBatchProgress(total = 0, completed = 0).fraction)
+        assertEquals(0.5f, DeveloperModuleBatchProgress(total = 4, completed = 2).fraction)
+        assertEquals(1f, DeveloperModuleBatchProgress(total = 2, completed = 3).fraction)
+    }
+
+    private fun moduleTest(
+        id: String,
+        title: String,
+        category: DeveloperTestCategory,
+        status: DeveloperTestStatus,
+    ) = DeveloperModuleTest(
+        id = id,
+        category = category,
+        title = title,
+        description = "test description",
+        risk = DeveloperTestRisk.LOCAL_ONLY,
+        status = status,
+    )
 }
