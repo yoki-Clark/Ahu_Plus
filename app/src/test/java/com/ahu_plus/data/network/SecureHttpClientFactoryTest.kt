@@ -66,6 +66,12 @@ class SecureHttpClientFactoryTest {
     }
 
     /** 测试用的最小 CookieJar 实现,只覆盖 add/load 两个场景 */
+    @Test
+    fun `retryOnConnectionFailure can be disabled without changing defaults`() {
+        assertTrue(SecureHttpClientFactory.create().retryOnConnectionFailure)
+        assertFalse(SecureHttpClientFactory.create(retryOnConnectionFailure = false).retryOnConnectionFailure)
+    }
+
     private class InMemoryCookieJar : okhttp3.CookieJar {
         private val store = mutableMapOf<String, MutableList<Cookie>>()
         override fun loadForRequest(url: okhttp3.HttpUrl): List<Cookie> =

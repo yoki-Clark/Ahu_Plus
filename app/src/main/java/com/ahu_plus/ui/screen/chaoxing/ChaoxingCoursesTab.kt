@@ -101,7 +101,7 @@ internal fun CoursesTabContent(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Spacer(Modifier.height(16.dp))
-                        Button(onClick = { viewModel.loadCourses() }) {
+                        Button(onClick = { viewModel.loadCourses(force = true) }) {
                             Text("重试")
                         }
                     }
@@ -116,7 +116,7 @@ internal fun CoursesTabContent(
                     isRefreshing = isCoursesRefreshing,
                     onRefresh = {
                         isCoursesRefreshing = true
-                        viewModel.loadCourses()
+                        viewModel.loadCourses(force = true)
                     },
                     modifier = Modifier.fillMaxSize(),
                 ) {

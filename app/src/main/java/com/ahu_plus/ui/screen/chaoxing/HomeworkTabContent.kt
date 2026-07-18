@@ -112,7 +112,7 @@ fun HomeworkTabContent(
                         Text(homeworkState.error ?: "加载失败", style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = { viewModel.loadHomework() }) { Text("重试") }
+                        Button(onClick = { viewModel.loadHomework(force = true) }) { Text("重试") }
                     }
                 }
             }

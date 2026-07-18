@@ -90,6 +90,7 @@ object SecureHttpClientFactory {
      * @param disableGzip 是否移除 Accept-Encoding 头。CAS 服务端可能不接受 gzip,
      *                    其他业务 API 应该让 OkHttp 自动 gzip 解压以节省带宽。
      * @param extraInterceptors 额外的应用拦截器(在 network 拦截器之前)
+     * @param extraNetworkInterceptors 额外的网络拦截器；会观察重定向后的每个网络 hop
      * @param connectTimeoutSec / readTimeoutSec 超时秒数
      * @param trustAll 历史参数名。true 表示仅对 *.ahu.edu.cn 启用自签名证书兼容模式,
      *                 兼容安大自签名证书；标准 HTTPS 域名(如 api.zxs-bbs.cn /
@@ -102,18 +103,22 @@ object SecureHttpClientFactory {
      *                      推荐传入 [SessionAuthenticator](https://one.ahu.edu.cn)。
      * @param sessionExpiredInterceptor 嗅探 HTML 表单型 session 过期(安大门户典型);
      *                                  通常是 [SessionAuthenticator.asInterceptor]。
+     * @param retryOnConnectionFailure 是否允许 OkHttp 在连接级别自动重试；默认保持原有行为。
+     *                                 需要严格请求预算的客户端可关闭，业务层仍应自行判断响应是否可重试。
      */
     fun create(
         cookieJar: CookieJar? = null,
         followRedirects: Boolean = true,
         disableGzip: Boolean = false,
         extraInterceptors: List<Interceptor> = emptyList(),
+        extraNetworkInterceptors: List<Interceptor> = emptyList(),
         connectTimeoutSec: Long = DEFAULT_TIMEOUT_SEC,
         readTimeoutSec: Long = DEFAULT_TIMEOUT_SEC,
         trustAll: Boolean = false,
         tls12Only: Boolean = false,
         authenticator: Authenticator? = null,
         sessionExpiredInterceptor: Interceptor? = null,
+        retryOnConnectionFailure: Boolean = true,
     ): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .connectionPool(sharedPool)
@@ -134,6 +139,7 @@ object SecureHttpClientFactory {
             .connectTimeout(connectTimeoutSec, TimeUnit.SECONDS)
             .readTimeout(readTimeoutSec, TimeUnit.SECONDS)
             .followRedirects(followRedirects)
+            .retryOnConnectionFailure(retryOnConnectionFailure)
 
         if (cookieJar != null) builder.cookieJar(cookieJar)
 
@@ -163,6 +169,8 @@ object SecureHttpClientFactory {
                 chain.proceed(req)
             }
         }
+
+        extraNetworkInterceptors.forEach { builder.addNetworkInterceptor(it) }
 
         // GET/HEAD 的模拟 401 位于 OkHttp retry/follow-up 层内，能够触发真实 Authenticator。
         builder.addNetworkInterceptor(DeveloperAuthenticationFaultInterceptor())

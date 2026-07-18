@@ -1,7 +1,6 @@
 package com.ahu_plus.ui.screen.chaoxing
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -60,21 +59,14 @@ fun ChaoxingStudySheet(
 
             Spacer(Modifier.height(16.dp))
 
-            // 参数
-            Row {
-                Text("倍速 %.1fx".format(settingsState.speed), style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.width(16.dp))
-                Text("并发 ${settingsState.concurrency}", style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.width(16.dp))
-                Text(
-                    when (settingsState.submitMode) {
-                        "auto" -> "自动提交"
-                        "save" -> "仅保存"
-                        else -> "不答题"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+            Text(
+                when (settingsState.submitMode) {
+                    "auto" -> "自动提交"
+                    "save" -> "仅保存"
+                    else -> "不答题"
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
 
             Spacer(Modifier.height(24.dp))
 

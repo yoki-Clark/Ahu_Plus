@@ -5,7 +5,9 @@ import com.google.gson.JsonParser
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.CxQuestion
 import com.ahu_plus.data.network.SecureHttpClientFactory
+import com.ahu_plus.data.network.awaitResponse
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -19,9 +21,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
  *
  * 支持多种题库后端 + **Provider 回退链**:
  *   - 本地缓存 (DataStore)
- *   - 言溪题库 (tk.enncy.cn) — 多 Token 轮询
- *   - GO 题 (q.icodef.com) — 解限流 + 指数退避
- *   - LIKE 知识库 (datam.site) — 多 Token 随机 + 视觉识别
+ *   - 言溪题库 (tk.enncy.cn) — 单凭据查询
+ *   - GO 题 (q.icodef.com) — 最小请求间隔
+ *   - LIKE 知识库 (datam.site) — 单凭据查询 + 视觉识别
  *   - 自部署 TikuAdapter
  *   - AI 大模型 (OpenAI 兼容 API / 硅基流动)
  *
@@ -39,9 +41,13 @@ class ChaoxingTikuRepository(
         private const val YANXI_API = "https://tk.enncy.cn/query"
         private const val GO_API = "https://q.icodef.com/api/v3/query"
         private const val LIKE_API = "https://www.datam.site/api/v3/answer"
+        private const val CLIENT_USER_AGENT = "AhuPlus/Android"
     }
 
-    private val client: OkHttpClient = SecureHttpClientFactory.create(trustAll = false)
+    private val client: OkHttpClient = SecureHttpClientFactory.create(
+        trustAll = false,
+        retryOnConnectionFailure = false,
+    )
 
     /** 题库类型枚举(2026-06-20 扩展) */
     enum class TikuType(val label: String) {
@@ -107,8 +113,8 @@ class ChaoxingTikuRepository(
             .mapNotNull { runCatching { TikuType.valueOf(it.trim().uppercase()) }.getOrNull() }
             .ifEmpty { listOf(TikuType.CACHE) }
         this.yanxiTokens = yanxiTokensStr.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        Log.d(TAG, "configure: chain=$providerChain, yanxiTokens=${this.yanxiTokens}, yanxiDelay=$yanxiDelay, coverRate=$coverRate")
-        Log.d(TAG, "configure: aiBaseUrl=$aiBaseUrl, aiModel=$aiModel, aiKey=${aiApiKey.take(8)}...")
+        Log.d(TAG, "configure: chain=$providerChain, yanxiTokenCount=${this.yanxiTokens.size}, yanxiDelay=$yanxiDelay, coverRate=$coverRate")
+        Log.d(TAG, "configure: aiModel=$aiModel, aiKeyConfigured=${aiApiKey.isNotBlank()}")
         if (aiApiKey.isNotBlank()) this.aiApiKey = aiApiKey
         if (aiBaseUrl.isNotBlank()) this.aiBaseUrl = aiBaseUrl
         if (aiModel.isNotBlank()) this.aiModel = aiModel
@@ -151,9 +157,14 @@ class ChaoxingTikuRepository(
     suspend fun query(question: CxQuestion): String? {
         if (providerChain.firstOrNull() == TikuType.DISABLED) return null
 
-        // 1. 先查本地缓存（作为兜底，不立即返回）
+        // Cache is authoritative for normal queries. External providers are only
+        // contacted for a miss; explicit refresh should invalidate the cache first.
         val cached = sessionManager.getCxTikuCache(question.title)
         val cachedNormalized = if (cached != null) normalizeAnswer(cached, question) else null
+        if (cachedNormalized != null) {
+            Log.d(TAG, "缓存命中")
+            return cachedNormalized
+        }
 
         // 2. 遍历 provider chain（CACHE 不在此列，已在上面处理）
         val hasActiveProvider = providerChain.any {
@@ -181,33 +192,29 @@ class ChaoxingTikuRepository(
             }
         }
 
-        // 3. 无活跃 provider 或全部未命中 → 回退到缓存
-        if (cachedNormalized != null) {
-            Log.d(TAG, "缓存命中(兜底): ${question.title.take(20)}... → $cachedNormalized")
-            return cachedNormalized
-        }
         return null
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  言溪题库(多 Token 轮询)
+    //  言溪题库(单凭据查询)
     // ══════════════════════════════════════════════════════════════
 
     private suspend fun queryYanxi(question: CxQuestion): String? = withContext(Dispatchers.IO) {
-        Log.d(TAG, "[YANXI] 开始查询: yanxiTokens=${yanxiTokens}, question=${question.title.take(40)}...")
+        Log.d(TAG, "[YANXI] 开始查询: credentialConfigured=${yanxiTokens.isNotEmpty()}")
         if (yanxiTokens.isEmpty()) {
             Log.d(TAG, "[YANXI] 跳过: yanxiTokens 为空")
             return@withContext null
         }
-        for ((idx, token) in yanxiTokens.withIndex()) {
-            if (idx > 0 && yanxiDelay > 0) delay((yanxiDelay * 1000).toLong())
+        // Use one configured credential per query. Cycling credentials after an
+        // access-control failure would multiply requests and obscure the real error.
+        for (token in yanxiTokens.take(1)) {
             try {
                 val url = "$YANXI_API?title=${java.net.URLEncoder.encode(question.title, "UTF-8")}&token=$token"
-                val request = Request.Builder().url(url).get().header("User-Agent", "Mozilla/5.0").build()
-                val resp = client.newCall(request).execute()
+                val request = Request.Builder().url(url).get().header("User-Agent", CLIENT_USER_AGENT).build()
+                val resp = client.newCall(request).awaitResponse()
                 val json = resp.body?.string() ?: "{}"
                 resp.close()
-                Log.d(TAG, "[YANXI] HTTP ${resp.code}: ${json.take(150)}")
+                Log.d(TAG, "[YANXI] HTTP ${resp.code}, response body omitted")
                 val obj = JsonParser.parseString(json).asJsonObject
                 val apiCode = obj.get("code")?.asInt
                 val dataObj = obj.getAsJsonObject("data")
@@ -217,12 +224,14 @@ class ChaoxingTikuRepository(
                         && !answer.contains("无效的用户凭证")
                         && !answer.contains("过期")
                     ) {
-                        Log.d(TAG, "[YANXI] 命中(code=$apiCode): ${question.title.take(20)}... → $answer")
+                        Log.d(TAG, "[YANXI] 命中(code=$apiCode)")
                         return@withContext answer
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.w(TAG, "[YANXI] Token $idx 查询异常: ${e.message}")
+                Log.w(TAG, "[YANXI] 查询异常: ${e.javaClass.simpleName}")
             }
         }
         Log.d(TAG, "[YANXI] 所有 token 都未命中")
@@ -237,11 +246,11 @@ class ChaoxingTikuRepository(
         try {
             if (goMinInterval > 0) delay((goMinInterval * 1000).toLong())
             val url = "$GO_API?question=${java.net.URLEncoder.encode(question.title, "UTF-8")}"
-            val reqBuilder = Request.Builder().url(url).get().header("User-Agent", "Mozilla/5.0")
+            val reqBuilder = Request.Builder().url(url).get().header("User-Agent", CLIENT_USER_AGENT)
             if (goAuthorization.isNotBlank()) {
                 reqBuilder.header("Authorization", goAuthorization)
             }
-            val resp = client.newCall(reqBuilder.build()).execute()
+            val resp = client.newCall(reqBuilder.build()).awaitResponse()
             val json = resp.body?.string() ?: "{}"
             resp.close()
             val obj = JsonParser.parseString(json).asJsonObject
@@ -249,26 +258,27 @@ class ChaoxingTikuRepository(
                 val answer = obj.get("data")?.asJsonObject?.get("answer")?.asString
                     ?: obj.get("answer")?.asString
                 if (!answer.isNullOrBlank()) {
-                    Log.d(TAG, "[GO] 命中: ${question.title.take(20)}... → $answer")
+                    Log.d(TAG, "[GO] 命中")
                     return@withContext answer
                 }
             }
             null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.w(TAG, "[GO] 查询异常: ${e.message}")
+            Log.w(TAG, "[GO] 查询异常: ${e.javaClass.simpleName}")
             null
         }
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  LIKE 知识库(多 Token 随机 + 视觉)
+    //  LIKE 知识库(单凭据 + 视觉)
     // ══════════════════════════════════════════════════════════════
 
     private suspend fun queryLike(question: CxQuestion): String? = withContext(Dispatchers.IO) {
         try {
             if (likeapiTokens.isEmpty()) return@withContext null
-            // 多 Token 随机轮询
-            val token = likeapiTokens.random()
+            val token = likeapiTokens.first()
             val body = FormBody.Builder()
                 .add("question", question.title)
                 .add("model", likeapiModel)
@@ -277,21 +287,23 @@ class ChaoxingTikuRepository(
                 .add("token", token)
                 .build()
             val req = Request.Builder().url(LIKE_API).post(body)
-                .header("User-Agent", "Mozilla/5.0")
+                .header("User-Agent", CLIENT_USER_AGENT)
                 .header("Authorization", "Bearer $token")
                 .build()
-            val resp = client.newCall(req).execute()
+            val resp = client.newCall(req).awaitResponse()
             val json = resp.body?.string() ?: "{}"
             resp.close()
             val obj = JsonParser.parseString(json).asJsonObject
             val answer = obj.get("answer")?.asString ?: obj.get("data")?.asJsonObject?.get("answer")?.asString
             if (!answer.isNullOrBlank()) {
-                Log.d(TAG, "[LIKE] 命中: ${question.title.take(20)}... → $answer")
+                Log.d(TAG, "[LIKE] 命中")
                 return@withContext answer
             }
             null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.w(TAG, "[LIKE] 查询异常: ${e.message}")
+            Log.w(TAG, "[LIKE] 查询异常: ${e.javaClass.simpleName}")
             null
         }
     }
@@ -309,19 +321,21 @@ class ChaoxingTikuRepository(
                 .add("options", question.options)
                 .build()
             val req = Request.Builder().url(tikuAdapterUrl).post(body)
-                .header("User-Agent", "AhuPlus/1.0").build()
-            val resp = client.newCall(req).execute()
+                .header("User-Agent", CLIENT_USER_AGENT).build()
+            val resp = client.newCall(req).awaitResponse()
             val json = resp.body?.string() ?: "{}"
             resp.close()
             val obj = JsonParser.parseString(json).asJsonObject
             val answer = obj.get("answer")?.asString
             if (!answer.isNullOrBlank()) {
-                Log.d(TAG, "[ADAPTER] 命中: ${question.title.take(20)}... → $answer")
+                Log.d(TAG, "[ADAPTER] 命中")
                 return@withContext answer
             }
             null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.w(TAG, "[ADAPTER] 查询异常: ${e.message}")
+            Log.w(TAG, "[ADAPTER] 查询异常: ${e.javaClass.simpleName}")
             null
         }
     }
@@ -343,7 +357,7 @@ class ChaoxingTikuRepository(
     ): String? = withContext(Dispatchers.IO) {
         try {
             if (apiKey.isBlank()) {
-                Log.w(TAG, "[AI] apiKey 为空,跳过调用 (baseUrl=$baseUrl, model=$model)")
+                Log.w(TAG, "[AI] apiKey 为空,跳过调用")
                 return@withContext null
             }
 
@@ -410,13 +424,13 @@ class ChaoxingTikuRepository(
                 .post(requestBody)
                 .header("Authorization", "Bearer $apiKey")
                 .build()
-            val resp = client.newCall(request).execute()
+            val resp = client.newCall(request).awaitResponse()
             val respBody = resp.body?.string() ?: "{}"
             val code = resp.code
             resp.close()
 
             if (code != 200) {
-                Log.w(TAG, "[AI] HTTP $code: ${respBody.take(200)}")
+                Log.w(TAG, "[AI] HTTP $code")
                 return@withContext null
             }
 
@@ -437,21 +451,23 @@ class ChaoxingTikuRepository(
                         val answerObj = JsonParser.parseString(content).asJsonObject
                         val answer = answerObj.get("answer")?.asString?.trim()
                         if (!answer.isNullOrBlank()) {
-                            Log.d(TAG, "[AI] 命中: ${question.title.take(20)}... → $answer")
+                            Log.d(TAG, "[AI] 命中")
                             return@withContext answer
                         }
                     } catch (_: Exception) { /* fall through */ }
                     // Fallback: 直接使用原始内容（去除引号）
                     val answer = content.trim().removeSurrounding("\"")
                     if (answer.isNotBlank()) {
-                        Log.d(TAG, "[AI] 命中(raw): ${question.title.take(20)}... → $answer")
+                        Log.d(TAG, "[AI] 命中(raw)")
                         return@withContext answer
                     }
                 }
             }
             null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.w(TAG, "[AI] 查询异常: ${e.message}")
+            Log.w(TAG, "[AI] 查询异常: ${e.javaClass.simpleName}")
             null
         }
     }
@@ -482,10 +498,12 @@ class ChaoxingTikuRepository(
                 .url(url).post(requestBody)
                 .header("Authorization", "Bearer $key")
                 .build()
-            val resp = client.newCall(req).execute()
+            val resp = client.newCall(req).awaitResponse()
             val code = resp.code
             resp.close()
             if (code in 200..299) Result.success("$code OK") else Result.failure(Exception("HTTP $code"))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

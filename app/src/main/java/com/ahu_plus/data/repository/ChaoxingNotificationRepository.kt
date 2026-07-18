@@ -3,6 +3,8 @@ package com.ahu_plus.data.repository
 import android.util.Log
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.network.SecureHttpClientFactory
+import com.ahu_plus.data.network.awaitResponse
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -27,7 +29,10 @@ class ChaoxingNotificationRepository(
         private const val TAG = "CxNotify"
     }
 
-    private val client: OkHttpClient = SecureHttpClientFactory.create(trustAll = false)
+    private val client: OkHttpClient = SecureHttpClientFactory.create(
+        trustAll = false,
+        retryOnConnectionFailure = false,
+    )
 
     /** 支持的通知服务 */
     enum class Provider(val label: String) {
@@ -99,19 +104,20 @@ class ChaoxingNotificationRepository(
             } else {
                 reqBuilder.get()
             }
-            val resp = client.newCall(reqBuilder.build()).execute()
-            val code = resp.code
-            val respText = resp.body?.string().orEmpty().take(200)
-            resp.close()
-            if (code in 200..299) {
-                Log.i(TAG, "[$provider] 推送成功: $code")
-                Result.success(Unit)
-            } else {
-                Log.w(TAG, "[$provider] 推送失败: $code, $respText")
-                Result.failure(Exception("HTTP $code"))
+            client.newCall(reqBuilder.build()).awaitResponse().use { response ->
+                val code = response.code
+                if (code in 200..299) {
+                    Log.i(TAG, "[$provider] 推送成功: $code")
+                    Result.success(Unit)
+                } else {
+                    Log.w(TAG, "[$provider] 推送失败: HTTP $code, response body omitted")
+                    Result.failure(Exception("HTTP $code"))
+                }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.e(TAG, "[$provider] 推送异常", e)
+            Log.e(TAG, "[$provider] 推送异常" + ": " + e.javaClass.simpleName)
             Result.failure(e)
         }
     }

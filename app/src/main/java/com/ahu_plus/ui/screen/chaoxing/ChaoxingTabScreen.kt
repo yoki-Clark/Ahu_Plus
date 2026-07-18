@@ -93,6 +93,7 @@ import com.ahu_plus.data.model.CxMessageSource
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.ChaoxingColors
 import com.ahu_plus.service.ChaoxingStudyService
+import com.ahu_plus.data.repository.CxAnswerMode
 import com.ahu_plus.util.OverlayWindow
 import kotlinx.coroutines.launch
 
@@ -197,10 +198,10 @@ fun ChaoxingTabScreen(
                 // 2026-06-22: 单课程入口 — Service 后台学习，showStudyScreen 仅显示进度
                 ChaoxingStudyService.start(
                     context = context,
-                    courseIds = listOf(course.courseId),
-                    speed = settingsState.speed,
-                    concurrency = settingsState.concurrency,
-                    autoSubmit = settingsState.submitMode == "auto",
+                    courseKeys = listOf("${course.courseId}_${course.clazzId}"),
+                    speed = 1.0f,
+                    concurrency = 1,
+                    answerMode = CxAnswerMode.fromSetting(settingsState.submitMode),
                     enabledTaskTypes = settingsState.enabledTaskTypes,
                 )
                 showStudyScreen = true
@@ -234,16 +235,16 @@ fun ChaoxingTabScreen(
             onConfirm = {
                 showStudySheet = false
                 val selectedCourses = viewModel.getSelectedCourses()
-                val courseIds = selectedCourses.mapNotNull { it.courseId }
-                if (courseIds.isEmpty()) return@ChaoxingStudySheet
+                val courseKeys = selectedCourses.map { "${it.courseId}_${it.clazzId}" }
+                if (courseKeys.isEmpty()) return@ChaoxingStudySheet
 
                 val startService: () -> Unit = {
                     ChaoxingStudyService.start(
                         context = context,
-                        courseIds = courseIds,
-                        speed = settingsState.speed,
-                        concurrency = settingsState.concurrency,
-                        autoSubmit = settingsState.submitMode == "auto",
+                        courseKeys = courseKeys,
+                        speed = 1.0f,
+                        concurrency = 1,
+                        answerMode = CxAnswerMode.fromSetting(settingsState.submitMode),
                         enabledTaskTypes = settingsState.enabledTaskTypes,
                     )
                     showStudyScreen = true
