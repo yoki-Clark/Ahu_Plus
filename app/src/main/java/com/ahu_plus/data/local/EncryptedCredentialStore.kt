@@ -67,6 +67,9 @@ internal class EncryptedCredentialStore(context: Context) {
         const val PORTAL_SESSION = "portal_session"
         const val JW_SESSION = "jw_session"
         const val JW_PST_SID = "jw_pst_sid"
+        const val JWAPP_USERNAME = "jwapp_username"
+        const val JWAPP_PASSWORD = "jwapp_password"
+        const val JWAPP_TOKEN = "jwapp_token"
         const val ADWMH_SESSION = "adwmh_session"
         const val EVALUATION_JWT = "evaluation_jwt"
         const val MARKET_LEGACY_IDENTITY = "market_legacy_identity"
@@ -99,6 +102,9 @@ internal class EncryptedCredentialStore(context: Context) {
             EVALUATION_JWT,
         )
         val THIRD_PARTY_ACCOUNT_KEYS = setOf(
+            JWAPP_USERNAME,
+            JWAPP_PASSWORD,
+            JWAPP_TOKEN,
             MARKET_LEGACY_IDENTITY,
             MARKET_IDENTITIES,
             CHAOXING_COOKIES,

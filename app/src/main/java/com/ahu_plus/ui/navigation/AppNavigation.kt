@@ -271,6 +271,7 @@ fun AppNavigation(
                     silentLoginViewModel.cancel()
                     coroutineScope.launch {
                         clearAllCookies()
+                        sessionManager.clearJwAppSession()
                         sessionManager.clearAuthData()
                         onAccountDataCleared()
                         hasCredentials = false

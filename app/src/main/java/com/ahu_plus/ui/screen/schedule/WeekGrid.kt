@@ -105,6 +105,8 @@ fun WeekGrid(
     sharedVerScroll: ScrollState? = null,
     paletteConfig: SchedulePaletteConfig = SchedulePaletteConfig(),
     dataStatus: DataSnapshotStatus? = null,
+    /** 学期第 1 周的起始日期；跨学期课表传入后，表头日期不再按今天反推。 */
+    semesterStartDate: LocalDate? = null,
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val backgroundVisuals = CoursePalettes.backgroundVisuals(
@@ -208,8 +210,11 @@ fun WeekGrid(
     }
 
     // 选中周的周一日期(用于头部日期号)。直接按 (selectedWeek - currentWeek) 偏移今天所在周一。
-    val selectedWeekMonday = remember(today, currentWeek, selectedWeek) {
-        computeWeekMonday(selectedWeek, currentWeek, today)
+    val selectedWeekMonday = remember(today, currentWeek, selectedWeek, semesterStartDate) {
+        semesterStartDate
+            ?.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            ?.plusDays((selectedWeek - 1).coerceAtLeast(0) * 7L)
+            ?: computeWeekMonday(selectedWeek, currentWeek, today)
     }
 
     // 注意:左侧"时间列"已上移到 ScheduleScreen 作为固定列(切换周次时不随页面滑动 — 2026-06-25)。
