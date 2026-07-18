@@ -37,6 +37,10 @@ OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT_FILE = os.path.join(OUT_DIR, "我的集市Token.txt")
 QR_FILE = os.path.join(OUT_DIR, "集市身份导入二维码.png")
 DONE_FLAG = os.path.join(OUT_DIR, ".captured")   # run.ps1 轮询此文件判断是否抓到
+TARGET_SEEN_FLAG = os.path.join(OUT_DIR, ".target_seen")
+AUTH_SEEN_FLAG = os.path.join(OUT_DIR, ".auth_seen")
+INVALID_AUTH_FLAG = os.path.join(OUT_DIR, ".invalid_auth_seen")
+TLS_FAILED_FLAG = os.path.join(OUT_DIR, ".tls_failed")
 
 
 def _b64url_decode(seg: str) -> bytes:
@@ -54,6 +58,30 @@ def decode_jwt(token: str):
         return json.loads(_b64url_decode(parts[1]))
     except Exception:
         return None
+
+
+def extract_bearer_jwt(value: str):
+    """提取目标请求中的 Bearer JWT；返回 (规范化 token, payload)。"""
+    if not value or not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if raw.lower().startswith("bearer "):
+        raw = raw[7:].strip()
+    if len(raw.split(".")) != 3:
+        return None
+    payload = decode_jwt(raw)
+    if not isinstance(payload, dict):
+        return None
+    return "Bearer " + raw, payload
+
+
+def _mark(path: str):
+    """只落一个无敏感信息的状态标记，供启动脚本区分失败阶段。"""
+    try:
+        with open(path, "w", encoding="ascii") as f:
+            f.write("ok")
+    except Exception:
+        pass
 
 
 def _copy_clipboard(text: str) -> bool:
@@ -121,29 +149,43 @@ class TokenCatcher:
             host = flow.request.pretty_host
         except Exception:
             return
-        if TARGET_HOST not in host:
+        if host.lower().rstrip(".") != TARGET_HOST:
             return
+
+        _mark(TARGET_SEEN_FLAG)
 
         # 请求头里找 Authorization（大小写不敏感，mitmproxy 的 Headers 已处理）
         auth = flow.request.headers.get("Authorization")
-        if not auth or "ey" not in auth:
+        if not auth:
             return
+        _mark(AUTH_SEEN_FLAG)
 
-        token = auth.strip()
-        if not token.lower().startswith("bearer"):
-            token = "Bearer " + token
-
-        payload = decode_jwt(token)
-        if not payload or "schoolID" not in payload:
-            # 不是我们要的集市 JWT（可能是别的鉴权头），跳过
+        parsed = extract_bearer_jwt(auth)
+        if not parsed:
+            _mark(INVALID_AUTH_FLAG)
             return
+        token, payload = parsed
 
         self.captured = True
         self._on_captured(token, payload)
 
+    def tls_failed_client(self, _data):
+        # allow-hosts 只解密目标域名，因此这里无需记录任何连接详情。
+        _mark(TLS_FAILED_FLAG)
+
     def _on_captured(self, token: str, payload: dict):
-        school = payload.get("school", "未知学校")
-        school_id = payload.get("schoolID", "?")
+        school = (
+            payload.get("school")
+            or payload.get("schoolName")
+            or payload.get("school_name")
+            or "未知学校"
+        )
+        school_id = (
+            payload.get("schoolID")
+            or payload.get("schoolId")
+            or payload.get("school_id")
+            or "?"
+        )
         exp = payload.get("exp")
         exp_str = ""
         if exp:
@@ -190,7 +232,7 @@ addons = [TokenCatcher()]
 
 
 # ---- 无 mitmproxy 时的自检 ----
-if __name__ == "__main__" and not _HAS_MITM:
+if __name__ == "__main__":
     sample = ("Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9."
               "eyJ0ZW5hbnRJZCI6Nywic2Nob29sSUQiOjEwNjgyLCJzY2hvb2wiOiJcdTViODlc"
               "dTVmYmRcdTUzM2JcdTc5ZDFcdTU5MjdcdTViNjYiLCJ1dWlkIjoyMTQ2MTgwNTM1"
@@ -198,6 +240,14 @@ if __name__ == "__main__" and not _HAS_MITM:
     p = decode_jwt(sample)
     assert p and p.get("schoolID") == 10682, p
     assert p.get("school") == "安徽医科大学", p.get("school")
+    parsed = extract_bearer_jwt(sample)
+    assert parsed and parsed[0] == sample
+    assert extract_bearer_jwt("not-a-jwt") is None
+
+    # 学校字段只用于展示，不应阻止目标域名上的合法 JWT 被捕获。
+    generic = ("eyJhbGciOiJSUzI1NiJ9."
+               "eyJ0ZW5hbnRJZCI6NywidXVpZCI6MSwiZXhwIjoxNzg0MzQ4NjM1fQ.sig")
+    assert extract_bearer_jwt(generic)
     uri = build_import_uri(sample)
     assert uri.startswith("ahuplus://market/import?")
     assert "Bearer" not in uri

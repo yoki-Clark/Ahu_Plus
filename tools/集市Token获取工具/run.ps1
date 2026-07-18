@@ -25,9 +25,14 @@ $PyDir       = Join-Path $Root "python"
 $PortablePy  = Join-Path $PyDir "python.exe"   # 便携版路径（兜底用）
 $PyExe       = $PortablePy                      # 实际使用的 python；Ensure-Runtime 可能改指系统 Python
 $Script      = Join-Path $Root "catch_token.py"
+$MemoryScanner = Join-Path $Root "wechat_memory_token.py"
 $DoneFlag    = Join-Path $Root ".captured"
 $TokenFile   = Join-Path $Root "我的集市Token.txt"
 $QrFile      = Join-Path $Root "集市身份导入二维码.png"
+$TargetFlag  = Join-Path $Root ".target_seen"
+$AuthFlag    = Join-Path $Root ".auth_seen"
+$InvalidAuthFlag = Join-Path $Root ".invalid_auth_seen"
+$TlsFailedFlag = Join-Path $Root ".tls_failed"
 $CaDir       = Join-Path ([IO.Path]::GetTempPath()) "AhuPlus-Market-CA-$PID"
 $CertFile    = Join-Path $CaDir "mitmproxy-ca-cert.cer"
 $CertMarker  = Join-Path $Root ".market-ca-thumbprint"
@@ -292,6 +297,26 @@ public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntP
     }catch{}
 }
 
+function Get-WeChatProcesses{
+    return @(Get-Process -Name "Weixin","WeChat","WeChatAppEx" -ErrorAction SilentlyContinue)
+}
+
+function Wait-ProxyReady($process, $seconds = 20){
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while((Get-Date) -lt $deadline){
+        if($process.HasExited){ return $false }
+        $client = New-Object Net.Sockets.TcpClient
+        try{
+            $task = $client.ConnectAsync($ProxyHost, $ProxyPort)
+            if($task.Wait(300) -and $client.Connected){ return $true }
+        }catch{}finally{
+            $client.Dispose()
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    return $false
+}
+
 if($RuntimeSelfTest){
     $candidate = if($RuntimeSelfTestPython){ $RuntimeSelfTestPython } else { Resolve-SystemPython }
     if(-not $candidate){ throw "自检失败：未找到可用的 Python" }
@@ -334,6 +359,7 @@ Write-Host ""
 $savedProxy = $null
 $proxyChanged = $false
 $mitmProcess = $null
+$memoryProcess = $null
 $certProcess = $null
 $installedCertThumbprint = $null
 
@@ -348,43 +374,77 @@ $env:NO_PROXY = "*"; $env:no_proxy = "*"
 
 try{
     Ensure-Runtime
-    Ensure-Cert
 
     # 删旧结果
-    if(Test-Path $DoneFlag){ Remove-Item $DoneFlag -Force }
+    @($DoneFlag,$TargetFlag,$AuthFlag,$InvalidAuthFlag,$TlsFailedFlag) | ForEach-Object {
+        if(Test-Path $_){ Remove-Item -LiteralPath $_ -Force }
+    }
     if(Test-Path $TokenFile){ Remove-Item $TokenFile -Force }
     if(Test-Path $QrFile){ Remove-Item $QrFile -Force }
 
-    # 设代理（先存原状态）
-    $savedProxy = Get-ProxyState
-    Info "开启抓包代理（127.0.0.1:$ProxyPort）…"
-    Set-Proxy "$ProxyHost`:$ProxyPort"
-    $proxyChanged = $true
+    $runningWeChat = Get-WeChatProcesses
+    if($runningWeChat.Count -gt 0){
+        Write-Host ""
+        Ok "检测到已运行的电脑版微信，将直接读取当前小程序登录态。"
+        Write-Host "    不需要退出微信，不修改系统代理，也不会转储微信内存。" -ForegroundColor White
+        Write-Host "    请打开【校园集市 / 赞噢校园集市】并下拉刷新帖子列表。" -ForegroundColor White
+        Write-Host ""
+        Info "正在等待本地身份（最多 5 分钟）…"
 
-    Write-Host ""
-    Ok   "准备就绪！现在请按下面做："
-    Write-Host "    1) 打开【电脑版微信】" -ForegroundColor White
-    Write-Host "    2) 搜索并打开【校园集市 / 赞噢校园集市】小程序" -ForegroundColor White
-    Write-Host "    3) 在小程序里随便点一下，比如下拉刷新帖子列表" -ForegroundColor White
-    Write-Host ""
-    Info "正在等待抓取（最多 5 分钟）… 抓到后会自动提示，无需手动操作。"
-    Write-Host ""
+        $memoryProcess = Start-Process -FilePath $PyExe `
+            -ArgumentList @("`"$MemoryScanner`"","--watch-seconds","300") `
+            -PassThru -NoNewWindow
+        $deadline = (Get-Date).AddMinutes(5)
+        while((Get-Date) -lt $deadline){
+            if(Test-Path $DoneFlag){ Start-Sleep -Milliseconds 800; break }
+            if($memoryProcess.HasExited){ break }
+            Start-Sleep -Milliseconds 600
+        }
+        if($memoryProcess -and -not $memoryProcess.HasExited){ $memoryProcess.Kill() }
+    }else{
+        # 微信尚未运行时保留原代理路径：监听就绪后再让用户打开微信。
+        Ensure-Cert
 
-    # 启动抓包（前台子进程，输出直达本窗口）
-    $mitmArgs = @("$MitmRun","-s","$Script","-p","$ProxyPort",
-                  "--set","confdir=$CaDir","--allow-hosts","^api\.zxs-bbs\.cn$",
-                  "--set","termlog_verbosity=error","--set","flow_detail=0")
-    $mitmProcess = Start-Process -FilePath $PyExe -ArgumentList $mitmArgs -PassThru -NoNewWindow
+        $existingListener = Get-NetTCPConnection -LocalPort $ProxyPort -State Listen -ErrorAction SilentlyContinue
+        if($existingListener){
+            throw "端口 $ProxyPort 已被其他程序占用，请关闭占用程序后重试。"
+        }
 
-    # 轮询 .captured；最多 5 分钟
-    $deadline = (Get-Date).AddMinutes(5)
-    while((Get-Date) -lt $deadline){
-        if(Test-Path $DoneFlag){ Start-Sleep -Milliseconds 800; break }
-        if($mitmProcess.HasExited){ break }
-        Start-Sleep -Milliseconds 600
+        # 先启动并验证监听器，再修改系统代理，避免启动失败时造成短暂断网。
+        $mitmArgs = @("$MitmRun","-s","$Script","-p","$ProxyPort",
+                      "--set","confdir=$CaDir","--allow-hosts","^api\.zxs-bbs\.cn$",
+                      "--set","termlog_verbosity=warn","--set","flow_detail=0")
+        $mitmProcess = Start-Process -FilePath $PyExe -ArgumentList $mitmArgs -PassThru -NoNewWindow
+        if(-not (Wait-ProxyReady $mitmProcess)){
+            $exitDetail = if($mitmProcess.HasExited){ "退出码 $($mitmProcess.ExitCode)" } else { "等待监听超时" }
+            throw "抓包代理启动失败（$exitDetail），请查看窗口中的错误信息。"
+        }
+
+        # 设代理（先存原状态）
+        $savedProxy = Get-ProxyState
+        Info "开启抓包代理（127.0.0.1:$ProxyPort）…"
+        Set-Proxy "$ProxyHost`:$ProxyPort"
+        $proxyChanged = $true
+
+        Write-Host ""
+        Ok   "准备就绪！现在请按下面做："
+        Write-Host "    1) 打开【电脑版微信】" -ForegroundColor White
+        Write-Host "    2) 搜索并打开【校园集市 / 赞噢校园集市】小程序" -ForegroundColor White
+        Write-Host "    3) 在小程序里随便点一下，比如下拉刷新帖子列表" -ForegroundColor White
+        Write-Host ""
+        Info "正在等待抓取（最多 5 分钟）… 抓到后会自动提示，无需手动操作。"
+        Write-Host ""
+
+        # 轮询 .captured；最多 5 分钟
+        $deadline = (Get-Date).AddMinutes(5)
+        while((Get-Date) -lt $deadline){
+            if(Test-Path $DoneFlag){ Start-Sleep -Milliseconds 800; break }
+            if($mitmProcess.HasExited){ break }
+            Start-Sleep -Milliseconds 600
+        }
+
+        if($mitmProcess -and -not $mitmProcess.HasExited){ $mitmProcess.Kill() }
     }
-
-    if($mitmProcess -and -not $mitmProcess.HasExited){ $mitmProcess.Kill() }
 
     Write-Host ""
     if(Test-Path $TokenFile){
@@ -398,10 +458,26 @@ try{
         }
         Ok "也可以回到 App 的【集市设置】，从剪贴板粘贴。"
     }else{
-        Warn "这次没抓到。常见原因："
-        Write-Host "    - 还没在电脑微信里打开集市小程序，或没点任何页面" -ForegroundColor White
-        Write-Host "    - 杀毒软件拦截了代理/证书（请临时放行后重试）" -ForegroundColor White
-        Write-Host "    - 还没登录集市（请先在小程序里完成登录）" -ForegroundColor White
+        if($runningWeChat.Count -gt 0){
+            Warn "已检测到微信，但没有在进程内存中识别到集市身份。"
+            Write-Host "    请确认小程序已登录，并在帖子列表下拉刷新后保持页面打开。" -ForegroundColor White
+            Write-Host "    若安全软件拦截了读取微信进程，请允许本工具后重试。" -ForegroundColor White
+        }elseif(Test-Path $InvalidAuthFlag){
+            Warn "已看到集市请求和鉴权头，但它不是可识别的 JWT。"
+            Write-Host "    集市接口可能调整了身份格式，请保留窗口信息并反馈。" -ForegroundColor White
+        }elseif(Test-Path $AuthFlag){
+            Warn "已看到集市请求和身份字段，但解析没有完成。"
+            Write-Host "    请确认小程序已登录，再重新进入帖子列表刷新。" -ForegroundColor White
+        }elseif(Test-Path $TargetFlag){
+            Warn "已看到集市请求，但请求中没有身份字段。"
+            Write-Host "    请先在小程序完成登录，然后回帖子列表下拉刷新。" -ForegroundColor White
+        }elseif(Test-Path $TlsFailedFlag){
+            Warn "微信连接到了代理，但 HTTPS 证书校验失败。"
+            Write-Host "    请允许安全软件信任临时证书后重试。" -ForegroundColor White
+        }else{
+            Warn "没有任何集市流量进入抓包代理。"
+            Write-Host "    请在已登录的集市帖子列表中下拉刷新一次。" -ForegroundColor White
+        }
         Write-Host ""
         Warn "重新运行本工具再试一次即可。"
     }
@@ -415,6 +491,9 @@ finally{
     if($mitmProcess -and -not $mitmProcess.HasExited){
         $mitmProcess.Kill()
     }
+    if($memoryProcess -and -not $memoryProcess.HasExited){
+        $memoryProcess.Kill()
+    }
     if($certProcess -and -not $certProcess.HasExited){
         $certProcess.Kill()
     }
@@ -427,6 +506,9 @@ finally{
     Remove-InstalledCert
     if(Test-Path $CaDir){
         Remove-Item -LiteralPath $CaDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    @($TargetFlag,$AuthFlag,$InvalidAuthFlag,$TlsFailedFlag) | ForEach-Object {
+        Remove-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue
     }
     Ok "临时证书和抓包私钥已清理。"
     Write-Host ""
