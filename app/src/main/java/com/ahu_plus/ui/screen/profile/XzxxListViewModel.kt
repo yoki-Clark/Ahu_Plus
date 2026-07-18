@@ -71,11 +71,12 @@ class XzxxViewModel(
                 .onSuccess { page ->
                     _uiState.update { previous ->
                         val knownIds = previous.letters.mapTo(hashSetOf()) { it.contentId }
+                        val newLetters = page.letters.filterNot { it.contentId in knownIds }
                         previous.copy(
-                            letters = previous.letters + page.letters.filterNot { it.contentId in knownIds },
+                            letters = previous.letters + newLetters,
                             isLoadingMore = false,
                             currentPage = nextPage,
-                            hasMore = page.hasMore,
+                            hasMore = page.hasMore && newLetters.isNotEmpty(),
                         )
                     }
                 }
