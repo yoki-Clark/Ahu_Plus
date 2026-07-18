@@ -4,9 +4,16 @@ import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.BuildConfig
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.home.AppRegistry
+import com.google.gson.JsonParser
 import java.io.File
+import java.io.InputStreamReader
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import javax.crypto.Cipher
+import javax.net.ssl.SSLContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 enum class DeveloperTestCategory {
@@ -210,6 +218,43 @@ class DeveloperModuleTestRepository(
             check(minutes in 0..1439)
             check(DebugClock.formatMinutes(minutes).matches(Regex("\\d{2}:\\d{2}")))
             if (DebugClock.isFrozen()) "时间覆盖生效中 · ${DebugClock.now()}" else "真实时间 · ${DebugClock.now()}"
+        },
+        definition(
+            id = "local.assets",
+            category = DeveloperTestCategory.LOCAL,
+            title = "核心资源完整性",
+            description = "校验应用图标与超星字体映射资源可读取，并检查映射表结构。",
+            risk = DeveloperTestRisk.LOCAL_ONLY,
+            timeoutMillis = LOCAL_TIMEOUT_MILLIS,
+        ) {
+            withContext(Dispatchers.IO) {
+                val iconHeader = application.assets.open("ahu_plus_icon.png").use { stream ->
+                    ByteArray(PNG_SIGNATURE.size).also { bytes ->
+                        check(stream.read(bytes) == bytes.size) { "应用图标资源不完整" }
+                    }
+                }
+                check(iconHeader.contentEquals(PNG_SIGNATURE)) { "应用图标不是有效 PNG" }
+                val fontMapSize = application.assets.open("font_map_table.json").use { stream ->
+                    InputStreamReader(stream, StandardCharsets.UTF_8).use { reader ->
+                        JsonParser.parseReader(reader).asJsonObject.size()
+                    }
+                }
+                check(fontMapSize >= MIN_FONT_MAP_ENTRIES) { "字体映射条目不足" }
+                "PNG 签名有效 · 字体映射 $fontMapSize 项"
+            }
+        },
+        definition(
+            id = "local.crypto",
+            category = DeveloperTestCategory.LOCAL,
+            title = "加密与 TLS 能力",
+            description = "检查登录、摘要和安大兼容连接依赖的系统加密算法是否可用。",
+            risk = DeveloperTestRisk.LOCAL_ONLY,
+            timeoutMillis = LOCAL_TIMEOUT_MILLIS,
+        ) {
+            Cipher.getInstance("AES/CBC/PKCS5Padding")
+            MessageDigest.getInstance("SHA-256")
+            SSLContext.getInstance("TLSv1.2")
+            "AES/CBC、SHA-256 与 TLS 1.2 均可用"
         },
         definition(
             id = "cas.session",
@@ -481,6 +526,21 @@ class DeveloperModuleTestRepository(
             application.announcementRepository.fetchRemote().getOrThrow()
             countSummary("公告", application.announcementRepository.getAllAnnouncements().size)
         },
+        definition(
+            id = "public.exam_predictions",
+            category = DeveloperTestCategory.PUBLIC_SERVICE,
+            title = "考试预测数据源",
+            description = "读取公开考试预测数据并校验本地解析结果，仅返回记录数量。",
+            risk = DeveloperTestRisk.PUBLIC_READ,
+            timeoutMillis = LONG_NETWORK_TIMEOUT_MILLIS,
+        ) {
+            withContext(Dispatchers.IO) {
+                application.examDataRepository.fetchRemote().getOrThrow()
+                val records = application.examDataRepository.getCachedExams()
+                    ?: error("考试预测缓存未生成")
+                countSummary("考试预测记录", records.size)
+            }
+        },
     )
 
     private fun definition(
@@ -542,5 +602,9 @@ class DeveloperModuleTestRepository(
         private const val LOCAL_TIMEOUT_MILLIS = 5_000L
         private const val NETWORK_TIMEOUT_MILLIS = 45_000L
         private const val LONG_NETWORK_TIMEOUT_MILLIS = 90_000L
+        private const val MIN_FONT_MAP_ENTRIES = 30_000
+        private val PNG_SIGNATURE = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        )
     }
 }

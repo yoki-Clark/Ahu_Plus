@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
@@ -63,6 +65,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -87,9 +91,12 @@ import com.ahu_plus.data.developer.DeveloperNetworkFault
 import com.ahu_plus.data.developer.DeveloperPayloadAnalysis
 import com.ahu_plus.data.developer.DeveloperPayloadType
 import com.ahu_plus.data.developer.DeveloperPreferenceEntry
+import com.ahu_plus.data.developer.DeveloperPreferenceType
 import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.data.developer.NetworkDiagnosticResult
+import com.ahu_plus.data.developer.NetworkDiagnosticUrlRedactor
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuSpacing
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -282,7 +289,8 @@ private fun DeveloperDataContent(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "${summary.entryCount} 项 · ${formatBytes(summary.estimatedBytes)} · ${summary.sensitiveEntryCount} 个敏感项",
+                        "${summary.entryCount} 项 · ${formatBytes(summary.estimatedBytes)} · ${summary.sensitiveEntryCount} 个敏感项 · " +
+                            "JSON ${summary.validJsonCount} 正常 / ${summary.invalidJsonCount} 异常",
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -345,7 +353,7 @@ private fun DeveloperDataContent(
 @Composable
 private fun DataSummaryPill(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(
-        modifier = modifier.height(68.dp),
+        modifier = modifier.heightIn(min = 68.dp),
         shape = AhuShapes.Card,
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
@@ -366,7 +374,11 @@ private fun CacheEntryRow(entry: DeveloperPreferenceEntry, onClick: () -> Unit) 
     Surface(
         shape = AhuShapes.Card,
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.clickable(
+            onClickLabel = "查看 ${entry.keyName} 缓存详情",
+            role = Role.Button,
+            onClick = onClick,
+        ),
     ) {
         ListItem(
             headlineContent = {
@@ -376,7 +388,7 @@ private fun CacheEntryRow(entry: DeveloperPreferenceEntry, onClick: () -> Unit) 
                 Column {
                     Text(entry.summary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(
-                        "${entry.category.displayText()} · ${entry.type} · ${formatBytes(entry.estimatedBytes)}",
+                        "${entry.category.displayText()} · ${entry.type.displayText()} · ${formatBytes(entry.estimatedBytes)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -428,11 +440,11 @@ private fun CacheEntryDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 DetailLine("分类", entry.category.displayText())
-                DetailLine("类型", entry.type.name)
+                DetailLine("类型", entry.type.displayText())
                 DetailLine("估算大小", formatBytes(entry.estimatedBytes))
                 DetailLine("敏感数据", if (entry.sensitive) "是（值已隐藏）" else "否")
                 DetailLine("摘要", entry.summary)
-                DetailLine("JSON 状态", entry.jsonState.name)
+                DetailLine("JSON 状态", entry.jsonState.displayText())
                 entry.jsonRecordCount?.let { DetailLine("JSON 记录数", it.toString()) }
             }
         },
@@ -454,12 +466,46 @@ internal fun DeveloperToolsTab(
     val analysis by viewModel.payloadAnalysis.collectAsState()
     var targetHost by rememberSaveable { mutableStateOf(runtime.targetHost) }
     var latencyMillis by rememberSaveable { mutableFloatStateOf(runtime.latencyMillis.toFloat()) }
+    var selectedFault by rememberSaveable { mutableStateOf(runtime.networkFault) }
+    var confirmAllHosts by remember { mutableStateOf(false) }
     var payload by remember { mutableStateOf("") }
     var uiScenario by rememberSaveable { mutableStateOf(DeveloperUiScenario.NORMAL) }
 
-    LaunchedEffect(runtime.targetHost, runtime.latencyMillis) {
+    LaunchedEffect(runtime.networkFault, runtime.targetHost, runtime.latencyMillis) {
+        selectedFault = runtime.networkFault
         targetHost = runtime.targetHost
         latencyMillis = runtime.latencyMillis.toFloat()
+    }
+
+    val targetError = developerTargetHostError(targetHost)
+    val hasPendingNetworkChanges = selectedFault != runtime.networkFault ||
+        targetHost.trim().lowercase() != runtime.targetHost ||
+        latencyMillis.roundToLong() != runtime.latencyMillis
+
+    fun applyNetworkDraft() {
+        if (selectedFault == DeveloperNetworkFault.NONE) {
+            DeveloperRuntime.resetOverrides()
+        } else {
+            DeveloperRuntime.configureNetworkFault(
+                fault = selectedFault,
+                latencyMillis = latencyMillis.roundToLong(),
+                targetHost = targetHost,
+            )
+        }
+    }
+
+    if (confirmAllHosts) {
+        ConfirmDialog(
+            title = "对全部主机应用故障？",
+            text = "该配置会影响应用内所有统一网络客户端。生效期间，主界面会持续显示警告条并提供一键恢复。",
+            confirmText = "应用",
+            destructive = true,
+            onDismiss = { confirmAllHosts = false },
+            onConfirm = {
+                confirmAllHosts = false
+                applyNetworkDraft()
+            },
+        )
     }
 
     LazyColumn(
@@ -473,34 +519,35 @@ internal fun DeveloperToolsTab(
                 Surface(shape = AhuShapes.Card, color = MaterialTheme.colorScheme.surface) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("场景会作用于统一网络工厂创建的真实业务请求。", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (runtime.hasActiveOverrides) {
+                                "当前生效：${runtime.networkFault.title} · ${runtime.targetHost.ifBlank { "全部主机" }}" +
+                                    if (runtime.networkFault == DeveloperNetworkFault.LATENCY) " · ${runtime.latencyMillis}ms" else ""
+                            } else {
+                                "当前未启用故障覆盖"
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (runtime.hasActiveOverrides) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             DeveloperNetworkFault.entries.forEach { fault ->
                                 FilterChip(
-                                    selected = runtime.networkFault == fault,
-                                    onClick = {
-                                        DeveloperRuntime.configureNetworkFault(
-                                            fault = fault,
-                                            latencyMillis = latencyMillis.roundToLong(),
-                                            targetHost = targetHost,
-                                        )
-                                    },
+                                    selected = selectedFault == fault,
+                                    onClick = { selectedFault = fault },
                                     label = { Text(fault.title) },
                                 )
                             }
                         }
                         OutlinedTextField(
                             value = targetHost,
-                            onValueChange = {
-                                targetHost = it
-                                if (runtime.networkFault != DeveloperNetworkFault.NONE) {
-                                    DeveloperRuntime.configureNetworkFault(runtime.networkFault, latencyMillis.roundToLong(), it)
-                                }
-                            },
+                            onValueChange = { targetHost = it },
                             label = { Text("目标主机（留空为全部）") },
                             placeholder = { Text("例如 jw.ahu.edu.cn") },
+                            isError = targetError != null,
+                            supportingText = targetError?.let { message -> ({ Text(message) }) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -508,18 +555,35 @@ internal fun DeveloperToolsTab(
                         Slider(
                             value = latencyMillis,
                             onValueChange = { latencyMillis = it },
-                            onValueChangeFinished = {
-                                if (runtime.networkFault != DeveloperNetworkFault.NONE) {
-                                    DeveloperRuntime.configureNetworkFault(runtime.networkFault, latencyMillis.roundToLong(), targetHost)
-                                }
-                            },
                             valueRange = 0f..10_000f,
                             steps = 19,
+                            modifier = Modifier.semantics {
+                                stateDescription = "${latencyMillis.roundToLong()} 毫秒"
+                            },
                         )
-                        OutlinedButton(onClick = DeveloperRuntime::resetOverrides) {
-                            Icon(Icons.Filled.Restore, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("恢复正常网络")
+                        Row(horizontalArrangement = Arrangement.spacedBy(AhuSpacing.sm)) {
+                            Button(
+                                onClick = {
+                                    if (selectedFault != DeveloperNetworkFault.NONE && targetHost.isBlank()) {
+                                        confirmAllHosts = true
+                                    } else {
+                                        applyNetworkDraft()
+                                    }
+                                },
+                                enabled = targetError == null && hasPendingNetworkChanges,
+                            ) {
+                                Icon(Icons.Filled.Check, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("应用配置")
+                            }
+                            OutlinedButton(
+                                onClick = DeveloperRuntime::resetOverrides,
+                                enabled = runtime.hasActiveOverrides,
+                            ) {
+                                Icon(Icons.Filled.Restore, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("恢复")
+                            }
                         }
                     }
                 }
@@ -612,12 +676,27 @@ private enum class DeveloperUiScenario(val title: String) {
     NORMAL("正常"), LOADING("加载"), EMPTY("空数据"), ERROR("错误"), STALE("旧缓存"), LONG_TEXT("长文本")
 }
 
+internal fun developerTargetHostError(value: String): String? {
+    val target = value.trim().lowercase()
+    if (target.isEmpty()) return null
+    if (target.length > 253) return "主机名过长"
+    if (target.contains(Regex("[\\s/:?#@]"))) return "仅输入主机名，不要包含协议、端口或路径"
+    val normalized = target.removePrefix("*.")
+    if (normalized.isEmpty()) return "请输入有效主机名"
+    val valid = normalized.split('.').all { label ->
+        label.isNotEmpty() && label.length <= 63 &&
+            !label.startsWith('-') && !label.endsWith('-') &&
+            label.all { it in 'a'..'z' || it in '0'..'9' || it == '-' }
+    }
+    return if (valid) null else "请输入有效主机名，例如 jw.ahu.edu.cn"
+}
+
 @Composable
 private fun UiScenarioPreview(scenario: DeveloperUiScenario) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(150.dp)
+            .heightIn(min = 150.dp)
             .background(MaterialTheme.colorScheme.surfaceVariant, AhuShapes.Card),
         contentAlignment = Alignment.Center,
     ) {
@@ -826,9 +905,24 @@ internal fun DeveloperLogsTab() {
     }
     var level by rememberSaveable { mutableStateOf<DeveloperLogLevel?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
+    var confirmClear by remember { mutableStateOf(false) }
     val filtered = entries.asReversed().filter {
         (level == null || it.level == level) &&
             (query.isBlank() || it.category.contains(query, true) || it.message.contains(query, true) || it.detail.contains(query, true))
+    }
+
+    if (confirmClear) {
+        ConfirmDialog(
+            title = "清空开发者日志？",
+            text = "将清除当前进程记录的 ${entries.size} 条开发者日志。已导出的诊断报告不会受影响。",
+            confirmText = "清空",
+            destructive = true,
+            onDismiss = { confirmClear = false },
+            onConfirm = {
+                confirmClear = false
+                DeveloperEventRecorder.clear()
+            },
+        )
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -845,12 +939,14 @@ internal fun DeveloperLogsTab() {
                 modifier = Modifier.weight(1f),
             )
             IconButton(
+                enabled = filtered.isNotEmpty(),
                 onClick = {
                     val text = filtered.asReversed().joinToString("\n") { it.asExportLine() }
                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AHU+ 开发者日志", text))
+                    android.widget.Toast.makeText(context, "已复制 ${filtered.size} 条日志", android.widget.Toast.LENGTH_SHORT).show()
                 },
             ) { Icon(Icons.Filled.ContentCopy, contentDescription = "复制当前日志") }
-            IconButton(onClick = DeveloperEventRecorder::clear) {
+            IconButton(onClick = { confirmClear = true }, enabled = entries.isNotEmpty()) {
                 Icon(Icons.Filled.Delete, contentDescription = "清空日志")
             }
         }
@@ -865,7 +961,7 @@ internal fun DeveloperLogsTab() {
                 FilterChip(
                     selected = level == item,
                     onClick = { level = item },
-                    label = { Text(item.name) },
+                    label = { Text("${item.name} ${entries.count { it.level == item }}") },
                 )
             }
         }
@@ -910,6 +1006,8 @@ private fun LogEntryRow(entry: DeveloperLogEntry) {
                     entry.detail,
                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -918,6 +1016,10 @@ private fun LogEntryRow(entry: DeveloperLogEntry) {
 
 @Composable
 internal fun NetworkResultDialog(result: NetworkDiagnosticResult, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val clipboard = remember(context) {
+        context.getSystemService(android.content.ClipboardManager::class.java)
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(result.hostSpec.displayName) },
@@ -927,12 +1029,24 @@ internal fun NetworkResultDialog(result: NetworkDiagnosticResult, onDismiss: () 
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 DetailLine("地址", result.hostSpec.redactedUrl)
+                DetailLine("请求方法", result.hostSpec.method.name)
+                DetailLine("开始时间", formatDateTime(result.startedAtEpochMillis))
+                result.completedAtEpochMillis?.let { DetailLine("完成时间", formatDateTime(it)) }
                 DetailLine("总状态", result.status.displayText())
                 DetailLine("总耗时", result.totalDurationMillis?.let { "${it}ms" } ?: "-")
+                DetailLine(
+                    "连接策略",
+                    when {
+                        result.hostSpec.requiresTls12 -> "强制 TLS 1.2"
+                        result.hostSpec.usesAhuCertificateCompatibility -> "安大证书兼容策略"
+                        else -> "系统标准证书校验"
+                    },
+                )
                 DetailLine("DNS", "${result.dns.status.displayText()} · ${result.dns.durationMillis ?: "-"}ms")
                 if (result.dns.addresses.isNotEmpty()) DetailLine("解析地址", result.dns.addresses.joinToString())
                 DetailLine("HTTPS", "${result.http.status.displayText()} · ${result.http.durationMillis ?: "-"}ms")
                 DetailLine("HTTP", "${result.http.httpStatusCode ?: "-"} ${result.http.httpStatusMessage.orEmpty()}")
+                result.http.finalUrl?.let { DetailLine("最终地址", it) }
                 result.http.protocol?.let { DetailLine("协议", it) }
                 result.http.tlsVersion?.let { DetailLine("TLS", it) }
                 result.http.cipherSuite?.let { DetailLine("密码套件", it) }
@@ -946,12 +1060,28 @@ internal fun NetworkResultDialog(result: NetworkDiagnosticResult, onDismiss: () 
                     Text("证书 ${index + 1}", fontWeight = FontWeight.SemiBold)
                     DetailLine("Subject", cert.subject)
                     DetailLine("Issuer", cert.issuer)
+                    DetailLine("序列号", cert.serialNumberHex)
                     DetailLine("SHA-256", cert.sha256Fingerprint)
                     DetailLine("有效期", "${formatDate(cert.validFromEpochMillis)} - ${formatDate(cert.validUntilEpochMillis)}")
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+        confirmButton = {
+            Row {
+                TextButton(
+                    onClick = {
+                        clipboard.setPrimaryClip(
+                            android.content.ClipData.newPlainText(
+                                "AHU+ 网络诊断",
+                                networkResultExportText(result),
+                            ),
+                        )
+                        android.widget.Toast.makeText(context, "已复制诊断结果", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                ) { Text("复制") }
+                TextButton(onClick = onDismiss) { Text("关闭") }
+            }
+        },
     )
 }
 
@@ -1008,6 +1138,23 @@ private fun DeveloperCacheCategory.displayText(): String = when (this) {
     DeveloperCacheCategory.OTHER -> "其他"
 }
 
+private fun DeveloperPreferenceType.displayText(): String = when (this) {
+    DeveloperPreferenceType.STRING -> "文本"
+    DeveloperPreferenceType.BOOLEAN -> "布尔值"
+    DeveloperPreferenceType.INT -> "整数"
+    DeveloperPreferenceType.LONG -> "长整数"
+    DeveloperPreferenceType.FLOAT -> "浮点数"
+    DeveloperPreferenceType.DOUBLE -> "双精度数"
+    DeveloperPreferenceType.STRING_SET -> "文本集合"
+    DeveloperPreferenceType.UNKNOWN -> "未知"
+}
+
+private fun DeveloperJsonState.displayText(): String = when (this) {
+    DeveloperJsonState.VALID -> "有效"
+    DeveloperJsonState.INVALID -> "异常"
+    DeveloperJsonState.NOT_APPLICABLE -> "不适用"
+}
+
 private fun DeveloperMaintenanceCategory.displayText(): String = when (this) {
     DeveloperMaintenanceCategory.NOTIFICATION -> "通知"
     DeveloperMaintenanceCategory.WIDGET -> "Widget"
@@ -1051,6 +1198,23 @@ private fun formatTime(timestampMillis: Long): String =
 
 private fun formatDate(timestampMillis: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(timestampMillis))
+
+private fun formatDateTime(timestampMillis: Long): String =
+    SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date(timestampMillis))
+
+internal fun networkResultExportText(result: NetworkDiagnosticResult): String {
+    val output = buildString {
+        appendLine("${result.hostSpec.displayName} [${result.status}]")
+        appendLine("${result.hostSpec.method} ${result.hostSpec.redactedUrl}")
+        appendLine("started=${result.startedAtEpochMillis} completed=${result.completedAtEpochMillis ?: "-"} total=${result.totalDurationMillis ?: "-"}ms")
+        appendLine("dns=${result.dns.status} ${result.dns.durationMillis ?: "-"}ms ${result.dns.addresses.joinToString()}")
+        appendLine("https=${result.http.status} ${result.http.durationMillis ?: "-"}ms http=${result.http.httpStatusCode ?: "-"}")
+        result.http.finalUrl?.let { appendLine("finalUrl=$it") }
+        result.http.tlsVersion?.let { appendLine("tls=$it protocol=${result.http.protocol.orEmpty()} cipher=${result.http.cipherSuite.orEmpty()}") }
+        result.error?.let { appendLine("error=${it.kind}/${it.type}: ${it.message}") }
+    }
+    return NetworkDiagnosticUrlRedactor.sanitizeDiagnosticText(output)
+}
 
 private fun formatBytes(bytes: Long): String = when {
     bytes < 1_024L -> "$bytes B"

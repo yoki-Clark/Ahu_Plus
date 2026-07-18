@@ -85,6 +85,38 @@ class DeveloperCacheInspectorTest {
     }
 
     @Test
+    fun `free form notes beginning with braces are not treated as json`() {
+        val courseNote = DeveloperCacheInspector.inspectEntry("course_note_MATH1001", "{待补充")
+        val slotNote = DeveloperCacheInspector.inspectEntry("slot_note_12345_3", "[重点内容")
+
+        assertEquals(DeveloperJsonState.NOT_APPLICABLE, courseNote.jsonState)
+        assertEquals(DeveloperJsonState.NOT_APPLICABLE, slotNote.jsonState)
+    }
+
+    @Test
+    fun `declared json keys without json suffix are still validated`() {
+        val valid = DeveloperCacheInspector.inspectEntry("market_block_keywords", "[\"spam\"]")
+        val invalid = DeveloperCacheInspector.inspectEntry("empty_classroom_presets", "not-json")
+
+        assertEquals(DeveloperJsonState.VALID, valid.jsonState)
+        assertEquals(DeveloperJsonState.INVALID, invalid.jsonState)
+    }
+
+    @Test
+    fun `dynamic course identifiers are removed from exports`() {
+        val report = DeveloperCacheInspector.inspect(
+            mapOf("assessment_lesson-secret-2023123456" to "{}"),
+        )
+
+        val text = DeveloperCacheInspector.exportRedactedText(report)
+        val json = DeveloperCacheInspector.exportRedactedJson(report)
+
+        assertFalse(text.contains("lesson-secret-2023123456"))
+        assertFalse(json.contains("lesson-secret-2023123456"))
+        assertTrue(text.contains("assessment_<redacted:"))
+    }
+
+    @Test
     fun `report totals and categories are deterministic`() {
         val report = DeveloperCacheInspector.inspect(
             linkedMapOf(

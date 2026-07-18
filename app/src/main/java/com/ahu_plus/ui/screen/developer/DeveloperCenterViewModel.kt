@@ -24,6 +24,7 @@ import com.ahu_plus.data.developer.NetworkDiagnosticEngine
 import com.ahu_plus.data.developer.NetworkDiagnosticHosts
 import com.ahu_plus.data.developer.NetworkDiagnosticResult
 import com.ahu_plus.data.developer.NetworkDiagnosticRunCoordinator
+import com.ahu_plus.data.developer.NetworkDiagnosticUrlRedactor
 import com.ahu_plus.data.developer.NetworkHostSpec
 import java.time.Instant
 import java.time.ZoneId
@@ -71,6 +72,9 @@ class DeveloperCenterViewModel(
     private val _runningNetworkBatch = MutableStateFlow(false)
     val runningNetworkBatch: StateFlow<Boolean> = _runningNetworkBatch.asStateFlow()
 
+    private val _networkBatchProgress = MutableStateFlow(DeveloperNetworkBatchProgress())
+    val networkBatchProgress: StateFlow<DeveloperNetworkBatchProgress> = _networkBatchProgress.asStateFlow()
+
     private val _payloadAnalysis = MutableStateFlow<DeveloperPayloadAnalysis?>(null)
     val payloadAnalysis: StateFlow<DeveloperPayloadAnalysis?> = _payloadAnalysis.asStateFlow()
 
@@ -115,6 +119,15 @@ class DeveloperCenterViewModel(
 
     fun runAllModuleTests() {
         runModuleTests(moduleRepository.getTests().map { it.id }, "全部测试")
+    }
+
+    fun runSmokeModuleTests() {
+        runModuleTests(
+            moduleRepository.getTests()
+                .filter { it.risk != DeveloperTestRisk.AUTHENTICATED_READ }
+                .map { it.id },
+            "快速体检",
+        )
     }
 
     fun runLocalModuleTests() {
@@ -200,6 +213,7 @@ class DeveloperCenterViewModel(
                 val result = networkEngine.run(hostSpec) { progress ->
                     _networkResults.update { it + (hostSpec.id to progress) }
                 }
+                _networkResults.update { it + (hostSpec.id to result) }
                 DeveloperEventRecorder.record(
                     category = "网络诊断",
                     message = "${result.status.name}：${hostSpec.displayName}",
@@ -225,7 +239,7 @@ class DeveloperCenterViewModel(
     }
 
     fun runNetworkCategory(category: NetworkDiagnosticCategory) {
-        runNetworkBatch(NetworkDiagnosticHosts.forCategory(category))
+        runNetworkBatch(NetworkDiagnosticHosts.forCategory(category), "${category.name} 分类")
     }
 
     fun runCoreNetworkBatch() {
@@ -233,15 +247,21 @@ class DeveloperCenterViewModel(
             it.category == NetworkDiagnosticCategory.AHU ||
                 it.id in setOf("market", "chaoxing_passport", "welearn", "gitee", "weather")
         }
-        runNetworkBatch(specs)
+        runNetworkBatch(specs, "核心主机")
     }
 
-    private fun runNetworkBatch(hosts: List<NetworkHostSpec>) {
+    private fun runNetworkBatch(hosts: List<NetworkHostSpec>, label: String) {
         if (hosts.isEmpty() || !networkRunCoordinator.tryStartBatch()) return
         syncNetworkRunningState()
         networkBatchJob = viewModelScope.launch {
+            _networkBatchProgress.value = DeveloperNetworkBatchProgress(
+                isRunning = true,
+                label = label,
+                total = hosts.size,
+            )
             try {
-                for (host in hosts) {
+                for ((index, host) in hosts.withIndex()) {
+                    _networkBatchProgress.value = _networkBatchProgress.value.copy(currentTitle = host.displayName)
                     networkRunCoordinator.startBatchHost(host.id)
                     syncNetworkRunningState()
                     try {
@@ -249,6 +269,7 @@ class DeveloperCenterViewModel(
                             _networkResults.update { it + (host.id to progress) }
                         }
                         _networkResults.update { it + (host.id to result) }
+                        _networkBatchProgress.value = _networkBatchProgress.value.copy(completed = index + 1)
                     } finally {
                         networkRunCoordinator.finishBatchHost(host.id)
                         syncNetworkRunningState()
@@ -259,6 +280,10 @@ class DeveloperCenterViewModel(
             } finally {
                 networkRunCoordinator.finishBatch()
                 syncNetworkRunningState()
+                _networkBatchProgress.value = _networkBatchProgress.value.copy(
+                    isRunning = false,
+                    currentTitle = null,
+                )
                 networkBatchJob = null
             }
         }
@@ -341,7 +366,7 @@ class DeveloperCenterViewModel(
         val cacheText = cacheRepository.exportRedactedText()
         val runtime = com.ahu_plus.data.developer.DeveloperRuntime.state.value
         val logs = DeveloperEventRecorder.entries.value
-        return buildString {
+        val report = buildString {
             appendLine("Ahu Plus Developer Diagnostic Report")
             appendLine("Generated: ${REPORT_TIME_FORMATTER.format(Instant.now())}")
             appendLine("Network override: ${runtime.networkFault.title}, target=${runtime.targetHost.ifBlank { "all" }}")
@@ -381,6 +406,7 @@ class DeveloperCenterViewModel(
                 appendLine("${it.timestampMillis}\t${it.level}\t${it.category}\t${it.message}\t${it.detail}")
             }
         }
+        return NetworkDiagnosticUrlRedactor.sanitizeDiagnosticText(report)
     }
 
     private fun StringBuilder.appendOverview(
@@ -423,6 +449,17 @@ class DeveloperCenterViewModel(
 }
 
 data class DeveloperModuleBatchProgress(
+    val isRunning: Boolean = false,
+    val label: String = "",
+    val completed: Int = 0,
+    val total: Int = 0,
+    val currentTitle: String? = null,
+) {
+    val fraction: Float
+        get() = if (total <= 0) 0f else (completed.toFloat() / total).coerceIn(0f, 1f)
+}
+
+data class DeveloperNetworkBatchProgress(
     val isRunning: Boolean = false,
     val label: String = "",
     val completed: Int = 0,

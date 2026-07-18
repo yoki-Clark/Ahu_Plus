@@ -7,6 +7,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.Strictness
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.Locale
 
 /**
@@ -88,6 +89,18 @@ object DeveloperCacheInspector {
         "exams",
         "grades",
         "tasks",
+    )
+
+    private val dynamicKeyPrefixes = listOf("course_note_", "slot_note_", "assessment_")
+
+    private val declaredJsonKeyNames = setOf(
+        "market_selected_ids",
+        "market_block_keywords",
+        "market_filter_nodes",
+        "bottom_nav_services",
+        "ai_comment_style_prompts",
+        "favorite_app_ids",
+        "empty_classroom_presets",
     )
 
     fun inspect(values: Map<String, Any>): DeveloperCacheReport {
@@ -227,7 +240,7 @@ object DeveloperCacheInspector {
         appendLine()
         appendLine("Entries:")
         report.entries.forEach { entry ->
-            append(entry.keyName)
+            append(redactExportKeyName(entry.keyName))
             append(" | type=${entry.type.name}")
             append(" | category=${entry.category.name}")
             append(" | estimatedBytes=${entry.estimatedBytes}")
@@ -261,7 +274,7 @@ object DeveloperCacheInspector {
             add("entries", JsonArray().apply {
                 report.entries.forEach { entry ->
                     add(JsonObject().apply {
-                        addProperty("keyName", entry.keyName)
+                        addProperty("keyName", redactExportKeyName(entry.keyName))
                         addProperty("type", entry.type.name)
                         addProperty("estimatedBytes", entry.estimatedBytes)
                         addProperty("summary", entry.summary)
@@ -335,7 +348,7 @@ object DeveloperCacheInspector {
 
     private fun inspectJson(keyName: String, value: String): JsonInspection {
         val trimmed = value.trim()
-        if (!isJsonCandidate(keyName, trimmed)) return JsonInspection.NONE
+        if (!isJsonCandidate(keyName)) return JsonInspection.NONE
 
         return runCatching {
             require(trimmed.isNotEmpty())
@@ -360,10 +373,10 @@ object DeveloperCacheInspector {
             )
     }
 
-    private fun isJsonCandidate(keyName: String, trimmedValue: String): Boolean {
-        if (trimmedValue.startsWith('{') || trimmedValue.startsWith('[')) return true
+    private fun isJsonCandidate(keyName: String): Boolean {
         val key = keyName.lowercase(Locale.ROOT)
-        return containsAny(
+        if (key.startsWith("course_note_") || key.startsWith("slot_note_")) return false
+        return key in declaredJsonKeyNames || key.startsWith("assessment_") || containsAny(
             key,
             "_json",
             "_cache",
@@ -372,6 +385,18 @@ object DeveloperCacheInspector {
             "_locations",
             "_options",
         )
+    }
+
+    private fun redactExportKeyName(keyName: String): String {
+        val normalized = keyName.lowercase(Locale.ROOT)
+        val prefix = dynamicKeyPrefixes.firstOrNull(normalized::startsWith) ?: return keyName
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(keyName.toByteArray(StandardCharsets.UTF_8))
+            .take(6)
+            .joinToString("") { byte ->
+                (byte.toInt() and 0xff).toString(16).padStart(2, '0')
+            }
+        return "${prefix}<redacted:$digest>"
     }
 
     private fun inferRecordCount(element: JsonElement): Int? {
