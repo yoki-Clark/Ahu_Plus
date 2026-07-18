@@ -3,6 +3,8 @@ package com.ahu_plus.data.repository
 import com.ahu_plus.data.local.JwcWafCookie
 import com.ahu_plus.data.local.JwcWafCookieStorage
 import com.ahu_plus.data.model.JwcNotice
+import com.ahu_plus.data.model.JwcNoticeAttachment
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -306,6 +308,38 @@ class JwcNoticeRepositoryTest {
             assertFalse(accepted)
             assertEquals(null, storage.cookie)
             assertFalse(repository.getCookieHeader(server.url("/").toString()).contains("invalid-pass"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `downloadAttachment streams bytes and reports completion`() = runBlocking {
+        val server = MockWebServer()
+        val payload = "attachment-content".toByteArray()
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/octet-stream")
+                .setBody(okio.Buffer().write(payload)),
+        )
+        server.start()
+        try {
+            val now = 1_000_000L
+            val storage = FakeWafCookieStorage(JwcWafCookie("persisted-pass", now + 60_000))
+            val repository = repository(server, storage, now)
+            val output = ByteArrayOutputStream()
+            val progress = mutableListOf<Pair<Long, Long>>()
+            val attachment = JwcNoticeAttachment("test.bin", server.url("/test.bin").toString())
+
+            val copied = repository.downloadAttachment(attachment, output) { downloaded, total ->
+                progress += downloaded to total
+            }.getOrThrow()
+
+            assertEquals(payload.size.toLong(), copied)
+            assertTrue(payload.contentEquals(output.toByteArray()))
+            assertEquals(payload.size.toLong(), progress.last().first)
+            assertEquals(payload.size.toLong(), progress.last().second)
+            assertTrue(server.takeRequest().getHeader("Cookie").orEmpty().contains("persisted-pass"))
         } finally {
             server.shutdown()
         }

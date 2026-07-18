@@ -1,8 +1,10 @@
 package com.ahu_plus.ui.screen.dashboard
 
+import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.local.JwcNoticeCache
 import com.ahu_plus.data.local.JwcWafCookie
 import com.ahu_plus.data.local.JwcWafCookieStorage
+import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.repository.JwcNoticeRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -83,6 +85,36 @@ class JwcNoticeListViewModelTest {
         }
     }
 
+    @Test
+    fun `cached notices stay visible while first page refresh is blocked by waf`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(412))
+        server.start()
+        try {
+            val cached = listOf(JwcNotice("缓存通知", "2026-07-17", "https://example.test/cached"))
+            val repository = JwcNoticeRepository(
+                cookieStorage = InMemoryWafCookieStorage(),
+                baseUrl = server.url("/").toString().trimEnd('/'),
+                clientFactory = { cookieJar -> OkHttpClient.Builder().cookieJar(cookieJar).build() },
+            )
+            val cache = InMemoryJwcNoticeCache(
+                noticesJson = GsonProvider.instance.toJson(cached),
+            )
+            val viewModel = JwcNoticeListViewModel(repository, cache)
+
+            assertEquals(cached, viewModel.uiState.value.notices)
+            viewModel.activate()
+
+            val blocked = withTimeout(5_000) {
+                viewModel.uiState.first { it.wafChallengeUrl != null }
+            }
+            assertEquals(cached, blocked.notices)
+            assertTrue(blocked.isLoading)
+        } finally {
+            server.shutdown()
+        }
+    }
+
     private fun listResponse(): MockResponse = MockResponse().setBody(
         """
         <ul class="news_list clearfix">
@@ -106,8 +138,9 @@ class JwcNoticeListViewModelTest {
         }
     }
 
-    private class InMemoryJwcNoticeCache : JwcNoticeCache {
-        private var noticesJson: String? = null
+    private class InMemoryJwcNoticeCache(
+        private var noticesJson: String? = null,
+    ) : JwcNoticeCache {
         private var detailsJson: String? = null
 
         override fun getJwcNoticeJson(): String? = noticesJson
