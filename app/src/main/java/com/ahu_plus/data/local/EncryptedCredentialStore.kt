@@ -58,6 +58,11 @@ internal class EncryptedCredentialStore(context: Context) {
         }
     }
 
+    fun clearAll() {
+        runCatching { preferences?.edit()?.clear()?.commit() }
+            .onFailure { Log.e(TAG, "Failed to clear encrypted credentials", it) }
+    }
+
     companion object {
         private const val TAG = "CredentialStore"
         private const val FILE_NAME = "ahu_plus_credentials"

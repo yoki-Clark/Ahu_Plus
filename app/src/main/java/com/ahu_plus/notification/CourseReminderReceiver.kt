@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.ahu_plus.MainActivity
 import com.ahu_plus.data.debug.DebugClock
+import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.data.local.SessionManager
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +52,10 @@ class CourseReminderReceiver : BroadcastReceiver() {
     }
 
     private suspend fun handleReminder(appContext: Context, lessonKey: String?) {
+        if (!LegalConsentRepository(AppDataStore(appContext)).hasAcceptedCurrent()) {
+            Log.i(TAG, "未接受当前隐私政策,跳过课程提醒")
+            return
+        }
         ensureChannel(appContext)
 
         val sessionManager = SessionManager(AppDataStore(appContext))

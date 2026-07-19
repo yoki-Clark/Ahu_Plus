@@ -232,6 +232,19 @@ fun HomeScreen(
             )
         }
 
+        if (uiState.adwmhLoginDialogVisible) {
+            AdwmhCaptchaDialog(
+                captchaBytes = uiState.adwmhCaptchaBytes,
+                captchaLoading = uiState.adwmhCaptchaLoading,
+                captchaError = uiState.adwmhCaptchaError,
+                loginLoading = uiState.adwmhLoginLoading,
+                loginError = uiState.adwmhLoginError,
+                onRefresh = viewModel::refreshAdwmhCaptcha,
+                onSubmit = viewModel::submitAdwmhCaptcha,
+                onDismiss = viewModel::dismissAdwmhLogin,
+            )
+        }
+
         // 水电费充值 sheet (2026-06-29 接入)
         DepositSheet(
             state = uiState.depositSheet,

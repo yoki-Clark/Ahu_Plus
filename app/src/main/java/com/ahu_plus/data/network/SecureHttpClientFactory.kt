@@ -94,7 +94,7 @@ object SecureHttpClientFactory {
      * @param connectTimeoutSec / readTimeoutSec 超时秒数
      * @param trustAll 历史参数名。true 表示仅对 *.ahu.edu.cn 启用自签名证书兼容模式,
      *                 兼容安大自签名证书；标准 HTTPS 域名(如 api.zxs-bbs.cn /
-     *                 openahu.org / 集市头像 CDN)必须保持默认值,否则一旦 MITM 接管
+     *                 公共更新源 / 集市头像 CDN)必须保持默认值,否则一旦 MITM 接管
      *                 流量,本工厂创建的所有客户端都会变成开放代理。
      *                 历史背景:本参数曾默认 true,见 2026-06-24 安全审查改为 false。
      * @param tls12Only 是否仅启用 TLS 1.2。adwmh.ahu.edu.cn 的 nginx

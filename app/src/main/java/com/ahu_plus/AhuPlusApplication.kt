@@ -1,12 +1,19 @@
 package com.ahu_plus
 
 import android.app.Application
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.os.Environment
 import android.util.Log
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.JwcWafCookieStore
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.local.XzxxWafCookieStore
+import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.repository.AdwmhCardRepository
 import com.ahu_plus.data.repository.AiCommentRepository
 import com.ahu_plus.data.repository.AssessmentRepository
@@ -48,19 +55,29 @@ import com.ahu_plus.data.repository.UserTaskRepository
 import com.ahu_plus.data.repository.YcardRepository
 import com.ahu_plus.data.repository.XzxxRepository
 import com.ahu_plus.notification.WidgetUpdateScheduler
+import com.ahu_plus.notification.CourseReminderScheduler
+import com.ahu_plus.notification.AgendaReminderScheduler
+import com.ahu_plus.service.ChaoxingStudyService
+import com.ahu_plus.service.WeLearnStudyService
 import com.ahu_plus.util.CxFontDecoder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import org.conscrypt.Conscrypt
+import java.io.File
 import java.security.Security
+import kotlin.coroutines.resume
 
 class AhuPlusApplication : Application() {
     lateinit var appDataStore: AppDataStore
         private set
     lateinit var sessionManager: SessionManager
+        private set
+    lateinit var legalConsentRepository: LegalConsentRepository
         private set
     lateinit var courseNoteRepository: CourseNoteRepository
         private set
@@ -156,6 +173,9 @@ class AhuPlusApplication : Application() {
     lateinit var evaluationRepository: com.ahu_plus.data.repository.EvaluationRepository
         private set
 
+    @Volatile
+    private var postConsentServicesStarted = false
+
     fun restorePersistedRepositoryState() {
         recordRepository.reloadFromSession()
         homeworkRepository.reloadFromSession()
@@ -196,6 +216,7 @@ class AhuPlusApplication : Application() {
 
         // ── 基础存储层 ─────────────────────────────
         appDataStore = AppDataStore(this)
+        legalConsentRepository = LegalConsentRepository(appDataStore)
         sessionManager = SessionManager(appDataStore)
         courseNoteRepository = CourseNoteRepository(appDataStore)
 
@@ -291,12 +312,93 @@ class AhuPlusApplication : Application() {
             sessionManager = sessionManager,
         )
 
-        // ── Widget / 课程提醒统一调度(2026-06-22 借鉴 AHUTong) ──
-        // 首次启动排程,后续每次 scheduleNext 自递归。
-        // 放在 onCreate 末尾确保所有 Repository 都已构造完毕。
-        WidgetUpdateScheduler.scheduleNext(this)
-        WidgetUpdateScheduler.scheduleTicker(this)  // 2026-06-22: 1 分钟 RTC 倒计时刷新
+    }
 
+    @Synchronized
+    fun startPostConsentServices() {
+        if (postConsentServicesStarted) return
+        postConsentServicesStarted = true
+        WidgetUpdateScheduler.scheduleNext(this)
+        WidgetUpdateScheduler.scheduleTicker(this)
+    }
+
+    @Synchronized
+    fun stopPostConsentServices() {
+        WidgetUpdateScheduler.cancel(this)
+        postConsentServicesStarted = false
+    }
+
+    suspend fun withdrawPrivacyConsent() {
+        stopPrivacySensitiveRuntime()
+        legalConsentRepository.withdraw()
+    }
+
+    suspend fun clearAllLocalData() {
+        stopPrivacySensitiveRuntime()
+        sessionManager.clearAll()
+        aiCommentRepository.clearApiKey()
+        clearWebViewData()
+        withContext(Dispatchers.IO) { clearAppOwnedFiles() }
+        // Removing the consent record tears down the current navigation composition, so do it last.
+        appDataStore.clearAllLocalData()
+    }
+
+    private suspend fun stopPrivacySensitiveRuntime() {
+        stopPostConsentServices()
+        CourseReminderScheduler.cancelAll(this, sessionManager)
+        AgendaReminderScheduler.cancelAll(this, sessionManager)
+        stopService(Intent(this, ChaoxingStudyService::class.java))
+        stopService(Intent(this, WeLearnStudyService::class.java))
+        getSystemService(Context.NOTIFICATION_SERVICE)
+            ?.let { it as? NotificationManager }
+            ?.cancelAll()
+        casAuthRepository.clearCookies()
+        jwAuthRepository.clearCookies()
+        jwAppAuthRepository.clearSession()
+        ycardRepository.clearCookies()
+        adwmhCardRepository.clearCookies()
+        attendanceRepository.clearCookies()
+        chaoxingRepository.clearCookies()
+        weLearnAuthRepository.clearCookies()
+        cProgAuthRepository.clearSession()
+    }
+
+    private fun clearAppOwnedFiles() {
+        listOf(cacheDir, externalCacheDir)
+            .filterNotNull()
+            .forEach { it.deleteContents() }
+
+        listOf(
+            File(filesDir, "course_assets"),
+            File(filesDir, "download"),
+            File(filesDir, "downloads"),
+        ).forEach { it.deleteRecursively() }
+
+        getExternalFilesDirs(null)
+            .filterNotNull()
+            .forEach { it.deleteContents() }
+        getExternalFilesDirs(Environment.DIRECTORY_DOWNLOADS)
+            .filterNotNull()
+            .forEach { it.deleteContents() }
+    }
+
+    private suspend fun clearWebViewData() = withContext(Dispatchers.Main) {
+        val cookieManager = CookieManager.getInstance()
+        suspendCancellableCoroutine { continuation ->
+            cookieManager.removeAllCookies {
+                cookieManager.flush()
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+        }
+        WebStorage.getInstance().deleteAllData()
+    }
+
+    private fun File.deleteContents() {
+        listFiles()?.forEach { child ->
+            if (!child.deleteRecursively()) {
+                Log.w("AhuPlusApp", "无法删除应用本地文件: ${child.name}")
+            }
+        }
     }
 
     /**

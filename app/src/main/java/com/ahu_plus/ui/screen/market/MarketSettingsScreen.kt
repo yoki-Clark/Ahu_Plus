@@ -40,12 +40,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -55,8 +58,11 @@ import com.ahu_plus.data.model.AiCommentModel
 import com.ahu_plus.data.model.AiCommentTemplate
 import com.ahu_plus.data.model.MarketIdentity
 import com.ahu_plus.data.remote.market.MarketApi
+import com.ahu_plus.AhuPlusApplication
+import com.ahu_plus.data.legal.LegalRiskAcknowledgement
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,6 +98,35 @@ fun MarketSettingsScreen(
     onSaveAiApiKey: (String) -> Unit = {},
     onClearAiApiKey: () -> Unit = {}
 ) {
+    val app = LocalContext.current.applicationContext as AhuPlusApplication
+    val scope = rememberCoroutineScope()
+    var aiRiskAcknowledged by rememberSaveable { mutableStateOf(false) }
+    var showAiRiskDialog by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        aiRiskAcknowledged = app.legalConsentRepository.hasAcknowledged(LegalRiskAcknowledgement.MARKET_AI)
+    }
+
+    if (showAiRiskDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiRiskDialog = false },
+            title = { Text("启用 AI 评论助手？") },
+            text = {
+                Text("生成时，帖子标题、正文、评论上下文和提示词会直接发送到 DeepSeek。API Key 仅加密保存在本机，生成内容只写入草稿，不会自动发布。DeepSeek 的隐私规则和费用由其服务条款决定。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        app.legalConsentRepository.acknowledge(LegalRiskAcknowledgement.MARKET_AI)
+                        aiRiskAcknowledged = true
+                        showAiRiskDialog = false
+                        onAiCommentEnabledChanged(true)
+                    }
+                }) { Text("了解并启用") }
+            },
+            dismissButton = { TextButton(onClick = { showAiRiskDialog = false }) { Text("取消") } },
+        )
+    }
+
     Scaffold(
         topBar = {
             AhuTopAppBar(
@@ -404,7 +439,10 @@ fun MarketSettingsScreen(
                     title = "启用 AI 一键写评论",
                     description = "生成内容只填入草稿，不会自动发送",
                     checked = aiCommentEnabled,
-                    onCheckedChange = onAiCommentEnabledChanged
+                    onCheckedChange = { enabled ->
+                        if (enabled && !aiRiskAcknowledged) showAiRiskDialog = true
+                        else onAiCommentEnabledChanged(enabled)
+                    }
                 )
             }
             if (aiCommentEnabled) {

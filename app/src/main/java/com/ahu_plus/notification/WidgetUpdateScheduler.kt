@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import com.ahu_plus.data.legal.LegalConsentRepository
+import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.ui.widget.TodayScheduleWidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,27 +40,24 @@ class WidgetUpdateScheduler : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                if (!LegalConsentRepository(AppDataStore(context.applicationContext)).hasAcceptedCurrent()) {
+                    Log.i(TAG, "未接受当前隐私政策,跳过 Widget 调度")
+                    return@launch
+                }
                 TodayScheduleWidgetUpdater.updateAll(context)
-            } catch (e: Exception) {
-                Log.e(TAG, "Widget 更新失败: ${e.message}", e)
-            } finally {
                 if (!isTicker) {
                     // 仅在数据闹钟触发时重排课程提醒
-                    try {
-                        CourseReminderScheduler.scheduleAll(context.applicationContext)
-                        AgendaReminderScheduler.scheduleAll(context.applicationContext)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "课程/日程提醒重排失败: ${e.message}", e)
-                    }
+                    CourseReminderScheduler.scheduleAll(context.applicationContext)
+                    AgendaReminderScheduler.scheduleAll(context.applicationContext)
+                    scheduleNext(context)
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Widget 更新或提醒重排失败: ${e.message}", e)
+            } finally {
                 pendingResult.finish()
             }
         }
 
-        if (!isTicker) {
-            scheduleNext(context)  // 自递归排下一个数据闹钟
-        }
-        // ticker 不需要自递归 — setRepeating 自动重复
     }
 
     companion object {

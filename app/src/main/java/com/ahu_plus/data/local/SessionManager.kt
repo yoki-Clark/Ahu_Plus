@@ -330,7 +330,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     @Volatile private var cachedQrBrightnessBoost: Boolean = false
 
-    @Volatile private var cachedAdwmhConcurrentRetry: Boolean = true
     @Volatile private var cachedCardBalanceAlertEnabled: Boolean = false
     @Volatile private var cachedCardBalanceAlertThreshold: Double = 20.0
     @Volatile private var cachedCardBalanceAlertMode: String = "FIXED"
@@ -840,7 +839,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedQrBrightnessBoost = prefs[QR_BRIGHTNESS_BOOST_KEY] ?: false
 
-        cachedAdwmhConcurrentRetry = prefs[ADWMH_CONCURRENT_RETRY_KEY] ?: true
         cachedCardBalanceAlertEnabled = prefs[CARD_BALANCE_ALERT_ENABLED_KEY] ?: false
         cachedCardBalanceAlertThreshold = prefs[CARD_BALANCE_ALERT_THRESHOLD_KEY] ?: 20.0
         cachedCardBalanceAlertMode = prefs[CARD_BALANCE_ALERT_MODE_KEY] ?: "FIXED"
@@ -2324,16 +2322,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     // \u2500\u2500 \u667A\u6167\u5B89\u5927\u767B\u5F55\u662F\u5426\u542F\u7528\u5E76\u53D1\u91CD\u8BD5\uFF08\u9ED8\u8BA4\u5173\u95ED\uFF09 \u2500\u2500
 
-    fun getAdwmhConcurrentRetry(): Boolean = cachedAdwmhConcurrentRetry
-
-    suspend fun setAdwmhConcurrentRetry(enabled: Boolean) {
-
-        cachedAdwmhConcurrentRetry = enabled
-
-        appDataStore.dataStore.edit { it[ADWMH_CONCURRENT_RETRY_KEY] = enabled }
-
-    }
-
     // ── 内测计划开关(退登保留) ──
 
     /** 用户是否加入内测计划。默认 false。 */
@@ -3685,7 +3673,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     private val QR_BRIGHTNESS_BOOST_KEY = booleanPreferencesKey("qr_brightness_boost")
 
-    private val ADWMH_CONCURRENT_RETRY_KEY = booleanPreferencesKey("adwmh_concurrent_retry")
     private val CARD_BALANCE_ALERT_ENABLED_KEY = booleanPreferencesKey("card_balance_alert_enabled")
     private val CARD_BALANCE_ALERT_THRESHOLD_KEY = doublePreferencesKey("card_balance_alert_threshold")
     private val CARD_BALANCE_ALERT_MODE_KEY = stringPreferencesKey("card_balance_alert_mode")

@@ -13,39 +13,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 
 /**
  * 「启用第三方服务」风险声明确认弹窗。
  *
  * - 列出本次将启用的三个第三方服务 (校园集市 / 超星学习通 / WeLearn)
- * - 明示风险:账号封禁、信息真伪争议、交易纠纷、数据泄露等均由用户承担
- * - 确认按钮带 5 秒倒计时,倒计时归零前 disabled,
- *   强制用户停留 5 秒阅读风险声明,这是设计意图而非 bug
+ * - 明示平台边界、账号风险和按服务单独配置的原则
  */
 @Composable
 fun ThirdPartyEnableDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    // 5 秒倒计时:倒计时期间确认按钮 disabled,文案显示剩余秒数,
-    // 强制让用户停留足够长的时间阅读风险声明
-    var secondsLeft by remember { mutableIntStateOf(5) }
-    LaunchedEffect(Unit) {
-        while (secondsLeft > 0) {
-            delay(1000)
-            secondsLeft--
-        }
-    }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = {
@@ -84,17 +66,16 @@ fun ThirdPartyEnableDialog(
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "⚠ 风险声明",
+                    "使用边界",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "上述三个平台均非安徽大学官方系统。" +
-                        "本应用仅提供技术接入，与第三方平台无任何合作关系。" +
-                        "使用过程中可能产生的账号封禁、信息真伪争议、交易纠纷、" +
-                        "数据泄露等一切后果均由您本人承担，与应用开发者无关。",
+                    "上述平台使用独立账号、身份或会话，并受各自规则约束。" +
+                        "总开关开启后仍需分别启用和登录具体服务；自动学习、交易信息和第三方内容应在对应平台复核。" +
+                        "应用不会以本说明免除依法应承担的个人信息保护和软件安全责任。",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
@@ -102,14 +83,8 @@ fun ThirdPartyEnableDialog(
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                enabled = secondsLeft == 0
             ) {
-                Text(
-                    if (secondsLeft > 0)
-                        "请阅读 ($secondsLeft)"
-                    else
-                        "我已了解并承担风险"
-                )
+                Text("继续启用")
             }
         },
         dismissButton = {

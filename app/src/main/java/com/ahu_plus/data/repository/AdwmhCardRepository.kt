@@ -7,8 +7,6 @@ import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.network.SecureHttpClientFactory
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -19,8 +17,6 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.SocketTimeoutException
@@ -38,8 +34,6 @@ class AdwmhCardRepository(
                 "(KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 " +
                 "NetType/WIFI MicroMessenger/7.0.20.1781 WindowsWechat Flue"
         private const val REQUEST_MIN_GAP_MS = 1_500L
-        private const val RETRY_BACKOFF_BASE_MS = 2_000L
-        private const val RETRY_BACKOFF_MAX_MS = 30_000L
     }
 
     private val gson = GsonProvider.instance
@@ -95,112 +89,58 @@ class AdwmhCardRepository(
         }
     }
 
-    // ── 自动登录（参考 AHUTong 项目）─────────────────────
+    // ── 登录 ─────────────────────────────────────────────
 
     /**
-     * 自动登录智慧安大。
-     * 先用空验证码尝试，失败则获取验证码 → OCR → 重试，最多 5 次。
+     * 后台登录只尝试无需验证码的协议路径。若服务端要求验证码，调用方必须转到
+     * [fetchCaptcha] + [loginWithCaptcha] 的用户手动输入流程。
      */
     suspend fun autoLogin(
         username: String,
         password: String,
-        concurrentRetry: Boolean = false,
         generation: Long = sessionManager.currentAccountGeneration(),
     ): Result<AdwmhLoginInfo> = withContext(Dispatchers.IO) {
-        Log.d(TAG, "autoLogin start (concurrent=$concurrentRetry)")
-        // 先尝试无验证码登录
-        val firstTry = doLogin(username, password, "", generation)
-        Log.d(TAG, "autoLogin firstTry: ${if (firstTry.isSuccess) "OK" else firstTry.exceptionOrNull()?.message}")
-        if (firstTry.isSuccess) return@withContext firstTry
-
-        if (!concurrentRetry) {
-            // 常规模式：单线程顺序 OCR 重试（限制 2 次，减少速率限制风险）
-            val maxRetries = 2
-            repeat(maxRetries) { attempt ->
-                if (attempt > 0) delay(retryBackoffMs(attempt))
-                val captchaBytes = runCatching {
-                    getCaptchaRaw()
-                }.getOrElse { return@repeat }
-
-                val captcha = runCatching {
-                    ocrCaptcha(captchaBytes)
-                }.getOrElse { return@repeat }
-
-                val result = doLogin(username, password, captcha, generation)
-                if (result.isSuccess) return@withContext result
-            }
-            return@withContext Result.failure(AdwmhAuthException("智慧安大登录失败，请稍后重试"))
+        val result = doLogin(username, password, "", generation)
+        if (result.isSuccess) return@withContext result
+        val failure = result.exceptionOrNull()
+        if (!shouldRequestManualAdwmhCaptcha(failure)) {
+            return@withContext result
         }
-
-        // 并发模式已废弃：adwmh 服务器有严格速率限制，并发请求会立即触发限流
-        // 改为单线程重试 2 次（与上面逻辑相同）
-        Log.w(TAG, "concurrentRetry ignored (disabled due to server rate limiting)")
-        val maxRetries = 2
-        repeat(maxRetries) { attempt ->
-            Log.d(TAG, "autoLogin sequential retry ${attempt + 1}/$maxRetries")
-            if (attempt > 0) delay(retryBackoffMs(attempt))
-            val captchaBytes = runCatching {
-                getCaptchaRaw()
-            }.getOrElse { return@repeat }
-
-            val captcha = runCatching {
-                ocrCaptcha(captchaBytes)
-            }.getOrElse { return@repeat }
-
-            val result = doLogin(username, password, captcha, generation)
-            if (result.isSuccess) return@withContext result
-        }
-        Result.failure(AdwmhAuthException("智慧安大登录失败，请稍后重试"))
-    }
-
-    private fun retryBackoffMs(attempt: Int): Long =
-        (RETRY_BACKOFF_BASE_MS * (1L shl attempt.coerceAtMost(4)))
-            .coerceAtMost(RETRY_BACKOFF_MAX_MS)
-
-    /** 获取验证码图片字节。 */
-    private suspend fun getCaptchaRaw(): ByteArray {
-        val request = Request.Builder()
-            .url("https://$HOST/remind/authcode")
-            .header("User-Agent", WECHAT_UA)
-            .header("Accept", "image/webp,image/*,*/*")
-            .header("X-Requested-With", "XMLHttpRequest")
-            .get()
-            .build()
-        return executeThrottled {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw AdwmhAuthException("验证码获取失败")
-                response.body?.bytes() ?: throw AdwmhAuthException("验证码为空")
-            }
-        }
-    }
-
-    /** OCR 识别验证码。POST https://openahu.org/ocr/captcha */
-    private fun ocrCaptcha(imageBytes: ByteArray): String {
-        val mediaType = "image/jpg".toMediaType()
-        val part = MultipartBody.Part.createFormData(
-            "captcha", "img.jpg",
-            imageBytes.toRequestBody(mediaType)
+        Result.failure(
+            AdwmhCaptchaRequiredException("智慧安大需要手动输入验证码")
         )
-        val body = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addPart(part)
-            .build()
-        val request = Request.Builder()
-            .url("https://openahu.org/ocr/captcha")
-            .post(body)
-            .build()
-        // 使用独立 client（不带 cookie）
-        val ocrClient = SecureHttpClientFactory.create()
-        return ocrClient.newCall(request).execute().use { response ->
-            val json = gson.fromJson(
-                response.body?.string().orEmpty(),
-                JsonObject::class.java
-            )
-            val result = json?.get("result")?.asString?.trim()
-                ?: throw AdwmhAuthException("OCR 识别失败")
-            if (result.length !in 3..6) throw AdwmhAuthException("OCR 结果异常: $result")
-            result
+    }
+
+    /** 从智慧安大获取验证码图片；图片只返回给本地 UI 展示。 */
+    suspend fun fetchCaptcha(): Result<ByteArray> = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder()
+                .url("https://$HOST/remind/authcode")
+                .header("User-Agent", WECHAT_UA)
+                .header("Accept", "image/webp,image/*,*/*")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .get()
+                .build()
+            executeThrottled {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) throw AdwmhAuthException("验证码获取失败")
+                    response.body?.bytes() ?: throw AdwmhAuthException("验证码为空")
+                }
+            }
         }
+    }
+
+    suspend fun loginWithCaptcha(
+        username: String,
+        password: String,
+        captcha: String,
+        generation: Long = sessionManager.currentAccountGeneration(),
+    ): Result<AdwmhLoginInfo> {
+        val normalizedCaptcha = captcha.trim()
+        if (normalizedCaptcha.isBlank()) {
+            return Result.failure(AdwmhAuthException("请输入验证码"))
+        }
+        return doLogin(username.trim(), password, normalizedCaptcha, generation)
     }
 
     /** 执行登录 POST /user/login */
@@ -410,4 +350,9 @@ data class AdwmhLoginInfo(
     val unitName: String
 )
 
-class AdwmhAuthException(message: String) : Exception(message)
+open class AdwmhAuthException(message: String) : Exception(message)
+
+class AdwmhCaptchaRequiredException(message: String) : AdwmhAuthException(message)
+
+internal fun shouldRequestManualAdwmhCaptcha(failure: Throwable?): Boolean =
+    failure is AdwmhAuthException && !failure.message.orEmpty().startsWith("登录失败(")

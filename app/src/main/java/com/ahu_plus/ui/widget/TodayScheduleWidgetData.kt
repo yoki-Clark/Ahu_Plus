@@ -2,6 +2,7 @@ package com.ahu_plus.ui.widget
 
 import android.content.Context
 import com.ahu_plus.data.GsonProvider
+import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.jw.CourseDisplayItem
@@ -46,7 +47,19 @@ internal object TodayScheduleWidgetData {
     private val updateFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
 
     suspend fun load(context: Context): TodayScheduleWidgetState {
-        val sessionManager = SessionManager(AppDataStore(context.applicationContext))
+        val appDataStore = AppDataStore(context.applicationContext)
+        if (!LegalConsentRepository(appDataStore).hasAcceptedCurrent()) {
+            return TodayScheduleWidgetState(
+                status = TodayScheduleStatus.NoCache,
+                title = "等待隐私确认",
+                subtitle = "打开安大加后继续",
+                detail = "尚未读取课表数据",
+                todayCount = 0,
+                updatedText = "",
+                upcoming = emptyList(),
+            )
+        }
+        val sessionManager = SessionManager(appDataStore)
         sessionManager.init()
 
         val scheduleJson = sessionManager.getScheduleJson()
