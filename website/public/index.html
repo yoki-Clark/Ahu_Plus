@@ -21,14 +21,15 @@
   <a class="skip-link" href="#main">跳到主要内容</a>
 
   <header class="site-header" data-header>
+    <div class="scroll-progress" data-scroll-progress aria-hidden="true"></div>
     <div class="nav-shell">
       <a class="brand" href="#top" aria-label="安大+ 首页">
         <img src="/assets/app-icon.png" alt="" width="36" height="36">
         <span>安大+</span>
       </a>
       <nav class="desktop-nav" aria-label="主导航">
-        <a href="#features">功能</a>
-        <a href="#privacy">数据安全</a>
+        <a href="#features" data-nav-link="features">功能</a>
+        <a href="#privacy" data-nav-link="privacy">数据安全</a>
       </nav>
       <a class="nav-download" data-download href="https://gitee.com/yao-enqi/Ahu_Plus/releases/download/v2.2.2/app-arm64-v8a-release.apk">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14"/></svg>
@@ -40,11 +41,13 @@
   <main id="main">
     <section class="hero" id="top" aria-labelledby="hero-title">
       <div class="hero-content">
-        <img class="hero-icon" src="/assets/app-icon.png" alt="" width="92" height="92">
-        <p class="eyebrow"><span></span> 为安徽大学校园生活而做</p>
-        <h1 id="hero-title">安大+</h1>
-        <p class="hero-lead">课表、教务、校园卡和学习服务，<br>在一个清晰的 Android 应用里。</p>
-        <div class="hero-actions">
+        <div class="hero-icon-wrap" data-hero-item>
+          <img class="hero-icon" src="/assets/app-icon.png" alt="" width="88" height="88">
+        </div>
+        <p class="eyebrow" data-hero-item><span></span> 为安徽大学校园生活而做 <span></span></p>
+        <h1 id="hero-title" data-hero-item>安大+</h1>
+        <p class="hero-lead" data-hero-item>把课表、教务、校园卡和学习服务，<br>收进一个清晰的 Android 应用。</p>
+        <div class="hero-actions" data-hero-item>
           <a class="button button-primary" data-download href="https://gitee.com/yao-enqi/Ahu_Plus/releases/download/v2.2.2/app-arm64-v8a-release.apk">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14"/></svg>
             下载稳定版
@@ -54,14 +57,28 @@
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
           </a>
         </div>
-        <p class="hero-meta">Android 7.0 及以上 · 免费开源 · 非安徽大学官方产品</p>
+        <p class="hero-meta" data-hero-item>非安徽大学官方产品</p>
+      </div>
+      <div class="hero-facts section-shell" role="group" aria-label="产品特点" data-hero-item>
+        <div class="hero-fact">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3 13h4"/></svg>
+          <span><strong>Android 7.0+</strong><small>覆盖常用设备</small></span>
+        </div>
+        <div class="hero-fact">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 8-4 4 4 4m10-8 4 4-4 4m-3-11-4 14"/></svg>
+          <span><strong>GPL-3.0</strong><small>代码开放可审计</small></span>
+        </div>
+        <div class="hero-fact">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 2.8 8.2 7 10 4.2-1.8 7-5.4 7-10V6l-7-3Zm-3 9 2 2 4-5"/></svg>
+          <span><strong>无广告追踪</strong><small>数据留在设备</small></span>
+        </div>
       </div>
     </section>
 
     <section class="overview section" id="overview" aria-labelledby="overview-title">
       <div class="section-shell overview-grid">
         <div class="section-heading reveal">
-          <p class="section-kicker">少一些切换，多一点从容</p>
+          <p class="section-kicker"><span>01</span> 少一些切换，多一点从容</p>
           <h2 id="overview-title">把每天要看的信息，<br>放在打开应用的第一屏。</h2>
         </div>
         <p class="overview-copy reveal">安大+ 聚合学校门户、教务、一卡通与可选学习平台。启动时先展示本地数据，再在后台刷新；即使校园网络临时波动，也不必面对一片空白。</p>
@@ -77,13 +94,14 @@
     <section class="features section" id="features" aria-labelledby="features-title">
       <div class="section-shell">
         <div class="section-heading centered reveal">
-          <p class="section-kicker">日常所需，一处抵达</p>
+          <p class="section-kicker"><span>02</span> 日常所需，一处抵达</p>
           <h2 id="features-title">从下一节课，到今天的每一笔消费</h2>
           <p>围绕真实校园流程组织功能，而不是再造一个入口迷宫。</p>
         </div>
 
         <div class="feature-grid">
           <article class="feature-item reveal">
+            <span class="feature-number" aria-hidden="true">01</span>
             <div class="feature-icon blue">
               <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 3v3m12-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"/></svg>
             </div>
@@ -95,6 +113,7 @@
           </article>
 
           <article class="feature-item reveal">
+            <span class="feature-number" aria-hidden="true">02</span>
             <div class="feature-icon green">
               <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16v11H4zM4 10h16M16 15h1"/></svg>
             </div>
@@ -104,6 +123,7 @@
           </article>
 
           <article class="feature-item reveal">
+            <span class="feature-number" aria-hidden="true">03</span>
             <div class="feature-icon orange">
               <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19V8l8-4 8 4v11M8 19v-5h8v5M9 9h.01M15 9h.01"/></svg>
             </div>
@@ -113,6 +133,7 @@
           </article>
 
           <article class="feature-item reveal">
+            <span class="feature-number" aria-hidden="true">04</span>
             <div class="feature-icon violet">
               <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m4 6 8-3 8 3-8 3-8-3Zm3 3v5c3 2 7 2 10 0V9M20 7v7"/></svg>
             </div>
@@ -127,22 +148,22 @@
     <section class="privacy section" id="privacy" aria-labelledby="privacy-title">
       <div class="section-shell privacy-layout">
         <div class="privacy-copy reveal">
-          <p class="section-kicker">数据边界清清楚楚</p>
+          <p class="section-kicker"><span>03</span> 数据边界清清楚楚</p>
           <h2 id="privacy-title">你的校园数据，<br>应当由你掌握。</h2>
           <p>账号、密码、Cookie 与 Token 使用 Android Keystore 支持的加密存储；普通偏好和业务缓存保存在设备本地。应用禁用系统备份，也不会为了“方便”退回明文保存敏感信息。</p>
-          <ul class="privacy-points">
-            <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>不开设广告画像与第三方追踪</li>
-            <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>有缓存时，临时网络错误不清空旧数据</li>
-            <li><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>账号退出与全部数据清理边界分离</li>
-          </ul>
         </div>
+        <ol class="privacy-points reveal">
+          <li><span>01</span><div><strong>不做广告画像</strong><p>不开设第三方广告追踪，不用校园数据换取推荐流量。</p></div></li>
+          <li><span>02</span><div><strong>缓存不会因断网消失</strong><p>网络刷新失败时保留已有数据，避免临时波动变成空白页面。</p></div></li>
+          <li><span>03</span><div><strong>清理边界可以选择</strong><p>账号退出与全部数据清理分离，减少误删设置和课程备注。</p></div></li>
+        </ol>
       </div>
     </section>
 
     <section class="download section" id="download" aria-labelledby="download-title">
       <div class="section-shell download-layout">
         <div class="download-copy reveal">
-          <p class="section-kicker light">现在开始</p>
+          <p class="section-kicker light"><span>04</span> 现在开始</p>
           <h2 id="download-title">把校园生活，<br>装进一处。</h2>
           <p>适用于 Android 7.0 及以上设备。安装前请确认下载文件来自本站或项目代码仓库。</p>
         </div>
@@ -150,8 +171,8 @@
           <div class="release-row">
             <img src="/assets/app-icon.png" alt="安大+ 应用图标" width="64" height="64">
             <div>
-              <strong>安大+</strong>
-              <span><b data-version>v2.2.2</b> · 稳定版 · <b data-size>7.8 MB</b></span>
+              <div class="release-title"><strong>安大+</strong><span>稳定版</span></div>
+              <span>版本 <b data-version>v2.2.2</b> · <b data-size>7.8 MB</b></span>
             </div>
           </div>
           <a class="download-button" data-download href="https://gitee.com/yao-enqi/Ahu_Plus/releases/download/v2.2.2/app-arm64-v8a-release.apk">
