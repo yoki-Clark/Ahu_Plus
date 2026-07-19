@@ -65,12 +65,15 @@ tools/exam_prediction/cache_daily.jsonl
 *.html
 *.csv
 !tools/exam_prediction/output_*.csv
+!website/
+!website/**
 
 # ── git 重写历史时的临时备份目录 ──────────────────────
 .git.backup-*/
 
 # ── 截图与导出 ────────────────────────────────────────────
 *.png
+!website/**/*.png
 tools/_cap*.png
 
 # ── 根目录临时探针/调试产物(grep _tmp / _probe / _plan.* / _tp_) ──
