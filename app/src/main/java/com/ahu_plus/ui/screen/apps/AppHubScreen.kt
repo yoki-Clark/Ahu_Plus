@@ -1,34 +1,38 @@
 package com.ahu_plus.ui.screen.apps
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.ui.Alignment
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,20 +46,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.home.AppRegistry
 import com.ahu_plus.data.local.SessionManager
 import kotlinx.coroutines.launch
-import com.ahu_plus.ui.components.AhuIconBox
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuBlue
 import com.ahu_plus.ui.theme.AhuOrange
 import com.ahu_plus.ui.theme.AhuViolet
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
 import com.ahu_plus.ui.components.AhuSectionTitle
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.CenteredMessage
@@ -203,7 +211,7 @@ fun AppHubScreen(
 
     var currentPage by rememberSaveable { mutableStateOf<String?>(null) }
     var analyticsFromBills by rememberSaveable { mutableStateOf(false) }
-    val hubListState = rememberLazyListState()
+    val hubGridState = rememberLazyGridState()
 
     LaunchedEffect(requestedAppKey) {
         val appKey = requestedAppKey ?: return@LaunchedEffect
@@ -504,7 +512,7 @@ fun AppHubScreen(
             onRefresh = attendanceViewModel::refreshAttendance
         )
         else -> AppHubPage(
-            listState = hubListState,
+            gridState = hubGridState,
             marketEnabled = marketInAppHub,
             chaoxingEnabled = chaoxingInAppHub,
             welearnEnabled = welearnInAppHub,
@@ -526,7 +534,7 @@ fun AppHubScreen(
 
 @Composable
 private fun AppHubPage(
-    listState: androidx.compose.foundation.lazy.LazyListState,
+    gridState: LazyGridState,
     marketEnabled: Boolean,
     chaoxingEnabled: Boolean,
     welearnEnabled: Boolean,
@@ -593,122 +601,180 @@ private fun AppHubPage(
             )
         }
     ) { innerPadding ->
-        LazyColumn(
-            state = listState,
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            state = gridState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp)
+                .padding(innerPadding),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 8.dp,
+                end = 16.dp,
+                bottom = 24.dp,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (hasMatchingService) {
-                item(key = "header:third-party") {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    AhuSectionTitle(text = "第三方服务")
-                    Spacer(modifier = Modifier.height(4.dp))
+                item(
+                    key = "header:third-party",
+                    span = { GridItemSpan(maxLineSpan) },
+                ) {
+                    AppHubSectionTitle("第三方服务")
                 }
                 if (marketEnabled && serviceMatches("集市")) {
                     item(key = "service:market") {
-                        AppHubItem("集市", Icons.Filled.Storefront, AhuOrange, onClick = onOpenMarket)
+                        AppHubItem(
+                            title = "集市",
+                            icon = Icons.Filled.Storefront,
+                            iconColor = AhuOrange,
+                            onClick = onOpenMarket,
+                        )
                     }
                 }
                 if (chaoxingEnabled && serviceMatches("学习通")) {
                     item(key = "service:chaoxing") {
-                        AppHubItem("学习通", Icons.Filled.School, AhuViolet, onClick = onOpenChaoxing)
+                        AppHubItem(
+                            title = "学习通",
+                            icon = Icons.Filled.School,
+                            iconColor = AhuViolet,
+                            onClick = onOpenChaoxing,
+                        )
                     }
                 }
                 if (welearnEnabled && serviceMatches("WeLearn")) {
                     item(key = "service:welearn") {
-                        AppHubItem("WeLearn", Icons.AutoMirrored.Filled.LibraryBooks, AhuBlue, onClick = onOpenWelearn)
+                        AppHubItem(
+                            title = "WeLearn",
+                            icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                            iconColor = AhuBlue,
+                            onClick = onOpenWelearn,
+                        )
                     }
                 }
             }
 
             groupedApps.forEach { (group, specs) ->
-                item(key = "header:$group") {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    AhuSectionTitle(text = group)
-                    Spacer(modifier = Modifier.height(4.dp))
+                item(
+                    key = "header:$group",
+                    span = { GridItemSpan(maxLineSpan) },
+                ) {
+                    AppHubSectionTitle(group)
                 }
                 items(items = specs, key = { it.key }) { spec ->
                     AppHubItem(
                         title = spec.title,
                         icon = spec.icon,
                         iconColor = spec.tint,
-                        gradient = spec.gradient,
                         onClick = { onNavigate(spec.key) },
                     )
                 }
             }
 
             if (groupedApps.isEmpty() && !hasMatchingService) {
-                item(key = "empty-search") {
-                    CenteredMessage("没有找到相关应用")
+                item(
+                    key = "empty-search",
+                    span = { GridItemSpan(maxLineSpan) },
+                ) {
+                    CenteredMessage(
+                        text = "没有找到相关应用",
+                        modifier = Modifier.height(160.dp),
+                    )
                 }
             }
-
-            item { Spacer(modifier = Modifier.height(24.dp)) }
         }
     }
 }
 
-// ── Shared item component ─────────────────────────────────────────
+// ── Grid components ───────────────────────────────────────────────
+
+@Composable
+private fun AppHubSectionTitle(title: String) {
+    AhuSectionTitle(
+        text = title,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+}
 
 @Composable
 private fun AppHubItem(
     title: String,
     icon: ImageVector,
     iconColor: Color,
-    gradient: Brush? = null,
     onClick: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        ListItem(
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(84.dp),
+        shape = AhuShapes.Card,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        shadowElevation = 1.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+        ),
+    ) {
+        Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick),
-            headlineContent = {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            },
-            leadingContent = {
-                if (gradient != null) {
-                    // 一级入口：渐变图标盒
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(AhuShapes.IconBox)
-                            .background(gradient),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                } else {
-                    AhuIconBox(
-                        imageVector = icon,
-                        tint = iconColor,
-                        size = 38.dp,
-                    )
-                }
-            },
-            trailingContent = {
-                Icon(
-                    imageVector = Icons.Filled.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-            }
-        )
-        HorizontalDivider(
-            modifier = Modifier.padding(start = 62.dp),
-            thickness = 0.5.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AppHubIcon(
+                icon = icon,
+                iconColor = iconColor,
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AppHubIcon(
+    icon: ImageVector,
+    iconColor: Color,
+) {
+    val background = Brush.linearGradient(
+        colors = listOf(
+            lerp(iconColor, Color.White, 0.12f),
+            lerp(iconColor, Color.Black, 0.08f),
+        ),
+    )
+
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .shadow(
+                elevation = 2.dp,
+                shape = AhuShapes.IconBox,
+            )
+            .clip(AhuShapes.IconBox)
+            .background(background)
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.22f),
+                shape = AhuShapes.IconBox,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(24.dp),
         )
     }
 }
