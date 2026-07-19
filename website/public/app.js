@@ -57,13 +57,93 @@ function setupHashCopy() {
   });
 }
 
-function setupHeader() {
+function setupScrollUi() {
   const header = document.querySelector("[data-header]");
-  const update = () => header.classList.toggle("scrolled", window.scrollY > 24);
+  const progress = document.querySelector("[data-scroll-progress]");
+  let scheduled = false;
+
+  const update = () => {
+    const scrollRange = document.documentElement.scrollHeight - window.innerHeight;
+    const ratio = scrollRange > 0 ? Math.min(window.scrollY / scrollRange, 1) : 0;
+    header.classList.toggle("scrolled", window.scrollY > 24);
+    progress.style.transform = `scaleX(${ratio})`;
+    scheduled = false;
+  };
+
+  const scheduleUpdate = () => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(update);
+  };
+
   update();
-  window.addEventListener("scroll", update, { passive: true });
+  window.addEventListener("scroll", scheduleUpdate, { passive: true });
+  window.addEventListener("resize", scheduleUpdate, { passive: true });
+}
+
+function setupSectionNavigation() {
+  const links = new Map(
+    [...document.querySelectorAll("[data-nav-link]")].map((link) => [link.dataset.navLink, link])
+  );
+  const sections = [...links.keys()]
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      links.forEach((link, id) => {
+        if (id === entry.target.id) link.setAttribute("aria-current", "true");
+        else link.removeAttribute("aria-current");
+      });
+    });
+  }, { rootMargin: "-30% 0px -60%", threshold: 0 });
+
+  sections.forEach((section) => observer.observe(section));
+}
+
+function setupMotion() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (typeof Element.prototype.animate !== "function") return;
+
+  const heroItems = document.querySelectorAll("[data-hero-item]");
+  heroItems.forEach((item, index) => {
+    item.animate(
+      [
+        { opacity: 0, transform: "translateY(16px)" },
+        { opacity: 1, transform: "translateY(0)" }
+      ],
+      {
+        duration: 560,
+        delay: 90 + index * 85,
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+        fill: "backwards"
+      }
+    );
+  });
+
+  const revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      entry.target.animate(
+        [
+          { opacity: 0, transform: "translateY(22px)" },
+          { opacity: 1, transform: "translateY(0)" }
+        ],
+        {
+          duration: 620,
+          easing: "cubic-bezier(0.22, 1, 0.36, 1)"
+        }
+      );
+      revealObserver.unobserve(entry.target);
+    });
+  }, { threshold: 0.12 });
+
+  document.querySelectorAll(".reveal").forEach((item) => revealObserver.observe(item));
 }
 
 loadRelease();
 setupHashCopy();
-setupHeader();
+setupScrollUi();
+setupSectionNavigation();
+setupMotion();
