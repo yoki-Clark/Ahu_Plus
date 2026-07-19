@@ -116,6 +116,7 @@
 | 天气 | `WeatherRepository.kt`、`data/weather/`、`ui/screen/weather/` |
 | 开发者公告 | `AnnouncementRepository.kt`、`data/announcement/AnnouncementManager.kt` |
 | 应用升级 | `data/update/UpdateManager.kt`、`ui/components/UpdateDialog.kt` |
+| 隐私与法律 | `data/legal/LegalConsentRepository.kt`、`data/legal/LegalContent.kt`、`ui/screen/legal/LegalScreens.kt` |
 | 开发者诊断 | `data/developer/`、`ui/screen/developer/` |
 
 ## 通知、Widget 与平台组件

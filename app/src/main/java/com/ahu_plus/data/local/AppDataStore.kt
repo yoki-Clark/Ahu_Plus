@@ -43,6 +43,16 @@ class AppDataStore(context: Context) {
     /** 暴露原始 DataStore,供 SessionManager 沿用其原有 key 体系 */
     val dataStore: DataStore<Preferences> get() = ds
 
+    suspend fun clearAllLocalData() {
+        ds.edit { preferences ->
+            @Suppress("UNCHECKED_CAST")
+            preferences.asMap().keys.forEach { key ->
+                preferences.remove(key as Preferences.Key<Any>)
+            }
+        }
+        credentialStore.clearAll()
+    }
+
     // ── 课程备注 (跨节次共享,按 courseCode 聚合) ─────────
 
     /** 观察某门课的备注 (默认空字符串) */

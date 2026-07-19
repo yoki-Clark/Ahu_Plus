@@ -6,6 +6,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.ahu_plus.data.legal.LegalConsentRepository
+import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.ui.widget.TodayScheduleWidgetReceiver
 import com.ahu_plus.ui.widget.TodayScheduleWidgetUpdater
 import kotlinx.coroutines.CoroutineScope
@@ -36,22 +38,20 @@ class BootReceiver : BroadcastReceiver() {
         if (!isRelevant) {
             return
         }
-        Log.i(TAG, "onReceive: $action, 重新调度 widget + 课程提醒")
-
         val appContext = context.applicationContext
-        WidgetUpdateScheduler.scheduleNext(appContext)
-        WidgetUpdateScheduler.scheduleTicker(appContext)  // 2026-06-22: 重启后重设 1 分钟倒计时刷新
-
-        val appWidgetManager = AppWidgetManager.getInstance(appContext)
-        val widgetComponent = ComponentName(appContext, TodayScheduleWidgetReceiver::class.java)
-        val hasWidgets = appWidgetManager.getAppWidgetIds(widgetComponent).isNotEmpty()
-
-        // goAsync() 保活:onReceive 返回后系统可能立刻回收进程,
-        // 用 pendingResult 撑到 suspend 工作(scheduleAll / widget 刷新)全部完成再 finish。
-        // 不能用 GlobalScope(fire-and-forget,进程被杀协程即断)。
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                if (!LegalConsentRepository(AppDataStore(appContext)).hasAcceptedCurrent()) {
+                    Log.i(TAG, "未接受当前隐私政策,跳过开机重排")
+                    return@launch
+                }
+                Log.i(TAG, "onReceive: $action, 重新调度 widget + 课程提醒")
+                WidgetUpdateScheduler.scheduleNext(appContext)
+                WidgetUpdateScheduler.scheduleTicker(appContext)
+                val appWidgetManager = AppWidgetManager.getInstance(appContext)
+                val widgetComponent = ComponentName(appContext, TodayScheduleWidgetReceiver::class.java)
+                val hasWidgets = appWidgetManager.getAppWidgetIds(widgetComponent).isNotEmpty()
                 CourseReminderScheduler.scheduleAll(appContext)
                 AgendaReminderScheduler.scheduleAll(appContext)
                 if (hasWidgets) {

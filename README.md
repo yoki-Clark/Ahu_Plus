@@ -141,6 +141,7 @@ app/src/main/java/com/ahu_plus/
 ## 本地数据
 
 - 普通设置和业务缓存保存在 `ahu_plus_prefs` DataStore。
+- 首次联网前需确认内置《隐私政策》和《免责声明与使用须知》；可在“我的 -> 关于”随时查看、撤回同意或清除全部本地数据。
 - 账号、密码、会话、Bearer token 和 API key 保存在 Android Keystore 支持的 `EncryptedSharedPreferences`。
 - 启动时会迁移旧版 DataStore 中的明文敏感键；加密存储不可用时，敏感值只保留在当前进程内，不回退明文持久化。
 - 退出校园账号会清理校园账号数据、JWApp、学习通、WeLearn 和 CProg 账号会话；集市身份、普通设置和课程备注保留。“清除全部数据”路径会移除全部可清理凭据和缓存。

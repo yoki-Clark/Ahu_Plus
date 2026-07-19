@@ -46,7 +46,7 @@ class AiCommentRepository(
     }
 
     fun clearApiKey() {
-        secrets.edit().remove(API_KEY).apply()
+        secrets.edit().remove(API_KEY).commit()
     }
 
     suspend fun generateComment(

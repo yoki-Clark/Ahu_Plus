@@ -28,6 +28,10 @@ import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeveloperMode
+import androidx.compose.material.icons.filled.Gavel
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -67,7 +71,10 @@ import com.ahu_plus.R
 import com.ahu_plus.data.developer.DeveloperTapUnlocker
 import com.ahu_plus.data.developer.DeveloperTimePasswordValidator
 import com.ahu_plus.data.model.CheckResult
+import com.ahu_plus.data.legal.LegalDocumentKind
 import com.ahu_plus.ui.screen.developer.DeveloperCenterScreen
+import com.ahu_plus.ui.screen.legal.LegalDataManagementScreen
+import com.ahu_plus.ui.screen.legal.LegalDocumentScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -163,6 +170,30 @@ fun AboutScreen(
             BackHandler { subPage = AboutSubPage.NONE }
             OpenSourceLicensesScreen(onBack = { subPage = AboutSubPage.NONE })
         }
+        AboutSubPage.PRIVACY_POLICY -> {
+            BackHandler { subPage = AboutSubPage.NONE }
+            LegalDocumentScreen(LegalDocumentKind.PRIVACY_POLICY) { subPage = AboutSubPage.NONE }
+        }
+        AboutSubPage.DISCLAIMER -> {
+            BackHandler { subPage = AboutSubPage.NONE }
+            LegalDocumentScreen(LegalDocumentKind.DISCLAIMER) { subPage = AboutSubPage.NONE }
+        }
+        AboutSubPage.THIRD_PARTY_SERVICES -> {
+            BackHandler { subPage = AboutSubPage.NONE }
+            LegalDocumentScreen(LegalDocumentKind.THIRD_PARTY_SERVICES) { subPage = AboutSubPage.NONE }
+        }
+        AboutSubPage.PERMISSIONS -> {
+            BackHandler { subPage = AboutSubPage.NONE }
+            LegalDocumentScreen(LegalDocumentKind.PERMISSIONS) { subPage = AboutSubPage.NONE }
+        }
+        AboutSubPage.DATA_MANAGEMENT -> {
+            BackHandler { subPage = AboutSubPage.NONE }
+            LegalDataManagementScreen(
+                onBack = { subPage = AboutSubPage.NONE },
+                onWithdraw = { scope.launch { app.withdrawPrivacyConsent() } },
+                onClearAll = { scope.launch { app.clearAllLocalData() } },
+            )
+        }
         AboutSubPage.DEVELOPER_CENTER -> {
             BackHandler { subPage = AboutSubPage.NONE }
             DeveloperCenterScreen(onBack = { subPage = AboutSubPage.NONE })
@@ -249,6 +280,46 @@ fun AboutScreen(
                             iconColor = Color(0xFF00B894),
                             icon = { Icon(Icons.Filled.QuestionAnswer, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.FAQ }
+                        )
+                        HorizontalDivider()
+                        SettingsRow(
+                            title = "隐私政策",
+                            description = "了解个人信息处理、存储与用户权利",
+                            iconColor = Color(0xFF2F80ED),
+                            icon = { Icon(Icons.Filled.Policy, contentDescription = null) },
+                            onClick = { subPage = AboutSubPage.PRIVACY_POLICY },
+                        )
+                        HorizontalDivider()
+                        SettingsRow(
+                            title = "免责声明与使用须知",
+                            description = "非官方性质、数据和高风险功能边界",
+                            iconColor = Color(0xFF6D4C41),
+                            icon = { Icon(Icons.Filled.Gavel, contentDescription = null) },
+                            onClick = { subPage = AboutSubPage.DISCLAIMER },
+                        )
+                        HorizontalDivider()
+                        SettingsRow(
+                            title = "第三方服务清单",
+                            description = "查看数据接收方、用途和信息类型",
+                            iconColor = Color(0xFF00897B),
+                            icon = { Icon(Icons.Filled.Hub, contentDescription = null) },
+                            onClick = { subPage = AboutSubPage.THIRD_PARTY_SERVICES },
+                        )
+                        HorizontalDivider()
+                        SettingsRow(
+                            title = "权限使用说明",
+                            description = "相机、位置、日历、通知等权限用途",
+                            iconColor = Color(0xFF5E35B1),
+                            icon = { Icon(Icons.Filled.Security, contentDescription = null) },
+                            onClick = { subPage = AboutSubPage.PERMISSIONS },
+                        )
+                        HorizontalDivider()
+                        SettingsRow(
+                            title = "个人数据管理",
+                            description = "撤回同意或清除全部本地数据",
+                            iconColor = Color(0xFF455A64),
+                            icon = { Icon(Icons.Filled.Security, contentDescription = null) },
+                            onClick = { subPage = AboutSubPage.DATA_MANAGEMENT },
                         )
                         HorizontalDivider()
                         SettingsRow(
@@ -347,6 +418,11 @@ private enum class AboutSubPage {
     GUIDE,
     FAQ,
     OPEN_SOURCE_LICENSES,
+    PRIVACY_POLICY,
+    DISCLAIMER,
+    THIRD_PARTY_SERVICES,
+    PERMISSIONS,
+    DATA_MANAGEMENT,
     DEVELOPER_CENTER,
 }
 

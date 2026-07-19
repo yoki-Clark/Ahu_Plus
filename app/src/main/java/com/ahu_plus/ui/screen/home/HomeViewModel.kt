@@ -19,6 +19,7 @@ import com.ahu_plus.data.model.InternetBalanceData
 import com.ahu_plus.data.model.InternetBillRecord
 import com.ahu_plus.data.model.StudentInfo
 import com.ahu_plus.data.repository.AdwmhCardRepository
+import com.ahu_plus.data.repository.AdwmhCaptchaRequiredException
 import com.ahu_plus.data.repository.AdwmhLoginInfo
 import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.data.repository.CardRepository
@@ -72,6 +73,10 @@ class HomeViewModel(
     private var buildingCatalog: FeeItemBuildingCatalog? = null
     private var qrRefreshJob: Job? = null
     private var qrLoadJob: Job? = null
+    private var adwmhCaptchaJob: Job? = null
+    private var adwmhLoginJob: Job? = null
+    private var adwmhCaptchaRequestId = 0L
+    private var adwmhLoginRequestId = 0L
     private var visible = false
 
     init {
@@ -1226,7 +1231,6 @@ class HomeViewModel(
                     if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
                         val loginResult = qrRepository.autoLogin(
                             username, password,
-                            concurrentRetry = false  // 速率限制下禁用并发重试
                         )
                         if (loginResult.isSuccess) {
                             qrConsecutiveFailures = 0
@@ -1253,6 +1257,9 @@ class HomeViewModel(
                                 )
                             }
                             retryQr.getOrNull()?.let { persistQr(it) }
+                            return@withContext
+                        } else if (loginResult.exceptionOrNull() is AdwmhCaptchaRequiredException) {
+                            requestAdwmhCaptcha(loginResult.exceptionOrNull()?.message)
                             return@withContext
                         }
                     }
@@ -1284,17 +1291,21 @@ class HomeViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(qrLoading = true, qrError = null) }
             withContext(Dispatchers.IO) {
-                qrRepository.autoLogin(username, password, sessionManager.getAdwmhConcurrentRetry()).fold(
+                qrRepository.autoLogin(username, password).fold(
                     onSuccess = {
                         // 登录成功 → 加载 QR 码
                         loadCampusQrCode()
                     },
                     onFailure = { e ->
-                        _uiState.update {
-                            it.copy(
-                                qrLoading = false,
-                                qrError = e.message ?: "智慧安大登录失败"
-                            )
+                        if (e is AdwmhCaptchaRequiredException) {
+                            requestAdwmhCaptcha(e.message)
+                        } else {
+                            _uiState.update {
+                                it.copy(
+                                    qrLoading = false,
+                                    qrError = e.message ?: "智慧安大登录失败"
+                                )
+                            }
                         }
                     }
                 )
@@ -1304,18 +1315,117 @@ class HomeViewModel(
 
     fun hasAdwmhSession(): Boolean = adwmhCardRepository?.hasSession() ?: false
 
+    private fun requestAdwmhCaptcha(reason: String? = null) {
+        val repository = adwmhCardRepository ?: return
+        adwmhCaptchaJob?.cancel()
+        val requestId = ++adwmhCaptchaRequestId
+        _uiState.update {
+            it.copy(
+                adwmhLoginDialogVisible = true,
+                adwmhCaptchaBytes = null,
+                adwmhCaptchaLoading = true,
+                adwmhCaptchaError = null,
+                adwmhLoginError = reason,
+                qrLoading = false,
+            )
+        }
+        adwmhCaptchaJob = viewModelScope.launch(Dispatchers.IO) {
+            repository.fetchCaptcha().fold(
+                onSuccess = { bytes ->
+                    if (requestId != adwmhCaptchaRequestId) return@fold
+                    _uiState.update { state ->
+                        if (!state.adwmhLoginDialogVisible) state else state.copy(
+                            adwmhCaptchaBytes = bytes,
+                            adwmhCaptchaLoading = false,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    if (requestId != adwmhCaptchaRequestId) return@fold
+                    _uiState.update { state ->
+                        if (!state.adwmhLoginDialogVisible) state else state.copy(
+                            adwmhCaptchaBytes = null,
+                            adwmhCaptchaLoading = false,
+                            adwmhCaptchaError = error.message ?: "验证码获取失败",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun refreshAdwmhCaptcha() {
+        requestAdwmhCaptcha()
+    }
+
+    fun submitAdwmhCaptcha(captcha: String) {
+        val repository = adwmhCardRepository ?: return
+        val username = sessionManager.getUsername()
+        val password = sessionManager.getPassword()
+        if (username.isNullOrBlank() || password.isNullOrBlank()) {
+            _uiState.update { it.copy(adwmhLoginError = "请先完成统一身份认证") }
+            return
+        }
+        adwmhCaptchaJob?.cancel()
+        adwmhCaptchaRequestId++
+        adwmhLoginJob?.cancel()
+        val requestId = ++adwmhLoginRequestId
+        adwmhLoginJob = viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(adwmhLoginLoading = true, adwmhLoginError = null) }
+            repository.loginWithCaptcha(username, password, captcha).fold(
+                onSuccess = { info ->
+                    if (requestId != adwmhLoginRequestId) return@fold
+                    _uiState.update {
+                        it.copy(
+                            adwmhLoginDialogVisible = false,
+                            adwmhCaptchaBytes = null,
+                            adwmhLoginLoading = false,
+                            adwmhLoginError = null,
+                            adwmhLoginInfo = info,
+                        )
+                    }
+                    loadCampusQrCode()
+                },
+                onFailure = { error ->
+                    if (requestId != adwmhLoginRequestId) return@fold
+                    _uiState.update {
+                        it.copy(
+                            adwmhLoginLoading = false,
+                            adwmhLoginError = error.message ?: "验证码或账号信息错误",
+                        )
+                    }
+                    requestAdwmhCaptcha(error.message)
+                },
+            )
+        }
+    }
+
+    fun dismissAdwmhLogin() {
+        adwmhCaptchaJob?.cancel()
+        adwmhLoginJob?.cancel()
+        adwmhCaptchaRequestId++
+        adwmhLoginRequestId++
+        _uiState.update {
+            it.copy(
+                adwmhLoginDialogVisible = false,
+                adwmhCaptchaBytes = null,
+                adwmhCaptchaLoading = false,
+                adwmhCaptchaError = null,
+                adwmhLoginLoading = false,
+                adwmhLoginError = null,
+            )
+        }
+    }
+
     /** 读取设置：是否在支付码界面自动调高亮度 */
     fun getQrBrightnessBoost(): Boolean = sessionManager.getQrBrightnessBoost()
 
-    /** 读取设置：智慧安大登录是否启用并发重试 */
-    fun getAdwmhConcurrentRetry(): Boolean = sessionManager.getAdwmhConcurrentRetry()
     fun getCardBalanceAlertEnabled(): Boolean = sessionManager.getCardBalanceAlertEnabled()
     fun getCardBalanceAlertThreshold(): Double = sessionManager.getCardBalanceAlertThreshold()
     fun getCardBalanceAlertMode(): String = sessionManager.getCardBalanceAlertMode()
     fun getCardBalanceAlertLookbackDays(): Int = sessionManager.getCardBalanceAlertLookbackDays()
 
     fun setQrBrightnessBoost(enabled: Boolean) { viewModelScope.launch { sessionManager.setQrBrightnessBoost(enabled) } }
-    fun setAdwmhConcurrentRetry(enabled: Boolean) { viewModelScope.launch { sessionManager.setAdwmhConcurrentRetry(enabled) } }
     fun setCardBalanceAlertEnabled(enabled: Boolean) {
         viewModelScope.launch { sessionManager.setCardBalanceAlertEnabled(enabled) }
     }
@@ -1724,6 +1834,7 @@ data class HomeUiState(
     /** 当前展示码的获取距今秒数,用于"X 秒前"文案。 */
     val qrAgeSeconds: Int = 0,
     // 智慧安大登录态
+    val adwmhLoginDialogVisible: Boolean = false,
     val adwmhCaptchaBytes: ByteArray? = null,
     val adwmhCaptchaLoading: Boolean = false,
     val adwmhCaptchaError: String? = null,

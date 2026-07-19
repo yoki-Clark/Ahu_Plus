@@ -129,6 +129,7 @@ import com.ahu_plus.ui.screen.home.ElectricityBalanceCard
 import com.ahu_plus.ui.screen.home.ElectricityBillRange
 import com.ahu_plus.ui.screen.home.ElectricityState
 import com.ahu_plus.ui.screen.home.HomeViewModel
+import com.ahu_plus.ui.screen.home.AdwmhCaptchaDialog
 import com.ahu_plus.ui.screen.home.ElectricityTarget
 import com.ahu_plus.ui.screen.home.InternetBalanceCard
 import com.ahu_plus.ui.screen.home.QrCodeFullScreenDialog
@@ -404,8 +405,6 @@ fun ProfileScreen(
             onThemeModeChange = onThemeModeChange,
             qrBrightnessBoost = cardViewModel.getQrBrightnessBoost(),
             onQrBrightnessBoostChanged = cardViewModel::setQrBrightnessBoost,
-            adwmhConcurrentRetry = cardViewModel.getAdwmhConcurrentRetry(),
-            onAdwmhConcurrentRetryChanged = cardViewModel::setAdwmhConcurrentRetry,
             cardBalanceAlertEnabled = cardViewModel.getCardBalanceAlertEnabled(),
             cardBalanceAlertThreshold = cardViewModel.getCardBalanceAlertThreshold(),
             cardBalanceAlertMode = CardBalanceAlertMode.fromStored(cardViewModel.getCardBalanceAlertMode()),
@@ -570,6 +569,18 @@ fun ProfileScreen(
             onRefresh = { cardViewModel.loadCampusQrCode() }
         )
     }
+    if (cardUiState.adwmhLoginDialogVisible) {
+        AdwmhCaptchaDialog(
+            captchaBytes = cardUiState.adwmhCaptchaBytes,
+            captchaLoading = cardUiState.adwmhCaptchaLoading,
+            captchaError = cardUiState.adwmhCaptchaError,
+            loginLoading = cardUiState.adwmhLoginLoading,
+            loginError = cardUiState.adwmhLoginError,
+            onRefresh = cardViewModel::refreshAdwmhCaptcha,
+            onSubmit = cardViewModel::submitAdwmhCaptcha,
+            onDismiss = cardViewModel::dismissAdwmhLogin,
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -646,7 +657,7 @@ private fun ProfileHomeScreen(
         "登录后查看校园账户与个人数据"
     }
     var showLogoutConfirm by rememberSaveable { mutableStateOf(false) }
-    // 第三方服务 parent 启用前的 5s 风险声明弹窗 (子开关不需要二次确认)
+    // 第三方服务总开关启用前说明平台与数据边界，子开关仍由用户分别选择。
     var showThirdPartyDialog by rememberSaveable { mutableStateOf(false) }
     var unpinnedServiceName by rememberSaveable { mutableStateOf<String?>(null) }
     var showDeveloperContact by rememberSaveable { mutableStateOf(false) }
