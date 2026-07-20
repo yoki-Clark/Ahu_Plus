@@ -1,11 +1,3 @@
-const fallbackRelease = {
-  version: "2.2.2",
-  fileSize: 8158167,
-  sha256: "601A157A0A4F9608899B09D12E54C40D3941E6423273961BA5FA303A3242B409",
-  downloadUrl: "https://gitee.com/yao-enqi/Ahu_Plus/releases/download/v2.2.2/app-arm64-v8a-release.apk",
-  publishedAt: "2026-07-07T20:00:00+08:00"
-};
-
 const formatBytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 function renderRelease(release) {
@@ -27,6 +19,18 @@ function renderRelease(release) {
   document.querySelector("[data-copy-hash]").dataset.fullHash = release.sha256;
 }
 
+function renderReleaseUnavailable() {
+  document.querySelector("[data-version]").textContent = "暂不可用";
+  document.querySelector("[data-size]").textContent = "--";
+  document.querySelector("[data-hash]").textContent = "SHA-256 暂不可用";
+  document.querySelector("[data-release-status]").textContent = "发布信息暂时不可用，请稍后重试。";
+  document.querySelector("[data-copy-hash]").dataset.fullHash = "";
+  document.querySelectorAll("[data-download]").forEach((link) => {
+    link.removeAttribute("href");
+    link.setAttribute("aria-disabled", "true");
+  });
+}
+
 async function loadRelease() {
   try {
     const response = await fetch("/release.json", { cache: "no-store" });
@@ -34,7 +38,7 @@ async function loadRelease() {
     const release = await response.json();
     renderRelease(release);
   } catch {
-    renderRelease(fallbackRelease);
+    renderReleaseUnavailable();
   }
 }
 
@@ -44,7 +48,14 @@ function setupHashCopy() {
   let timer;
 
   button.addEventListener("click", async () => {
-    const hash = button.dataset.fullHash || fallbackRelease.sha256;
+    const hash = button.dataset.fullHash;
+    if (!hash) {
+      toast.textContent = "校验值暂不可用";
+      toast.classList.add("show");
+      clearTimeout(timer);
+      timer = setTimeout(() => toast.classList.remove("show"), 1800);
+      return;
+    }
     try {
       await navigator.clipboard.writeText(hash);
       toast.textContent = "已复制 SHA-256";

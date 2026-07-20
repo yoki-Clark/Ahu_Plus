@@ -74,7 +74,11 @@ class DeveloperOverviewRepository(
     }
 
     private fun deviceInfo(): List<DeveloperStatusItem> {
-        val webView = runCatching { WebView.getCurrentWebViewPackage()?.versionName }.getOrNull()
+        val webView = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            runCatching { WebView.getCurrentWebViewPackage()?.versionName }.getOrNull()
+        } else {
+            null
+        }
         return listOf(
             info("model", "设备", "${Build.MANUFACTURER} ${Build.MODEL}"),
             info("android", "Android", "${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}"),
