@@ -2,6 +2,7 @@ package com.ahu_plus
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -18,6 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.ahu_plus.data.legal.LegalGateState
+import com.ahu_plus.data.remote.market.MarketApi
+import com.ahu_plus.data.remote.market.MarketImportRequest
 import com.ahu_plus.ui.components.AnnouncementDialog
 import com.ahu_plus.ui.components.UpdateDialog
 import com.ahu_plus.ui.navigation.AppNavigation
@@ -49,11 +52,7 @@ class MainActivity : ComponentActivity() {
         /** 深链到 WeLearn Tab */
         const val DEEP_LINK_WELEARN = "welearn"
 
-        private fun deepLinkFrom(intent: Intent?): String? {
-            return intent?.dataString?.takeIf {
-                it.startsWith("ahuplus://market/import", ignoreCase = true)
-            } ?: intent?.getStringExtra(EXTRA_DEEP_LINK)
-        }
+        private fun deepLinkFrom(intent: Intent?): String? = intent?.getStringExtra(EXTRA_DEEP_LINK)
     }
 
     /**
@@ -61,11 +60,31 @@ class MainActivity : ComponentActivity() {
      * [onNewIntent] 更新。MainScreen 消费后回调置空,避免重复跳转。
      */
     private var deepLink by mutableStateOf<String?>(null)
+    private var marketImportRequest by mutableStateOf<MarketImportRequest?>(null)
+
+    private fun consumeLegacyMarketImport(intent: Intent?): MarketImportRequest? {
+        val raw = intent?.dataString?.takeIf {
+            it.startsWith(MarketApi.IMPORT_URI_PREFIX, ignoreCase = true)
+        } ?: return null
+
+        // The v1 URI contains a long-lived token. Remove it from the Activity intent
+        // immediately so it is not retained or forwarded through navigation state.
+        intent.data = null
+        return MarketApi.parseLegacyImportUri(raw).fold(
+            onSuccess = { it },
+            onFailure = {
+                Toast.makeText(this, it.message ?: "无法识别集市身份导入链接", Toast.LENGTH_LONG).show()
+                null
+            },
+        )
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        marketImportRequest = consumeLegacyMarketImport(intent)
         deepLink = deepLinkFrom(intent)
+        setIntent(intent)
         val app = application as AhuPlusApplication
         setContent {
             val themeMode by app.sessionManager.themeModeFlow.collectAsStateWithLifecycle(
@@ -135,6 +154,8 @@ class MainActivity : ComponentActivity() {
                             initMessageFlow = app.initMessageFlow,
                             deepLink = deepLink,
                             onDeepLinkConsumed = { deepLink = null },
+                            marketImportRequest = marketImportRequest,
+                            onMarketImportConsumed = { marketImportRequest = null },
                             onSessionInitialized = app::restorePersistedRepositoryState,
                             onAccountDataCleared = app::clearAccountScopedRepositoryState,
                         )
@@ -174,7 +195,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         // App 已在前台/后台栈顶被通知再次拉起(FLAG_ACTIVITY_CLEAR_TOP):
         // 更新当前 intent 并刷新 deepLink,触发 MainScreen 重新跳转。
+        val importRequest = consumeLegacyMarketImport(intent)
         setIntent(intent)
+        if (importRequest != null) marketImportRequest = importRequest
         deepLinkFrom(intent)?.let { deepLink = it }
     }
 }

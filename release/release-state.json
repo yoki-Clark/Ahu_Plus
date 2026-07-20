@@ -10,8 +10,8 @@
     ]
   },
   "build": {
-    "versionName": "2.2.2.8",
-    "versionCode": 32
+    "versionName": "2.2.2.9",
+    "versionCode": 33
   },
   "candidate": {
     "channel": "beta",
@@ -20,9 +20,10 @@
     "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
     "apkFileName": "ahu_plus_beta.apk",
     "releaseNotes": [
-      "发布安全：正式签名缺失或不匹配时，Release 构建会安全失败。",
-      "工程门禁：新增 JVM 测试、Android Lint、Debug 构建和敏感信息检查。",
-      "发布校验：版本、包名、签名、ABI、文件大小和 SHA-256 由 dry-run 自动核对。"
+      "集市身份导入改为 App 内专用二维码，旧深链仅保留一版安全兼容。",
+      "学习通与 WeLearn 后台作业新增互斥、持久终态、取消和系统中断恢复提示。",
+      "今日课表 Widget 改为数据、午夜和课程节点驱动，不再使用每分钟闹钟。",
+      "收紧校园 TLS 例外并统一脱敏日志与本地诊断记录。"
     ],
     "forceUpdate": false,
     "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus"

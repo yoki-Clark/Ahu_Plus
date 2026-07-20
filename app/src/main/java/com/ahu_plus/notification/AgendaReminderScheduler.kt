@@ -4,7 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.AppDataStore

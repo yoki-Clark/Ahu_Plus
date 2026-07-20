@@ -104,7 +104,7 @@ fun ShareSheet(onDismiss: () -> Unit) {
                     FileOutputStream(apkFile).use { out -> input.copyTo(out) }
                 }
                 response.close()
-                android.util.Log.d("ShareSheet", "APK 下载成功: ${apkFile.length()} bytes")
+                com.ahu_plus.data.diagnostic.SafeLog.d("ShareSheet", "APK 下载成功: ${apkFile.length()} bytes")
 
                 // 3. 分享
                 val uri = FileProvider.getUriForFile(

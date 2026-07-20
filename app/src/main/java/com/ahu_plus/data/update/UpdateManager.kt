@@ -7,7 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.core.content.FileProvider
 import androidx.core.content.pm.PackageInfoCompat
 import com.google.gson.Gson

@@ -1,7 +1,7 @@
 package com.ahu_plus.ui.screen.home
 
 import android.app.Application
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock

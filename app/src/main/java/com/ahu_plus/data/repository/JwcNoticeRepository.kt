@@ -42,7 +42,7 @@ class JwcNoticeRepository(
             cookieJar = cookieJar,
             followRedirects = true,
             disableGzip = false,
-            trustAll = true,
+            tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf("jwc.ahu.edu.cn")),
         )
     },
     private val nowMillis: () -> Long = System::currentTimeMillis,

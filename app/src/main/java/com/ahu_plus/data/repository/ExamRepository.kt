@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.model.jw.Exam
 import com.ahu_plus.data.network.SecureHttpClientFactory
 import okhttp3.OkHttpClient
@@ -54,7 +54,7 @@ class ExamRepository(
         cookieJar = jwAuthRepository.jwCookieJar,
         followRedirects = false,
         disableGzip = false,
-        trustAll = true,  // jw.ahu.edu.cn 自签名证书
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf("jw.ahu.edu.cn")),
         extraInterceptors = listOf(
             okhttp3.Interceptor { chain ->
                 val req = chain.request().newBuilder()
@@ -99,7 +99,7 @@ class ExamRepository(
                     throw Exception("考试安排返回空响应")
                 }
                 val exams = parseExamHtml(body)
-                Log.i(TAG, "考试安排解析完成: ${exams.size} 条 (studentId=$studentId)")
+                Log.i(TAG, "考试安排解析完成: ${exams.size} 条")
                 Result.success(exams)
             }
         } catch (e: Exception) {

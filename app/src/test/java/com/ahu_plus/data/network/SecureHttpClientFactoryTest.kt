@@ -42,27 +42,46 @@ class SecureHttpClientFactoryTest {
     }
 
     @Test
-    fun `create with trustAll=true creates the AHU compatibility client`() {
-        val client = SecureHttpClientFactory.create(trustAll = true)
+    fun `legacy campus policy creates compatibility client`() {
+        val client = SecureHttpClientFactory.create(
+            tlsPolicy = TlsPolicy.LegacyCampusHosts(setOf("one.ahu.edu.cn"))
+        )
         // 验证 client 配置了自定义 SSL — 连接超时存在即说明 builder 正常工作
         assertEquals(15_000, client.connectTimeoutMillis)
     }
 
     @Test
     fun `ahu compatibility mode accepts AHU subdomains and rejects other hosts`() {
-        val client = SecureHttpClientFactory.create(trustAll = true)
+        val client = SecureHttpClientFactory.create(
+            tlsPolicy = TlsPolicy.LegacyCampusHosts(setOf("one.ahu.edu.cn"))
+        )
 
         assertFalse(client.hostnameVerifier.verify("attacker.example", null))
-        assertTrue(client.hostnameVerifier.verify("ahu.edu.cn", null))
         assertTrue(client.hostnameVerifier.verify("one.ahu.edu.cn", null))
-        assertTrue(client.hostnameVerifier.verify("new-api.ahu.edu.cn", null))
+        assertFalse(client.hostnameVerifier.verify("new-api.ahu.edu.cn", null))
     }
 
     @Test
-    fun `create with trustAll=false uses system trust store`() {
-        val client = SecureHttpClientFactory.create(trustAll = false)
+    fun `default policy uses system trust store`() {
+        val client = SecureHttpClientFactory.create()
         // 验证 client 正常创建,无自定义 SSL socket factory
         assertEquals(15_000, client.connectTimeoutMillis)
+    }
+
+    @Test
+    fun `legacy campus policy rejects public wildcard and empty hosts`() {
+        assertTrue(runCatching { TlsPolicy.LegacyCampusHosts(emptySet()) }.isFailure)
+        assertTrue(runCatching { TlsPolicy.LegacyCampusHosts(setOf("api.zxs-bbs.cn")) }.isFailure)
+        assertTrue(runCatching { TlsPolicy.LegacyCampusHosts(setOf("*.ahu.edu.cn")) }.isFailure)
+    }
+
+    @Test
+    fun `system tls12 policy limits TLS without enabling legacy verifier`() {
+        val client = SecureHttpClientFactory.create(tlsPolicy = TlsPolicy.SystemTls12Only)
+
+        assertTrue(client.connectionSpecs.any { spec ->
+            spec.tlsVersions?.map { it.javaName } == listOf("TLSv1.2")
+        })
     }
 
     /** 测试用的最小 CookieJar 实现,只覆盖 add/load 两个场景 */

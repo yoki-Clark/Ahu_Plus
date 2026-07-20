@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -134,7 +134,6 @@ class ChaoxingRepository(
         cookieJar = cookieJar,
         followRedirects = true,
         retryOnConnectionFailure = false,
-        trustAll = false,  // 超星用标准 HTTPS 证书
         connectTimeoutSec = 20,
         readTimeoutSec = 30,
         extraInterceptors = listOf(
@@ -2645,7 +2644,6 @@ class ChaoxingRepository(
                 cookieJar = cookieJar,
                 followRedirects = true,
                 retryOnConnectionFailure = false,
-                trustAll = false,
                 connectTimeoutSec = 30,
                 readTimeoutSec = 60,
                 extraInterceptors = listOf(

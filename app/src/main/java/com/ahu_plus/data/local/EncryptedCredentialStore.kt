@@ -2,7 +2,7 @@ package com.ahu_plus.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 

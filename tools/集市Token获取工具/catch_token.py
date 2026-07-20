@@ -6,7 +6,7 @@
   校园集市小程序（api.zxs-bbs.cn）登录后，之后的每个 API 请求都会带上
   请求头 `Authorization: Bearer <JWT>`。本脚本挂在 mitmproxy 上，
   只要用户在电脑微信里打开集市小程序并随便点一下（刷新帖子列表即可），
-  就能抓到这个头，解码出学校名 / 有效期，写入文件并复制到剪贴板。
+  就能抓到这个头，解码出学校名 / 有效期，并在本机生成专用导入二维码。
 
   不依赖“抓登录那一刻”——只要当前是登录状态，点任意页面都能抓到，
   比等登录响应可靠得多。
@@ -17,10 +17,8 @@
 import json
 import base64
 import os
-import secrets
 import sys
 import time
-from urllib.parse import urlencode
 
 # mitmproxy 的 ctx 用于日志；脚本也可在无 mitmproxy 环境下被 import 做单元自检
 try:
@@ -84,27 +82,14 @@ def _mark(path: str):
         pass
 
 
-def _copy_clipboard(text: str) -> bool:
-    """尽量把 token 复制到剪贴板（Windows clip）。失败不致命。"""
-    try:
-        import subprocess
-        # clip 读 stdin；用 utf-16le 避免中文乱码（这里是纯 ascii token，稳妥起见仍指定）
-        p = subprocess.Popen(["clip"], stdin=subprocess.PIPE)
-        p.communicate(text.encode("utf-16le"))
-        return p.returncode == 0
-    except Exception:
-        return False
-
-
-def build_import_uri(token: str) -> str:
-    """生成仅供 Ahu_Plus 导入使用的临时二维码内容。"""
-    raw = token.removeprefix("Bearer ").strip()
-    query = urlencode({
-        "v": "1",
-        "token": raw,
-        "nonce": secrets.token_urlsafe(18),
-    })
-    return "ahuplus://market/import?" + query
+def build_qr_payload(token: str) -> str:
+    """生成仅供 Ahu_Plus App 内扫码读取的 v2 JSON payload。"""
+    normalized = token if token.startswith("Bearer ") else "Bearer " + token.strip()
+    return json.dumps({
+        "format": "ahuplus.market.identity",
+        "version": 2,
+        "token": normalized,
+    }, ensure_ascii=False, separators=(",", ":"))
 
 
 def _write_qr(token: str) -> bool:
@@ -118,7 +103,7 @@ def _write_qr(token: str) -> bool:
             box_size=8,
             border=4,
         )
-        qr.add_data(build_import_uri(token))
+        qr.add_data(build_qr_payload(token))
         qr.make(fit=True)
         qr.make_image(fill_color="black", back_color="white").save(QR_FILE)
         return True
@@ -201,7 +186,6 @@ class TokenCatcher:
         except Exception as e:
             _log("写入 token 文件失败: %s" % e)
 
-        copied = _copy_clipboard(token)
         qr_created = _write_qr(token)
 
         # 写完成标志，供 run.ps1 检测后自动收尾
@@ -217,12 +201,11 @@ class TokenCatcher:
         _log("  学校：%s （schoolID=%s）" % (school, school_id))
         if exp_str:
             _log("  有效期至：%s" % exp_str)
-        _log("  Token 已保存到：%s" % OUT_FILE)
+        _log("  Token 已保存到本机文件：%s" % OUT_FILE)
         if qr_created:
             _log("  导入二维码已生成：%s" % QR_FILE)
             _log("  在 Ahu_Plus 集市身份页点「扫描电脑二维码」即可导入")
-        _log("  %s" % ("Token 已复制到剪贴板，回 App 直接粘贴即可" if copied
-                        else "（剪贴板复制失败，请手动打开上面的 txt 复制）"))
+        _log("  安全提示：工具不会自动复制 Token，也不会生成可由其他 App 打开的深链")
         _log(bar)
         _log("  完成后可关闭本窗口。")
 
@@ -248,7 +231,8 @@ if __name__ == "__main__":
     generic = ("eyJhbGciOiJSUzI1NiJ9."
                "eyJ0ZW5hbnRJZCI6NywidXVpZCI6MSwiZXhwIjoxNzg0MzQ4NjM1fQ.sig")
     assert extract_bearer_jwt(generic)
-    uri = build_import_uri(sample)
-    assert uri.startswith("ahuplus://market/import?")
-    assert "Bearer" not in uri
+    payload = json.loads(build_qr_payload(sample))
+    assert payload["format"] == "ahuplus.market.identity"
+    assert payload["version"] == 2
+    assert payload["token"] == sample
     print("自检通过：解码出", p.get("school"), "schoolID=", p.get("schoolID"))

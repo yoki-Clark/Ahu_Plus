@@ -1,6 +1,6 @@
 package com.ahu_plus.ui.navigation
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +30,7 @@ import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.remote.market.MarketImportRequest
 import com.ahu_plus.data.repository.AdwmhCardRepository
 import com.ahu_plus.data.repository.KqAttendanceRepository
 import com.ahu_plus.data.repository.CardRepository
@@ -78,6 +79,8 @@ fun AppNavigation(
     deepLink: String? = null,
     /** MainScreen 完成 deep-link 跳转后回调,清空 deepLink 避免重复触发 */
     onDeepLinkConsumed: () -> Unit = {},
+    marketImportRequest: MarketImportRequest? = null,
+    onMarketImportConsumed: () -> Unit = {},
     onSessionInitialized: () -> Unit = {},
     onAccountDataCleared: suspend () -> Unit = {},
 ) {
@@ -242,6 +245,8 @@ fun AppNavigation(
                 onThemeModeChange = onThemeModeChange,
                 deepLink = deepLink,
                 onDeepLinkConsumed = onDeepLinkConsumed,
+                marketImportRequest = marketImportRequest,
+                onMarketImportConsumed = onMarketImportConsumed,
                 hasCredentials = hasCredentials,
                 authRefreshVersion = authRefreshVersion,
                 onLogin = navigateToLogin,

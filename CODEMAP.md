@@ -15,8 +15,8 @@
 
 | 文件 | 职责 |
 |---|---|
-| `MainActivity.kt` | Edge-to-edge Activity、主题订阅、更新/公告弹窗、通知与 `ahuplus://market/import` 深链 |
-| `AhuPlusApplication.kt` | Conscrypt 初始化、手动 DI、Repository 状态恢复和账号数据清理 |
+| `MainActivity.kt` | Edge-to-edge Activity、主题订阅、更新/公告弹窗、通知深链与 v1 集市导入边界解析 |
+| `AhuPlusApplication.kt` | Conscrypt 初始化、手动 DI、后台作业恢复、Repository 状态恢复和账号数据清理 |
 | `ui/navigation/AppNavigation.kt` | `login`/`main` NavHost、静默登录、显式重认证、退出登录 |
 | `ui/screen/main/MainScreen.kt` | 顶层 6 个候选入口、响应式 NavigationBar/NavigationRail、所有业务页面状态机 |
 | `data/home/AppRegistry.kt` | 应用聚合页与最近使用的 21 个入口元数据 |
@@ -29,7 +29,10 @@
 | `data/local/SessionManager.kt` | 会话内存镜像、普通偏好、业务缓存、迁移和清理策略 |
 | `data/local/EncryptedCredentialStore.kt` | Keystore 支持的账号、会话、token、API key 加密存储 |
 | `data/GsonProvider.kt` | 全局 Gson 配置 |
-| `data/network/SecureHttpClientFactory.kt` | 系统证书、按需 trust-all、TLS 1.2、CookieJar 和超时策略 |
+| `data/network/SecureHttpClientFactory.kt` | 系统证书、精确校园域名兼容、TLS 1.2、CookieJar 和超时策略 |
+| `data/network/NetworkSecurityPolicy.kt` | 明文网络精确域名 allowlist |
+| `data/diagnostic/SafeLog.kt` | 统一脱敏日志和 500 条本地环形诊断记录 |
+| `data/job/` | 学习通/WeLearn 作业状态、DataStore 持久化、互斥、取消和恢复协调 |
 | `data/network/SessionAuthenticator.kt` | 失败请求的会话恢复协调 |
 | `data/network/ResilientDns.kt` | DNS 解析和伪 IP 过滤 |
 | `data/network/CancellableCall.kt` | 可取消 OkHttp 调用桥接 |
@@ -133,11 +136,12 @@
 - `notification/CourseReminderScheduler.kt` / `CourseReminderReceiver.kt`
 - `notification/AgendaReminderScheduler.kt` / `AgendaReminderReceiver.kt`
 - `notification/BootReceiver.kt`
-- `notification/WidgetUpdateScheduler.kt`
+- `notification/WidgetRefreshScheduler.kt`（WorkManager）
+- `notification/WidgetUpdateScheduler.kt`（versionCode 33 遗留闹钟取消壳）
 - `notification/CampusCardAlertNotifier.kt`
 - `ui/widget/TodayScheduleWidget.kt`
 
-`AndroidManifest.xml` 当前声明 5 个 receiver、2 个前台 service、1 个 FileProvider 和 1 个 Activity。
+`AndroidManifest.xml` 当前声明 4 个 receiver、2 个前台 service、1 个 FileProvider 和 1 个 Activity。
 
 ## 主题与组件
 

@@ -13,3 +13,10 @@
 ## 影响
 
 M1 先收口生命周期，不同时改变学习协议策略。通知停止、Repository 停止和用户取消必须落到同一终态。
+
+## 当前实现
+
+- `data/job/` 使用 DataStore schema v1 保存每个平台最近 20 条、最多 30 天的安全作业记录。
+- 学习通和 WeLearn Service 只接收 `jobId`，参数从作业记录读取；同一平台只允许一个活动作业。
+- 进程死亡和 Android 15 dataSync 超时落为可恢复的 `INTERRUPTED`，不自动重放远端操作。
+- Widget 延迟刷新由 WorkManager 的午夜和课程节点一次性任务承载；AlarmManager 仅用于用户提醒。

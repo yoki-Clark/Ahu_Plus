@@ -171,7 +171,7 @@ private fun LoginCard(
         Spacer(Modifier.height(24.dp))
         Button(
             onClick = {
-                android.util.Log.i("WeLearnUI", "login button tapped u='$username' p.len=${password.length}")
+                com.ahu_plus.data.diagnostic.SafeLog.i("WeLearnUI", "login button tapped u='$username' p.len=${password.length}")
                 onLogin(username, password)
             },
             enabled = !submitting && username.isNotBlank() && password.isNotBlank(),

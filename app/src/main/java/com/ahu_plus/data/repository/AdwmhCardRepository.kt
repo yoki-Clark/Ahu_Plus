@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import android.os.SystemClock
 import com.google.gson.JsonObject
 import com.ahu_plus.data.GsonProvider
@@ -65,8 +65,7 @@ class AdwmhCardRepository(
      */
     private val client = SecureHttpClientFactory.create(
         cookieJar = cookieJar,
-        tls12Only = true,
-        trustAll = true,  // adwmh.ahu.edu.cn 走 DigiCert 但内部 302 跳转混合域名,沿用 trustAll
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.SystemTls12Only,
         connectTimeoutSec = 8,
         readTimeoutSec = 12
     )

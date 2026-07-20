@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.model.WeLearnStudyUiState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -548,7 +548,7 @@ class WeLearnStudyRepository(
         // 2026-06-28:成功提交时打 setscoinfo 的 lasttime 字段(服务端记录的"最后提交时间"),便于排查是否真生效
         if (way1) {
             val lastTime = runCatching { org.json.JSONObject(w1Body).optString("lasttime", "") }.getOrDefault("")
-            Log.d(TAG, "setscoinfo OK: ${w1Body.take(200)} lasttime=$lastTime")
+            Log.d(TAG, "setscoinfo OK lasttime=$lastTime; response body omitted")
         }
 
         val (way2, w2Status, w2Body) = runCatching {

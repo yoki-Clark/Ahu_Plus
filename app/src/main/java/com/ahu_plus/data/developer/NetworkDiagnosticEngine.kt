@@ -239,8 +239,12 @@ private fun createDiagnosticClient(hostSpec: NetworkHostSpec): OkHttpClient =
         followRedirects = false,
         connectTimeoutSec = 8,
         readTimeoutSec = 8,
-        trustAll = hostSpec.usesAhuCertificateCompatibility,
-        tls12Only = hostSpec.requiresTls12,
+        tlsPolicy = when {
+            hostSpec.requiresTls12 -> com.ahu_plus.data.network.TlsPolicy.SystemTls12Only
+            hostSpec.usesAhuCertificateCompatibility ->
+                com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf(hostSpec.host))
+            else -> com.ahu_plus.data.network.TlsPolicy.SystemDefault
+        },
     ).newBuilder()
         .callTimeout(NetworkDiagnosticEngine.HTTP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
         .build()

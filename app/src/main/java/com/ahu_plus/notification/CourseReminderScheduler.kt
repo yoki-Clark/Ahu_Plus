@@ -4,7 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.AppDataStore
@@ -23,14 +23,13 @@ import java.time.ZoneId
  * [CourseReminderReceiver.REMINDER_LEAD_MINUTES] 分钟注册 AlarmManager。
  *
  * 调度时机:
- *  - WidgetUpdateScheduler 每次触发时调用
- *  - App.onCreate 首次启动时
+ *  - 启动、开机或应用升级时
+ *  - 课表数据变化时
  *  - 用户手动开启/关闭功能(预留)
  *
  * 设计权衡:
- *  - **只调度未来 24h**:避免一次注册成百上千个闹钟拖累系统;靠 WidgetUpdateScheduler
- *    每 30 分钟重新滚动调度,自然形成"只看未来一天"的窗口
- *  - **不持久化闹钟**:重启后靠 WidgetUpdateScheduler.scheduleNext 重新拉起
+ *  - **只调度未来 24h**:避免一次注册成百上千个闹钟拖累系统
+ *  - **不持久化闹钟**:重启后靠 BootReceiver 重新拉起
  *  - **使用 lessonKey 作为 PendingIntent requestCode**:同一节课再次调度会覆盖,
  *    不会重复;不同节课互不干扰
  */
@@ -43,7 +42,7 @@ object CourseReminderScheduler {
      * 取消之前 [LessonKeyPrefix] 同前缀的所有闹钟,避免重复触发。
      *
      * 由于 [SessionManager.init] 是 suspend 函数,本方法也是 suspend,
-     * 调用方需在协程内调用(WidgetUpdateScheduler 已经用 Dispatchers.IO)。
+     * 调用方需在协程内调用。
      */
     suspend fun scheduleAll(context: Context) {
         val appContext = context.applicationContext

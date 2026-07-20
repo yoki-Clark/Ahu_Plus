@@ -10,16 +10,23 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.core.app.NotificationCompat
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.MainActivity
 import com.ahu_plus.R
 import com.ahu_plus.data.model.WeLearnStudyUiState
+import com.ahu_plus.data.job.BackgroundJobCommand
+import com.ahu_plus.data.job.BackgroundJobInterruption
+import com.ahu_plus.data.job.BackgroundJobPayload
+import com.ahu_plus.data.job.BackgroundJobPlatform
+import com.ahu_plus.data.job.BackgroundJobStartResult
 import com.ahu_plus.util.OverlayWindow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -42,6 +49,9 @@ class WeLearnStudyService : Service() {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var overlay: OverlayWindow? = null
     private var stateCollectionJob: Job? = null
+    private var activeRun: Job? = null
+    private var activeJobId: String? = null
+    private var lastPersistedProgress: Pair<Int, Int>? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -71,6 +81,14 @@ class WeLearnStudyService : Service() {
                 app.weLearnStudyRepository.studyState.collect { state ->
                     updateNotification(state)
                     overlay?.update(state.progress)
+                    val jobId = activeJobId
+                    val progress = (state.completedCount + state.partialCount) to state.totalCount
+                    if (jobId != null && progress != lastPersistedProgress) {
+                        lastPersistedProgress = progress
+                        app.applicationScope.launch(Dispatchers.IO) {
+                            app.backgroundJobController.updateProgress(jobId, progress.first, progress.second)
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -88,66 +106,86 @@ class WeLearnStudyService : Service() {
         }
         when (intent.action) {
             ACTION_START -> {
-                val cid = intent.getStringExtra(EXTRA_CID) ?: run {
-                    Log.w(tag, "缺少 cid, 停服")
+                val jobId = intent.getStringExtra(EXTRA_JOB_ID) ?: run {
+                    Log.w(tag, "缺少 jobId, 停服")
                     stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); return START_NOT_STICKY
                 }
-                val accuracy = intent.getStringExtra(EXTRA_ACCURACY) ?: "100"
-                val fullMode = intent.getBooleanExtra(EXTRA_FULL_MODE, false)  // 2026-06-28
-                val unitIndices = intent.getIntArrayExtra(EXTRA_UNIT_INDICES)  // 2026-06-28
-                // 2026-06-28:刷时长参数(默认开,每节 3 分钟)
-                val heartbeatEnabled = intent.getBooleanExtra(EXTRA_HEARTBEAT_ENABLED, true)
-                val heartbeatSecondsPerSco = intent.getIntExtra(EXTRA_HEARTBEAT_SECONDS_PER_SCO, 180)
-                startStudying(cid, accuracy, fullMode, unitIndices, heartbeatEnabled, heartbeatSecondsPerSco)
+                startStudying(jobId)
             }
-            ACTION_STOP -> stopStudyingAndSelf()
+            ACTION_STOP -> {
+                val jobId = intent.getStringExtra(EXTRA_JOB_ID) ?: activeJobId
+                if (jobId == null) stopStudyingAndSelf() else {
+                    scope.launch { (applicationContext as AhuPlusApplication).backgroundJobController.cancel(jobId) }
+                }
+            }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
-    private fun startStudying(
-        cid: String,
-        accuracy: String,
-        fullMode: Boolean = false,
-        unitIndices: IntArray? = null,  // 2026-06-28
-        heartbeatEnabled: Boolean = true,  // 2026-06-28:刷时长开关(默认开)
-        heartbeatSecondsPerSco: Int = 180,  // 2026-06-28:每节时长(秒),分钟数 × 60
-    ) {
+    private fun startStudying(jobId: String) {
         val app = applicationContext as AhuPlusApplication
-        scope.launch(Dispatchers.IO) {
+        if (activeRun?.isActive == true) return
+        val run = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
             try {
+                val controller = app.backgroundJobController
+                val record = controller.get(jobId)
+                    ?: throw IllegalArgumentException("missing background job")
+                require(record.platform == BackgroundJobPlatform.WELEARN) { "wrong job platform" }
+                val payload = record.payload
+                require(payload.courseId.isNotBlank()) { "missing course id" }
+                controller.markRunning(jobId)
                 // 1. 自动登录(若 cookie 失效)
                 if (!app.weLearnAuthRepository.isLoggedIn()) {
                     val ok = app.weLearnAuthRepository.autoLoginIfPossible()
                     if (!ok) {
-                        Log.w(tag, "未登录且无凭据,停服")
-                        stopStudyingAndSelf(); return@launch
+                        controller.markFailed(
+                            jobId,
+                            com.ahu_plus.data.job.BackgroundJobFailure.AUTHENTICATION_REQUIRED,
+                        )
+                        return@launch
                     }
                 }
 
                 // 2. 拉课程树
-                val treeRes = app.weLearnRepository.getCourseTree(cid)
-                val tree = treeRes.getOrElse {
-                    Log.w(tag, "拉课程树失败: ${it.message}")
-                    stopStudyingAndSelf(); return@launch
-                }
+                val tree = app.weLearnRepository.getCourseTree(payload.courseId).getOrThrow()
 
                 // 3. 启动刷课(fullMode=true 时已完成的 sco 也重提交;unitIndices!=null 时只刷选中单元;heartbeatEnabled=true 时每节跑 N 秒心跳)
                 app.weLearnStudyRepository.studyCourse(
                     tree = tree,
-                    accuracyRange = parseAccuracy(accuracy),
-                    fullMode = fullMode,
-                    unitIndices = unitIndices,
-                    heartbeatEnabled = heartbeatEnabled,
-                    heartbeatSecondsPerSco = heartbeatSecondsPerSco,
+                    accuracyRange = parseAccuracy(payload.accuracy),
+                    fullMode = payload.fullMode,
+                    unitIndices = payload.unitIndices.takeIf { it.isNotEmpty() }?.toIntArray(),
+                    heartbeatEnabled = payload.heartbeatEnabled,
+                    heartbeatSecondsPerSco = payload.heartbeatSecondsPerSco,
                 )
-                Log.i(tag, "刷课完成(fullMode=$fullMode units=${unitIndices?.toList()} heartbeat=$heartbeatEnabled/${heartbeatSecondsPerSco}s), 停服")
-                stopStudyingAndSelf()
+                if (!app.weLearnStudyRepository.studyState.value.error.isNullOrBlank()) {
+                    throw IllegalStateException("WeLearn study execution failed")
+                }
+                controller.markSucceeded(jobId)
+                Log.i(tag, "刷课完成,停服")
+            } catch (_: CancellationException) {
+                Log.i(tag, "刷课已取消")
             } catch (e: Exception) {
+                app.backgroundJobController.markFailed(
+                    jobId,
+                    app.backgroundJobController.classifyFailure(e),
+                )
                 Log.e(tag, "刷课异常", e)
-                stopStudyingAndSelf()
+            } finally {
+                app.backgroundJobController.detachCanceller(jobId)
+                activeRun = null
+                activeJobId = null
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
             }
         }
+        activeRun = run
+        activeJobId = jobId
+        app.backgroundJobController.attachCanceller(jobId) {
+            run.cancel()
+            app.weLearnStudyRepository.stop()
+        }
+        run.start()
     }
 
     private fun stopStudyingAndSelf() {
@@ -157,11 +195,41 @@ class WeLearnStudyService : Service() {
 
     override fun onDestroy() {
         Log.i(tag, "onDestroy")
+        val interruptedJobId = activeJobId
+        activeRun?.cancel()
+        activeRun = null
+        activeJobId = null
+        if (interruptedJobId != null) {
+            val app = applicationContext as AhuPlusApplication
+            app.applicationScope.launch(Dispatchers.IO) {
+                val current = app.backgroundJobController.get(interruptedJobId)
+                if (current?.phase?.isActive == true) {
+                    app.backgroundJobController.markInterrupted(
+                        interruptedJobId,
+                        BackgroundJobInterruption.SERVICE_DESTROYED,
+                    )
+                }
+            }
+        }
         overlay?.dismiss()
         overlay = null
         stateCollectionJob?.cancel()
         scope.cancel()
         super.onDestroy()
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        val app = applicationContext as AhuPlusApplication
+        val jobId = activeJobId
+        activeRun?.cancel()
+        app.weLearnStudyRepository.stop()
+        if (jobId != null) {
+            app.applicationScope.launch(Dispatchers.IO) {
+                app.backgroundJobController.markInterrupted(jobId, BackgroundJobInterruption.SYSTEM_TIMEOUT)
+            }
+        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -198,13 +266,16 @@ class WeLearnStudyService : Service() {
             this, 0,
             Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra("open_tab", "welearn")
+                putExtra(MainActivity.EXTRA_DEEP_LINK, MainActivity.DEEP_LINK_WELEARN)
             },
             PendingIntent.FLAG_IMMUTABLE,
         )
         val stopIntent = PendingIntent.getService(
             this, 1,
-            Intent(this, WeLearnStudyService::class.java).apply { action = ACTION_STOP },
+            Intent(this, WeLearnStudyService::class.java).apply {
+                action = ACTION_STOP
+                putExtra(EXTRA_JOB_ID, activeJobId)
+            },
             PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -231,13 +302,7 @@ class WeLearnStudyService : Service() {
         const val ACTION_START = "com.ahu_plus.action.WELEARN_START"
         const val ACTION_STOP = "com.ahu_plus.action.WELEARN_STOP"
 
-        const val EXTRA_CID = "cid"
-        const val EXTRA_ACCURACY = "accuracy"  // "100" 或 "70,100"
-        const val EXTRA_FULL_MODE = "full_mode"  // 2026-06-28:全量模式 — 已完成 sco 也重提交
-        const val EXTRA_UNIT_INDICES = "unit_indices"  // 2026-06-28:选择性刷 — 选中单元 idx 数组
-        // 2026-06-28:刷时长参数
-        const val EXTRA_HEARTBEAT_ENABLED = "heartbeat_enabled"  // 默认 true
-        const val EXTRA_HEARTBEAT_SECONDS_PER_SCO = "heartbeat_seconds_per_sco"  // 每节时长(秒),默认 180
+        const val EXTRA_JOB_ID = "job_id"
 
         /** UI 入口:启动 Service 刷指定 cid */
         fun start(
@@ -249,26 +314,65 @@ class WeLearnStudyService : Service() {
             heartbeatEnabled: Boolean = true,  // 2026-06-28
             heartbeatSecondsPerSco: Int = 180,  // 2026-06-28
         ) {
-            val intent = Intent(context, WeLearnStudyService::class.java).apply {
-                action = ACTION_START
-                putExtra(EXTRA_CID, cid)
-                putExtra(EXTRA_ACCURACY, accuracy)
-                putExtra(EXTRA_FULL_MODE, fullMode)
-                if (unitIndices != null) putExtra(EXTRA_UNIT_INDICES, unitIndices)
-                putExtra(EXTRA_HEARTBEAT_ENABLED, heartbeatEnabled)
-                putExtra(EXTRA_HEARTBEAT_SECONDS_PER_SCO, heartbeatSecondsPerSco)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            val app = context.applicationContext as AhuPlusApplication
+            app.applicationScope.launch(Dispatchers.IO) {
+                val result = app.backgroundJobController.start(
+                    BackgroundJobCommand(
+                        platform = BackgroundJobPlatform.WELEARN,
+                        payload = BackgroundJobPayload(
+                            courseId = cid,
+                            accuracy = accuracy,
+                            fullMode = fullMode,
+                            unitIndices = unitIndices?.toList().orEmpty(),
+                            heartbeatEnabled = heartbeatEnabled,
+                            heartbeatSecondsPerSco = heartbeatSecondsPerSco,
+                        ),
+                    )
+                )
+                if (result is BackgroundJobStartResult.Accepted) {
+                    runCatching { launchService(context, result.record.id) }
+                        .onFailure {
+                            app.backgroundJobController.markFailed(
+                                result.record.id,
+                                app.backgroundJobController.classifyFailure(it),
+                            )
+                        }
+                }
             }
         }
 
         /** UI 入口:停止 */
         fun stop(context: Context) {
-            val intent = Intent(context, WeLearnStudyService::class.java).apply { action = ACTION_STOP }
-            context.startService(intent)
+            val app = context.applicationContext as AhuPlusApplication
+            app.applicationScope.launch(Dispatchers.IO) {
+                app.backgroundJobController.active(BackgroundJobPlatform.WELEARN)?.let {
+                    app.backgroundJobController.cancel(it.id)
+                }
+            }
+        }
+
+        fun resume(context: Context, jobId: String) {
+            val app = context.applicationContext as AhuPlusApplication
+            app.applicationScope.launch(Dispatchers.IO) {
+                if (app.backgroundJobController.resume(jobId) is BackgroundJobStartResult.Accepted) {
+                    runCatching { launchService(context, jobId) }
+                        .onFailure {
+                            app.backgroundJobController.markFailed(
+                                jobId,
+                                app.backgroundJobController.classifyFailure(it),
+                            )
+                        }
+                }
+            }
+        }
+
+        private fun launchService(context: Context, jobId: String) {
+            val intent = Intent(context, WeLearnStudyService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_JOB_ID, jobId)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+            else context.startService(intent)
         }
 
         /** "100" → 100..100, "70,100" → 70..100, 非法默认 100..100 */

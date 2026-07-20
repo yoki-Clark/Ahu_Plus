@@ -219,6 +219,7 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.glance)
     implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.conscrypt.android)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     // AboutLibraries 依赖已临时移除 (Aliyun 镜像未缓存 11.6.1),改用 OpenSourceLicensesScreen 手写列表
@@ -226,6 +227,7 @@ dependencies {
     testImplementation(libs.mockwebserver)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
+    testImplementation(libs.androidx.work.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

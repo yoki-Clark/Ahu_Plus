@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.JsonParser
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.network.SecureHttpClientFactory
@@ -112,7 +112,7 @@ class CasAuthRepository(
         cookieJar = cookieJar,
         followRedirects = false,
         disableGzip = true,  // CAS 流程关闭 gzip
-        trustAll = true,  // *.ahu.edu.cn 自签名证书
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf("one.ahu.edu.cn")),
     )
 
     /** 公开给 YcardRepository 等复用 CAS cookie 的系统 */
@@ -160,13 +160,13 @@ class CasAuthRepository(
 
             // Step 6: ST → JSESSIONID
             val jsessionid = exchangeForJsessionid(ticket)
-            Log.d(TAG, "获取到 JSESSIONID: ${jsessionid.take(8)}...")
+            Log.d(TAG, "已获取门户会话")
 
             // 保存
             currentCoroutineContext().ensureActive()
             sessionManager.saveSessionId(jsessionid, generation)
             sessionManager.saveCredentials(username, password, generation)
-            Log.d(TAG, "登录成功，JSESSIONID=${jsessionid.take(8)}...")
+            Log.d(TAG, "门户登录成功")
 
             Result.success(Unit)
         } catch (e: Exception) {

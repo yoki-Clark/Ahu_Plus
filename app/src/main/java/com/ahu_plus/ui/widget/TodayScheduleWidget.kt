@@ -33,6 +33,10 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.ahu_plus.MainActivity
+import com.ahu_plus.AhuPlusApplication
+import com.ahu_plus.notification.WidgetRefreshScheduler
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class TodayScheduleWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
@@ -47,6 +51,14 @@ class TodayScheduleWidget : GlanceAppWidget() {
 
 class TodayScheduleWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TodayScheduleWidget()
+
+    override fun onEnabled(context: Context) {
+        super.onEnabled(context)
+        val app = context.applicationContext as? AhuPlusApplication ?: return
+        app.applicationScope.launch(Dispatchers.IO) {
+            WidgetRefreshScheduler.refreshAndReplan(context)
+        }
+    }
 }
 
 object TodayScheduleWidgetUpdater {
@@ -60,7 +72,7 @@ object TodayScheduleWidgetUpdater {
  *
  * 借鉴 AHUTong RefreshAction:点击后调用 [TodayScheduleWidget.update] 重新拉取
  * provideGlance → 刷新显示。注意这里只是触发 widget 重渲染,不会重新拉取网络
- * (网络数据由 WidgetUpdateScheduler 每 30 分钟拉一次)。
+ * (网络数据由业务页面刷新，本操作只重新读取本地缓存)。
  */
 class RefreshWidgetAction : ActionCallback {
     override suspend fun onAction(

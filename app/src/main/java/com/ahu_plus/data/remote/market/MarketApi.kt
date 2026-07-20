@@ -22,6 +22,23 @@ data class ParsedMarketIdentity(
     val metadata: MarketIdentityMetadata,
 )
 
+data class MarketImportPayloadV2(
+    val format: String,
+    val version: Int,
+    val token: String,
+)
+
+enum class MarketImportSource {
+    IN_APP_QR,
+    MANUAL_PASTE,
+    LEGACY_EXTERNAL_LINK,
+}
+
+data class MarketImportRequest(
+    val identity: ParsedMarketIdentity,
+    val source: MarketImportSource,
+)
+
 enum class MarketIdentityExpiryState {
     VALID,
     EXPIRING_SOON,
@@ -40,6 +57,8 @@ enum class MarketIdentityExpiryState {
 object MarketApi {
 
     const val IMPORT_URI_PREFIX = "ahuplus://market/import"
+    const val IMPORT_PAYLOAD_FORMAT = "ahuplus.market.identity"
+    const val IMPORT_PAYLOAD_VERSION = 2
     const val EXPIRY_WARNING_SECONDS = 3L * 24 * 60 * 60
     private val expiryDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
@@ -127,8 +146,30 @@ object MarketApi {
         )
     }
 
-    /** 解析桌面工具生成的 `ahuplus://market/import` URI。 */
-    fun parseImportUri(value: String): Result<ParsedMarketIdentity> = runCatching {
+    /** 解析只允许由 App 内相机读取的 v2 QR payload。 */
+    fun parseQrPayload(value: String): Result<MarketImportRequest> = runCatching {
+        val json = JsonParser.parseString(value.trim())
+        require(json.isJsonObject) { "不是 Ahu_Plus 集市身份二维码" }
+        val payload = json.asJsonObject
+        require(payload.get("format")?.asString == IMPORT_PAYLOAD_FORMAT) {
+            "不是 Ahu_Plus 集市身份二维码"
+        }
+        require(payload.get("version")?.asInt == IMPORT_PAYLOAD_VERSION) {
+            "不支持的集市身份二维码版本"
+        }
+        val token = payload.get("token")?.asString?.takeIf { it.isNotBlank() }
+            ?: error("二维码中没有身份字段")
+        MarketImportRequest(
+            identity = parseIdentity(token).getOrThrow(),
+            source = MarketImportSource.IN_APP_QR,
+        )
+    }
+
+    fun parseManualImport(value: String): Result<MarketImportRequest> =
+        parseIdentity(value).map { MarketImportRequest(it, MarketImportSource.MANUAL_PASTE) }
+
+    /** versionCode 33 的只读兼容入口；versionCode 34 删除。 */
+    fun parseLegacyImportUri(value: String): Result<MarketImportRequest> = runCatching {
         val uri = URI(value.trim())
         require(uri.scheme.equals("ahuplus", ignoreCase = true)) { "不是 Ahu_Plus 导入链接" }
         require(uri.host.equals("market", ignoreCase = true) && uri.path == "/import") {
@@ -139,7 +180,10 @@ object MarketApi {
         require(!params["nonce"].isNullOrBlank()) { "导入链接缺少随机校验值" }
         val token = params["token"]?.takeIf { it.isNotBlank() }
             ?: error("导入链接中没有身份字段")
-        parseIdentity(token).getOrThrow()
+        MarketImportRequest(
+            identity = parseIdentity(token).getOrThrow(),
+            source = MarketImportSource.LEGACY_EXTERNAL_LINK,
+        )
     }
 
     fun expiryState(

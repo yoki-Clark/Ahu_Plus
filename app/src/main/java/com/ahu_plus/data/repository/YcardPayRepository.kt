@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.Gson
 import com.ahu_plus.data.model.AccountPayInfoData
 import com.ahu_plus.data.model.AccountPayInfoResponse

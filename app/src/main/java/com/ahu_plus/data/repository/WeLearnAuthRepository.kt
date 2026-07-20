@@ -1,7 +1,7 @@
 package com.ahu_plus.data.repository
 
 import android.util.Base64
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.JsonParser
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.network.SecureHttpClientFactory
@@ -62,7 +62,6 @@ class WeLearnAuthRepository(
     val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = cookieJar,
         followRedirects = true,
-        trustAll = false,  // SFLEP 是正规证书
         connectTimeoutSec = 20,
         readTimeoutSec = 30,
     )

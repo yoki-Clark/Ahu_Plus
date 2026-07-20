@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.model.jw.CompletionCourse
 import com.ahu_plus.data.model.jw.CompletionSummary
@@ -25,7 +25,7 @@ class ProgramCompletionRepository(
         cookieJar = jwAuthRepository.jwCookieJar,
         followRedirects = false,
         disableGzip = false,
-        trustAll = true,  // jw.ahu.edu.cn 自签名证书
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf("jw.ahu.edu.cn")),
         extraInterceptors = listOf(
             okhttp3.Interceptor { chain ->
                 val req = chain.request().newBuilder()
@@ -49,7 +49,7 @@ class ProgramCompletionRepository(
         return try {
             val studentId = resolveStudentId().getOrElse { return Result.failure(it) }
             val url = "$JW_BASE/student/for-std/program-completion-preview/info/$studentId"
-            Log.i(TAG, "请求培养方案完成数据: studentId=$studentId")
+            Log.i(TAG, "请求培养方案完成数据")
 
             val request = Request.Builder()
                 .url(url)
@@ -96,7 +96,7 @@ class ProgramCompletionRepository(
                 val id = GradeRepository.parseStudentIdFromLocation(location)
                 if (id != null) {
                     cachedStudentId = id
-                    Log.i(TAG, "解析 studentId=$id")
+                    Log.i(TAG, "已解析培养方案学生标识")
                     Result.success(id)
                 } else {
                     Result.failure(Exception("无法从 Location 解析 studentId: $location"))

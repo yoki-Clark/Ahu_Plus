@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -43,7 +43,7 @@ class MarketRepository(
     private val sessionManager: SessionManager
 ) {
     private val gson = GsonProvider.instance
-    private val client = SecureHttpClientFactory.create(trustAll = false)
+    private val client = SecureHttpClientFactory.create()
 
     // ══════════════════════════════════════════════════════
     //  GET

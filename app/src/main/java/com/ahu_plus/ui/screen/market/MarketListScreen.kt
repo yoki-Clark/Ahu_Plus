@@ -1,6 +1,6 @@
 package com.ahu_plus.ui.screen.market
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
