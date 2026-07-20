@@ -20,6 +20,7 @@ import okhttp3.HttpUrl
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.SocketTimeoutException
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 class AdwmhCardRepository(
@@ -168,7 +169,12 @@ class AdwmhCardRepository(
             val (loginInfo, jsessionid) = executeThrottled {
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string().orEmpty()
-                    if (!response.isSuccessful) throw AdwmhAuthException("登录失败(${response.code})")
+                    if (!response.isSuccessful) {
+                        throw AdwmhLoginHttpException(
+                            statusCode = response.code,
+                            captchaProvided = captcha.isNotBlank(),
+                        )
+                    }
                     val json = gson.fromJson(body, JsonObject::class.java)
                         ?: throw AdwmhAuthException("登录响应为空")
                     val code = json.get("code")?.asInt ?: -1
@@ -354,5 +360,56 @@ open class AdwmhAuthException(message: String) : Exception(message)
 
 class AdwmhCaptchaRequiredException(message: String) : AdwmhAuthException(message)
 
+internal class AdwmhLoginHttpException(
+    val statusCode: Int,
+    val captchaProvided: Boolean,
+) : AdwmhAuthException("登录失败($statusCode)")
+
+internal enum class AdwmhLoginFailureKind {
+    CAPTCHA_REQUIRED,
+    INVALID_CREDENTIALS,
+    RATE_LIMITED,
+    OTHER,
+}
+
+internal fun classifyAdwmhLoginFailure(failure: Throwable?): AdwmhLoginFailureKind {
+    if (failure is AdwmhCaptchaRequiredException) return AdwmhLoginFailureKind.CAPTCHA_REQUIRED
+    if (failure is AdwmhLoginHttpException &&
+        !failure.captchaProvided &&
+        failure.statusCode in setOf(401, 403)
+    ) {
+        return AdwmhLoginFailureKind.CAPTCHA_REQUIRED
+    }
+    if (failure !is AdwmhAuthException) return AdwmhLoginFailureKind.OTHER
+
+    val message = failure.message.orEmpty().lowercase(Locale.ROOT)
+    if (listOf(
+            "验证码",
+            "图形码",
+            "captcha",
+            "imgcode",
+            "安全验证",
+            "verification code",
+        ).any(message::contains)
+    ) {
+        return AdwmhLoginFailureKind.CAPTCHA_REQUIRED
+    }
+    if (listOf(
+            "用户名或密码",
+            "账号或密码",
+            "密码错误",
+            "用户名不存在",
+            "账号不存在",
+            "invalid credential",
+        ).any(message::contains)
+    ) {
+        return AdwmhLoginFailureKind.INVALID_CREDENTIALS
+    }
+    if (listOf("频繁", "限流", "too many", "429").any(message::contains)) {
+        return AdwmhLoginFailureKind.RATE_LIMITED
+    }
+    return AdwmhLoginFailureKind.OTHER
+}
+
 internal fun shouldRequestManualAdwmhCaptcha(failure: Throwable?): Boolean =
-    failure is AdwmhAuthException && !failure.message.orEmpty().startsWith("登录失败(")
+    classifyAdwmhLoginFailure(failure) == AdwmhLoginFailureKind.CAPTCHA_REQUIRED

@@ -49,7 +49,8 @@ fun AdwmhCaptchaDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "验证码图片仅从智慧安大获取并在本机显示，请手动输入。图片不会发送到任何识别服务。",
+                    "支付码服务需要重新确认登录状态，通常是会话过期或服务端启用了验证码校验。" +
+                        "验证码只用于这次支付码登录；图片仅从智慧安大获取并在本机显示，不会发送到任何识别服务。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 when {
