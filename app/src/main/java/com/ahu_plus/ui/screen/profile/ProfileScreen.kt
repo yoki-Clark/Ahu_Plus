@@ -498,6 +498,7 @@ fun ProfileScreen(
             qrLoading = cardUiState.qrLoading,
             qrError = cardUiState.qrError,
             qrCountdownSeconds = cardUiState.qrCountdownSeconds,
+            onQrRefresh = cardViewModel::loadCampusQrCode,
             onQrClick = {
                 if (isLoggedIn) {
                     cardViewModel.loadCampusQrCode()
@@ -601,6 +602,7 @@ private fun ProfileHomeScreen(
     qrLoading: Boolean,
     qrError: String?,
     qrCountdownSeconds: Int,
+    onQrRefresh: () -> Unit,
     onQrClick: () -> Unit,
     identityCount: Int,
     hasMarketIdentity: Boolean,
@@ -814,7 +816,7 @@ private fun ProfileHomeScreen(
                         qrCountdownSeconds = qrCountdownSeconds,
                         onBack = { showQrCard = false },
                         onQrClick = onQrClick,
-                        onRefresh = onRefresh
+                        onRefresh = onQrRefresh,
                     )
                 } else {
                     BalanceCard(

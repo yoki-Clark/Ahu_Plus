@@ -28,6 +28,7 @@ import com.ahu_plus.data.repository.SessionExpiredException
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.YcardAuthExpiredException
 import com.ahu_plus.data.repository.YcardRepository
+import com.ahu_plus.data.repository.shouldRequestManualAdwmhCaptcha
 import com.ahu_plus.notification.CampusCardAlertNotifier
 import com.ahu_plus.data.repository.YcardPayRepository
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +79,8 @@ class HomeViewModel(
     private var adwmhCaptchaRequestId = 0L
     private var adwmhLoginRequestId = 0L
     private var visible = false
+    /** 仅由用户主动加载支付码置为 true；页面可见本身不能触发 adwmh 登录。 */
+    private var qrRequested = false
 
     init {
         val savedBathroomPhone = sessionManager.getBathroomPhone().orEmpty()
@@ -123,11 +126,13 @@ class HomeViewModel(
         if (visible == value) return
         visible = value
         if (value) {
-            startQrAutoRefresh()
             loadBalanceAndBills()
+            if (qrRequested) startQrAutoRefresh()
         } else {
             qrRefreshJob?.cancel()
             qrRefreshJob = null
+            qrRequested = false
+            dismissAdwmhLogin()
         }
     }
 
@@ -1193,6 +1198,7 @@ class HomeViewModel(
 
     fun loadCampusQrCode() {
         val qrRepository = adwmhCardRepository ?: return
+        qrRequested = true
         if (qrLoadJob?.isActive == true) return
         qrLoadJob = viewModelScope.launch {
             _uiState.update { it.copy(qrLoading = true, qrError = null) }
@@ -1275,6 +1281,7 @@ class HomeViewModel(
                 }
             }
         }
+        if (visible) startQrAutoRefresh()
     }
 
     // ── 智慧安大自动登录（参考 AHUTong）──────────────────
@@ -1394,7 +1401,9 @@ class HomeViewModel(
                             adwmhLoginError = error.message ?: "验证码或账号信息错误",
                         )
                     }
-                    requestAdwmhCaptcha(error.message)
+                    if (shouldRequestManualAdwmhCaptcha(error)) {
+                        requestAdwmhCaptcha(error.message)
+                    }
                 },
             )
         }
@@ -1504,7 +1513,7 @@ class HomeViewModel(
         exceptionOrNull() is YcardAuthExpiredException
 
     fun onRefresh() {
-        loadCampusQrCode()
+        if (qrRequested) loadCampusQrCode()
         loadBalanceAndBills(forceBills = true)
     }
 
@@ -1748,7 +1757,9 @@ class HomeViewModel(
         qrRefreshJob = viewModelScope.launch {
             val baseInterval = (QR_REFRESH_INTERVAL_MS / 1000).toInt()
             while (true) {
-                loadCampusQrCode()
+                if (!_uiState.value.adwmhLoginDialogVisible) {
+                    loadCampusQrCode()
+                }
                 // 指数退避：连续失败越多，等待越久（最多 4 分钟）
                 val backoffMultiplier = when {
                     qrConsecutiveFailures >= 5 -> 6   // 5+ 次失败 → 4.5 分钟
