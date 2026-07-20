@@ -19,7 +19,6 @@ app/build/
 /captures
 .externalNativeBuild
 .cxx
-local.properties
 
 # ── 密钥与凭据 ────────────────────────────────────────────
 .env
@@ -45,6 +44,7 @@ SECURITY.md
 .obsidian/
 .understand-anything/
 .claude/
+/.agents/
 
 # ── 开发工具脚本（不上传）────────────────────────────────
 # 例外 — 公开发布的工具：排考预测 + 集市 Token 获取工具
@@ -68,6 +68,7 @@ tools/exam_prediction/cache_daily.jsonl
 /release-snapshots/
 /downloads/
 /beta_release/
+/output/
 *.html
 *.csv
 !tools/exam_prediction/output_*.csv

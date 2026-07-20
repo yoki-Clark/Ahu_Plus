@@ -25,6 +25,7 @@ internal data class TodayScheduleWidgetState(
     val todayCount: Int,
     val updatedText: String,
     val upcoming: List<TodayScheduleWidgetCourse>,
+    val nextRefreshAtMillis: Long? = null,
 )
 
 internal data class TodayScheduleWidgetCourse(
@@ -138,7 +139,18 @@ internal object TodayScheduleWidgetData {
             "更新 ${Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(updateFormatter)}"
         }.orEmpty()
 
-        return when {
+        val nextBoundaryMillis = items
+            .flatMap { item -> listOfNotNull(item.startMinutes(unitTimes), item.endMinutes(unitTimes)?.plus(1)) }
+            .filter { it > now.toMinutes() }
+            .minOrNull()
+            ?.let { minutes ->
+                LocalDate.now().atTime(minutes / 60, minutes % 60)
+                    .atZone(ZoneId.systemDefault())
+                    .toInstant()
+                    .toEpochMilli()
+            }
+
+        return (when {
             current != null -> {
                 val end = current.endMinutes(unitTimes)
                 val remaining = end?.minus(now.toMinutes())?.coerceAtLeast(0)
@@ -189,7 +201,7 @@ internal object TodayScheduleWidgetData {
                 updatedText = updatedText,
                 upcoming = emptyList(),
             )
-        }
+        }).copy(nextRefreshAtMillis = nextBoundaryMillis)
     }
 
     private fun CourseDisplayItem.toWidgetCourse(unitTimes: List<CourseUnit>) = TodayScheduleWidgetCourse(

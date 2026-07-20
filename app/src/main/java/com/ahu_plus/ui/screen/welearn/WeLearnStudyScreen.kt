@@ -21,10 +21,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.legal.LegalRiskAcknowledgement
+import com.ahu_plus.data.job.BackgroundJobPlatform
 import com.ahu_plus.data.model.WeLearnCourse
 import com.ahu_plus.data.model.WeLearnScoStatus
 import com.ahu_plus.data.model.WeLearnUnitScos
 import kotlinx.coroutines.launch
+import com.ahu_plus.ui.components.BackgroundJobHistoryCard
 
 /**
  * WeLearn 单课程刷课屏 (2026-06-27)。
@@ -168,6 +170,8 @@ fun WeLearnStudyScreen(
                     }
                 }
             }
+
+            BackgroundJobHistoryCard(BackgroundJobPlatform.WELEARN)
 
             // 正确率输入
             OutlinedTextField(

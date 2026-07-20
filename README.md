@@ -129,7 +129,7 @@ app/src/main/java/com/ahu_plus/
 └── util/                       # DES/AES、字体解析、支付签名、分享等
 ```
 
-文件级索引见 [CODEMAP.md](CODEMAP.md)，主题文档入口见 [docs/Ahu-Plus-总览.md](docs/Ahu-Plus-总览.md)。
+文件级索引见 [CODEMAP.md](CODEMAP.md)。
 
 ## 认证与网络
 
@@ -146,7 +146,7 @@ app/src/main/java/com/ahu_plus/
 | WeLearn | `welearn.sflep.com`/`sso.sflep.com` | 独立账号，OIDC/Cookie |
 | 大学计算机平台 | 内网地址或 `wvpn.ahu.edu.cn` | 独立账号、验证码、JWT/Cookie |
 
-学校部分 HTTPS 端点使用客户端无法验证的证书，调用处必须显式选择 `trustAll = true`；普通公网服务必须保持系统证书校验。详细边界见 [SECURITY.md](SECURITY.md)。
+学校部分 HTTPS 端点使用客户端无法验证的证书，调用处必须通过 `TlsPolicy.LegacyCampusHosts` 精确列出域名；普通公网服务保持系统证书校验，`adwmh` 使用系统校验并限制 TLS 1.2。
 
 ## 本地数据
 
@@ -161,10 +161,10 @@ app/src/main/java/com/ahu_plus/
 - `CourseRepository.DEFAULT_SEMESTER_ID` 仍为 `112`，虽然 UI 支持拉取学期列表，但默认回退值需要随教务数据变化验证。
 - 学习通的签到码、二维码和拍照签到仍有待真机抓包校准的分支，源码中保留了明确 TODO。
 - 大学计算机平台的直接地址是校内明文 HTTP；自定义地址还受 Android 网络安全白名单约束。
-- 课程/日程精确提醒受系统通知和精确闹钟权限影响；权限缺失时会降级，可能延迟。
+- 课程/日程精确提醒受系统通知和精确闹钟权限影响；权限缺失时会降级，可能延迟。今日课表 Widget 使用 WorkManager 在数据变化、午夜和课程节点刷新，不申请精确闹钟。
 - 自动学习、自动答题或自动签到可能违反对应平台规则，风险由使用者承担。
 
-当前可确认问题见 [BUG_REVIEW.md](BUG_REVIEW.md)，内测流程见 [BETA_TESTING.md](BETA_TESTING.md)。
+当前问题和修复进度以仓库 Issue 与现行源码为准；真机验收应以实际界面和网络结果为准。
 
 ## 安全与贡献
 
@@ -173,7 +173,7 @@ app/src/main/java/com/ahu_plus/
 - 网络代码必须关闭响应体并在 IO 调度器执行。
 - 修改认证、缓存、提醒或升级逻辑时必须补充对应单元测试。
 
-漏洞报告方式见 [SECURITY.md](SECURITY.md)。
+安全漏洞请使用代码托管平台的私密漏洞报告能力，或发送邮件至 `2867299793@qq.com`；不要在公开 Issue 中附带凭据或个人数据。
 
 ## 许可
 

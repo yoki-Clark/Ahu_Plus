@@ -33,7 +33,6 @@ class XzxxRepository(
         SecureHttpClientFactory.create(
             cookieJar = cookieJar,
             followRedirects = false,
-            trustAll = false,
         )
     },
     private val nowMillis: () -> Long = System::currentTimeMillis,

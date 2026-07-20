@@ -88,7 +88,8 @@ import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.YcardRepository
 import com.ahu_plus.data.remote.market.MarketApi
 import com.ahu_plus.data.remote.market.MarketIdentityExpiryState
-import com.ahu_plus.data.remote.market.ParsedMarketIdentity
+import com.ahu_plus.data.remote.market.MarketImportRequest
+import com.ahu_plus.data.remote.market.MarketImportSource
 import com.ahu_plus.ui.screen.apps.AppHubScreen
 import com.ahu_plus.ui.screen.chaoxing.ChaoxingTabScreen
 import com.ahu_plus.ui.screen.chaoxing.ChaoxingSubTab
@@ -219,12 +220,14 @@ fun MainScreen(
     deepLink: String? = null,
     /** deep-link 跳转完成后回调,清空上游 deepLink 状态 */
     onDeepLinkConsumed: () -> Unit = {},
+    marketImportRequest: MarketImportRequest? = null,
+    onMarketImportConsumed: () -> Unit = {},
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(TAB_HOME) }
     var homePage by rememberSaveable { mutableIntStateOf(HOME_DASHBOARD) }
     // 首页"日程"卡片右上 + → 进日程页并自动弹添加 sheet(一次性)
     var agendaOpenAdd by rememberSaveable { mutableStateOf(false) }
-    var pendingMarketImport by remember { mutableStateOf<ParsedMarketIdentity?>(null) }
+    var pendingMarketImport by remember { mutableStateOf<MarketImportRequest?>(null) }
 
     // 首次登录初始化冒泡 — SnackbarHost
     val initSnackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
@@ -394,25 +397,17 @@ fun MainScreen(
     val chaoxingPinned = chaoxingVisible && BottomNavService.CHAOXING in bottomNavServices
     val welearnPinned = welearnVisible && BottomNavService.WELEARN in bottomNavServices
 
-    LaunchedEffect(deepLink) {
-        val importUri = deepLink?.takeIf {
-            it.startsWith(MarketApi.IMPORT_URI_PREFIX, ignoreCase = true)
-        } ?: return@LaunchedEffect
-        val parsed = MarketApi.parseImportUri(importUri)
-        val identity = parsed.getOrNull()
-        if (identity == null) {
-            initSnackbarHostState.showSnackbar(
-                parsed.exceptionOrNull()?.message ?: "无法识别集市身份二维码"
-            )
-        } else if (
-            MarketApi.expiryState(identity.metadata.expiresAtEpochSeconds) ==
+    LaunchedEffect(marketImportRequest) {
+        val request = marketImportRequest ?: return@LaunchedEffect
+        if (
+            MarketApi.expiryState(request.identity.metadata.expiresAtEpochSeconds) ==
             MarketIdentityExpiryState.EXPIRED
         ) {
             initSnackbarHostState.showSnackbar("该集市身份已过期，请重新获取")
         } else {
-            pendingMarketImport = identity
+            pendingMarketImport = request
         }
-        onDeepLinkConsumed()
+        onMarketImportConsumed()
     }
 
     var lastIdentityWarning by rememberSaveable { mutableStateOf<String?>(null) }
@@ -426,7 +421,8 @@ fun MainScreen(
         }
     }
 
-    pendingMarketImport?.let { identity ->
+    pendingMarketImport?.let { request ->
+        val identity = request.identity
         AlertDialog(
             onDismissRequest = { pendingMarketImport = null },
             title = { Text("导入集市身份") },
@@ -434,6 +430,11 @@ fun MainScreen(
                 Text(
                     "学校：${identity.metadata.school}\n" +
                         "${MarketApi.expiryLabel(identity.metadata)}\n\n" +
+                        if (request.source == MarketImportSource.LEGACY_EXTERNAL_LINK) {
+                            "来源：其他应用提供的旧版导入链接。该链接包含长期身份凭据，请仅在刚刚主动发起导入时继续。\n\n"
+                        } else {
+                            "来源：Ahu_Plus 应用内扫码。\n\n"
+                        } +
                         "确认后将保存到本机；同一学校的旧身份会被替换。"
                 )
             },

@@ -5,7 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.os.Environment
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import android.webkit.CookieManager
 import android.webkit.WebStorage
 import com.ahu_plus.data.local.AppDataStore
@@ -13,6 +13,8 @@ import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.JwcWafCookieStore
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.local.XzxxWafCookieStore
+import com.ahu_plus.data.job.BackgroundJobController
+import com.ahu_plus.data.job.BackgroundJobPlatform
 import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.repository.AdwmhCardRepository
 import com.ahu_plus.data.repository.AiCommentRepository
@@ -54,7 +56,7 @@ import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.UserTaskRepository
 import com.ahu_plus.data.repository.YcardRepository
 import com.ahu_plus.data.repository.XzxxRepository
-import com.ahu_plus.notification.WidgetUpdateScheduler
+import com.ahu_plus.notification.WidgetRefreshScheduler
 import com.ahu_plus.notification.CourseReminderScheduler
 import com.ahu_plus.notification.AgendaReminderScheduler
 import com.ahu_plus.service.ChaoxingStudyService
@@ -73,7 +75,11 @@ import java.security.Security
 import kotlin.coroutines.resume
 
 class AhuPlusApplication : Application() {
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     lateinit var appDataStore: AppDataStore
+        private set
+    lateinit var backgroundJobController: BackgroundJobController
         private set
     lateinit var sessionManager: SessionManager
         private set
@@ -216,9 +222,13 @@ class AhuPlusApplication : Application() {
 
         // ── 基础存储层 ─────────────────────────────
         appDataStore = AppDataStore(this)
+        backgroundJobController = BackgroundJobController(appDataStore)
         legalConsentRepository = LegalConsentRepository(appDataStore)
         sessionManager = SessionManager(appDataStore)
         courseNoteRepository = CourseNoteRepository(appDataStore)
+        applicationScope.launch(Dispatchers.IO) {
+            backgroundJobController.initialize()
+        }
 
         // ── 认证层 ────────────────────────────────
         casAuthRepository = CasAuthRepository(sessionManager)
@@ -318,13 +328,15 @@ class AhuPlusApplication : Application() {
     fun startPostConsentServices() {
         if (postConsentServicesStarted) return
         postConsentServicesStarted = true
-        WidgetUpdateScheduler.scheduleNext(this)
-        WidgetUpdateScheduler.scheduleTicker(this)
+        WidgetRefreshScheduler.cancelLegacyAlarms(this)
+        applicationScope.launch(Dispatchers.IO) {
+            WidgetRefreshScheduler.refreshAndReplan(this@AhuPlusApplication)
+        }
     }
 
     @Synchronized
     fun stopPostConsentServices() {
-        WidgetUpdateScheduler.cancel(this)
+        WidgetRefreshScheduler.cancel(this)
         postConsentServicesStarted = false
     }
 
@@ -339,6 +351,7 @@ class AhuPlusApplication : Application() {
         aiCommentRepository.clearApiKey()
         clearWebViewData()
         withContext(Dispatchers.IO) { clearAppOwnedFiles() }
+        backgroundJobController.clearHistory()
         // Removing the consent record tears down the current navigation composition, so do it last.
         appDataStore.clearAllLocalData()
     }
@@ -347,6 +360,9 @@ class AhuPlusApplication : Application() {
         stopPostConsentServices()
         CourseReminderScheduler.cancelAll(this, sessionManager)
         AgendaReminderScheduler.cancelAll(this, sessionManager)
+        BackgroundJobPlatform.entries.forEach { platform ->
+            backgroundJobController.active(platform)?.let { backgroundJobController.cancel(it.id) }
+        }
         stopService(Intent(this, ChaoxingStudyService::class.java))
         stopService(Intent(this, WeLearnStudyService::class.java))
         getSystemService(Context.NOTIFICATION_SERVICE)

@@ -1,6 +1,6 @@
 package com.ahu_plus.data.local
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.Preferences

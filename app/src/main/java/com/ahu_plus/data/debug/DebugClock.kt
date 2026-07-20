@@ -89,7 +89,7 @@ object DebugClock {
         val targetMillis = target.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val realMillis = System.currentTimeMillis()
         offsetMillis = targetMillis - realMillis
-        android.util.Log.i(TAG, "advanceTo: $target (offset=${offsetMillis}ms)")
+        com.ahu_plus.data.diagnostic.SafeLog.i(TAG, "advanceTo: $target (offset=${offsetMillis}ms)")
     }
 
     /**
@@ -97,7 +97,7 @@ object DebugClock {
      */
     fun advance(deltaMillis: Long) {
         offsetMillis = (offsetMillis ?: 0L) + deltaMillis
-        android.util.Log.i(TAG, "advance: ${deltaMillis}ms (offset=${offsetMillis}ms)")
+        com.ahu_plus.data.diagnostic.SafeLog.i(TAG, "advance: ${deltaMillis}ms (offset=${offsetMillis}ms)")
     }
 
     /**
@@ -105,7 +105,7 @@ object DebugClock {
      */
     fun reset() {
         offsetMillis = null
-        android.util.Log.i(TAG, "reset: 恢复真实时间")
+        com.ahu_plus.data.diagnostic.SafeLog.i(TAG, "reset: 恢复真实时间")
     }
 
     /**

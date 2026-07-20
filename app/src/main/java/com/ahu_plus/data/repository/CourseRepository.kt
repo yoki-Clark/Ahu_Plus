@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.GsonProvider
 import kotlin.math.abs
 import com.ahu_plus.data.model.jw.CourseActivity
@@ -33,7 +33,7 @@ class CourseRepository(
         cookieJar = jwAuthRepository.jwCookieJar,
         followRedirects = false,
         disableGzip = false,
-        trustAll = true,  // jw.ahu.edu.cn 自签名证书
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf("jw.ahu.edu.cn")),
         extraInterceptors = listOf(
             okhttp3.Interceptor { chain ->
                 // 给每个请求补上 UA 和 X-Requested-With

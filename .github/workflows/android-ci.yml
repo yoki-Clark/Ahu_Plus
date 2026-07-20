@@ -71,6 +71,15 @@ jobs:
           python -m unittest tools.release.test_release -v
           python tools/release/release.py check
 
+      - name: Enforce safe Android logging
+        shell: bash
+        run: |
+          if rg -n 'import android\.util\.Log|android\.util\.Log\.' app/src/main/java \
+            --glob '*.kt' --glob '!**/data/diagnostic/SafeLog.kt'; then
+            echo 'Direct android.util.Log usage is forbidden; use SafeLog.' >&2
+            exit 1
+          fi
+
       - name: Run JVM tests
         run: ./gradlew :app:testDebugUnitTest --console=plain
 

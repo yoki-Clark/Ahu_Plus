@@ -26,7 +26,7 @@ class JwAppAuthRepository(
     private val sessionManager: SessionManager,
 ) {
     private val client = SecureHttpClientFactory.create(
-        trustAll = true,
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf("jwapp.ahu.edu.cn")),
         connectTimeoutSec = 15,
         readTimeoutSec = 20,
     )

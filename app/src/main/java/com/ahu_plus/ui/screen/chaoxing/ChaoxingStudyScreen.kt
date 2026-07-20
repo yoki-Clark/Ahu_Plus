@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.CxStudyUiState
 import com.ahu_plus.data.model.CxTaskProgress
 import com.ahu_plus.data.model.CxTaskStatus
+import com.ahu_plus.data.job.BackgroundJobPlatform
+import com.ahu_plus.ui.components.BackgroundJobHistoryCard
 import com.ahu_plus.ui.theme.AhuShapes
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,6 +84,8 @@ fun ChaoxingStudyScreen(
             item {
                 Spacer(Modifier.height(8.dp))
                 OverviewCard(studyState, onStop)
+                Spacer(Modifier.height(12.dp))
+                BackgroundJobHistoryCard(BackgroundJobPlatform.CHAOXING)
                 Spacer(Modifier.height(16.dp))
             }
 

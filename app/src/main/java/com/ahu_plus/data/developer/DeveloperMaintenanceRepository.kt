@@ -19,11 +19,10 @@ import com.ahu_plus.BuildConfig
 import com.ahu_plus.MainActivity
 import com.ahu_plus.notification.AgendaReminderScheduler
 import com.ahu_plus.notification.CourseReminderScheduler
-import com.ahu_plus.notification.WidgetUpdateScheduler
+import com.ahu_plus.notification.WidgetRefreshScheduler
 import com.ahu_plus.service.ChaoxingStudyService
 import com.ahu_plus.service.WeLearnStudyService
 import com.ahu_plus.ui.widget.TodayScheduleWidgetReceiver
-import com.ahu_plus.ui.widget.TodayScheduleWidgetUpdater
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.time.LocalDateTime
@@ -197,7 +196,7 @@ class DeveloperMaintenanceRepository(
             id = DeveloperMaintenanceActionIds.RESCHEDULE_WIDGET_UPDATES,
             category = DeveloperMaintenanceCategory.WIDGET,
             title = "重排 Widget 更新任务",
-            description = "取消后重新注册每日数据校准与每分钟显示刷新闹钟。",
+            description = "重新注册 Widget 午夜与最近课程节点 WorkManager 任务。",
             risk = DeveloperMaintenanceRisk.MEDIUM,
             execute = ::rescheduleWidgetUpdates,
         ),
@@ -435,15 +434,14 @@ class DeveloperMaintenanceRepository(
                 message = "桌面上没有今日课表 Widget",
             )
         }
-        TodayScheduleWidgetUpdater.updateAll(context)
+        WidgetRefreshScheduler.refreshAndReplan(context)
         return ActionOutput(message = "已刷新 $widgetCount 个今日课表 Widget")
     }
 
-    private fun rescheduleWidgetUpdates(): ActionOutput {
-        WidgetUpdateScheduler.cancel(context)
-        WidgetUpdateScheduler.scheduleNext(context)
-        WidgetUpdateScheduler.scheduleTicker(context)
-        return ActionOutput(message = "Widget 数据校准和显示刷新任务已重排")
+    private suspend fun rescheduleWidgetUpdates(): ActionOutput {
+        WidgetRefreshScheduler.cancel(context)
+        WidgetRefreshScheduler.refreshAndReplan(context)
+        return ActionOutput(message = "Widget 午夜和课程节点任务已重排")
     }
 
     private suspend fun rescheduleCourseReminders(): ActionOutput {

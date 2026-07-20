@@ -5,11 +5,10 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.ui.widget.TodayScheduleWidgetReceiver
-import com.ahu_plus.ui.widget.TodayScheduleWidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,15 +46,14 @@ class BootReceiver : BroadcastReceiver() {
                     return@launch
                 }
                 Log.i(TAG, "onReceive: $action, 重新调度 widget + 课程提醒")
-                WidgetUpdateScheduler.scheduleNext(appContext)
-                WidgetUpdateScheduler.scheduleTicker(appContext)
+                WidgetRefreshScheduler.cancelLegacyAlarms(appContext)
                 val appWidgetManager = AppWidgetManager.getInstance(appContext)
                 val widgetComponent = ComponentName(appContext, TodayScheduleWidgetReceiver::class.java)
                 val hasWidgets = appWidgetManager.getAppWidgetIds(widgetComponent).isNotEmpty()
                 CourseReminderScheduler.scheduleAll(appContext)
                 AgendaReminderScheduler.scheduleAll(appContext)
                 if (hasWidgets) {
-                    TodayScheduleWidgetUpdater.updateAll(appContext)
+                    WidgetRefreshScheduler.refreshAndReplan(appContext)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "开机重排失败: ${e.message}", e)

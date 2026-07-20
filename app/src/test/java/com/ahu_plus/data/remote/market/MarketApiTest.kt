@@ -27,20 +27,45 @@ class MarketApiTest {
     }
 
     @Test
-    fun parseImportUri_requiresVersionTokenAndNonce() {
+    fun parseLegacyImportUri_requiresVersionTokenAndNonce() {
         val token = jwt(exp = 2_000_000_000L)
         val encoded = URLEncoder.encode(token, StandardCharsets.UTF_8.name())
-        val parsed = MarketApi.parseImportUri(
+        val parsed = MarketApi.parseLegacyImportUri(
+            "ahuplus://market/import?v=1&token=$encoded&nonce=random-value"
+        ).getOrThrow().identity
+
+        assertEquals("安徽大学", parsed.metadata.school)
+        assertTrue(MarketApi.parseLegacyImportUri(
+            "ahuplus://market/import?v=2&token=$encoded&nonce=random-value"
+        ).isFailure)
+        assertTrue(MarketApi.parseLegacyImportUri(
+            "https://market/import?v=1&token=$encoded&nonce=random-value"
+        ).isFailure)
+    }
+
+    @Test
+    fun parseQrPayload_acceptsOnlyDedicatedV2Json() {
+        val token = jwt(exp = 2_000_000_000L)
+        val payload = """{"format":"ahuplus.market.identity","version":2,"token":"Bearer $token"}"""
+
+        val request = MarketApi.parseQrPayload(payload).getOrThrow()
+
+        assertEquals(MarketImportSource.IN_APP_QR, request.source)
+        assertEquals("安徽大学", request.identity.metadata.school)
+        assertTrue(MarketApi.parseQrPayload(token).isFailure)
+        assertTrue(MarketApi.parseQrPayload(payload.replace("\"version\":2", "\"version\":1")).isFailure)
+    }
+
+    @Test
+    fun legacyImport_isMarkedAsExternalSource() {
+        val token = jwt(exp = 2_000_000_000L)
+        val encoded = URLEncoder.encode(token, StandardCharsets.UTF_8.name())
+
+        val request = MarketApi.parseLegacyImportUri(
             "ahuplus://market/import?v=1&token=$encoded&nonce=random-value"
         ).getOrThrow()
 
-        assertEquals("安徽大学", parsed.metadata.school)
-        assertTrue(MarketApi.parseImportUri(
-            "ahuplus://market/import?v=2&token=$encoded&nonce=random-value"
-        ).isFailure)
-        assertTrue(MarketApi.parseImportUri(
-            "https://market/import?v=1&token=$encoded&nonce=random-value"
-        ).isFailure)
+        assertEquals(MarketImportSource.LEGACY_EXTERNAL_LINK, request.source)
     }
 
     @Test
