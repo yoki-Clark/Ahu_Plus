@@ -33,8 +33,10 @@ local.properties
 cos_config.properties
 app/src/main/assets/cos_config.properties
 
-# ── 本地技术文档（不上传）────────────────────────────────
-docs/
+# ── 本地技术文档（ADR 例外，必须进入版本控制）────────────
+/docs/*
+!/docs/adr/
+!/docs/adr/**
 AGENTS.md
 BETA_TESTING.md
 BUG_REVIEW.md
@@ -49,6 +51,10 @@ SECURITY.md
 tools/*
 !tools/exam_prediction/
 !tools/集市Token获取工具/
+!tools/release/
+!tools/release/**
+!tools/ci/
+!tools/ci/**
 
 # ── 备份与调试产物 ────────────────────────────────────────
 *.log

@@ -16,7 +16,8 @@ python -m http.server 4173 --directory website/public
 
 ## 发布信息
 
-下载区域读取 `public/release.json`。发布新版时只需同步更新：
+下载区域读取 `public/release.json`。该文件由仓库根目录
+`release/release-state.json` 生成，禁止手工修改。发布新版时由发布工具同步以下字段：
 
 - `version` 与 `versionCode`
 - `fileName` 与 `fileSize`
@@ -24,7 +25,7 @@ python -m http.server 4173 --directory website/public
 - `downloadUrl`
 - `publishedAt`
 
-版本、文件大小和 SHA-256 与仓库根目录稳定版发布清单一致；`downloadUrl` 指向对应版本的 Gitee Release 资产。不要把未正式发布的 Gradle 开发版本号写入网站。
+版本、文件大小和 SHA-256 与仓库根目录稳定版发布清单一致；`downloadUrl` 指向对应版本的 Gitee Release 资产。候选版本只会在 dry-run 输出目录生成预览，不会提前覆盖官网稳定版信息。
 
 ## Lighthouse 首次上线
 
@@ -63,7 +64,7 @@ python -m http.server 4173 --directory website/public
 ## 下载托管与 CDN 边界
 
 - 官网下载直接使用 Gitee Release 资产，不经过 `ahuplus.online`、Lighthouse 或腾讯云 CDN，因此官网链接被传播不会消耗 CDN 资源包。
-- 发布新版时先在 Gitee 创建正式 Release 并上传 APK，再把 `public/release.json` 更新到该 Release 的固定版本资产 URL；同时核对文件大小和 SHA-256。
+- 发布新版时先完成本地 dry-run，再在 Gitee 创建正式 Release 并上传 APK；确认固定资产 URL 可用后，使用发布工具的 `promote --apply` 更新状态与生成清单。
 - 腾讯云 CDN 预留给 App 内更新使用，当前网站部署配置不创建 CDN 加速域名，也不托管 APK 源站文件。
 - App 客户端的检查冷却、显式下载、单任务和重试退避只能减少正常客户端的误用，不能阻止攻击者复制 CDN URL 后直接请求。
 - 后续启用 CDN 更新时，仍需在 CDN 侧设置用量硬上限、异常告警、单 IP 限频和规范缓存键。需要更强防刷时，由后端生成短期签名 URL；URL 鉴权密钥不能放进 APK 或前端 JavaScript。

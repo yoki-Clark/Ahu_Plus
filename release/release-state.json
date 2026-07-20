@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "application": {
+    "applicationId": "com.yourname.ahu_plus",
+    "minSdk": 24,
+    "targetSdk": 36,
+    "primaryAbi": "arm64-v8a",
+    "allowedSigningCertificateSha256": [
+      "D290B9CF0653C1F80B2DF26EF39B3385C854F9D653793FB34CAE36AC9FB6D463"
+    ]
+  },
+  "build": {
+    "versionName": "2.2.2.8",
+    "versionCode": 32
+  },
+  "candidate": {
+    "channel": "beta",
+    "minSupportedVersionCode": 0,
+    "downloadUrl": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/ahu_plus_beta.apk",
+    "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
+    "apkFileName": "ahu_plus_beta.apk",
+    "releaseNotes": [
+      "发布安全：正式签名缺失或不匹配时，Release 构建会安全失败。",
+      "工程门禁：新增 JVM 测试、Android Lint、Debug 构建和敏感信息检查。",
+      "发布校验：版本、包名、签名、ABI、文件大小和 SHA-256 由 dry-run 自动核对。"
+    ],
+    "forceUpdate": false,
+    "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus"
+  },
+  "published": {
+    "stable": {
+      "channel": "stable",
+      "versionName": "2.2.2",
+      "versionCode": 24,
+      "minSupportedVersionCode": 13,
+      "downloadUrl": "https://gitee.com/yao-enqi/Ahu_Plus/releases/download/v2.2.2/app-arm64-v8a-release.apk",
+      "downloadUrlMirror": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/app-release.apk",
+      "apkFileName": "app-arm64-v8a-release.apk",
+      "releaseNotes": [
+        "本次为 v2.2.2 功能更新,具体功能请以「我的 → 使用帮助」为准。",
+        "新增日程功能:取代首页近期任务,可查看和管理日程安排。",
+        "首页收藏应用:支持长按直接进入编辑并拖拽排序。",
+        "校园集市:返回顶部按钮支持拖动刷新;评论支持显示图片;帖子图片支持滑动浏览。",
+        "若干稳定性修复。"
+      ],
+      "forceUpdate": false,
+      "publishedAt": "2026-07-07T20:00:00+08:00",
+      "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus",
+      "sha256": "601A157A0A4F9608899B09D12E54C40D3941E6423273961BA5FA303A3242B409",
+      "fileSize": 8158167
+    },
+    "beta": {
+      "channel": "beta",
+      "versionName": "2.2.2.7",
+      "versionCode": 31,
+      "minSupportedVersionCode": 0,
+      "downloadUrl": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/ahu_plus_beta.apk",
+      "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
+      "apkFileName": "ahu_plus_beta.apk",
+      "releaseNotes": [
+        "本次为 v2.2.2.7 先行版，基于 2.2.2.6 增量更新：",
+        "启动与认证：支持游客直达主界面，并在后台静默恢复校园会话。",
+        "校园服务：原生化校长信箱，接入 JWApp 教室课表，完善教务通知附件与校园支付码。",
+        "集市：增强身份导入，新增二维码扫描入口及 Windows 辅助工具。",
+        "学习通：恢复章节学习流程，强化请求限流、取消与后台服务稳定性。",
+        "开发者中心与宽屏体验：补充诊断、测试能力并优化导航和多项校园数据交互。",
+        "本先行版在线安装包面向 arm64-v8a 真机。"
+      ],
+      "forceUpdate": false,
+      "publishedAt": "2026-07-18T23:27:38+08:00",
+      "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus",
+      "sha256": "7A63ED092AB252ACCCA27DF360D5FDEE7B2A0263F89060030A297C819C2A65C5",
+      "fileSize": 9028314
+    }
+  }
+}

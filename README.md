@@ -4,7 +4,6 @@
 ![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?logo=kotlin&logoColor=white)
 ![Compose](https://img.shields.io/badge/Compose_BOM-2026.02.01-4285F4)
-![Version](https://img.shields.io/badge/version-2.2.2.7-2563eb)
 
 安徽大学校园助手 Android 应用。项目把学校门户、教务、一卡通、学习平台和若干公开数据源整合到一个 Jetpack Compose 客户端中。
 
@@ -82,7 +81,8 @@ ABI split 会生成：
 adb install -r app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
 ```
 
-Release 签名从未提交的 `local.properties` 读取：
+构建版本由 `release/release-state.json` 单一维护。Release 签名按环境变量、Gradle
+属性、未提交的 `local.properties` 顺序读取：
 
 ```properties
 AHU_RELEASE_STORE_FILE=/absolute/path/to/release.jks
@@ -91,7 +91,17 @@ AHU_RELEASE_KEY_ALIAS=...
 AHU_RELEASE_KEY_PASSWORD=...
 ```
 
-未配置时会回退到本机 debug keystore，仅用于本地验证，不能用于分发。
+四项配置缺失、keystore 无法打开或证书指纹不在 allowlist 时，Release 构建会在
+打包前失败；不会回退到 debug keystore。发布前在仓库根目录执行：
+
+```bash
+python tools/release/release.py check
+python tools/release/release.py dry-run --channel beta
+```
+
+dry-run 的发布预览只写入 `build/release-dry-run/`，常规构建产物仍位于 `app/build/`；
+它不会更新公开清单、提交 Git 或发布远端资产。
+完整流程见 `tools/release/README.md`。
 
 ## 代码结构
 

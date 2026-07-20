@@ -1,0 +1,23 @@
+{
+  "channel": "beta",
+  "latestVersion": "2.2.2.7",
+  "latestVersionCode": 31,
+  "minSupportedVersionCode": 0,
+  "downloadUrl": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/ahu_plus_beta.apk",
+  "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
+  "apkFileName": "ahu_plus_beta.apk",
+  "releaseNotes": [
+    "本次为 v2.2.2.7 先行版，基于 2.2.2.6 增量更新：",
+    "启动与认证：支持游客直达主界面，并在后台静默恢复校园会话。",
+    "校园服务：原生化校长信箱，接入 JWApp 教室课表，完善教务通知附件与校园支付码。",
+    "集市：增强身份导入，新增二维码扫描入口及 Windows 辅助工具。",
+    "学习通：恢复章节学习流程，强化请求限流、取消与后台服务稳定性。",
+    "开发者中心与宽屏体验：补充诊断、测试能力并优化导航和多项校园数据交互。",
+    "本先行版在线安装包面向 arm64-v8a 真机。"
+  ],
+  "forceUpdate": false,
+  "updateTime": "2026-07-18T23:27:38+08:00",
+  "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus",
+  "sha256": "7A63ED092AB252ACCCA27DF360D5FDEE7B2A0263F89060030A297C819C2A65C5",
+  "fileSize": 9028314
+}
