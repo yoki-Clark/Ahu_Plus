@@ -109,7 +109,6 @@ class MainActivity : ComponentActivity() {
                     }
 
                     LegalGateState.RequiresConsent -> {
-                        LaunchedEffect(Unit) { app.stopPostConsentServices() }
                         LegalConsentScreen(
                             onAccept = {
                                 lifecycleScope.launch {
@@ -151,7 +150,6 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             initCoordinator = app.initCoordinator,
-                            initMessageFlow = app.initMessageFlow,
                             deepLink = deepLink,
                             onDeepLinkConsumed = { deepLink = null },
                             marketImportRequest = marketImportRequest,
