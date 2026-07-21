@@ -18,6 +18,8 @@ class StudentInfoRepository(
     private val gson = GsonProvider.instance
 
     suspend fun getStudentInfo(): Result<StudentInfo> {
+        // 捕获请求开始时的 generation
+        val requestGeneration = sessionManager.currentAccountGeneration()
         return try {
             withContext(Dispatchers.IO) {
                 client.activateSession()
@@ -47,7 +49,7 @@ class StudentInfoRepository(
                         housingFields = housingFields,
                         academicWarningFields = academicWarningFields
                     )
-                    persistToCache(info)
+                    persistToCache(info, requestGeneration)
                     Result.success(info)
                 }
             }
@@ -65,9 +67,9 @@ class StudentInfoRepository(
         }.getOrNull()
     }
 
-    private suspend fun persistToCache(info: StudentInfo) {
+    private suspend fun persistToCache(info: StudentInfo, generation: Long) {
         val json = runCatching { gson.toJson(info) }.getOrNull() ?: return
-        sessionManager.saveStudentInfoJson(json)
+        sessionManager.saveStudentInfoJson(json, generation = generation)
     }
 
     // ── fetchUserInfo ──────────────────────────────────────

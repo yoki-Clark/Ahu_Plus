@@ -1579,7 +1579,11 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     fun getStudentInfoUpdatedAt(): Long = cachedStudentInfoUpdatedAt
 
-    suspend fun saveStudentInfoJson(json: String, updatedAt: Long = System.currentTimeMillis()) {
+    suspend fun saveStudentInfoJson(json: String, updatedAt: Long = System.currentTimeMillis(), generation: Long? = null) {
+        if (!isCurrentGeneration(generation)) {
+            Log.w(TAG, "saveStudentInfoJson: generation mismatch, skipping")
+            return
+        }
 
         cachedStudentInfoJson = json
 
@@ -1703,7 +1707,11 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
     fun getWeLearnCoursesJson(): String? = cachedWeLearnCoursesJson
     fun getWeLearnCoursesUpdatedAt(): Long = cachedWeLearnCoursesUpdatedAt
 
-    suspend fun saveWeLearnCoursesJson(json: String) {
+    suspend fun saveWeLearnCoursesJson(json: String, generation: Long? = null) {
+        if (!isCurrentGeneration(generation)) {
+            Log.w(TAG, "saveWeLearnCoursesJson: generation mismatch, skipping")
+            return
+        }
         cachedWeLearnCoursesJson = json
         cachedWeLearnCoursesUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit {
@@ -2749,7 +2757,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         credentialStore.remove(
             EncryptedCredentialStore.ACCOUNT_KEYS +
-                EncryptedCredentialStore.THIRD_PARTY_ACCOUNT_KEYS
+                EncryptedCredentialStore.THIRD_PARTY_KEYS
         )
 
         Log.i(TAG, "\u6240\u6709\u4F1A\u8BDD\u548C\u51ED\u636E\u5DF2\u6E05\u9664")
