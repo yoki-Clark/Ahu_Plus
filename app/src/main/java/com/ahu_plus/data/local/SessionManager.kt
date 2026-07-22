@@ -343,6 +343,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     @Volatile private var cachedTrainingPlanCacheVersion: Long = 0L
 
+    @Volatile private var cachedCompletionCoursesJson: String? = null
+
+    @Volatile private var cachedCompletionSummaryJson: String? = null
+
+    @Volatile private var cachedCompletionUpdatedAt: Long = 0L
+
     @Volatile private var cachedEmptyClassroomJson: String? = null
 
     @Volatile private var cachedEmptyClassroomKey: String? = null
@@ -854,6 +860,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedTrainingPlanUpdatedAt = prefs[TRAINING_PLAN_UPDATED_AT_KEY] ?: 0L
 
         cachedTrainingPlanCacheVersion = prefs[TRAINING_PLAN_CACHE_VERSION_KEY] ?: 0L
+
+        cachedCompletionCoursesJson = prefs[COMPLETION_COURSES_JSON_KEY]
+
+        cachedCompletionSummaryJson = prefs[COMPLETION_SUMMARY_JSON_KEY]
+
+        cachedCompletionUpdatedAt = prefs[COMPLETION_UPDATED_AT_KEY] ?: 0L
 
         cachedEmptyClassroomJson = prefs[EMPTY_CLASSROOM_JSON_KEY]
 
@@ -2543,6 +2555,39 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    /**
+     * 培养方案完成情况缓存（program-completion-preview 解析结果）。
+     *
+     * 与 training plan JSON 不同，这里保存的是已解析的 [CompletionCourse] 列表与
+     * [CompletionSummary] 概览。typeId / moduleName 已随 [CompletionCourse] 序列化，
+     * 因此冷启动恢复后无需重新请求网络即可还原子分类路由与进度条计算。
+     */
+    fun getCompletionCoursesJson(): String? = cachedCompletionCoursesJson
+
+    fun getCompletionSummaryJson(): String? = cachedCompletionSummaryJson
+
+    fun getCompletionUpdatedAt(): Long = cachedCompletionUpdatedAt
+
+    suspend fun saveCompletionData(coursesJson: String, summaryJson: String) {
+
+        cachedCompletionCoursesJson = coursesJson
+
+        cachedCompletionSummaryJson = summaryJson
+
+        cachedCompletionUpdatedAt = System.currentTimeMillis()
+
+        appDataStore.dataStore.edit { preferences ->
+
+            preferences[COMPLETION_COURSES_JSON_KEY] = coursesJson
+
+            preferences[COMPLETION_SUMMARY_JSON_KEY] = summaryJson
+
+            preferences[COMPLETION_UPDATED_AT_KEY] = cachedCompletionUpdatedAt
+
+        }
+
+    }
+
     fun getEmptyClassroomJson(): String? = cachedEmptyClassroomJson
 
     fun getEmptyClassroomKey(): String? = cachedEmptyClassroomKey
@@ -2613,6 +2658,26 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             preferences.remove(TRAINING_PLAN_UPDATED_AT_KEY)
 
             preferences.remove(TRAINING_PLAN_CACHE_VERSION_KEY)
+
+        }
+
+    }
+
+    suspend fun clearCompletionData() {
+
+        cachedCompletionCoursesJson = null
+
+        cachedCompletionSummaryJson = null
+
+        cachedCompletionUpdatedAt = 0L
+
+        appDataStore.dataStore.edit { preferences ->
+
+            preferences.remove(COMPLETION_COURSES_JSON_KEY)
+
+            preferences.remove(COMPLETION_SUMMARY_JSON_KEY)
+
+            preferences.remove(COMPLETION_UPDATED_AT_KEY)
 
         }
 
@@ -2863,6 +2928,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedTrainingPlanUpdatedAt = 0L
 
         cachedTrainingPlanCacheVersion = 0L
+
+        cachedCompletionCoursesJson = null
+
+        cachedCompletionSummaryJson = null
+
+        cachedCompletionUpdatedAt = 0L
 
         cachedEmptyClassroomJson = null
 
@@ -3697,6 +3768,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         val TRAINING_PLAN_CACHE_VERSION_KEY = longPreferencesKey("training_plan_cache_version")
 
+        val COMPLETION_COURSES_JSON_KEY = stringPreferencesKey("completion_courses_json")
+
+        val COMPLETION_SUMMARY_JSON_KEY = stringPreferencesKey("completion_summary_json")
+
+        val COMPLETION_UPDATED_AT_KEY = longPreferencesKey("completion_updated_at")
+
         val EMPTY_CLASSROOM_JSON_KEY = stringPreferencesKey("empty_classroom_json")
 
         val EMPTY_CLASSROOM_KEY_KEY = stringPreferencesKey("empty_classroom_key")
@@ -3892,6 +3969,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             ADWMH_QR_PAYLOAD_KEY, ADWMH_QR_SERVER_TEXT_KEY, ADWMH_QR_FETCHED_AT_KEY,
 
             TRAINING_PLAN_JSON_KEY, TRAINING_PLAN_UPDATED_AT_KEY, TRAINING_PLAN_CACHE_VERSION_KEY,
+
+            COMPLETION_COURSES_JSON_KEY, COMPLETION_SUMMARY_JSON_KEY, COMPLETION_UPDATED_AT_KEY,
 
             EMPTY_CLASSROOM_JSON_KEY, EMPTY_CLASSROOM_KEY_KEY, EMPTY_CLASSROOM_UPDATED_AT_KEY,
 
