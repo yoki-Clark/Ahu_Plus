@@ -24,6 +24,8 @@ import com.ahu_plus.data.repository.AdwmhLoginInfo
 import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.data.repository.CardRepository
 import com.ahu_plus.data.repository.CasAuthRepository
+import com.ahu_plus.data.repository.ErrorClassifier
+import com.ahu_plus.data.repository.ErrorKind
 import com.ahu_plus.data.repository.SessionExpiredException
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.YcardAuthExpiredException
@@ -1222,14 +1224,13 @@ class HomeViewModel(
                     return@withContext
                 }
 
-                val errorMsg = qrResult.exceptionOrNull()?.message.orEmpty()
-                val isTimeout = errorMsg.contains("超时") || errorMsg.contains("timeout")
+                val errorThrowable = qrResult.exceptionOrNull()
+                val errorMsg = errorThrowable?.message.orEmpty()
+                val errorKind = ErrorClassifier.classify(errorThrowable)
 
                 // 仅会话过期时自动重登录；超时/网络问题不触发重登录（避免加重速率限制）
-                val isAuthError = errorMsg.contains("会话已过期") ||
-                    errorMsg.contains("重新登录") ||
-                    errorMsg.contains("请先登录") ||
-                    errorMsg.contains("返回 HTML")
+                val isAuthError = ErrorClassifier.shouldReauth(errorKind)
+                val isTimeout = errorKind == ErrorKind.NETWORK_UNREACHABLE
 
                 if (isAuthError) {
                     val username = sessionManager.getUsername()

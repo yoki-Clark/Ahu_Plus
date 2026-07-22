@@ -12,6 +12,11 @@ import androidx.core.app.NotificationCompat
 import com.ahu_plus.MainActivity
 import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.local.AppDataStore
+import com.ahu_plus.ui.navigation.HomeRoute
+import com.ahu_plus.ui.navigation.HomeTarget
+import com.ahu_plus.ui.navigation.NavigationIntentCodec
+import com.ahu_plus.ui.navigation.NavigationRequest
+import com.ahu_plus.ui.navigation.NavigationSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -51,7 +56,10 @@ class AgendaReminderReceiver : BroadcastReceiver() {
 
         val deepLink = Intent(appContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(MainActivity.EXTRA_DEEP_LINK, MainActivity.DEEP_LINK_AGENDA)
+            NavigationIntentCodec.put(
+                this,
+                NavigationRequest(HomeTarget(HomeRoute.AGENDA), NavigationSource.NOTIFICATION),
+            )
         }
         val pendingIntent = PendingIntent.getActivity(
             appContext,

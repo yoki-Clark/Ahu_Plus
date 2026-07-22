@@ -75,10 +75,10 @@ fun AppNavigation(
     initCoordinator: InitCoordinator? = null,
     /** 首次登录初始化消息流 (LoginViewModel emit → MainScreen 订阅 → 底部 Snackbar) */
     initMessageFlow: kotlinx.coroutines.flow.MutableSharedFlow<String>? = null,
-    /** 通知/widget deep-link 目标(MainActivity.DEEP_LINK_*),登录态就绪后由 MainScreen 消费 */
-    deepLink: String? = null,
-    /** MainScreen 完成 deep-link 跳转后回调,清空 deepLink 避免重复触发 */
-    onDeepLinkConsumed: () -> Unit = {},
+    /** 通知、Widget、服务或深链产生的统一导航请求。 */
+    navigationRequest: NavigationRequest? = null,
+    navigationRequestId: Long = 0L,
+    onNavigationRequestConsumed: () -> Unit = {},
     marketImportRequest: MarketImportRequest? = null,
     onMarketImportConsumed: () -> Unit = {},
     onSessionInitialized: () -> Unit = {},
@@ -243,8 +243,9 @@ fun AppNavigation(
                 adwmhCardRepository = adwmhCardRepository,
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
-                deepLink = deepLink,
-                onDeepLinkConsumed = onDeepLinkConsumed,
+                navigationRequest = navigationRequest,
+                navigationRequestId = navigationRequestId,
+                onNavigationRequestConsumed = onNavigationRequestConsumed,
                 marketImportRequest = marketImportRequest,
                 onMarketImportConsumed = onMarketImportConsumed,
                 hasCredentials = hasCredentials,

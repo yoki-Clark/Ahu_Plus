@@ -24,6 +24,8 @@ import com.ahu_plus.data.remote.market.MarketImportRequest
 import com.ahu_plus.ui.components.AnnouncementDialog
 import com.ahu_plus.ui.components.UpdateDialog
 import com.ahu_plus.ui.navigation.AppNavigation
+import com.ahu_plus.ui.navigation.NavigationIntentCodec
+import com.ahu_plus.ui.navigation.NavigationRequest
 import com.ahu_plus.ui.screen.legal.LegalConsentScreen
 import com.ahu_plus.ui.theme.AhuPlusTheme
 import kotlinx.coroutines.launch
@@ -35,7 +37,8 @@ class MainActivity : ComponentActivity() {
          * deep-link extra key:由通知 / widget 等入口传入,
          * AppNavigation 据此决定初始跳转。
          */
-        const val EXTRA_DEEP_LINK = "deep_link"
+        @Deprecated("Use NavigationIntentCodec")
+        const val EXTRA_DEEP_LINK = NavigationIntentCodec.LEGACY_EXTRA_DEEP_LINK
 
         /** 深链到课表页(课程提醒通知点击时使用) */
         const val DEEP_LINK_SCHEDULE = "schedule"
@@ -52,14 +55,14 @@ class MainActivity : ComponentActivity() {
         /** 深链到 WeLearn Tab */
         const val DEEP_LINK_WELEARN = "welearn"
 
-        private fun deepLinkFrom(intent: Intent?): String? = intent?.getStringExtra(EXTRA_DEEP_LINK)
     }
 
     /**
      * 当前待消费的 deep-link 目标。冷启动时取自启动 intent;App 已在前台时由
      * [onNewIntent] 更新。MainScreen 消费后回调置空,避免重复跳转。
      */
-    private var deepLink by mutableStateOf<String?>(null)
+    private var navigationRequest by mutableStateOf<NavigationRequest?>(null)
+    private var navigationRequestId by mutableStateOf(0L)
     private var marketImportRequest by mutableStateOf<MarketImportRequest?>(null)
 
     private fun consumeLegacyMarketImport(intent: Intent?): MarketImportRequest? {
@@ -83,7 +86,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         marketImportRequest = consumeLegacyMarketImport(intent)
-        deepLink = deepLinkFrom(intent)
+        NavigationIntentCodec.decode(intent)?.let(::publishNavigationRequest)
         setIntent(intent)
         val app = application as AhuPlusApplication
         setContent {
@@ -150,8 +153,9 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             initCoordinator = app.initCoordinator,
-                            deepLink = deepLink,
-                            onDeepLinkConsumed = { deepLink = null },
+                            navigationRequest = navigationRequest,
+                            navigationRequestId = navigationRequestId,
+                            onNavigationRequestConsumed = { navigationRequest = null },
                             marketImportRequest = marketImportRequest,
                             onMarketImportConsumed = { marketImportRequest = null },
                             onSessionInitialized = app::restorePersistedRepositoryState,
@@ -196,6 +200,11 @@ class MainActivity : ComponentActivity() {
         val importRequest = consumeLegacyMarketImport(intent)
         setIntent(intent)
         if (importRequest != null) marketImportRequest = importRequest
-        deepLinkFrom(intent)?.let { deepLink = it }
+        NavigationIntentCodec.decode(intent)?.let(::publishNavigationRequest)
+    }
+
+    private fun publishNavigationRequest(request: NavigationRequest) {
+        navigationRequestId++
+        navigationRequest = request
     }
 }

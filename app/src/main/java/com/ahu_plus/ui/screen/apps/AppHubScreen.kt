@@ -53,6 +53,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.home.AppRegistry
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.ui.navigation.AppsRoute
+import com.ahu_plus.ui.navigation.AppsTarget
 import kotlinx.coroutines.launch
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuBlue
@@ -178,8 +180,8 @@ fun AppHubScreen(
     weatherViewModel: WeatherViewModel,
     agendaViewModel: AgendaViewModel,
     evaluationViewModel: EvaluationViewModel,
-    requestedAppKey: String? = null,
-    onRequestedAppConsumed: () -> Unit = {},
+    appsTarget: AppsTarget? = null,
+    onNavigateBack: () -> Unit = {},
     onRecordApp: (String) -> Unit = {},
     hasCredentials: Boolean = false,
     authRefreshVersion: Int = 0,
@@ -213,12 +215,14 @@ fun AppHubScreen(
     var analyticsFromBills by rememberSaveable { mutableStateOf(false) }
     val hubGridState = rememberLazyGridState()
 
-    LaunchedEffect(requestedAppKey) {
-        val appKey = requestedAppKey ?: return@LaunchedEffect
+    LaunchedEffect(appsTarget) {
+        val target = appsTarget ?: return@LaunchedEffect
+        if (target.route != AppsRoute.APP) return@LaunchedEffect
+        val appKey = target.appKey ?: return@LaunchedEffect
         currentPage = appHubPageForAppKey(appKey)
         analyticsFromBills = false
         if (currentPage != null) onRecordApp(appKey)
-        onRequestedAppConsumed()
+        onNavigateBack()
     }
 
     // 评教详情子页的当前任务(由列表点击进入,不序列化以避免 stdSumTaskId 序列化要求)

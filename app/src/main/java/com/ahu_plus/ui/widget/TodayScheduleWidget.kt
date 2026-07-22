@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -35,6 +36,11 @@ import androidx.glance.unit.ColorProvider
 import com.ahu_plus.MainActivity
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.notification.WidgetRefreshScheduler
+import com.ahu_plus.ui.navigation.HomeRoute
+import com.ahu_plus.ui.navigation.HomeTarget
+import com.ahu_plus.ui.navigation.NavigationIntentCodec
+import com.ahu_plus.ui.navigation.NavigationRequest
+import com.ahu_plus.ui.navigation.NavigationSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -44,7 +50,7 @@ class TodayScheduleWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val state = TodayScheduleWidgetData.load(context)
         provideContent {
-            TodayScheduleWidgetContent(state)
+            TodayScheduleWidgetContent(state, context)
         }
     }
 }
@@ -97,12 +103,20 @@ private val WidgetOnDark = Color(0xFFFFFFFF)
 
 @androidx.glance.GlanceComposable
 @Composable
-private fun TodayScheduleWidgetContent(state: TodayScheduleWidgetState) {
+private fun TodayScheduleWidgetContent(state: TodayScheduleWidgetState, context: Context) {
+    val navigationTargetKey = ActionParameters.Key<String>(
+        NavigationIntentCodec.EXTRA_NAVIGATION_TARGET
+    )
+    val openScheduleParameters = actionParametersOf(
+        navigationTargetKey to NavigationIntentCodec.encode(
+            NavigationRequest(HomeTarget(HomeRoute.SCHEDULE), NavigationSource.WIDGET)
+        )
+    )
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
             .background(ColorProvider(WidgetBackground))
-            .clickable(actionStartActivity<MainActivity>())
+            .clickable(actionStartActivity<MainActivity>(openScheduleParameters))
             .padding(12.dp),
     ) {
         HeaderRow(state)

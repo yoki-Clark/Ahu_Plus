@@ -6,10 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.jw.Exam
 import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.local.DataSnapshotStatus
+import com.ahu_plus.data.repository.ErrorClassifier
 import com.ahu_plus.data.repository.ExamRepository
-import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.JwAuthRepository
-import com.ahu_plus.data.repository.SessionExpiredException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -127,7 +126,7 @@ class ExamViewModel(
                                 error = if (!wasLoaded) (e.message ?: "考试安排加载失败") else it.error,
                                 dataStatus = it.dataStatus?.withFailedRefresh(),
                                 needsLogin = !wasLoaded &&
-                                    (e is SessionExpiredException || e is JwAuthException)
+                                    (ErrorClassifier.shouldReauth(ErrorClassifier.classify(e)))
                             )
                         }
                     }
@@ -144,7 +143,7 @@ class ExamViewModel(
                     error = if (!wasLoaded) "未知错误: ${e.message}" else it.error,
                     dataStatus = it.dataStatus?.withFailedRefresh(),
                     needsLogin = !wasLoaded &&
-                        (e is SessionExpiredException || e is JwAuthException)
+                        (ErrorClassifier.shouldReauth(ErrorClassifier.classify(e)))
                 )
             }
         }
