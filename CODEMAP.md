@@ -9,6 +9,7 @@
 | `release/release-state.json` | 构建版本、候选版本、stable/beta 已发布元数据和签名证书 allowlist 的唯一来源 |
 | `tools/release/release.py` | 清单一致性、APK 签名/包名/版本/ABI/SHA-256 校验、dry-run 和晋升预览 |
 | `tools/ci/check_secrets.py` | 跟踪文件路径与高置信度凭据内容扫描 |
+| `tools/captcha_collector/` | 智慧安大验证码本地采集、双模型伪标注、人工真值标注、紧凑 CNN 训练与量化导出 |
 | `.github/workflows/android-ci.yml` | JVM 测试、Lint、Debug 构建和敏感信息门禁 |
 
 ## 入口与组装
@@ -70,7 +71,7 @@
 | 校园卡门户余额 | `CardRepository.kt` | `home/HomeViewModel.kt` 的支付码余额兜底 |
 | 一卡通账单/生活缴费 | `YcardRepository.kt` | `home/`、`profile/BillScreens.kt`、`UtilityDetailScreens.kt` |
 | 充值 | `YcardPayRepository.kt` | `home/DepositSheet.kt` |
-| 智慧安大支付码 | `AdwmhCardRepository.kt` | `home/CampusQrCodeCard.kt` |
+| 智慧安大支付码 | `AdwmhCardRepository.kt`、`AdwmhCaptchaRecognizer.kt`、`CompactCaptchaModel.kt` | `home/CampusQrCodeCard.kt` |
 | 考勤 | `KqAttendanceRepository.kt` | `attendance/`、课表详情、Profile |
 | 学生一张表公共客户端 | `StudentTableClient.kt` | StudentInfo/Finance 共享 |
 | 学生信息 | `StudentInfoRepository.kt` | `profile/MyInfoScreens.kt` |

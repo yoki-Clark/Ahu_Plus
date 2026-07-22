@@ -11,6 +11,22 @@ import java.net.UnknownHostException
 class BackgroundJobControllerTest {
 
     @Test
+    fun `persisted null records are treated as empty`() {
+        assertEquals(
+            emptyList<BackgroundJobRecord>(),
+            decodeBackgroundJobRecords("""{"schemaVersion":1,"records":null}""", 1_000L),
+        )
+    }
+
+    @Test
+    fun `persisted null record element is treated as corrupt cache`() {
+        assertEquals(
+            emptyList<BackgroundJobRecord>(),
+            decodeBackgroundJobRecords("""{"schemaVersion":1,"records":[null]}""", 1_000L),
+        )
+    }
+
+    @Test
     fun `concurrent starts accept exactly one job per platform`() = runTest {
         val controller = controller()
         val command = BackgroundJobCommand(BackgroundJobPlatform.CHAOXING, BackgroundJobPayload())

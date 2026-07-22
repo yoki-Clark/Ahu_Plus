@@ -143,6 +143,14 @@ android {
         compose = true
         buildConfig = true
     }
+
+    // ABI split APK 以下载体积为发布约束。保留 Conscrypt 能力，但压缩 JNI 库；
+    // Android 安装时会将其解压，不改变运行期加载和 TLS 行为。
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 val validateReleaseSigning by tasks.registering {
