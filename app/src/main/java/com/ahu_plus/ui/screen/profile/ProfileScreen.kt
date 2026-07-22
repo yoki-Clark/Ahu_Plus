@@ -111,6 +111,8 @@ import com.ahu_plus.data.model.StudentInfoCodeLookup
 import com.ahu_plus.data.model.StudentInfoField
 import com.ahu_plus.data.model.jw.SemesterInfo
 import com.ahu_plus.data.repository.AdwmhQrCode
+import com.ahu_plus.ui.navigation.ProfileRoute
+import com.ahu_plus.ui.navigation.ProfileTarget
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.ui.components.AhuInfoRow
 import com.ahu_plus.ui.components.AhuSectionHeader
@@ -161,10 +163,8 @@ fun ProfileScreen(
     onThemeModeChange: (AppThemeMode) -> Unit,
     scrollTarget: String? = null,
     onScrollTargetConsumed: () -> Unit = {},
-    profileSubPage: String? = null,
-    onProfileSubPageConsumed: () -> Unit = {},
-    openCardAnalytics: Boolean = false,
-    onCardAnalyticsConsumed: () -> Unit = {},
+    profileTarget: ProfileTarget? = null,
+    onNavigateBack: () -> Unit = {},
     /** 使用帮助首开说明弹窗是否已看过（持久化，退登不清）。 */
     guideIntroSeen: Boolean = true,
     /** 首次展示帮助弹窗后落盘标记。 */
@@ -237,24 +237,18 @@ fun ProfileScreen(
         }
     }
 
-    LaunchedEffect(profileSubPage) {
-        when (profileSubPage) {
-            "myInfoHub" -> showMyInfoHub = true
-            "finance" -> showFinance = true
-            "settings" -> showSettings = true
-            "cardAnalytics" -> showCardAnalytics = true
-            "cacheCleanup" -> showCacheCleanup = true
+    // 从导航目标派生子页面路由,消费后弹栈回到 Profile 根
+    LaunchedEffect(profileTarget?.route) {
+        val route = profileTarget?.route ?: return@LaunchedEffect
+        when (route) {
+            ProfileRoute.MY_INFO -> showMyInfoHub = true
+            ProfileRoute.FINANCE -> showFinance = true
+            ProfileRoute.SETTINGS -> showSettings = true
+            ProfileRoute.CARD_ANALYTICS -> showCardAnalytics = true
+            ProfileRoute.CACHE_CLEANUP -> showCacheCleanup = true
+            else -> return@LaunchedEffect
         }
-        if (profileSubPage != null) {
-            onProfileSubPageConsumed()
-        }
-    }
-
-    LaunchedEffect(openCardAnalytics) {
-        if (openCardAnalytics) {
-            showCardAnalytics = true
-            onCardAnalyticsConsumed()
-        }
+        onNavigateBack()
     }
 
     LaunchedEffect(showCardAnalytics) {

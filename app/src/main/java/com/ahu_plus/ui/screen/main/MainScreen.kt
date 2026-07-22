@@ -64,7 +64,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import com.ahu_plus.AhuPlusApplication
-import com.ahu_plus.MainActivity
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.data.developer.DeveloperRuntimeState
@@ -121,6 +120,19 @@ import com.ahu_plus.ui.screen.trainingplan.TrainingPlanScreen
 import com.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
 import com.ahu_plus.ui.screen.weather.WeatherScreen
 import com.ahu_plus.ui.screen.weather.WeatherViewModel
+import com.ahu_plus.ui.navigation.ChaoxingTarget
+import com.ahu_plus.ui.navigation.AppsRoute
+import com.ahu_plus.ui.navigation.AppsTarget
+import com.ahu_plus.ui.navigation.HomeRoute
+import com.ahu_plus.ui.navigation.HomeTarget
+import com.ahu_plus.ui.navigation.MainNavigationViewModel
+import com.ahu_plus.ui.navigation.MarketTarget
+import com.ahu_plus.ui.navigation.NavigationRequest
+import com.ahu_plus.ui.navigation.NavigationSource
+import com.ahu_plus.ui.navigation.ProfileRoute
+import com.ahu_plus.ui.navigation.ProfileTarget
+import com.ahu_plus.ui.navigation.TopLevelDestination
+import com.ahu_plus.ui.navigation.WeLearnTarget
 
 private const val TAB_HOME = 0
 private const val TAB_MARKET = 1
@@ -129,7 +141,7 @@ private const val TAB_WELEARN = 3
 private const val TAB_APPS = 4
 private const val TAB_PROFILE = 5
 
-private data class TopLevelDestination(
+private data class TopLevelNavItem(
     val tab: Int,
     val label: String,
     val selectedIcon: ImageVector,
@@ -146,6 +158,50 @@ private const val HOME_TRAINING_PLAN = 6
 private const val HOME_EMPTY_CLASSROOM = 7
 private const val HOME_WEATHER = 9
 private const val HOME_AGENDA = 10
+
+private fun TopLevelDestination.toLegacyTab(): Int = when (this) {
+    TopLevelDestination.HOME -> TAB_HOME
+    TopLevelDestination.MARKET -> TAB_MARKET
+    TopLevelDestination.CHAOXING -> TAB_CHAOXING
+    TopLevelDestination.WELEARN -> TAB_WELEARN
+    TopLevelDestination.APPS -> TAB_APPS
+    TopLevelDestination.PROFILE -> TAB_PROFILE
+}
+
+private fun Int.toTopLevelDestination(): TopLevelDestination = when (this) {
+    TAB_MARKET -> TopLevelDestination.MARKET
+    TAB_CHAOXING -> TopLevelDestination.CHAOXING
+    TAB_WELEARN -> TopLevelDestination.WELEARN
+    TAB_APPS -> TopLevelDestination.APPS
+    TAB_PROFILE -> TopLevelDestination.PROFILE
+    else -> TopLevelDestination.HOME
+}
+
+private fun HomeRoute.toLegacyPage(): Int = when (this) {
+    HomeRoute.DASHBOARD -> HOME_DASHBOARD
+    HomeRoute.SCHEDULE -> HOME_SCHEDULE
+    HomeRoute.NOTICES -> HOME_NOTICE_LIST
+    HomeRoute.GRADE -> HOME_GRADE
+    HomeRoute.EXAM -> HOME_EXAM
+    HomeRoute.BILLS -> HOME_BILLS
+    HomeRoute.TRAINING_PLAN -> HOME_TRAINING_PLAN
+    HomeRoute.EMPTY_CLASSROOM -> HOME_EMPTY_CLASSROOM
+    HomeRoute.WEATHER -> HOME_WEATHER
+    HomeRoute.AGENDA -> HOME_AGENDA
+}
+
+private fun Int.toHomeRoute(): HomeRoute = when (this) {
+    HOME_SCHEDULE -> HomeRoute.SCHEDULE
+    HOME_NOTICE_LIST -> HomeRoute.NOTICES
+    HOME_GRADE -> HomeRoute.GRADE
+    HOME_EXAM -> HomeRoute.EXAM
+    HOME_BILLS -> HomeRoute.BILLS
+    HOME_TRAINING_PLAN -> HomeRoute.TRAINING_PLAN
+    HOME_EMPTY_CLASSROOM -> HomeRoute.EMPTY_CLASSROOM
+    HOME_WEATHER -> HomeRoute.WEATHER
+    HOME_AGENDA -> HomeRoute.AGENDA
+    else -> HomeRoute.DASHBOARD
+}
 
 /** WeLearn 内部三段式导航 (2026-06-28 新增 CourseDetailScreen) */
 private sealed class WeLearnNav {
@@ -216,15 +272,40 @@ fun MainScreen(
     onLogout: () -> Unit,
     /** 首次登录初始化消息流 (LoginViewModel emit → MainScreen 订阅 → 底部 Snackbar 1 秒) */
     initMessageFlow: kotlinx.coroutines.flow.MutableSharedFlow<String>? = null,
-    /** 通知/widget deep-link 目标(MainActivity.DEEP_LINK_*) */
-    deepLink: String? = null,
-    /** deep-link 跳转完成后回调,清空上游 deepLink 状态 */
-    onDeepLinkConsumed: () -> Unit = {},
+    navigationRequest: NavigationRequest? = null,
+    navigationRequestId: Long = 0L,
+    onNavigationRequestConsumed: () -> Unit = {},
     marketImportRequest: MarketImportRequest? = null,
     onMarketImportConsumed: () -> Unit = {},
 ) {
-    var selectedTab by rememberSaveable { mutableIntStateOf(TAB_HOME) }
-    var homePage by rememberSaveable { mutableIntStateOf(HOME_DASHBOARD) }
+    val mainNavigationViewModel: MainNavigationViewModel = viewModel()
+    val mainNavigationState by mainNavigationViewModel.state.collectAsStateWithLifecycle()
+    val selectedTab = mainNavigationState.activeTopLevel.toLegacyTab()
+    val homePage = (mainNavigationState.stacks[TopLevelDestination.HOME]
+        ?.lastOrNull() as? HomeTarget)?.route?.toLegacyPage() ?: HOME_DASHBOARD
+    val currentAppsTarget = mainNavigationState.currentTarget as? AppsTarget
+    val currentProfileTarget = mainNavigationState.currentTarget as? ProfileTarget
+    // scrollTarget 是一次性滚动提示,与导航目标分离:进入 UTILITY 页后由 ProfileScreen 消费并清空
+    var profileScrollTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    fun openHome(page: Int) {
+        mainNavigationViewModel.navigate(
+            NavigationRequest(HomeTarget(page.toHomeRoute()), NavigationSource.INTERNAL)
+        )
+    }
+    fun openProfile(route: ProfileRoute, utility: String? = null) {
+        profileScrollTarget = utility
+        mainNavigationViewModel.navigate(
+            NavigationRequest(ProfileTarget(route, utility), NavigationSource.INTERNAL)
+        )
+    }
+    fun openApps(appKey: String? = null) {
+        mainNavigationViewModel.navigate(
+            NavigationRequest(
+                if (appKey == null) AppsTarget() else AppsTarget(AppsRoute.APP, appKey),
+                if (appKey == null) NavigationSource.INTERNAL else NavigationSource.RECENT_APP,
+            )
+        )
+    }
     // 首页"日程"卡片右上 + → 进日程页并自动弹添加 sheet(一次性)
     var agendaOpenAdd by rememberSaveable { mutableStateOf(false) }
     var pendingMarketImport by remember { mutableStateOf<MarketImportRequest?>(null) }
@@ -245,12 +326,6 @@ fun MainScreen(
 
     // 跨 Tab 跳转目标:Dashboard 常用应用点击「浴室/空调/照明/网费」时使用
     // 切到「我的」Tab 并把 scrollTarget 透传给 ProfileScreen,滚动到对应卡片后清空
-    var profileScrollTarget by rememberSaveable { mutableStateOf<String?>(null) }
-    var profileSubPage by rememberSaveable { mutableStateOf<String?>(null) }
-    var openCardAnalytics by rememberSaveable { mutableStateOf(false) }
-    var appHubTarget by rememberSaveable { mutableStateOf<String?>(null) }
-    // B-001: 跨 Tab 跳转时记录"上一页 Tab"，按返回键可回到原 Tab
-    var previousTab by rememberSaveable { mutableStateOf<Int?>(null) }
     // B-002: 双击返回键退出
     var backPressedTime by remember { mutableLongStateOf(0L) }
 
@@ -292,69 +367,38 @@ fun MainScreen(
 
     val context = LocalContext.current
 
-    // 通知/widget deep-link → 跳转到目标页。deepLink 变化即触发(冷启动 + onNewIntent)。
-    LaunchedEffect(deepLink) {
-        when (deepLink) {
-            MainActivity.DEEP_LINK_SCHEDULE -> {
-                selectedTab = TAB_HOME
-                homePage = HOME_SCHEDULE
-            }
-            MainActivity.DEEP_LINK_GRADE -> {
-                selectedTab = TAB_HOME
-                homePage = HOME_GRADE
-            }
-            MainActivity.DEEP_LINK_AGENDA -> {
-                selectedTab = TAB_HOME
-                homePage = HOME_AGENDA
-            }
-            MainActivity.DEEP_LINK_CHAOXING -> {
-                if (sessionManager.getThirdPartyServicesEnabled() &&
+    // 统一外部入口。事件 id 确保连续两次相同目标仍会被消费。
+    LaunchedEffect(navigationRequestId, navigationRequest) {
+        val request = navigationRequest ?: return@LaunchedEffect
+        val allowed = when (request.target) {
+            is ChaoxingTarget -> {
+                sessionManager.getThirdPartyServicesEnabled() &&
                     sessionManager.getChaoxingChildEnabled()
-                ) {
-                    selectedTab = TAB_CHAOXING
-                } else {
-                    selectedTab = TAB_HOME
-                    homePage = HOME_DASHBOARD
-                }
             }
-            MainActivity.DEEP_LINK_WELEARN -> {
-                if (sessionManager.getThirdPartyServicesEnabled() &&
+            is WeLearnTarget -> {
+                sessionManager.getThirdPartyServicesEnabled() &&
                     sessionManager.getWelearnChildEnabled()
-                ) {
-                    selectedTab = TAB_WELEARN
-                } else {
-                    selectedTab = TAB_HOME
-                    homePage = HOME_DASHBOARD
-                }
             }
-            else -> return@LaunchedEffect
+            else -> true
         }
-        onDeepLinkConsumed()
+        if (allowed) {
+            mainNavigationViewModel.navigate(request)
+        } else {
+            mainNavigationViewModel.selectTopLevel(TopLevelDestination.HOME)
+            initSnackbarHostState.showSnackbar("该第三方服务当前未启用")
+        }
+        onNavigationRequestConsumed()
     }
 
-    // 系统返回键: 子页面回退 → 跨 Tab 回退 → 双击退出
+    // 系统返回键: 当前业务栈 → 跨 Tab 来源 → 双击退出
     BackHandler {
-        when {
-            // 1. 我的 Tab 子页面 → 我的主页 (ProfileScreen 内部 BackHandler 先拦截,这里兜底)
-            selectedTab == TAB_PROFILE && profileSubPage != null -> profileSubPage = null
-            // 2. 首页其他子页面 → Dashboard
-            selectedTab == TAB_HOME && homePage != HOME_DASHBOARD -> homePage = HOME_DASHBOARD
-            // 3. 跨 Tab 跳转过来的 → 回到上一页 Tab
-            previousTab != null -> {
-                selectedTab = previousTab!!
-                previousTab = null
-                profileScrollTarget = null
-                openCardAnalytics = false
-            }
-            // 4. 顶层页: 双击返回键退出
-            else -> {
-                val now = DebugClock.nowMillis()
-                if (now - backPressedTime < 1500) {
-                    (context as? Activity)?.finish()
-                } else {
-                    backPressedTime = now
-                    Toast.makeText(context, "再按一次退出", Toast.LENGTH_SHORT).show()
-                }
+        if (!mainNavigationViewModel.back()) {
+            val now = DebugClock.nowMillis()
+            if (now - backPressedTime < 1500) {
+                (context as? Activity)?.finish()
+            } else {
+                backPressedTime = now
+                Toast.makeText(context, "再按一次退出", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -450,7 +494,7 @@ fun MainScreen(
                             }
                         }
                         if (marketVisible) {
-                            selectedTab = TAB_MARKET
+                            mainNavigationViewModel.navigate(NavigationRequest(MarketTarget()))
                             marketViewModel.openSettings()
                         }
                     }
@@ -486,9 +530,8 @@ fun MainScreen(
                 (selectedTab == TAB_CHAOXING && !chaoxingVisible) ||
                 (selectedTab == TAB_WELEARN && !welearnVisible)
         if (hiddenThirdPartyTab) {
-            selectedTab = TAB_HOME
-            homePage = HOME_DASHBOARD
-            previousTab = null
+            mainNavigationViewModel.disable(selectedTab.toTopLevelDestination())
+            scope.launch { initSnackbarHostState.showSnackbar("该第三方服务当前未启用") }
         }
     }
     val jwcNoticeViewModel: com.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel =
@@ -556,16 +599,16 @@ fun MainScreen(
         )
     val useNavigationRail = LocalConfiguration.current.screenWidthDp >= 600
     val navigationDestinations = buildList {
-        add(TopLevelDestination(TAB_HOME, "首页", Icons.Filled.Home, Icons.Outlined.Home))
+        add(TopLevelNavItem(TAB_HOME, "首页", Icons.Filled.Home, Icons.Outlined.Home))
         if (marketPinned) {
-            add(TopLevelDestination(TAB_MARKET, "集市", Icons.Filled.Storefront, Icons.Outlined.Storefront))
+            add(TopLevelNavItem(TAB_MARKET, "集市", Icons.Filled.Storefront, Icons.Outlined.Storefront))
         }
         if (chaoxingPinned) {
-            add(TopLevelDestination(TAB_CHAOXING, "学习通", Icons.Filled.School, Icons.Outlined.School))
+            add(TopLevelNavItem(TAB_CHAOXING, "学习通", Icons.Filled.School, Icons.Outlined.School))
         }
         if (welearnPinned) {
             add(
-                TopLevelDestination(
+                TopLevelNavItem(
                     TAB_WELEARN,
                     "WeLearn",
                     Icons.AutoMirrored.Filled.LibraryBooks,
@@ -573,22 +616,12 @@ fun MainScreen(
                 )
             )
         }
-        add(TopLevelDestination(TAB_APPS, "应用", Icons.Filled.Apps, Icons.Outlined.Apps))
-        add(TopLevelDestination(TAB_PROFILE, "我的", Icons.Filled.Person, Icons.Outlined.Person))
+        add(TopLevelNavItem(TAB_APPS, "应用", Icons.Filled.Apps, Icons.Outlined.Apps))
+        add(TopLevelNavItem(TAB_PROFILE, "我的", Icons.Filled.Person, Icons.Outlined.Person))
     }
     val onSelectTopLevelDestination: (Int) -> Unit = { tab ->
         returnToAggregateSettings = false
-        when (tab) {
-            TAB_HOME -> {
-                selectedTab = TAB_HOME
-                homePage = HOME_DASHBOARD
-            }
-            TAB_APPS -> {
-                appHubTarget = null
-                selectedTab = TAB_APPS
-            }
-            else -> selectedTab = tab
-        }
+        mainNavigationViewModel.selectTopLevel(tab.toTopLevelDestination())
     }
 
     Scaffold(
@@ -633,53 +666,25 @@ fun MainScreen(
                     DashboardScreen(
                         viewModel = scheduleViewModel,
                         noticeViewModel = jwcNoticeViewModel,
-                        onOpenSchedule = { homePage = HOME_SCHEDULE },
-                        onOpenCard = { homePage = HOME_BILLS },
-                        onOpenNoticeList = { homePage = HOME_NOTICE_LIST },
-                        onOpenGrade = { homePage = HOME_GRADE },
-                        onOpenExam = { homePage = HOME_EXAM },
-                        onOpenBathroom = {
-                            previousTab = selectedTab
-                            selectedTab = TAB_PROFILE
-                            profileScrollTarget = "bathroom"
-                        },
-                        onOpenAc = {
-                            previousTab = selectedTab
-                            selectedTab = TAB_PROFILE
-                            profileScrollTarget = "ac"
-                        },
-                        onOpenLighting = {
-                            previousTab = selectedTab
-                            selectedTab = TAB_PROFILE
-                            profileScrollTarget = "lighting"
-                        },
-                        onOpenInternet = {
-                            previousTab = selectedTab
-                            selectedTab = TAB_PROFILE
-                            profileScrollTarget = "internet"
-                        },
-                        onOpenCardAnalytics = {
-                            previousTab = selectedTab
-                            selectedTab = TAB_PROFILE
-                            openCardAnalytics = true
-                        },
-                        onOpenAppHub = {
-                            previousTab = selectedTab
-                            appHubTarget = null
-                            selectedTab = TAB_APPS
-                        },
-                        onOpenRegisteredApp = { appKey ->
-                            previousTab = selectedTab
-                            appHubTarget = appKey
-                            selectedTab = TAB_APPS
-                        },
+                        onOpenSchedule = { openHome(HOME_SCHEDULE) },
+                        onOpenCard = { openHome(HOME_BILLS) },
+                        onOpenNoticeList = { openHome(HOME_NOTICE_LIST) },
+                        onOpenGrade = { openHome(HOME_GRADE) },
+                        onOpenExam = { openHome(HOME_EXAM) },
+                        onOpenBathroom = { openProfile(ProfileRoute.UTILITY, "bathroom") },
+                        onOpenAc = { openProfile(ProfileRoute.UTILITY, "ac") },
+                        onOpenLighting = { openProfile(ProfileRoute.UTILITY, "lighting") },
+                        onOpenInternet = { openProfile(ProfileRoute.UTILITY, "internet") },
+                        onOpenCardAnalytics = { openProfile(ProfileRoute.CARD_ANALYTICS) },
+                        onOpenAppHub = { openApps() },
+                        onOpenRegisteredApp = ::openApps,
                         recentApps = recentApps,
                         onRecordApp = recordApp,
                         favoriteIds = favoriteIds,
                         onFavoriteIdsChange = onFavoriteIdsChange,
                         agendaEventsByDate = agendaEventsByDate,
-                        onOpenAgenda = { homePage = HOME_AGENDA },
-                        onAddAgenda = { agendaOpenAdd = true; homePage = HOME_AGENDA },
+                        onOpenAgenda = { openHome(HOME_AGENDA) },
+                        onAddAgenda = { agendaOpenAdd = true; openHome(HOME_AGENDA) },
                         onNeedsLogin = onReauth
                     )
                 }
@@ -688,28 +693,27 @@ fun MainScreen(
                         HOME_SCHEDULE -> ScheduleScreen(
                             viewModel = scheduleViewModel,
                             assessmentRepository = app.assessmentRepository,
-                            onBack = { homePage = HOME_DASHBOARD },
+                            onBack = { mainNavigationViewModel.back() },
                             onNeedsLogin = onReauth,
                             onSettingsDismissed = if (returnToAggregateSettings) {
                                 {
                                     returnToAggregateSettings = false
-                                    profileSubPage = "settings"
-                                    selectedTab = TAB_PROFILE
+                                    openProfile(ProfileRoute.SETTINGS)
                                 }
                             } else null,
                         )
                         HOME_NOTICE_LIST -> JwcNoticeListScreen(
                             viewModel = jwcNoticeListViewModel,
-                            onBack = { homePage = HOME_DASHBOARD }
+                            onBack = { mainNavigationViewModel.back() }
                         )
                         HOME_GRADE -> GradeScreen(
                             viewModel = gradeViewModel,
-                            onBack = { homePage = HOME_DASHBOARD },
+                            onBack = { mainNavigationViewModel.back() },
                             onNeedsLogin = onReauth
                         )
                         HOME_EXAM -> ExamScreen(
                             viewModel = examViewModel,
-                            onBack = { homePage = HOME_DASHBOARD },
+                            onBack = { mainNavigationViewModel.back() },
                             onNeedsLogin = onReauth,
                         )
                         HOME_BILLS -> {
@@ -718,90 +722,58 @@ fun MainScreen(
                                 bills = cardState.bills,
                                 isLoading = cardState.billsLoading,
                                 error = cardState.billsError,
-                                onBack = { homePage = HOME_DASHBOARD },
+                                onBack = { mainNavigationViewModel.back() },
                                 onRefresh = cardViewModel::onRefresh,
                                 isLoggedIn = hasCredentials,
                                 onLogin = onReauth,
-                                onOpenAnalytics = {
-                                    previousTab = selectedTab
-                                    selectedTab = TAB_PROFILE
-                                    openCardAnalytics = true
-                                }
+                                onOpenAnalytics = { openProfile(ProfileRoute.CARD_ANALYTICS) }
                             )
                         }
                         HOME_TRAINING_PLAN -> TrainingPlanScreen(
                             viewModel = trainingPlanViewModel,
-                            onBack = { homePage = HOME_DASHBOARD },
+                            onBack = { mainNavigationViewModel.back() },
                             onNeedsLogin = onReauth
                         )
                         HOME_EMPTY_CLASSROOM -> EmptyClassroomScreen(
                             viewModel = emptyClassroomViewModel,
-                            onBack = { homePage = HOME_DASHBOARD },
+                            onBack = { mainNavigationViewModel.back() },
                             onNeedsLogin = onReauth
                         )
                         HOME_WEATHER -> WeatherScreen(
                             viewModel = weatherViewModel,
-                            onBack = { homePage = HOME_DASHBOARD }
+                            onBack = { mainNavigationViewModel.back() }
                         )
                         HOME_AGENDA -> com.ahu_plus.ui.screen.agenda.AgendaScreen(
                             viewModel = agendaViewModel,
-                            onBack = { homePage = HOME_DASHBOARD },
+                            onBack = { mainNavigationViewModel.back() },
                             openAddOnEnter = agendaOpenAdd,
                             onAddConsumed = { agendaOpenAdd = false },
                         )
                         else -> DashboardScreen(
                             viewModel = scheduleViewModel,
                             noticeViewModel = jwcNoticeViewModel,
-                            onOpenSchedule = { homePage = HOME_SCHEDULE },
-                            onOpenCard = { homePage = HOME_BILLS },
-                            onOpenNoticeList = { homePage = HOME_NOTICE_LIST },
-                            onOpenGrade = { homePage = HOME_GRADE },
-                            onOpenExam = { homePage = HOME_EXAM },
-                            onOpenTrainingPlan = { homePage = HOME_TRAINING_PLAN },
-                            onOpenEmptyClassroom = { homePage = HOME_EMPTY_CLASSROOM },
-                            onOpenWeather = { homePage = HOME_WEATHER },
-                            onOpenBathroom = {
-                                previousTab = selectedTab
-                                selectedTab = TAB_PROFILE
-                                profileScrollTarget = "bathroom"
-                            },
-                            onOpenAc = {
-                                previousTab = selectedTab
-                                selectedTab = TAB_PROFILE
-                                profileScrollTarget = "ac"
-                            },
-                            onOpenLighting = {
-                                previousTab = selectedTab
-                                selectedTab = TAB_PROFILE
-                                profileScrollTarget = "lighting"
-                            },
-                            onOpenInternet = {
-                                previousTab = selectedTab
-                                selectedTab = TAB_PROFILE
-                                profileScrollTarget = "internet"
-                            },
-                            onOpenCardAnalytics = {
-                                previousTab = selectedTab
-                                selectedTab = TAB_PROFILE
-                                openCardAnalytics = true
-                            },
-                            onOpenAppHub = {
-                                previousTab = selectedTab
-                                appHubTarget = null
-                                selectedTab = TAB_APPS
-                            },
-                            onOpenRegisteredApp = { appKey ->
-                                previousTab = selectedTab
-                                appHubTarget = appKey
-                                selectedTab = TAB_APPS
-                            },
+                            onOpenSchedule = { openHome(HOME_SCHEDULE) },
+                            onOpenCard = { openHome(HOME_BILLS) },
+                            onOpenNoticeList = { openHome(HOME_NOTICE_LIST) },
+                            onOpenGrade = { openHome(HOME_GRADE) },
+                            onOpenExam = { openHome(HOME_EXAM) },
+                            onOpenTrainingPlan = { openHome(HOME_TRAINING_PLAN) },
+                            onOpenEmptyClassroom = { openHome(HOME_EMPTY_CLASSROOM) },
+                            onOpenWeather = { openHome(HOME_WEATHER) },
+                            onOpenBathroom = { openProfile(ProfileRoute.UTILITY, "bathroom") },
+                            onOpenAc = { openProfile(ProfileRoute.UTILITY, "ac") },
+                            onOpenLighting = { openProfile(ProfileRoute.UTILITY, "lighting") },
+                            onOpenInternet = { openProfile(ProfileRoute.UTILITY, "internet") },
+                            onOpenCardAnalytics = { openProfile(ProfileRoute.CARD_ANALYTICS) },
+                            onOpenAppHub = { openApps() },
+                            onOpenRegisteredApp = ::openApps,
                             recentApps = recentApps,
                             onRecordApp = recordApp,
                             favoriteIds = favoriteIds,
                             onFavoriteIdsChange = onFavoriteIdsChange,
                             agendaEventsByDate = agendaEventsByDate,
-                            onOpenAgenda = { homePage = HOME_AGENDA },
-                            onAddAgenda = { agendaOpenAdd = true; homePage = HOME_AGENDA },
+                            onOpenAgenda = { openHome(HOME_AGENDA) },
+                            onAddAgenda = { agendaOpenAdd = true; openHome(HOME_AGENDA) },
                             onNeedsLogin = onReauth
                         )
                     }
@@ -812,21 +784,19 @@ fun MainScreen(
                         {
                             marketViewModel.closeSettings()
                             returnToAggregateSettings = false
-                            profileSubPage = "settings"
-                            selectedTab = TAB_PROFILE
+                            openProfile(ProfileRoute.SETTINGS)
                         }
                     } else null,
                 )
                 selectedTab == TAB_CHAOXING -> ChaoxingTabScreen(
                     viewModel = chaoxingViewModel,
-                    onSwitchToAppsTab = { selectedTab = TAB_APPS },
+                    onSwitchToAppsTab = { openApps() },
                     requestedSubTab = requestedChaoxingSubTab,
                     onRequestedSubTabConsumed = { requestedChaoxingSubTab = null },
                     onSettingsBack = if (returnToAggregateSettings) {
                         {
                             returnToAggregateSettings = false
-                            profileSubPage = "settings"
-                            selectedTab = TAB_PROFILE
+                            openProfile(ProfileRoute.SETTINGS)
                         }
                     } else null,
                 )
@@ -891,8 +861,8 @@ fun MainScreen(
                     weatherViewModel = weatherViewModel,
                     agendaViewModel = agendaViewModel,
                     evaluationViewModel = evaluationViewModel,
-                    requestedAppKey = appHubTarget,
-                    onRequestedAppConsumed = { appHubTarget = null },
+                    appsTarget = currentAppsTarget,
+                    onNavigateBack = { mainNavigationViewModel.back() },
                     onRecordApp = recordApp,
                     hasCredentials = hasCredentials,
                     authRefreshVersion = authRefreshVersion,
@@ -903,25 +873,20 @@ fun MainScreen(
                     chaoxingInAppHub = chaoxingVisible && !chaoxingPinned,
                     welearnInAppHub = welearnVisible && !welearnPinned,
                     onOpenMarket = {
-                        previousTab = TAB_APPS
-                        selectedTab = TAB_MARKET
+                        mainNavigationViewModel.navigate(NavigationRequest(MarketTarget()))
                     },
                     onOpenChaoxing = {
-                        previousTab = TAB_APPS
-                        selectedTab = TAB_CHAOXING
+                        mainNavigationViewModel.navigate(NavigationRequest(ChaoxingTarget()))
                     },
                     onOpenWelearn = {
-                        previousTab = TAB_APPS
-                        selectedTab = TAB_WELEARN
+                        mainNavigationViewModel.navigate(NavigationRequest(WeLearnTarget()))
                     },
                     onOpenMarketFromMessages = {
-                        previousTab = TAB_APPS
-                        selectedTab = TAB_MARKET
+                        mainNavigationViewModel.navigate(NavigationRequest(MarketTarget()))
                     },
                     onOpenChaoxingFromMessages = {
-                        previousTab = TAB_APPS
                         requestedChaoxingSubTab = ChaoxingSubTab.MESSAGES
-                        selectedTab = TAB_CHAOXING
+                        mainNavigationViewModel.navigate(NavigationRequest(ChaoxingTarget()))
                     },
                     onNeedsLogin = onReauth
                 )
@@ -939,10 +904,8 @@ fun MainScreen(
                     onThemeModeChange = onThemeModeChange,
                     scrollTarget = profileScrollTarget,
                     onScrollTargetConsumed = { profileScrollTarget = null },
-                    profileSubPage = profileSubPage,
-                    onProfileSubPageConsumed = { profileSubPage = null },
-                    openCardAnalytics = openCardAnalytics,
-                    onCardAnalyticsConsumed = { openCardAnalytics = false },
+                    profileTarget = currentProfileTarget,
+                    onNavigateBack = { mainNavigationViewModel.back() },
                     guideIntroSeen = guideIntroSeen,
                     onGuideIntroSeen = {
                         guideIntroSeen = true
@@ -953,18 +916,17 @@ fun MainScreen(
                     onOpenScheduleSettings = {
                         returnToAggregateSettings = true
                         scheduleViewModel.onToggleSettings()
-                        selectedTab = TAB_HOME
-                        homePage = HOME_SCHEDULE
+                        openHome(HOME_SCHEDULE)
                     },
                     onOpenMarketSettings = {
                         returnToAggregateSettings = true
                         marketViewModel.openSettings()
-                        selectedTab = TAB_MARKET
+                        mainNavigationViewModel.navigate(NavigationRequest(MarketTarget()))
                     },
                     onOpenChaoxingSettings = {
                         returnToAggregateSettings = true
                         requestedChaoxingSubTab = ChaoxingSubTab.SETTINGS
-                        selectedTab = TAB_CHAOXING
+                        mainNavigationViewModel.navigate(NavigationRequest(ChaoxingTarget()))
                     },
                     isLoggedIn = hasCredentials,
                     onLogin = onLogin,
@@ -973,46 +935,18 @@ fun MainScreen(
                 else -> DashboardScreen(
                     viewModel = scheduleViewModel,
                     noticeViewModel = jwcNoticeViewModel,
-                    onOpenSchedule = { homePage = HOME_SCHEDULE },
-                    onOpenCard = { homePage = HOME_BILLS },
-                    onOpenNoticeList = { homePage = HOME_NOTICE_LIST },
-                    onOpenGrade = { homePage = HOME_GRADE },
-                    onOpenExam = { homePage = HOME_EXAM },
-                    onOpenBathroom = {
-                        previousTab = selectedTab
-                        selectedTab = TAB_PROFILE
-                        profileScrollTarget = "bathroom"
-                    },
-                    onOpenAc = {
-                        previousTab = selectedTab
-                        selectedTab = TAB_PROFILE
-                        profileScrollTarget = "ac"
-                    },
-                    onOpenLighting = {
-                        previousTab = selectedTab
-                        selectedTab = TAB_PROFILE
-                        profileScrollTarget = "lighting"
-                    },
-                    onOpenInternet = {
-                        previousTab = selectedTab
-                        selectedTab = TAB_PROFILE
-                        profileScrollTarget = "internet"
-                    },
-                    onOpenCardAnalytics = {
-                        previousTab = selectedTab
-                        selectedTab = TAB_PROFILE
-                        openCardAnalytics = true
-                    },
-                    onOpenAppHub = {
-                        previousTab = selectedTab
-                        appHubTarget = null
-                        selectedTab = TAB_APPS
-                    },
-                    onOpenRegisteredApp = { appKey ->
-                        previousTab = selectedTab
-                        appHubTarget = appKey
-                        selectedTab = TAB_APPS
-                    },
+                    onOpenSchedule = { openHome(HOME_SCHEDULE) },
+                    onOpenCard = { openHome(HOME_BILLS) },
+                    onOpenNoticeList = { openHome(HOME_NOTICE_LIST) },
+                    onOpenGrade = { openHome(HOME_GRADE) },
+                    onOpenExam = { openHome(HOME_EXAM) },
+                    onOpenBathroom = { openProfile(ProfileRoute.UTILITY, "bathroom") },
+                    onOpenAc = { openProfile(ProfileRoute.UTILITY, "ac") },
+                    onOpenLighting = { openProfile(ProfileRoute.UTILITY, "lighting") },
+                    onOpenInternet = { openProfile(ProfileRoute.UTILITY, "internet") },
+                    onOpenCardAnalytics = { openProfile(ProfileRoute.CARD_ANALYTICS) },
+                    onOpenAppHub = { openApps() },
+                    onOpenRegisteredApp = ::openApps,
                     recentApps = recentApps,
                     onRecordApp = recordApp,
                     favoriteIds = favoriteIds,
@@ -1064,7 +998,7 @@ private fun DeveloperFaultBanner(
 
 @Composable
 private fun TopLevelNavigationBar(
-    destinations: List<TopLevelDestination>,
+    destinations: List<TopLevelNavItem>,
     selectedTab: Int,
     onSelect: (Int) -> Unit,
 ) {
@@ -1105,7 +1039,7 @@ private fun TopLevelNavigationBar(
 
 @Composable
 private fun TopLevelNavigationRail(
-    destinations: List<TopLevelDestination>,
+    destinations: List<TopLevelNavItem>,
     selectedTab: Int,
     onSelect: (Int) -> Unit,
 ) {

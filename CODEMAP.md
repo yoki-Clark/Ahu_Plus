@@ -18,6 +18,10 @@
 | `MainActivity.kt` | Edge-to-edge Activity、主题订阅、更新/公告弹窗、通知深链与 v1 集市导入边界解析 |
 | `AhuPlusApplication.kt` | Conscrypt 初始化、手动 DI、后台作业恢复、Repository 状态恢复和账号数据清理 |
 | `ui/navigation/AppNavigation.kt` | `login`/`main` NavHost、静默登录、显式重认证、退出登录 |
+| `ui/navigation/MainNavigationModels.kt` | `TopLevelDestination` 枚举、`NavigationTarget` sealed 层级、`NavigationRequest`/`NavigationSource` |
+| `ui/navigation/MainNavigationState.kt` | 多栈导航状态机(selectTopLevel/navigate/back/disable)、`MainNavigationSnapshotCodec` |
+| `ui/navigation/MainNavigationViewModel.kt` | `SavedStateHandle` 持久化、`StateFlow` 暴露、4 个操作方法 |
+| `ui/navigation/NavigationIntentCodec.kt` | Intent 编解码、legacy 深链回退、纯 JVM 可测的 `decodeEncoded` |
 | `ui/screen/main/MainScreen.kt` | 顶层 6 个候选入口、响应式 NavigationBar/NavigationRail、所有业务页面状态机 |
 | `data/home/AppRegistry.kt` | 应用聚合页与最近使用的 21 个入口元数据 |
 
@@ -39,6 +43,9 @@
 | `data/network/ChaoxingTrafficGovernor.kt` | 学习通请求节流、退避和状态 |
 | `data/local/DataRefreshPolicy.kt` | 缓存新鲜度判断 |
 | `data/local/DataSnapshotStatus.kt` | UI 数据来源/时间状态 |
+| `data/repository/ErrorKind.kt` | 9 种错误分类枚举(AUTH_EXPIRED/NETWORK_UNREACHABLE/RATE_LIMITED 等) |
+| `data/repository/RepositoryException.kt` | 携带 `ErrorKind` 的结构化异常 |
+| `data/repository/ErrorClassifier.kt` | Throwable/消息 → `ErrorKind` 映射、用户文案、重试/重认证决策 |
 
 ## 校园账号与教务
 

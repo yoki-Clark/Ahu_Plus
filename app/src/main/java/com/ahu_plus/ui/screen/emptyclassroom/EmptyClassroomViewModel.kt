@@ -15,10 +15,9 @@ import com.ahu_plus.data.model.BuildingInfo
 import com.ahu_plus.data.model.CampusBuildingData
 import com.ahu_plus.data.model.CampusInfo
 import com.ahu_plus.data.repository.EmptyClassroomRepository
+import com.ahu_plus.data.repository.ErrorClassifier
 import com.ahu_plus.data.repository.FreeRoomResult
-import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.JwAuthRepository
-import com.ahu_plus.data.repository.SessionExpiredException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -486,7 +485,7 @@ class EmptyClassroomViewModel(
                             isLoading = false,
                             error = if (!wasLoaded) (e.message ?: "空教室查询失败") else state.error,
                             needsLogin = !wasLoaded &&
-                                (e is SessionExpiredException || e is JwAuthException),
+                                (ErrorClassifier.shouldReauth(ErrorClassifier.classify(e))),
                             isRefreshing = false,
                             dataStatus = if (wasLoaded) {
                                 state.dataStatus?.withFailedRefresh()
@@ -502,7 +501,7 @@ class EmptyClassroomViewModel(
                     isLoading = false,
                     error = if (!wasLoaded) "未知错误: ${e.message}" else state.error,
                     needsLogin = !wasLoaded &&
-                        (e is SessionExpiredException || e is JwAuthException),
+                        (ErrorClassifier.shouldReauth(ErrorClassifier.classify(e))),
                     isRefreshing = false,
                     dataStatus = if (wasLoaded) {
                         state.dataStatus?.withFailedRefresh()

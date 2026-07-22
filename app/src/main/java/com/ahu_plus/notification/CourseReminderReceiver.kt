@@ -14,6 +14,11 @@ import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.ui.navigation.HomeRoute
+import com.ahu_plus.ui.navigation.HomeTarget
+import com.ahu_plus.ui.navigation.NavigationIntentCodec
+import com.ahu_plus.ui.navigation.NavigationRequest
+import com.ahu_plus.ui.navigation.NavigationSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -88,7 +93,10 @@ class CourseReminderReceiver : BroadcastReceiver() {
 
         val deepLink = Intent(appContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(MainActivity.EXTRA_DEEP_LINK, MainActivity.DEEP_LINK_SCHEDULE)
+            NavigationIntentCodec.put(
+                this,
+                NavigationRequest(HomeTarget(HomeRoute.SCHEDULE), NavigationSource.NOTIFICATION),
+            )
         }
         val pendingIntent = PendingIntent.getActivity(
             appContext,

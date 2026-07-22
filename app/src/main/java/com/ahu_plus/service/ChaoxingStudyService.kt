@@ -14,6 +14,10 @@ import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.core.app.NotificationCompat
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.MainActivity
+import com.ahu_plus.ui.navigation.ChaoxingTarget
+import com.ahu_plus.ui.navigation.NavigationIntentCodec
+import com.ahu_plus.ui.navigation.NavigationRequest
+import com.ahu_plus.ui.navigation.NavigationSource
 import com.ahu_plus.data.model.CxStudyUiState
 import com.ahu_plus.data.job.BackgroundJobCommand
 import com.ahu_plus.data.job.BackgroundJobInterruption
@@ -390,7 +394,10 @@ class ChaoxingStudyService : Service() {
             this, 0,
             Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra(MainActivity.EXTRA_DEEP_LINK, MainActivity.DEEP_LINK_CHAOXING)
+                NavigationIntentCodec.put(
+                    this,
+                    NavigationRequest(ChaoxingTarget(), NavigationSource.SERVICE),
+                )
             },
             PendingIntent.FLAG_IMMUTABLE,
         )

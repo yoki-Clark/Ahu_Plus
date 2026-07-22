@@ -25,13 +25,12 @@ import com.ahu_plus.data.model.schedule.SchedulePaletteConfig
 import com.ahu_plus.data.model.schedule.ScheduleBackgroundConfig
 import com.ahu_plus.data.repository.AssessmentRepository
 import com.ahu_plus.data.repository.CourseRepository
+import com.ahu_plus.data.repository.ErrorClassifier
 import com.ahu_plus.data.repository.ExamRepository
 import com.ahu_plus.data.repository.HomeworkRepository
 import com.ahu_plus.data.repository.JwAuthRepository
-import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.KqAttendanceRepository
 import com.ahu_plus.data.repository.RecordRepository
-import com.ahu_plus.data.repository.SessionExpiredException
 import com.ahu_plus.data.repository.UserTaskRepository
 import com.ahu_plus.notification.WidgetRefreshScheduler
 import kotlinx.coroutines.Dispatchers
@@ -478,7 +477,7 @@ class ScheduleViewModel(
                             isLoading = false,
                             isLoadingSemester = false,
                             error = if (!wasLoaded) "课表加载失败: ${e.message}" else state.error,
-                            needsLogin = !wasLoaded && (e is SessionExpiredException || e is JwAuthException),
+                            needsLogin = !wasLoaded && (ErrorClassifier.shouldReauth(ErrorClassifier.classify(e))),
                             dataStatus = if (wasLoaded) {
                                 state.dataStatus?.withFailedRefresh()
                             } else state.dataStatus,
