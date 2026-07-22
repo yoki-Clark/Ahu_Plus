@@ -24,7 +24,13 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 class AdwmhCardRepository(
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    /**
+     * 可选：本地验证码识别器。注入后 [autoLogin] 在服务端要求验证码时会先尝试本地识别 + 自动重试，
+     * 失败再抛 [AdwmhCaptchaRequiredException] 让 UI 弹手动输入弹窗。
+     * 为 null 时维持纯手动输入流程（兼容旧逻辑）。
+     */
+    private val captchaRecognizer: AdwmhCaptchaRecognizer? = null,
 ) {
     companion object {
         private const val TAG = "AdwmhCardRepo"
@@ -35,6 +41,11 @@ class AdwmhCardRepository(
                 "(KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 " +
                 "NetType/WIFI MicroMessenger/7.0.20.1781 WindowsWechat Flue"
         private const val REQUEST_MIN_GAP_MS = 1_500L
+        /**
+         * 本地识别模式下，autoLogin 失败后的最大重试次数。
+         * adwmh 服务端对突发请求敏感，过多重试会触发限流；2 次是平衡点。
+         */
+        private const val LOCAL_RECOGNIZE_MAX_RETRIES = 2
     }
 
     private val gson = GsonProvider.instance
@@ -92,8 +103,10 @@ class AdwmhCardRepository(
     // ── 登录 ─────────────────────────────────────────────
 
     /**
-     * 后台登录只尝试无需验证码的协议路径。若服务端要求验证码，调用方必须转到
-     * [fetchCaptcha] + [loginWithCaptcha] 的用户手动输入流程。
+     * 后台登录只尝试无需验证码的协议路径。若服务端要求验证码：
+     * - 已注入 [captchaRecognizer] 且可用：先本地识别 + 自动重试 [LOCAL_RECOGNIZE_MAX_RETRIES] 次，
+     *   成功率 >0 时用户无感知；仍失败再抛 [AdwmhCaptchaRequiredException] 走手动流程。
+     * - 未注入或不可用：直接抛 [AdwmhCaptchaRequiredException]，UI 弹 [AdwmhCaptchaDialog] 手动输入。
      */
     suspend fun autoLogin(
         username: String,
@@ -106,6 +119,33 @@ class AdwmhCardRepository(
         if (!shouldRequestManualAdwmhCaptcha(failure)) {
             return@withContext result
         }
+        // 服务端要求验证码：尝试本地识别 + 自动重试
+        val recognizer = captchaRecognizer
+        if (recognizer == null || !recognizer.isAvailable) {
+            return@withContext Result.failure(
+                AdwmhCaptchaRequiredException("智慧安大需要手动输入验证码")
+            )
+        }
+        Log.i(TAG, "autoLogin: 服务端要求验证码，尝试本地识别 + 自动重试")
+        // 注意：fetchCaptcha 和 doLogin 内部都走 executeThrottled（1.5s 间隔），
+        // 因此循环间无需额外 delay；每次重试至少间隔 3s（取码 1.5s + 登录 1.5s）。
+        repeat(LOCAL_RECOGNIZE_MAX_RETRIES) { attempt ->
+            currentCoroutineContext().ensureActive()
+            val captchaBytes = fetchCaptcha().getOrNull() ?: return@repeat
+            val recognized = recognizer.recognize(captchaBytes)
+            if (recognized.isNullOrBlank()) {
+                Log.w(TAG, "autoLogin: 本地识别失败 attempt=${attempt + 1}")
+                return@repeat
+            }
+            Log.d(TAG, "autoLogin: 本地识别完成 attempt=${attempt + 1}")
+            val retryResult = doLogin(username, password, recognized, generation)
+            if (retryResult.isSuccess) {
+                Log.i(TAG, "autoLogin: 本地识别登录成功 attempt=${attempt + 1}")
+                return@withContext retryResult
+            }
+            Log.w(TAG, "autoLogin: 本地识别登录失败 attempt=${attempt + 1}: ${retryResult.exceptionOrNull()?.message}")
+        }
+        Log.w(TAG, "autoLogin: 本地识别重试 $LOCAL_RECOGNIZE_MAX_RETRIES 次均失败，回退手动输入")
         Result.failure(
             AdwmhCaptchaRequiredException("智慧安大需要手动输入验证码")
         )

@@ -28,6 +28,7 @@ import com.ahu_plus.data.job.BackgroundJobController
 import com.ahu_plus.data.job.BackgroundJobPlatform
 import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.repository.AdwmhCardRepository
+import com.ahu_plus.data.repository.AdwmhCaptchaRecognizer
 import com.ahu_plus.data.repository.AiCommentRepository
 import com.ahu_plus.data.repository.AssessmentRepository
 import com.ahu_plus.data.repository.ChaoxingNotificationRepository
@@ -142,6 +143,9 @@ class AhuPlusApplication : Application() {
     lateinit var financeRepository: FinanceRepository
         private set
     lateinit var attendanceRepository: KqAttendanceRepository
+        private set
+    /** adwmh 验证码本地识别器。紧凑模型缺失时 isAvailable=false，autoLogin 自动回退手动输入。 */
+    lateinit var adwmhCaptchaRecognizer: AdwmhCaptchaRecognizer
         private set
     lateinit var adwmhCardRepository: AdwmhCardRepository
         private set
@@ -301,7 +305,9 @@ class AhuPlusApplication : Application() {
         // 财务汇总 / 考勤缺勤 复用 studentInfoRepository 的 SSO 会话 (tp_ep_stu)
         financeRepository = FinanceRepository(sessionManager, casAuthRepository)
         attendanceRepository = KqAttendanceRepository(casAuthRepository, sessionManager)
-        adwmhCardRepository = AdwmhCardRepository(sessionManager)
+        // adwmh 验证码本地识别器（纯本地紧凑模型，模型缺失时自动回退手动输入）
+        adwmhCaptchaRecognizer = AdwmhCaptchaRecognizer(this)
+        adwmhCardRepository = AdwmhCardRepository(sessionManager, adwmhCaptchaRecognizer)
         // 课表 2.0 仓储 (2026-06-17)
         assessmentRepository = AssessmentRepository(appDataStore, this)
         recordRepository = RecordRepository(sessionManager)

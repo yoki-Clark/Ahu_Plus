@@ -15,23 +15,15 @@ internal class BackgroundJobStore(
     private val appDataStore: AppDataStore,
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) : BackgroundJobPersistence {
-    private data class Envelope(
-        val schemaVersion: Int = SCHEMA_VERSION,
-        val records: List<BackgroundJobRecord> = emptyList(),
-    )
-
-    private val gson = GsonProvider.instance
-
     override suspend fun load(): List<BackgroundJobRecord> {
         val json = appDataStore.dataStore.data.first()[KEY] ?: return emptyList()
-        val envelope = runCatching { gson.fromJson(json, Envelope::class.java) }.getOrNull()
-            ?: return emptyList()
-        if (envelope.schemaVersion != SCHEMA_VERSION) return emptyList()
-        return pruneBackgroundJobRecords(envelope.records, nowMillis())
+        return decodeBackgroundJobRecords(json, nowMillis())
     }
 
     override suspend fun save(records: List<BackgroundJobRecord>) {
-        val json = gson.toJson(Envelope(records = pruneBackgroundJobRecords(records, nowMillis())))
+        val json = GsonProvider.instance.toJson(
+            BackgroundJobEnvelope(records = pruneBackgroundJobRecords(records, nowMillis())),
+        )
         appDataStore.dataStore.edit { it[KEY] = json }
     }
 
@@ -39,6 +31,21 @@ internal class BackgroundJobStore(
         const val SCHEMA_VERSION = 1
         val KEY = stringPreferencesKey("background_jobs_v1")
     }
+}
+
+private data class BackgroundJobEnvelope(
+    val schemaVersion: Int = 1,
+    val records: List<BackgroundJobRecord?>? = emptyList(),
+)
+
+internal fun decodeBackgroundJobRecords(json: String, nowMillis: Long): List<BackgroundJobRecord> {
+    val envelope = runCatching {
+        GsonProvider.instance.fromJson(json, BackgroundJobEnvelope::class.java)
+    }.getOrNull() ?: return emptyList()
+    if (envelope.schemaVersion != 1) return emptyList()
+    return runCatching {
+        pruneBackgroundJobRecords(envelope.records.orEmpty().filterNotNull(), nowMillis)
+    }.getOrDefault(emptyList())
 }
 
 internal const val MAX_JOB_HISTORY_PER_PLATFORM = 20
