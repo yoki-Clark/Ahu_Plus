@@ -1776,13 +1776,17 @@ class HomeViewModel(
                         if (fetchedAt <= 0L) {
                             state.copy(qrCountdownSeconds = remaining)
                         } else {
-                            val ageMs = System.currentTimeMillis() - fetchedAt
+                            val freshness = resolveQrFreshness(
+                                fetchedAtMillis = fetchedAt,
+                                nowMillis = System.currentTimeMillis(),
+                                staleThresholdMillis = QR_STALE_THRESHOLD_MS,
+                            )
                             state.copy(
                                 qrCountdownSeconds = remaining,
-                                qrAgeSeconds = (ageMs / 1000).toInt(),
-                                qrStale = ageMs > QR_STALE_THRESHOLD_MS,
-                                qrCode = if (ageMs > QR_STALE_THRESHOLD_MS) null else state.qrCode,
-                                qrError = if (ageMs > QR_STALE_THRESHOLD_MS) "鏀粯鐮佸凡杩囨湡锛岃鍒锋柊" else state.qrError
+                                qrAgeSeconds = freshness.ageSeconds,
+                                qrStale = freshness.isStale,
+                                qrCode = if (freshness.isStale) null else state.qrCode,
+                                qrError = freshness.errorMessage ?: state.qrError,
                             )
                         }
                     }
@@ -1799,6 +1803,26 @@ class HomeViewModel(
         /** 冷启动时,缓存码超过此时长则不再展示(太旧已无意义)。 */
         const val QR_CACHE_MAX_RESTORE_MS = 10 * 60_000L
     }
+}
+
+internal data class QrFreshness(
+    val ageSeconds: Int,
+    val isStale: Boolean,
+    val errorMessage: String?,
+)
+
+internal fun resolveQrFreshness(
+    fetchedAtMillis: Long,
+    nowMillis: Long,
+    staleThresholdMillis: Long,
+): QrFreshness {
+    val ageMillis = nowMillis - fetchedAtMillis
+    val isStale = ageMillis > staleThresholdMillis
+    return QrFreshness(
+        ageSeconds = (ageMillis / 1_000).toInt(),
+        isStale = isStale,
+        errorMessage = if (isStale) "支付码已过期，请刷新" else null,
+    )
 }
 
 // ── UI State ──────────────────────────────────────────────
