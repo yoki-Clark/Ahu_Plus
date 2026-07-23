@@ -280,7 +280,95 @@ object AppRegistry {
             .filter { d -> recent.none { it.key == d.key } }
         return (recent + defaults).take(maxCount)
     }
+
+    /** 全部有效 app key(供 AppHubLayoutConfig.normalize 清洗失效 key)。 */
+    fun allKeys(): Set<String> = byKey.keys
+
+    /**
+     * 按排版配置计算应用页最终要渲染的分区列表(应用页与设置页预览共用)。
+     *
+     * 处理顺序:隐藏过滤 → 排序 → 分组。纯函数,无副作用,可单元测试。
+     *
+     * @param config      已 normalize 的排版配置
+     * @param recentKeys  最近使用 key(时间倒序),供 [AppHubSortMode.RECENT]
+     * @param usageCounts 使用次数 map,供 [AppHubSortMode.FREQUENCY]
+     * @return 分区列表;[AppHubGroupMode.FLAT] 时只有一个 title=null 的分区
+     */
+    fun arrange(
+        config: AppHubLayoutConfig,
+        recentKeys: List<String> = emptyList(),
+        usageCounts: Map<String, Int> = emptyMap(),
+    ): List<AppHubSection> {
+        val visible = specs.filter { it.key !in config.hiddenKeys }
+        val ordered = sortSpecs(visible, config, recentKeys, usageCounts)
+        return when (config.groupMode) {
+            AppHubGroupMode.FLAT -> listOf(AppHubSection(title = null, apps = ordered))
+            AppHubGroupMode.BY_CATEGORY ->
+                // groupBy 保持首次出现顺序 —— 即排序后每组第一个元素的先后
+                ordered.groupBy { it.group }
+                    .map { (group, groupSpecs) -> AppHubSection(title = group, apps = groupSpecs) }
+        }
+    }
+
+    /**
+     * 设置页拖拽列表用:返回「当前顺序」的全部可见 app,便于用户在此基础上拖拽。
+     * CUSTOM 顺序为空时回退到注册顺序,保证列表非空且稳定。
+     */
+    fun orderedForCustomEditing(config: AppHubLayoutConfig): List<AppSpec> =
+        sortSpecs(
+            specs.filter { it.key !in config.hiddenKeys },
+            config.copy(sortMode = AppHubSortMode.CUSTOM),
+            recentKeys = emptyList(),
+            usageCounts = emptyMap(),
+        )
+
+    private fun sortSpecs(
+        input: List<AppSpec>,
+        config: AppHubLayoutConfig,
+        recentKeys: List<String>,
+        usageCounts: Map<String, Int>,
+    ): List<AppSpec> {
+        // 稳定排序基线:注册顺序索引,作为所有排序方式的最终 tiebreaker
+        val registrationIndex = specs.withIndex().associate { (i, s) -> s.key to i }
+        val baseIndex: (AppSpec) -> Int = { registrationIndex[it.key] ?: Int.MAX_VALUE }
+        return when (config.sortMode) {
+            AppHubSortMode.DEFAULT -> input.sortedBy(baseIndex)
+            AppHubSortMode.NAME ->
+                input.sortedWith(
+                    compareBy(chineseCollator) { spec: AppSpec -> spec.title }.thenBy(baseIndex)
+                )
+            AppHubSortMode.RECENT -> {
+                val rank = recentKeys.withIndex().associate { (i, k) -> k to i }
+                input.sortedWith(
+                    compareBy<AppSpec> { rank[it.key] ?: Int.MAX_VALUE }.thenBy(baseIndex)
+                )
+            }
+            AppHubSortMode.FREQUENCY ->
+                input.sortedWith(
+                    // 次数高在前;并列按注册序
+                    compareByDescending<AppSpec> { usageCounts[it.key] ?: 0 }.thenBy(baseIndex)
+                )
+            AppHubSortMode.CUSTOM -> {
+                val rank = config.customOrder.withIndex().associate { (i, k) -> k to i }
+                // 未在 customOrder 里的(比如新增应用)按注册序排到已排序项之后
+                input.sortedWith(
+                    compareBy<AppSpec> { rank[it.key] ?: (config.customOrder.size + baseIndex(it)) }
+                )
+            }
+        }
+    }
+
+    private val chineseCollator: java.text.Collator =
+        java.text.Collator.getInstance(java.util.Locale.CHINA)
 }
+
+/**
+ * 应用页一个分区(分组模式下 = 一个分类;扁平模式下 = 唯一分区,title 为 null)。
+ */
+data class AppHubSection(
+    val title: String?,
+    val apps: List<AppSpec>,
+)
 
 /**
  * 单个 app 的静态元数据。**不含点击回调**(回调在 Composable 消费方组装)。

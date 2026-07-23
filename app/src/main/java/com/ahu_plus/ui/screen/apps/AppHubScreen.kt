@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,6 +52,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.AhuPlusApplication
+import com.ahu_plus.data.home.AppHubCardStyle
+import com.ahu_plus.data.home.AppHubColumns
+import com.ahu_plus.data.home.AppHubDensity
+import com.ahu_plus.data.home.AppHubLayoutConfig
 import com.ahu_plus.data.home.AppRegistry
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.ui.navigation.AppsRoute
@@ -191,6 +196,7 @@ fun AppHubScreen(
     marketInAppHub: Boolean = marketEnabled,
     chaoxingInAppHub: Boolean = chaoxingEnabled,
     welearnInAppHub: Boolean = welearnEnabled,
+    layout: AppHubLayoutConfig = AppHubLayoutConfig(),
     onOpenMarket: () -> Unit = {},
     onOpenChaoxing: () -> Unit = {},
     onOpenWelearn: () -> Unit = {},
@@ -515,22 +521,30 @@ fun AppHubScreen(
             onBack = { currentPage = null },
             onRefresh = attendanceViewModel::refreshAttendance
         )
-        else -> AppHubPage(
-            gridState = hubGridState,
-            marketEnabled = marketInAppHub,
-            chaoxingEnabled = chaoxingInAppHub,
-            welearnEnabled = welearnInAppHub,
-            onOpenMarket = onOpenMarket,
-            onOpenChaoxing = onOpenChaoxing,
-            onOpenWelearn = onOpenWelearn,
-            onNavigate = { appKey ->
-                appHubPageForAppKey(appKey)?.let { page ->
-                    analyticsFromBills = false
-                    currentPage = page
-                    onRecordApp(appKey)
+        else -> {
+            // 排序依赖的最近使用 / 使用次数,进入应用页时刷新一次快照
+            val recentKeys = remember(currentPage) { sessionManager.getRecentApps() }
+            val usageCounts = remember(currentPage) { sessionManager.getAppUsageCounts() }
+            AppHubPage(
+                gridState = hubGridState,
+                layout = layout,
+                recentKeys = recentKeys,
+                usageCounts = usageCounts,
+                marketEnabled = marketInAppHub,
+                chaoxingEnabled = chaoxingInAppHub,
+                welearnEnabled = welearnInAppHub,
+                onOpenMarket = onOpenMarket,
+                onOpenChaoxing = onOpenChaoxing,
+                onOpenWelearn = onOpenWelearn,
+                onNavigate = { appKey ->
+                    appHubPageForAppKey(appKey)?.let { page ->
+                        analyticsFromBills = false
+                        currentPage = page
+                        onRecordApp(appKey)
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 }
 
@@ -539,6 +553,9 @@ fun AppHubScreen(
 @Composable
 private fun AppHubPage(
     gridState: LazyGridState,
+    layout: AppHubLayoutConfig,
+    recentKeys: List<String>,
+    usageCounts: Map<String, Int>,
     marketEnabled: Boolean,
     chaoxingEnabled: Boolean,
     welearnEnabled: Boolean,
@@ -547,33 +564,47 @@ private fun AppHubPage(
     onOpenWelearn: () -> Unit,
     onNavigate: (String) -> Unit
 ) {
+    val searchEnabled = layout.showSearchBar
     var searchVisible by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    val normalizedQuery = query.trim()
-    val groupedApps = remember(normalizedQuery) {
-        AppRegistry.grouped().mapValues { (_, specs) ->
-            if (normalizedQuery.isBlank()) specs
-            else specs.filter {
-                it.title.contains(normalizedQuery, ignoreCase = true) ||
-                    it.group.contains(normalizedQuery, ignoreCase = true)
-            }
-        }.filterValues { it.isNotEmpty() }
+    // 搜索被设置关掉时,收起并清空,避免残留过滤态
+    if (!searchEnabled && (searchVisible || query.isNotEmpty())) {
+        searchVisible = false
+        query = ""
     }
+    val normalizedQuery = if (searchEnabled) query.trim() else ""
+
+    // 分区:隐藏 / 排序 / 分组由 AppRegistry.arrange 统一处理(与设置页预览同源)
+    val sections = remember(layout, recentKeys, usageCounts, normalizedQuery) {
+        AppRegistry.arrange(layout, recentKeys, usageCounts)
+            .mapNotNull { section ->
+                if (normalizedQuery.isBlank()) section
+                else {
+                    val filtered = section.apps.filter {
+                        it.title.contains(normalizedQuery, ignoreCase = true) ||
+                            it.group.contains(normalizedQuery, ignoreCase = true)
+                    }
+                    if (filtered.isEmpty()) null else section.copy(apps = filtered)
+                }
+            }
+    }
+    val totalApps = sections.sumOf { it.apps.size }
     val serviceMatches: (String) -> Boolean = { title ->
         normalizedQuery.isBlank() ||
             title.contains(normalizedQuery, ignoreCase = true) ||
             "第三方服务".contains(normalizedQuery, ignoreCase = true)
     }
-    val hasMatchingService =
+    val hasMatchingService = layout.showThirdPartyServices && (
         (marketEnabled && serviceMatches("集市")) ||
             (chaoxingEnabled && serviceMatches("学习通")) ||
             (welearnEnabled && serviceMatches("WeLearn"))
+    )
 
     Scaffold(
         topBar = {
             AhuTopAppBar(
                 title = {
-                    if (searchVisible) {
+                    if (searchEnabled && searchVisible) {
                         OutlinedTextField(
                             value = query,
                             onValueChange = { query = it },
@@ -590,23 +621,37 @@ private fun AppHubPage(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            if (searchVisible) query = ""
-                            searchVisible = !searchVisible
+                    if (searchEnabled) {
+                        IconButton(
+                            onClick = {
+                                if (searchVisible) query = ""
+                                searchVisible = !searchVisible
+                            }
+                        ) {
+                            Icon(
+                                if (searchVisible) Icons.Filled.Close else Icons.Filled.Search,
+                                contentDescription = if (searchVisible) "关闭搜索" else "搜索应用",
+                            )
                         }
-                    ) {
-                        Icon(
-                            if (searchVisible) Icons.Filled.Close else Icons.Filled.Search,
-                            contentDescription = if (searchVisible) "关闭搜索" else "搜索应用",
-                        )
                     }
                 }
             )
         }
     ) { innerPadding ->
+        // COMPACT 卡片强制单列(normalize 已保证,预览态再兜底一次)
+        val effectiveColumns =
+            if (layout.cardStyle == AppHubCardStyle.COMPACT) AppHubColumns.ONE else layout.columns
+        val gridCells = when (effectiveColumns) {
+            AppHubColumns.ONE -> GridCells.Fixed(1)
+            AppHubColumns.TWO -> GridCells.Fixed(2)
+            AppHubColumns.THREE -> GridCells.Fixed(3)
+            AppHubColumns.ADAPTIVE -> GridCells.Adaptive(minSize = 150.dp)
+        }
+        val gap = if (layout.density == AppHubDensity.COMPACT) 8.dp else 12.dp
+        val showHeaders = layout.showSectionHeaders
+
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            columns = gridCells,
             state = gridState,
             modifier = Modifier
                 .fillMaxSize()
@@ -617,72 +662,90 @@ private fun AppHubPage(
                 end = 16.dp,
                 bottom = 24.dp,
             ),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(gap),
+            verticalArrangement = Arrangement.spacedBy(gap),
         ) {
             if (hasMatchingService) {
-                item(
-                    key = "header:third-party",
-                    span = { GridItemSpan(maxLineSpan) },
-                ) {
-                    AppHubSectionTitle("第三方服务")
+                if (showHeaders) {
+                    item(
+                        key = "header:third-party",
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) {
+                        AppHubSectionTitle("第三方服务")
+                    }
                 }
                 if (marketEnabled && serviceMatches("集市")) {
                     item(key = "service:market") {
-                        AppHubItem(
+                        AppHubTile(
                             title = "集市",
                             icon = Icons.Filled.Storefront,
                             iconColor = AhuOrange,
+                            cardStyle = layout.cardStyle,
+                            density = layout.density,
+                            showIcon = layout.showIcons,
                             onClick = onOpenMarket,
                         )
                     }
                 }
                 if (chaoxingEnabled && serviceMatches("学习通")) {
                     item(key = "service:chaoxing") {
-                        AppHubItem(
+                        AppHubTile(
                             title = "学习通",
                             icon = Icons.Filled.School,
                             iconColor = AhuViolet,
+                            cardStyle = layout.cardStyle,
+                            density = layout.density,
+                            showIcon = layout.showIcons,
                             onClick = onOpenChaoxing,
                         )
                     }
                 }
                 if (welearnEnabled && serviceMatches("WeLearn")) {
                     item(key = "service:welearn") {
-                        AppHubItem(
+                        AppHubTile(
                             title = "WeLearn",
                             icon = Icons.AutoMirrored.Filled.LibraryBooks,
                             iconColor = AhuBlue,
+                            cardStyle = layout.cardStyle,
+                            density = layout.density,
+                            showIcon = layout.showIcons,
                             onClick = onOpenWelearn,
                         )
                     }
                 }
             }
 
-            groupedApps.forEach { (group, specs) ->
-                item(
-                    key = "header:$group",
-                    span = { GridItemSpan(maxLineSpan) },
-                ) {
-                    AppHubSectionTitle(group)
+            sections.forEach { section ->
+                val title = section.title
+                if (showHeaders && title != null) {
+                    item(
+                        key = "header:$title",
+                        span = { GridItemSpan(maxLineSpan) },
+                    ) {
+                        AppHubSectionTitle(title)
+                    }
                 }
-                items(items = specs, key = { it.key }) { spec ->
-                    AppHubItem(
+                items(items = section.apps, key = { it.key }) { spec ->
+                    AppHubTile(
                         title = spec.title,
                         icon = spec.icon,
                         iconColor = spec.tint,
+                        cardStyle = layout.cardStyle,
+                        density = layout.density,
+                        showIcon = layout.showIcons,
                         onClick = { onNavigate(spec.key) },
                     )
                 }
             }
 
-            if (groupedApps.isEmpty() && !hasMatchingService) {
+            if (totalApps == 0 && !hasMatchingService) {
                 item(
-                    key = "empty-search",
+                    key = "empty-state",
                     span = { GridItemSpan(maxLineSpan) },
                 ) {
                     CenteredMessage(
-                        text = "没有找到相关应用",
+                        text = if (normalizedQuery.isNotBlank()) "没有找到相关应用"
+                        else "已隐藏全部应用,可在\"应用页设置\"中恢复",
                         modifier = Modifier.height(160.dp),
                     )
                 }
@@ -701,45 +764,181 @@ private fun AppHubSectionTitle(title: String) {
     )
 }
 
+/**
+ * 应用磁贴调度:按卡片样式分发到横向 / 竖向 / 紧凑三种渲染。设置页预览复用同一实现。
+ *
+ * @param showIcon 为 false 时不绘制图标,磁贴只留文字标题(纯文字列表风)。
+ */
 @Composable
-private fun AppHubItem(
+internal fun AppHubTile(
     title: String,
     icon: ImageVector,
     iconColor: Color,
+    cardStyle: AppHubCardStyle,
+    density: AppHubDensity,
+    showIcon: Boolean = true,
     onClick: () -> Unit,
 ) {
+    when (cardStyle) {
+        AppHubCardStyle.HORIZONTAL -> HorizontalTile(title, icon, iconColor, density, showIcon, onClick)
+        AppHubCardStyle.VERTICAL -> VerticalTile(title, icon, iconColor, density, showIcon, onClick)
+        AppHubCardStyle.COMPACT -> CompactTile(title, icon, iconColor, showIcon, onClick)
+    }
+}
+
+private val tileBorder: @Composable () -> BorderStroke = {
+    BorderStroke(
+        width = 1.dp,
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+    )
+}
+
+/** 横向:图标在左、标题在右。默认样式。 */
+@Composable
+private fun HorizontalTile(
+    title: String,
+    icon: ImageVector,
+    iconColor: Color,
+    density: AppHubDensity,
+    showIcon: Boolean,
+    onClick: () -> Unit,
+) {
+    val compact = density == AppHubDensity.COMPACT
+    // 无图标时压低高度换取紧凑(应用名多为单行);有图标沿用原高度
+    val height = when {
+        !showIcon -> if (compact) 40.dp else 48.dp
+        compact -> 68.dp
+        else -> 84.dp
+    }
+    val iconBox = if (compact) 40.dp else 48.dp
     Surface(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .height(84.dp),
+            .height(height),
         shape = AhuShapes.Card,
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 1.dp,
         shadowElevation = 1.dp,
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-        ),
+        border = tileBorder(),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = if (compact) 8.dp else 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            AppHubIcon(
-                icon = icon,
-                iconColor = iconColor,
-            )
-            Spacer(modifier = Modifier.width(10.dp))
+            if (showIcon) {
+                AppHubIcon(icon = icon, iconColor = iconColor, boxSize = iconBox)
+                Spacer(modifier = Modifier.width(10.dp))
+            }
             Text(
                 text = title,
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
+                // 无图标时文字居中,避免大片留白偏左
+                textAlign = if (showIcon) null else androidx.compose.ui.text.style.TextAlign.Center,
+                // 无图标时压成单行,匹配降低后的行高
+                maxLines = if (showIcon) 2 else 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 竖向:图标在上、标题在下居中。适合 3 列 / 自适应密铺。 */
+@Composable
+private fun VerticalTile(
+    title: String,
+    icon: ImageVector,
+    iconColor: Color,
+    density: AppHubDensity,
+    showIcon: Boolean,
+    onClick: () -> Unit,
+) {
+    val compact = density == AppHubDensity.COMPACT
+    // 无图标时压低高度换取紧凑(文字单行居中)
+    val height = when {
+        !showIcon -> if (compact) 40.dp else 48.dp
+        compact -> 88.dp
+        else -> 104.dp
+    }
+    val iconBox = if (compact) 40.dp else 46.dp
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height),
+        shape = AhuShapes.Card,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        shadowElevation = 1.dp,
+        border = tileBorder(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp, vertical = if (compact) 8.dp else 10.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (showIcon) {
+                AppHubIcon(icon = icon, iconColor = iconColor, boxSize = iconBox)
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** 紧凑:单行列表项,小图标 + 标题。强制单列。 */
+@Composable
+private fun CompactTile(
+    title: String,
+    icon: ImageVector,
+    iconColor: Color,
+    showIcon: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            // 无图标时行高从 52 压到 40,单行文字列表更密
+            .height(if (showIcon) 52.dp else 40.dp),
+        shape = AhuShapes.Card,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        shadowElevation = 1.dp,
+        border = tileBorder(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (showIcon) {
+                AppHubIcon(icon = icon, iconColor = iconColor, boxSize = 36.dp)
+                Spacer(modifier = Modifier.width(12.dp))
+            }
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -750,6 +949,7 @@ private fun AppHubItem(
 private fun AppHubIcon(
     icon: ImageVector,
     iconColor: Color,
+    boxSize: androidx.compose.ui.unit.Dp = 48.dp,
 ) {
     val background = Brush.linearGradient(
         colors = listOf(
@@ -760,7 +960,7 @@ private fun AppHubIcon(
 
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(boxSize)
             .shadow(
                 elevation = 2.dp,
                 shape = AhuShapes.IconBox,
@@ -778,7 +978,7 @@ private fun AppHubIcon(
             imageVector = icon,
             contentDescription = null,
             tint = Color.White,
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier.size(boxSize * 0.5f),
         )
     }
 }

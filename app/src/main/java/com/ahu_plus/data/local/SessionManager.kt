@@ -27,6 +27,7 @@ import com.ahu_plus.data.model.AiCommentTemplate
 
 import com.ahu_plus.data.model.defaultAiCommentTemplates
 import com.ahu_plus.data.model.schedule.SchedulePaletteConfig
+import com.ahu_plus.data.home.AppHubLayoutConfig
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -159,6 +160,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     // 首页"我的收藏"应用列表 (JSON 数组 List<String>, 最多 6 个;退登保留)
     @Volatile private var cachedFavoriteIds: List<String> = emptyList()
+
+    // 应用页排版配置 (JSON 序列化的 AppHubLayoutConfig;退登保留)
+    @Volatile private var cachedAppHubLayout: AppHubLayoutConfig = AppHubLayoutConfig()
+
+    // 应用使用次数计数 (app key -> 累计打开次数, 供应用页 FREQUENCY 排序;退登保留)
+    @Volatile private var cachedAppUsageCounts: Map<String, Int> = emptyMap()
 
     /** 已注册的课程提醒 lessonKey 集合(换行分隔),供 cancelAll 精确清理,避免课表变更后旧闹钟成孤儿 */
     @Volatile private var cachedReminderKeys: String = ""
@@ -619,6 +626,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedFilterNodeIds = parseLongList(prefs[MARKET_FILTER_NODES_KEY])
 
         cachedFavoriteIds = parseStringList(prefs[FAVORITE_APP_IDS_KEY])
+
+        cachedAppHubLayout = parseAppHubLayout(prefs[APP_HUB_LAYOUT_KEY])
+
+        cachedAppUsageCounts = parseAppUsageCounts(prefs[APP_USAGE_COUNTS_KEY])
 
         // \u96C6\u5E02\u529F\u80FD\u603B\u5F00\u5173: \u7F3A\u7701 true,\u4FDD\u6301\u5411\u540E\u517C\u5BB9 (\u8001\u7528\u6237\u9ED8\u8BA4\u542F\u7528)
 
@@ -1568,7 +1579,15 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedRecentApps = value
 
-        appDataStore.dataStore.edit { it[RECENT_APPS_KEY] = value }
+        // 累计使用次数(供应用页 FREQUENCY 排序)
+        val counts = cachedAppUsageCounts.toMutableMap()
+        counts[appKey] = (counts[appKey] ?: 0) + 1
+        cachedAppUsageCounts = counts
+
+        appDataStore.dataStore.edit {
+            it[RECENT_APPS_KEY] = value
+            it[APP_USAGE_COUNTS_KEY] = gson.toJson(counts)
+        }
 
     }
 
@@ -1582,6 +1601,50 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedFavoriteIds = ids
 
         appDataStore.dataStore.edit { it[FAVORITE_APP_IDS_KEY] = gson.toJson(ids) }
+
+    }
+
+    // ── 应用页排版配置 ─────────────────────────────────────────────
+
+    /** 应用页排版配置(已 normalize 过失效 key 剔除)。退登保留。 */
+    fun getAppHubLayout(): AppHubLayoutConfig = cachedAppHubLayout
+
+    suspend fun saveAppHubLayout(config: AppHubLayoutConfig) {
+
+        cachedAppHubLayout = config
+
+        appDataStore.dataStore.edit { it[APP_HUB_LAYOUT_KEY] = gson.toJson(config) }
+
+    }
+
+    /** 应用使用次数(app key -> 累计打开次数),供应用页 FREQUENCY 排序。退登保留。 */
+    fun getAppUsageCounts(): Map<String, Int> = cachedAppUsageCounts
+
+    private fun parseAppHubLayout(json: String?): AppHubLayoutConfig {
+
+        if (json.isNullOrBlank()) return AppHubLayoutConfig()
+
+        return runCatching {
+
+            // fromStoredJson 对「后加字段的旧 JSON」向后兼容(缺键回退默认,不被填成 false)
+            AppHubLayoutConfig.fromStoredJson(json)
+                .normalize(com.ahu_plus.data.home.AppRegistry.allKeys())
+
+        }.getOrDefault(AppHubLayoutConfig())
+
+    }
+
+    private fun parseAppUsageCounts(json: String?): Map<String, Int> {
+
+        if (json.isNullOrBlank()) return emptyMap()
+
+        return runCatching {
+
+            @Suppress("UNCHECKED_CAST")
+            val raw = gson.fromJson(json, Map::class.java) as? Map<String, Number> ?: emptyMap()
+            raw.mapValues { it.value.toInt() }
+
+        }.getOrDefault(emptyMap())
 
     }
 
@@ -2787,6 +2850,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedRecentApps = ""
 
+        cachedAppHubLayout = AppHubLayoutConfig()
+
+        cachedAppUsageCounts = emptyMap()
+
         cachedScheduleColWidth = 64f
 
         cachedScheduleRowHeight = 56f
@@ -3640,6 +3707,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         val FAVORITE_APP_IDS_KEY = stringPreferencesKey("favorite_app_ids")
 
+        val APP_HUB_LAYOUT_KEY = stringPreferencesKey("app_hub_layout_json")
+
+        val APP_USAGE_COUNTS_KEY = stringPreferencesKey("app_usage_counts_json")
+
         val SCHEDULE_COL_WIDTH_KEY = stringPreferencesKey("schedule_col_width")
 
         val SCHEDULE_ROW_HEIGHT_KEY = stringPreferencesKey("schedule_row_height")
@@ -4004,7 +4075,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
             AI_COMMENT_TEMPLATES_KEY, AI_COMMENT_SELECTED_TEMPLATE_KEY,
 
-            RECENT_APPS_KEY,
+            RECENT_APPS_KEY, APP_HUB_LAYOUT_KEY, APP_USAGE_COUNTS_KEY,
 
             SCHEDULE_COL_WIDTH_KEY, SCHEDULE_ROW_HEIGHT_KEY, SCHEDULE_FONT_SCALE_KEY,
 

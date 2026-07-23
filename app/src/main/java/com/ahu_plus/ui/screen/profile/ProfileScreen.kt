@@ -102,6 +102,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ahu_plus.data.repository.CacheCleanupRepository
+import com.ahu_plus.data.home.AppHubLayoutConfig
+import com.ahu_plus.ui.screen.apps.AppHubSettingsScreen
 import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.model.BillRecord
 import com.ahu_plus.data.model.CheckResult
@@ -171,6 +173,10 @@ fun ProfileScreen(
     onGuideIntroSeen: () -> Unit = {},
     bottomNavServices: List<String> = emptyList(),
     onBottomNavServicesChanged: (List<String>) -> Unit = {},
+    appHubLayout: AppHubLayoutConfig = AppHubLayoutConfig(),
+    onAppHubLayoutChanged: (AppHubLayoutConfig) -> Unit = {},
+    appHubRecentKeys: List<String> = emptyList(),
+    appHubUsageCounts: Map<String, Int> = emptyMap(),
     onOpenScheduleSettings: () -> Unit = {},
     onOpenMarketSettings: () -> Unit = {},
     onOpenChaoxingSettings: () -> Unit = {},
@@ -190,6 +196,7 @@ fun ProfileScreen(
     var showAcademicWarning by rememberSaveable { mutableStateOf(false) }
     var showFinance by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showAppHubSettings by rememberSaveable { mutableStateOf(false) }
     var showUtilities by rememberSaveable { mutableStateOf(false) }
     var showCardAnalytics by rememberSaveable { mutableStateOf(false) }
     var showCacheCleanup by rememberSaveable { mutableStateOf(false) }
@@ -419,6 +426,10 @@ fun ProfileScreen(
                 showSettings = false
                 onOpenScheduleSettings()
             },
+            onOpenAppHubSettings = {
+                showSettings = false
+                showAppHubSettings = true
+            },
             onOpenMarketSettings = {
                 showSettings = false
                 onOpenMarketSettings()
@@ -432,6 +443,15 @@ fun ProfileScreen(
                 showSettings = false
             },
             onBack = { showSettings = false }
+        )
+    } else if (showAppHubSettings) {
+        BackHandler(enabled = true) { showAppHubSettings = false; showSettings = true }
+        AppHubSettingsScreen(
+            config = appHubLayout,
+            recentKeys = appHubRecentKeys,
+            usageCounts = appHubUsageCounts,
+            onConfigChange = onAppHubLayoutChanged,
+            onBack = { showAppHubSettings = false; showSettings = true },
         )
     } else if (showCacheCleanup) {
         BackHandler(enabled = true) { showCacheCleanup = false; showSettings = true }
