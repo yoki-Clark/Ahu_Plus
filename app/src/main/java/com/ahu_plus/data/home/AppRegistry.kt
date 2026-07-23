@@ -3,6 +3,7 @@ package com.ahu_plus.data.home
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.automirrored.filled.FactCheck
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AcUnit
@@ -63,6 +64,7 @@ object AppRegistry {
     const val KEY_EXAM = "exam"
     const val KEY_TRAINING_PLAN = "trainingPlan"
     const val KEY_EMPTY_CLASSROOM = "emptyClassroom"
+    const val KEY_LESSON_SEARCH = "lessonSearch"
     const val KEY_ROOM_COURSE_TABLE = "roomCourseTable"
     const val KEY_CENGKE = "cengke"
     const val KEY_CARD = "card"
@@ -136,6 +138,13 @@ object AppRegistry {
             title = "空教室",
             icon = Icons.Filled.MeetingRoom,
             tint = AhuGreen,
+            group = LEARNING,
+        ),
+        AppSpec(
+            key = KEY_LESSON_SEARCH,
+            title = "开课查询",
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            tint = AhuIndigo,
             group = LEARNING,
         ),
         AppSpec(

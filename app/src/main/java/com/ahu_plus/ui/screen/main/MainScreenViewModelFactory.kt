@@ -24,6 +24,7 @@ import com.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
+import com.ahu_plus.ui.screen.lessonsearch.LessonSearchViewModel
 import com.ahu_plus.ui.screen.evaluation.EvaluationViewModel
 import com.ahu_plus.ui.screen.exam.ExamViewModel
 import com.ahu_plus.ui.screen.grade.GradeViewModel
@@ -112,6 +113,12 @@ class MainScreenViewModelFactory(
             EmptyClassroomViewModel::class.java -> EmptyClassroomViewModel(
                 jwAuthRepository = jwAuthRepository,
                 emptyClassroomRepository = app.emptyClassroomRepository,
+                sessionManager = sessionManager,
+            ) as T
+            LessonSearchViewModel::class.java -> LessonSearchViewModel(
+                jwAuthRepository = jwAuthRepository,
+                lessonSearchRepository = app.lessonSearchRepository,
+                courseRepository = courseRepository,
                 sessionManager = sessionManager,
             ) as T
             RoomCourseTableViewModel::class.java -> RoomCourseTableViewModel(
