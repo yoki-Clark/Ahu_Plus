@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Grade
@@ -63,6 +64,7 @@ object AppRegistry {
     const val KEY_TRAINING_PLAN = "trainingPlan"
     const val KEY_EMPTY_CLASSROOM = "emptyClassroom"
     const val KEY_ROOM_COURSE_TABLE = "roomCourseTable"
+    const val KEY_CENGKE = "cengke"
     const val KEY_CARD = "card"
     const val KEY_CARD_ANALYTICS = "cardAnalytics"
     const val KEY_NOTICE_LIST = "noticeList"
@@ -141,6 +143,13 @@ object AppRegistry {
             title = "教室课表",
             icon = Icons.Filled.ViewWeek,
             tint = AhuBlue,
+            group = LEARNING,
+        ),
+        AppSpec(
+            key = KEY_CENGKE,
+            title = "蹭课",
+            icon = Icons.Filled.Casino,
+            tint = AhuOrange,
             group = LEARNING,
         ),
         AppSpec(

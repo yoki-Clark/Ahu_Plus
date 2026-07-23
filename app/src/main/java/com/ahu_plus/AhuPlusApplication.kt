@@ -45,6 +45,7 @@ import com.ahu_plus.data.repository.KqAttendanceRepository
 import com.ahu_plus.data.update.UpdateManager
 import com.ahu_plus.data.repository.CardRepository
 import com.ahu_plus.data.repository.CasAuthRepository
+import com.ahu_plus.data.repository.CengKeRepository
 import com.ahu_plus.data.repository.CourseRepository
 import com.ahu_plus.data.repository.EmptyClassroomRepository
 import com.ahu_plus.data.repository.ExamRepository
@@ -123,6 +124,8 @@ class AhuPlusApplication : Application() {
     lateinit var jwAppAuthRepository: JwAppAuthRepository
         private set
     lateinit var roomCourseTableRepository: RoomCourseTableRepository
+        private set
+    lateinit var cengKeRepository: CengKeRepository
         private set
     lateinit var courseRepository: CourseRepository
         private set
@@ -297,6 +300,8 @@ class AhuPlusApplication : Application() {
         examRepository = ExamRepository(jwAuthRepository)
         emptyClassroomRepository = EmptyClassroomRepository(jwAuthRepository)
         roomCourseTableRepository = RoomCourseTableRepository(jwAppAuthRepository)
+        // 蹭课:复用 jwapp 会话,走 /room/place/* 按日期查教室占用
+        cengKeRepository = CengKeRepository(jwAppAuthRepository)
         // 排考预测:从 Gitee yao-enqi/ahu-plus-update 仓库拉取标准化 JSON,
         // 不再走 jwapp JWT 登录流程 (2026-06-23 重构)。
         examDataRepository = ExamDataRepository(sessionManager)
