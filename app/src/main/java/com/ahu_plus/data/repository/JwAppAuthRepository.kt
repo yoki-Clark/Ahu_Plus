@@ -7,6 +7,7 @@ import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.ByteString.Companion.decodeBase64
@@ -132,6 +133,31 @@ class JwAppAuthRepository(
         }
     }
 
+    /**
+     * POST 版本的 authorized 请求(GET 版见 [executeAuthorized])。用于 `/room/place/rooms`
+     * 这类需要 JSON body 的教务移动端端点。鉴权 header 与 GET 一致,额外带
+     * `Content-Type: application/json`。
+     */
+    internal fun executeAuthorizedPost(url: String, jsonBody: String): String {
+        val current = token ?: sessionManager.getJwAppToken().also { token = it }
+        if (current.isNullOrBlank() || isExpired(current)) throw JwAppAuthRequiredException()
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Authorization", current)
+            .header("X-Id-Token", current)
+            .header("userToken", current)
+            .post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (response.code == 401 || response.code == 403) throw JwAppAuthRequiredException()
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IOException("教务移动端请求失败: HTTP ${response.code}")
+            if (body.isBlank()) throw IOException("教务移动端返回空响应")
+            return body
+        }
+    }
+
     private fun executeLoginRequest(url: String) = client.newCall(
         Request.Builder()
             .url(url)
@@ -157,6 +183,7 @@ class JwAppAuthRepository(
 
     companion object {
         private const val BASE = "https://jwapp.ahu.edu.cn"
+        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private const val PUBLIC_KEY =
             "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCFY5N+9UX+0BF+xz1svFguI4CIDvmQ" +
                 "TfINkOZ1HOO3ltBNHGQTUirUPQTyEph/+q/l8b16YYw3I2fyTH6y15s3tHf5jMei+R/" +

@@ -79,6 +79,8 @@ import com.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomScreen
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
+import com.ahu_plus.ui.screen.cengke.CengKeScreen
+import com.ahu_plus.ui.screen.cengke.CengKeViewModel
 import com.ahu_plus.ui.screen.roomcoursetable.RoomCourseTableScreen
 import com.ahu_plus.ui.screen.roomcoursetable.RoomCourseTableViewModel
 import com.ahu_plus.ui.screen.evaluation.EvaluationDetailScreen
@@ -136,6 +138,7 @@ private const val PAGE_TRAINING_PLAN = "trainingPlan"
 private const val PAGE_ATTENDANCE = "attendance"
 private const val PAGE_EMPTY_CLASSROOM = "emptyClassroom"
 private const val PAGE_ROOM_COURSE_TABLE = "roomCourseTable"
+private const val PAGE_CENGKE = "cengke"
 private const val PAGE_WEATHER = "weather"
 private const val PAGE_CPROG = "cprog"
 private const val PAGE_EVALUATION = "evaluation"
@@ -149,6 +152,7 @@ internal fun appHubPageForAppKey(appKey: String): String? = when (appKey) {
     AppRegistry.KEY_TRAINING_PLAN -> PAGE_TRAINING_PLAN
     AppRegistry.KEY_EMPTY_CLASSROOM -> PAGE_EMPTY_CLASSROOM
     AppRegistry.KEY_ROOM_COURSE_TABLE -> PAGE_ROOM_COURSE_TABLE
+    AppRegistry.KEY_CENGKE -> PAGE_CENGKE
     AppRegistry.KEY_CPROG -> PAGE_CPROG
     AppRegistry.KEY_EVALUATION -> PAGE_EVALUATION
     AppRegistry.KEY_NOTICE_LIST -> PAGE_NOTICES
@@ -174,6 +178,7 @@ fun AppHubScreen(
     trainingPlanViewModel: TrainingPlanViewModel,
     emptyClassroomViewModel: EmptyClassroomViewModel,
     roomCourseTableViewModel: RoomCourseTableViewModel,
+    cengKeViewModel: CengKeViewModel,
     cardViewModel: HomeViewModel,
     jwcNoticeListViewModel: JwcNoticeListViewModel,
     jwcNoticeViewModel: JwcNoticeViewModel,
@@ -255,6 +260,7 @@ fun AppHubScreen(
             PAGE_EXAM -> examViewModel.activate()
             PAGE_TRAINING_PLAN -> trainingPlanViewModel.activate()
             PAGE_ROOM_COURSE_TABLE -> roomCourseTableViewModel.activate()
+            PAGE_CENGKE -> cengKeViewModel.activate()
             PAGE_NOTICES -> jwcNoticeListViewModel.activate()
             PAGE_MESSAGE_CENTER -> {
                 jwcNoticeViewModel.loadNotices()
@@ -316,6 +322,10 @@ fun AppHubScreen(
         )
         PAGE_ROOM_COURSE_TABLE -> RoomCourseTableScreen(
             viewModel = roomCourseTableViewModel,
+            onBack = { currentPage = null },
+        )
+        PAGE_CENGKE -> CengKeScreen(
+            viewModel = cengKeViewModel,
             onBack = { currentPage = null },
         )
         PAGE_WEATHER -> WeatherScreen(

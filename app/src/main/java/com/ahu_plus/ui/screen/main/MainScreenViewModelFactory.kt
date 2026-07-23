@@ -33,6 +33,7 @@ import com.ahu_plus.ui.screen.profile.AttendanceViewModel
 import com.ahu_plus.ui.screen.profile.FinanceViewModel
 import com.ahu_plus.ui.screen.profile.StudentInfoViewModel
 import com.ahu_plus.ui.screen.schedule.ScheduleViewModel
+import com.ahu_plus.ui.screen.cengke.CengKeViewModel
 import com.ahu_plus.ui.screen.roomcoursetable.RoomCourseTableViewModel
 import com.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
 import com.ahu_plus.ui.screen.weather.WeatherViewModel
@@ -116,6 +117,11 @@ class MainScreenViewModelFactory(
             RoomCourseTableViewModel::class.java -> RoomCourseTableViewModel(
                 authRepository = app.jwAppAuthRepository,
                 repository = app.roomCourseTableRepository,
+                sessionManager = sessionManager,
+            ) as T
+            CengKeViewModel::class.java -> CengKeViewModel(
+                authRepository = app.jwAppAuthRepository,
+                repository = app.cengKeRepository,
                 sessionManager = sessionManager,
             ) as T
             ChaoxingViewModel::class.java -> ChaoxingViewModel(
