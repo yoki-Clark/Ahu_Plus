@@ -15,7 +15,7 @@ jwapp 使用自签发的 JWT (RS512) 做认证, 所有 /eams-micro-server/* 端�
   - iss: jwapp.ahu.edu.cn
   - iat/exp: 签发/过期时间 (30天有效期)
   - req: wxea4e57affeb52978 (微信小程序 AppID)
-  - sub: 学号 (如 G62314006)
+  - sub: 学号 (如 G6xxxxxxx)
   - ATTR_*: 用户属性 (userNo, accountId, identityTypeCode=Student, userName, ...)
 
 ## 现有获取方式
