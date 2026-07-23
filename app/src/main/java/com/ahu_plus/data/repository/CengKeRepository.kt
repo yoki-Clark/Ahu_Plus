@@ -83,7 +83,7 @@ class CengKeRepository(
             } else {
                 emptyList()
             }
-            val allRooms = first.data + remaining.flatMap { it.data }
+            val allRooms = first.data.orEmpty() + remaining.flatMap { it.data.orEmpty() }
             CengKeParser.parseCourses(allRooms, buildingNames)
         }
     }
@@ -167,7 +167,7 @@ object CengKeParser {
         val seen = HashSet<String>()
         val out = ArrayList<CengCourse>()
         for (room in rooms) {
-            for (occ in room.occupations) {
+            for (occ in room.occupations.orEmpty()) {
                 if (occ.activityType != "Lesson") continue
                 val parsed = parseActivityName(occ.activityName) ?: continue
                 val (name, fullCode, college) = parsed
@@ -183,7 +183,6 @@ object CengKeParser {
                     buildingId = room.buildingId,
                     buildingName = room.buildingId?.let { buildingNames[it] },
                     campusName = room.campusNameZh,
-                    floor = room.floor,
                     date = date,
                     startTimeString = startStr,
                     endTimeString = occ.endTimeString.orEmpty(),

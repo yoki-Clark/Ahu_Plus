@@ -65,10 +65,12 @@ import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.jwapp.CengCourse
 import com.ahu_plus.data.model.jwapp.TimeSlot
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.CollapsibleSection
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 private val dateFormatter = DateTimeFormatter.ofPattern("M月d日")
+private const val CENG_KE_DAYS_AHEAD = 365L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -222,10 +224,19 @@ private fun CengKeContent(
         ) {
             CampusSection(state, viewModel)
             DateSection(state, viewModel)
-            BuildingSection(state, viewModel)
-            RoomTypeSection(state, viewModel)
-            TimeSlotSection(state, viewModel)
-            if (state.colleges.isNotEmpty()) CollegeSection(state, viewModel)
+            val selectedFilterCount = state.selectedBuildingIds.size +
+                state.selectedRoomTypeIds.size +
+                state.selectedSlots.size +
+                state.selectedColleges.size
+            CollapsibleSection(
+                title = "筛选项",
+                badge = if (selectedFilterCount == 0) "默认" else "$selectedFilterCount 项",
+            ) {
+                BuildingSection(state, viewModel)
+                RoomTypeSection(state, viewModel)
+                TimeSlotSection(state, viewModel)
+                if (state.colleges.isNotEmpty()) CollegeSection(state, viewModel)
+            }
 
             Spacer(Modifier.height(8.dp))
             PickButton(state, viewModel)
@@ -317,12 +328,13 @@ private fun DateSection(state: CengKeUiState, viewModel: CengKeViewModel) {
 
     if (showPicker) {
         val todayMillis = today.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-        val maxMillis = today.plusDays(30).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val maxDate = today.plusDays(CENG_KE_DAYS_AHEAD)
+        val maxMillis = maxDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
         val pickerState = rememberDatePickerState(
             initialSelectedDateMillis = state.selectedDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
             selectableDates = object : SelectableDates {
                 override fun isSelectableDate(utcTimeMillis: Long): Boolean = utcTimeMillis in todayMillis..maxMillis
-                override fun isSelectableYear(year: Int): Boolean = year == today.year
+                override fun isSelectableYear(year: Int): Boolean = year in today.year..maxDate.year
             },
         )
         DatePickerDialog(
@@ -331,7 +343,7 @@ private fun DateSection(state: CengKeUiState, viewModel: CengKeViewModel) {
                 TextButton(onClick = {
                     pickerState.selectedDateMillis?.let { millis ->
                         val picked = java.time.Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-                        if (!picked.isBefore(today)) viewModel.selectDate(picked)
+                        if (picked in today..maxDate) viewModel.selectDate(picked)
                     }
                     showPicker = false
                 }) { Text("确定") }
@@ -458,7 +470,6 @@ private fun RecommendationCard(course: CengCourse, state: CengKeUiState, viewMod
             val location = listOfNotNull(
                 course.campusName?.takeIf { it.isNotBlank() },
                 course.buildingName?.takeIf { it.isNotBlank() },
-                course.floor?.let { "${it}层" },
                 course.roomName.takeIf { it.isNotBlank() },
             ).joinToString(" · ")
             if (location.isNotBlank()) InfoRow(Icons.Filled.LocationOn, location)

@@ -43,7 +43,7 @@ class CengKeParserTest {
         buildingId: Int? = 10,
         floor: Int? = 1,
         campusNameZh: String? = "磬苑校区",
-        occupations: List<RoomOccupationInfo> = listOf(occ()),
+        occupations: List<RoomOccupationInfo>? = listOf(occ()),
     ) = RoomWithOccupancy(
         id = id,
         nameZh = nameZh,
@@ -137,6 +137,19 @@ class CengKeParserTest {
     }
 
     @Test
+    fun `parseCourses tolerates null occupations`() {
+        // 无课教室:接口返回 roomOccupationInfoVms=null,Gson 绕过默认值留 null。
+        // 不得因迭代 null 崩溃(Attempt to invoke interface method java.util.Iterator)。
+        val rooms = listOf(
+            room(id = 1, nameZh = "空教室", occupations = null),
+            room(id = 2, nameZh = "A101", occupations = listOf(occ())),
+        )
+        val courses = CengKeParser.parseCourses(rooms)
+        assertEquals(1, courses.size)
+        assertEquals("A101", courses.single().roomName)
+    }
+
+    @Test
     fun `parseCourses keeps distinct rooms and times`() {
         val rooms = listOf(
             room(id = 1, nameZh = "A101", occupations = listOf(occ(startTime = 800, startTimeString = "08:00"))),
@@ -179,7 +192,6 @@ class CengKeParserTest {
         val course = CengKeParser.parseCourses(listOf(room())).single()
         assertEquals("张老师", course.teacher)
         assertEquals("磬苑校区", course.campusName)
-        assertEquals(1, course.floor)
         assertEquals(TimeSlot.MORNING, course.timeSlot)
         assertEquals("GG61015", course.courseCode)
     }
@@ -298,7 +310,6 @@ class CengKeParserTest {
         buildingId = 10,
         buildingName = "博学北楼",
         campusName = "磬苑校区",
-        floor = 1,
         date = "2026-07-23",
         startTimeString = "%02d:00".format(start / 100),
         endTimeString = "",

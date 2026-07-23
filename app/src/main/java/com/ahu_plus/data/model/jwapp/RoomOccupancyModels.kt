@@ -58,13 +58,17 @@ data class RoomWithOccupancy(
     val virtual: Boolean = false,
     val enabled: Boolean = true,
     val experiment: Boolean = false,
+    // ⚠ 可空:无课教室接口返回 roomOccupationInfoVms=null。Gson 经 Unsafe 建对象、
+    //   绕过 Kotlin 构造器与默认值,`= emptyList()` 不生效,故类型必须诚实标可空,
+    //   用 .orEmpty() 消费(见 CengKeParser.parseCourses)。
     @SerializedName("roomOccupationInfoVms")
-    val occupations: List<RoomOccupationInfo> = emptyList(),
+    val occupations: List<RoomOccupationInfo>? = emptyList(),
 )
 
 /** `data` 分页壳:`data.data` 是教室数组,`data._page_` 是分页信息。 */
 data class RoomPlacePageData(
-    val data: List<RoomWithOccupancy> = emptyList(),
+    // ⚠ 可空:同上 Gson 绕默认值,接口可能返回 data=null。消费方用 .orEmpty()。
+    val data: List<RoomWithOccupancy>? = emptyList(),
     @SerializedName("_page_") val page: JwAppPage = JwAppPage(),
 )
 
@@ -77,7 +81,8 @@ enum class TimeSlot(val label: String) {
 
 /**
  * 解析后的一节可蹭课程(推荐候选)。一条 [RoomOccupationInfo] 解析成一个候选,
- * 教室名/楼由所在 [RoomWithOccupancy] 补齐。
+ * 教室名由所在 [RoomWithOccupancy] 补齐。楼层不展示:jwapp 的 floor 字段不可靠
+ * (博北等楼恒返回 0),真实楼层已含在教室号里(如 B211 → 2 楼)。
  */
 data class CengCourse(
     val courseName: String,
@@ -89,7 +94,6 @@ data class CengCourse(
     val buildingId: Int?,
     val buildingName: String?,
     val campusName: String?,
-    val floor: Int?,
     val date: String,
     val startTimeString: String,
     val endTimeString: String,
