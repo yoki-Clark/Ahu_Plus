@@ -13,7 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -33,16 +32,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.jw.LessonFilterOption
 import com.ahu_plus.data.model.jw.LessonInlineOptions
 
 /**
- * 全校开课查询的底部筛选面板。分两段：
- *  1. 教学班定位（级联）：年级 → 开课单位 → 专业 → 行政班。定位到单班后可切「课表」网格。
- *  2. 开课筛选：学院/类型/性质/校区/教学楼/考核/语言/星期/节次/学分区间/教室关键字。
- *
- * 编辑的是 VM 的 draftFilter；点「应用筛选」才落地为 appliedFilter 并查询。
+ * 全校开课查询「开课列表」模式的开课属性筛选面板。
+ * 分两组：课程属性（学院/类型/性质/考核/语言/学分）｜上课安排（校区/教学楼/星期/节次/教室）。
+ * 编辑 draftFilter；点「应用筛选」落地为 appliedFilter 并查询。
+ * 教学班定位（年级→专业→行政班）已移到「班级课表」模式常驻区，不在本面板。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -51,70 +48,24 @@ internal fun LessonFilterSheet(
     viewModel: LessonSearchViewModel,
 ) {
     val draft = uiState.draftFilter
-    val currentYear = remember { DebugClock.todayDate().year }
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .heightIn(max = 560.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .heightIn(max = 620.dp)
+            .padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("筛选", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-
-        // ═══ 教学班定位（级联） ═══
-        SectionTitle("教学班定位")
-        Text(
-            "选到具体行政班后，可切换到「课表」查看该班周网格课表。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        // 年级（多选 chip）
-        MultiChipGroup(
-            label = "年级",
-            options = LessonInlineOptions.grades(currentYear).map { LessonFilterOption(it.toLong(), it) },
-            selectedIds = draft.grades.mapNotNull { it.toLongOrNull() }.toSet(),
-            onToggle = { viewModel.toggleDraftGrade(it.toString()) },
-        )
-
-        // 开课单位（多选 chip，来自 API）
-        LoadingMultiChipGroup(
-            label = "开课单位",
-            loading = uiState.loadingMajorDepts,
-            options = uiState.majorDeptOptions,
-            selectedIds = draft.majorDeptIds.toSet(),
-            onToggle = viewModel::toggleDraftMajorDept,
-        )
-
-        // 专业（多选 chip，选开课单位后加载）
-        if (draft.majorDeptIds.isNotEmpty() || uiState.majorOptions.isNotEmpty()) {
-            LoadingMultiChipGroup(
-                label = "专业",
-                loading = uiState.loadingMajors,
-                options = uiState.majorOptions,
-                selectedIds = draft.majorIds.toSet(),
-                onToggle = viewModel::toggleDraftMajor,
-            )
+        // 滚动筛选区占据剩余空间，底部操作行始终可见（不再被挤出屏幕）。
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            FilterSheetOpenCourseSection(uiState = uiState, viewModel = viewModel)
         }
-
-        // 行政班（单选下拉，定位钥匙）
-        OptionDropdown(
-            label = "行政班（教学班）",
-            loading = uiState.loadingAdminClasses,
-            options = uiState.adminClassOptions,
-            selectedId = draft.adminClassId,
-            onSelect = viewModel::setDraftAdminClass,
-            emptyHint = "先选年级/开课单位/专业",
-        )
-
         HorizontalDivider()
-
-        // ═══ 开课筛选 ═══
-        FilterSheetOpenCourseSection(uiState = uiState, viewModel = viewModel)
-
-        // ═══ 操作 ═══
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -122,7 +73,7 @@ internal fun LessonFilterSheet(
             OutlinedButton(
                 onClick = viewModel::resetFilterDraft,
                 modifier = Modifier.weight(1f)
-            ) { Text("重置") }
+            ) { Text("清空") }
             Button(
                 onClick = viewModel::applyFilter,
                 modifier = Modifier.weight(1f)
@@ -143,22 +94,26 @@ private fun SectionTitle(text: String) {
     )
 }
 
-/** 开课筛选段：学院/类型/性质/校区/教学楼/考核/语言/星期/节次/学分/教室。 */
+/** 开课属性筛选段。二级分组：课程属性 ｜ 上课安排。 */
 @Composable
 private fun FilterSheetOpenCourseSection(
     uiState: LessonSearchUiState,
     viewModel: LessonSearchViewModel,
 ) {
     val draft = uiState.draftFilter
-    SectionTitle("开课筛选")
 
-    // 开课学院（多选 chip，来自 getDepartments）
-    LoadingMultiChipGroup(
+    // ═══ 课程属性 ═══
+    SectionTitle("课程属性")
+
+    // 开课学院（可搜索多选，来自 getDepartments，约 50 项）
+    SearchableMultiSelectField(
         label = "开课学院",
         loading = uiState.loadingDepartments,
         options = uiState.departmentOptions,
         selectedIds = draft.departmentIds.toSet(),
         onToggle = viewModel::toggleDraftDepartment,
+        onClear = viewModel::clearDraftDepartments,
+        emptyHint = "全部学院",
     )
 
     // 课程类型（单选 chip，内嵌）
@@ -176,6 +131,34 @@ private fun FilterSheetOpenCourseSection(
         selectedValue = draft.compulsory,
         onSelect = viewModel::setDraftCompulsory,
     )
+
+    // 考核方式（单选 chip）
+    SingleChipGroup(
+        label = "考核方式",
+        options = LessonInlineOptions.EXAM_MODES,
+        selectedId = draft.examModeId,
+        onSelect = viewModel::setDraftExamMode,
+    )
+
+    // 授课语言（单选 chip）
+    SingleChipGroup(
+        label = "授课语言",
+        options = LessonInlineOptions.TEACH_LANGS,
+        selectedId = draft.teachLangId,
+        onSelect = viewModel::setDraftTeachLang,
+    )
+
+    // 学分区间
+    CreditRangeRow(
+        gte = draft.creditsGte,
+        lte = draft.creditsLte,
+        onChange = viewModel::setDraftCredits,
+    )
+
+    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+    // ═══ 上课安排 ═══
+    SectionTitle("上课安排")
 
     // 校区（单选 chip，内嵌；联动教学楼）
     SingleChipGroup(
@@ -197,22 +180,6 @@ private fun FilterSheetOpenCourseSection(
         )
     }
 
-    // 考核方式（单选 chip）
-    SingleChipGroup(
-        label = "考核方式",
-        options = LessonInlineOptions.EXAM_MODES,
-        selectedId = draft.examModeId,
-        onSelect = viewModel::setDraftExamMode,
-    )
-
-    // 授课语言（单选 chip）
-    SingleChipGroup(
-        label = "授课语言",
-        options = LessonInlineOptions.TEACH_LANGS,
-        selectedId = draft.teachLangId,
-        onSelect = viewModel::setDraftTeachLang,
-    )
-
     // 星期（多选 chip，ISO 周一=1..周日=7）
     val weekdayLabels = listOf(1 to "一", 2 to "二", 3 to "三", 4 to "四", 5 to "五", 6 to "六", 7 to "日")
     MultiChipGroup(
@@ -228,13 +195,6 @@ private fun FilterSheetOpenCourseSection(
         options = (1..13).map { LessonFilterOption(it.toLong(), "第${it}节") },
         selectedIds = draft.courseUnitIndexes.map { it.toLong() }.toSet(),
         onToggle = { viewModel.toggleDraftCourseUnit(it.toInt()) },
-    )
-
-    // 学分区间
-    CreditRangeRow(
-        gte = draft.creditsGte,
-        lte = draft.creditsLte,
-        onChange = viewModel::setDraftCredits,
     )
 
     // 教室关键字
@@ -274,37 +234,6 @@ private fun MultiChipGroup(
                     label = { Text(opt.nameZh) },
                 )
             }
-        }
-    }
-}
-
-/** 带 loading 的多选 chip 组（级联 API 选项）。 */
-@Composable
-private fun LoadingMultiChipGroup(
-    label: String,
-    loading: Boolean,
-    options: List<LessonFilterOption>,
-    selectedIds: Set<Long>,
-    onToggle: (Long) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            ChipGroupLabel(label)
-            if (loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.padding(start = 8.dp).heightIn(max = 16.dp),
-                    strokeWidth = 2.dp
-                )
-            }
-        }
-        if (options.isEmpty() && !loading) {
-            Text(
-                "暂无选项",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            MultiChipGroup(label = "", options = options, selectedIds = selectedIds, onToggle = onToggle)
         }
     }
 }
