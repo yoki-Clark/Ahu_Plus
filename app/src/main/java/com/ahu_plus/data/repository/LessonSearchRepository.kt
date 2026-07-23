@@ -154,11 +154,27 @@ class LessonSearchRepository(
     /**
      * 专业列表（级联第 3 环，`majorAssoc` 的 id 源）。
      * `GET /student/ws/major-select/data/mulMajors?bizTypeId=2` → 顶层数组。
+     *
+     * ⚠ 全量列表（约 215 项）含大量**同名旧培养方案版本**，其中不少专业名下 0 个行政班（僵尸专业）。
+     * 班级课表定位请优先用 [getMajorsByDepartment] 按学院收窄，再由上层预探班数过滤僵尸项。
      */
     suspend fun getMajors(): Result<List<LessonMajorNode>> =
         fetchArrayFromUrl("$JW_BASE/student/ws/major-select/data/mulMajors?bizTypeId=$BIZ_TYPE") {
             Log.i(TAG, "getMajors: ${it.size}")
         }
+
+    /**
+     * 按学院收窄的专业列表（学院→专业级联第 2 环）。
+     * `GET /student/ws/major-select/data/majors?bizTypeId=2&departmentId={id}` → 顶层数组。
+     *
+     * [departmentId] 取自 [getMajorDepartments]（开课单位 id 空间）。实测（2026-07-23 授权账号）
+     * 只有 `departmentId` 真正收窄，`departmentAssoc`/`department`/`collegeId` 均被服务端忽略。
+     * 收窄后仍可能含 0 班的同名旧版本，需上层预探 [searchAdminClasses] 班数再过滤。
+     */
+    suspend fun getMajorsByDepartment(departmentId: Long): Result<List<LessonMajorNode>> =
+        fetchArrayFromUrl(
+            "$JW_BASE/student/ws/major-select/data/majors?bizTypeId=$BIZ_TYPE&departmentId=$departmentId"
+        ) { Log.i(TAG, "getMajorsByDepartment($departmentId): ${it.size}") }
 
     /**
      * 行政班搜索（级联第 4 环，"具体年级教学班"的定位钥匙 → adminClassAssoc）。

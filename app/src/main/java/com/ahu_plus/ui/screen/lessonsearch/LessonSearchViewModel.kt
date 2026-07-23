@@ -8,7 +8,10 @@ import com.ahu_plus.data.local.DataSnapshotStatus
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.jw.CourseUnit
+import com.ahu_plus.data.model.jw.LessonAdminClass
 import com.ahu_plus.data.model.jw.LessonFilterOption
+import com.ahu_plus.data.model.jw.LessonMajorNode
+import com.ahu_plus.data.model.jw.LessonInlineOptions
 import com.ahu_plus.data.model.jw.LessonRecord
 import com.ahu_plus.data.model.jw.LessonScheduleParser
 import com.ahu_plus.data.model.jw.LessonSearchFilter
@@ -21,6 +24,8 @@ import com.ahu_plus.data.repository.JwAuthRepository
 import com.ahu_plus.data.repository.LessonSearchRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -108,11 +113,19 @@ class LessonSearchViewModel(
     }
 
     fun selectSemester(semesterId: Int) {
-        if (semesterId == _uiState.value.selectedSemesterId) return
+        val cur = _uiState.value
+        if (semesterId == cur.selectedSemesterId) return
         _uiState.update {
-            it.copy(selectedSemesterId = semesterId, records = emptyList(), filteredRecords = emptyList())
+            it.copy(
+                selectedSemesterId = semesterId,
+                records = emptyList(), filteredRecords = emptyList(),
+                gridDisplayItems = emptyList(), unparsedRecords = emptyList(),
+            )
         }
-        runSearch()
+        // 班级课表模式未定位到行政班时不查询（会误浏览全部）；已定位则重查该班当学期开课。
+        if (cur.screenMode == LessonScreenMode.COURSE_LIST || cur.appliedFilter.adminClassId != null) {
+            runSearch()
+        }
     }
 
     fun onKeywordChange(keyword: String) {
@@ -325,13 +338,147 @@ class LessonSearchViewModel(
     // 筛选面板：开合 / 草稿编辑 / 级联加载 / 应用·重置
     // ══════════════════════════════════════════════════════
 
-    /** 打开面板：草稿 = 已应用筛选；懒加载学院/开课单位/教学楼选项。 */
+    /** 打开开课属性筛选面板：草稿 = 已应用筛选；懒加载开课学院/教学楼选项。 */
     fun openFilterSheet() {
         _uiState.update { it.copy(filterSheetOpen = true, draftFilter = it.appliedFilter) }
         ensureDepartmentOptions()
-        ensureMajorDeptOptions()
         val campusId = _uiState.value.draftFilter.campusId
         if (campusId != null) loadBuildings(campusId)
+    }
+
+    // ══════════════════════════════════════════════════════
+    // 顶层模式切换 + 班级课表级联（即时生效，不走 draft）
+    // ══════════════════════════════════════════════════════
+
+    /**
+     * 切换开课列表 / 班级课表模式：清理不属于目标模式的筛选维度并重查。
+     *  - → COURSE_LIST：清级联定位（年级/专业/行政班），回列表浏览。
+     *  - → CLASS_SCHEDULE：清开课属性筛选，进入三级定位（未选到行政班前不查询，显示空态）。
+     */
+    fun setScreenMode(mode: LessonScreenMode) {
+        val cur = _uiState.value
+        if (mode == cur.screenMode) return
+        val cleared = when (mode) {
+            LessonScreenMode.COURSE_LIST -> cur.appliedFilter.copy(
+                grades = emptyList(), majorDeptIds = emptyList(),
+                majorIds = emptyList(), adminClassId = null,
+            )
+            LessonScreenMode.CLASS_SCHEDULE -> cur.appliedFilter.copy(
+                departmentIds = emptyList(), courseTypeId = null, campusId = null,
+                compulsory = null, examModeId = null, teachLangId = null,
+                weekdays = emptyList(), courseUnitIndexes = emptyList(),
+                buildingId = null, roomNameLike = null, creditsGte = null, creditsLte = null,
+                keyword = "",
+            )
+        }
+        _uiState.update {
+            it.copy(
+                screenMode = mode,
+                appliedFilter = cleared,
+                draftFilter = cleared,
+                keyword = if (mode == LessonScreenMode.CLASS_SCHEDULE) "" else it.keyword,
+                filterSheetOpen = false,
+                viewMode = LessonViewMode.LIST,
+                records = emptyList(),
+                filteredRecords = emptyList(),
+                gridDisplayItems = emptyList(),
+                unparsedRecords = emptyList(),
+                gridWeek = 1,
+                error = null,
+                needsLogin = false,
+            )
+        }
+        when (mode) {
+            LessonScreenMode.COURSE_LIST -> runSearch()
+            LessonScreenMode.CLASS_SCHEDULE -> {
+                ensureMajorDeptOptions()
+                cleared.majorDeptIds.firstOrNull()?.let { loadMajorsForDepartment(it) }
+                if (cleared.majorIds.isNotEmpty()) reloadAdminClasses()
+                if (cleared.adminClassId != null) runSearch() // 保留了行政班：直接出课表
+            }
+        }
+    }
+
+    /**
+     * 班级课表：选学院（级联第 1 环，取自开课单位列表）。
+     * 变更后清专业/行政班/年级过滤与预探班数，并按学院拉专业候选。
+     */
+    fun selectClassDepartment(id: Long?) {
+        _uiState.update {
+            it.copy(
+                appliedFilter = it.appliedFilter.copy(
+                    majorDeptIds = id?.let { d -> listOf(d) } ?: emptyList(),
+                    majorIds = emptyList(),
+                    adminClassId = null,
+                ),
+                scopedMajorNodes = emptyList(),
+                majorClassCounts = emptyMap(),
+                rawAdminClasses = emptyList(),
+                records = emptyList(), filteredRecords = emptyList(),
+                gridDisplayItems = emptyList(), unparsedRecords = emptyList(),
+            )
+        }
+        if (id != null) loadMajorsForDepartment(id)
+    }
+
+    /** 班级课表：选专业（级联第 2 环，服务端唯一收窄维度）。变更后清行政班并拉行政班候选。 */
+    fun selectClassMajor(id: Long?) {
+        _uiState.update {
+            it.copy(
+                appliedFilter = it.appliedFilter.copy(
+                    majorIds = id?.let { m -> listOf(m) } ?: emptyList(),
+                    adminClassId = null,
+                ),
+                rawAdminClasses = emptyList(),
+                records = emptyList(), filteredRecords = emptyList(),
+                gridDisplayItems = emptyList(), unparsedRecords = emptyList(),
+            )
+        }
+        reloadAdminClasses()
+    }
+
+    /**
+     * 班级课表：选年级（可选客户端过滤，收窄行政班列表）。
+     * 服务端 `search-adminclass` 忽略 grades，故这里**不发网络**，仅改过滤条件；
+     * [LessonSearchUiState.adminClassOptions] 会按新年级从已加载的 [rawAdminClasses] 重算。
+     */
+    fun selectClassGrade(grade: String?) {
+        _uiState.update {
+            it.copy(
+                appliedFilter = it.appliedFilter.copy(
+                    grades = grade?.let { g -> listOf(g) } ?: emptyList(),
+                    adminClassId = null,
+                ),
+                records = emptyList(), filteredRecords = emptyList(),
+                gridDisplayItems = emptyList(), unparsedRecords = emptyList(),
+            )
+        }
+    }
+
+    /** 班级课表：选行政班（定位钥匙）→ 立即查询该班全部开课并预置 GRID 视图。 */
+    fun selectClassAdminClass(id: Long?) {
+        _uiState.update {
+            it.copy(
+                appliedFilter = it.appliedFilter.copy(adminClassId = id),
+                viewMode = if (id != null) LessonViewMode.GRID else LessonViewMode.LIST,
+                records = emptyList(), filteredRecords = emptyList(),
+                gridDisplayItems = emptyList(), unparsedRecords = emptyList(),
+                gridWeek = 1,
+            )
+        }
+        if (id != null) runSearch()
+    }
+
+    /** 展开学院下拉时确保学院候选已加载。 */
+    fun ensureClassDepartmentOptions() = ensureMajorDeptOptions()
+
+    /** 移除某个生效开课属性筛选（chip × ）→ 立即重查。 */
+    fun removeAppliedFilter(dimension: LessonFilterDimension) {
+        _uiState.update {
+            val next = clearFilterDimension(it.appliedFilter, dimension)
+            it.copy(appliedFilter = next, draftFilter = next, records = emptyList(), filteredRecords = emptyList())
+        }
+        runSearch()
     }
 
     fun closeFilterSheet() {
@@ -346,6 +493,8 @@ class LessonSearchViewModel(
     fun toggleDraftDepartment(id: Long) = editDraft { f ->
         f.copy(departmentIds = f.departmentIds.toggle(id))
     }
+
+    fun clearDraftDepartments() = editDraft { it.copy(departmentIds = emptyList()) }
 
     fun setDraftCourseType(id: Long?) = editDraft { it.copy(courseTypeId = id) }
 
@@ -371,32 +520,17 @@ class LessonSearchViewModel(
     fun setDraftRoomName(text: String) = editDraft { it.copy(roomNameLike = text.ifBlank { null }) }
     fun setDraftCredits(gte: Double?, lte: Double?) = editDraft { it.copy(creditsGte = gte, creditsLte = lte) }
 
-    fun toggleDraftGrade(grade: String) {
-        editDraft { f -> f.copy(grades = f.grades.toggle(grade), adminClassId = null) }
-        reloadAdminClasses()
-    }
-
-    fun toggleDraftMajorDept(id: Long) {
-        editDraft { f -> f.copy(majorDeptIds = f.majorDeptIds.toggle(id), adminClassId = null) }
-        ensureMajorOptions()
-        reloadAdminClasses()
-    }
-
-    fun toggleDraftMajor(id: Long) {
-        editDraft { f -> f.copy(majorIds = f.majorIds.toggle(id), adminClassId = null) }
-        reloadAdminClasses()
-    }
-
-    fun setDraftAdminClass(id: Long?) = editDraft { it.copy(adminClassId = id) }
-
-    /** 应用草稿 → 触发查询。定位到单班时预置 GRID 视图，否则回 LIST。 */
+    /**
+     * 应用开课属性筛选草稿 → 触发查询（开课列表模式）。
+     * 保留级联定位维度（本模式恒为空，但不误清），回列表视图。
+     */
     fun applyFilter() {
         val draft = _uiState.value.draftFilter
         _uiState.update {
             it.copy(
                 appliedFilter = draft,
                 filterSheetOpen = false,
-                viewMode = if (draft.isSingleAdminClass) LessonViewMode.GRID else LessonViewMode.LIST,
+                viewMode = LessonViewMode.LIST,
                 records = emptyList(),
                 filteredRecords = emptyList(),
                 gridDisplayItems = emptyList(),
@@ -407,19 +541,31 @@ class LessonSearchViewModel(
         runSearch()
     }
 
-    /** 清空草稿（保留学期上下文），不立即查询——等用户再点应用。 */
+    /** 清空开课属性草稿（保留学期/级联上下文），不立即查询——等用户再点应用。 */
     fun resetFilterDraft() {
         _uiState.update {
-            it.copy(draftFilter = LessonSearchFilter(it.selectedSemesterId))
+            val kept = it.appliedFilter.copy(
+                departmentIds = emptyList(), courseTypeId = null, campusId = null,
+                compulsory = null, examModeId = null, teachLangId = null,
+                weekdays = emptyList(), courseUnitIndexes = emptyList(),
+                buildingId = null, roomNameLike = null, creditsGte = null, creditsLte = null,
+            )
+            it.copy(draftFilter = kept)
         }
     }
 
-    /** 清空并立即应用（一键回到无筛选浏览）。 */
+    /** 清空开课属性筛选并立即应用（一键回到无筛选浏览；只清属性，保留级联/学期）。 */
     fun clearFilter() {
         _uiState.update {
+            val kept = it.appliedFilter.copy(
+                departmentIds = emptyList(), courseTypeId = null, campusId = null,
+                compulsory = null, examModeId = null, teachLangId = null,
+                weekdays = emptyList(), courseUnitIndexes = emptyList(),
+                buildingId = null, roomNameLike = null, creditsGte = null, creditsLte = null,
+            )
             it.copy(
-                draftFilter = LessonSearchFilter(it.selectedSemesterId),
-                appliedFilter = LessonSearchFilter(it.selectedSemesterId),
+                draftFilter = kept,
+                appliedFilter = kept,
                 filterSheetOpen = false,
                 viewMode = LessonViewMode.LIST,
                 records = emptyList(),
@@ -445,54 +591,89 @@ class LessonSearchViewModel(
         }
     }
 
+    /** 加载学院候选（开课单位列表；学院→专业级联第 1 环）。 */
     private fun ensureMajorDeptOptions() {
         val s = _uiState.value
         if (s.majorDeptOptions.isNotEmpty() || s.loadingMajorDepts) return
         _uiState.update { it.copy(loadingMajorDepts = true) }
         viewModelScope.launch {
             val result = jwAuthRepository.executeWithSessionRetry { lessonSearchRepository.getMajorDepartments() }
-            val opts = result.getOrNull().orEmpty().mapNotNull { it.toOption() }
+            val opts = result.getOrNull().orEmpty().mapNotNull { node ->
+                node.id?.let { id -> LessonFilterOption(id, node.displayName.ifBlank { node.nameZh.orEmpty() }) }
+            }.filter { it.nameZh.isNotBlank() }
             _uiState.update { it.copy(majorDeptOptions = opts, loadingMajorDepts = false) }
         }
     }
 
-    private fun ensureMajorOptions() {
-        val s = _uiState.value
-        if (s.majorOptions.isNotEmpty() || s.loadingMajors) return
-        _uiState.update { it.copy(loadingMajors = true) }
+    /**
+     * 选定学院后按学院拉专业候选，并后台并发预探每个专业的行政班数（僵尸专业过滤 + 班数标注）。
+     * 防竞态：以 [LessonSearchFilter.majorDeptIds] 为准，学院已切换则丢弃本次结果。
+     */
+    private fun loadMajorsForDepartment(departmentId: Long) {
+        _uiState.update { it.copy(loadingMajors = true, scopedMajorNodes = emptyList(), majorClassCounts = emptyMap()) }
         viewModelScope.launch {
-            val result = jwAuthRepository.executeWithSessionRetry { lessonSearchRepository.getMajors() }
-            val opts = result.getOrNull().orEmpty().mapNotNull { it.toOption() }
-            _uiState.update { it.copy(majorOptions = opts, loadingMajors = false) }
+            val result = jwAuthRepository.executeWithSessionRetry {
+                lessonSearchRepository.getMajorsByDepartment(departmentId)
+            }
+            val nodes = result.getOrNull().orEmpty().filter { it.id != null && it.displayName.isNotBlank() }
+            _uiState.update { st ->
+                if (st.appliedFilter.majorDeptIds.firstOrNull() != departmentId) st
+                else st.copy(scopedMajorNodes = nodes, loadingMajors = false)
+            }
+            probeMajorClassCounts(departmentId, nodes.mapNotNull { it.id })
         }
     }
 
     /**
-     * 年级/开课单位/专业任一变化后，重新拉行政班候选。
+     * 后台并发预探每个专业的行政班数：`search-adminclass?majors[]=<id>` 的返回条数即该专业班数。
+     * 只回填成功探到的计数（失败/未探到的专业不进 map → UI 不隐藏、也不标注，避免误杀）。
+     * 防竞态：学院已切换（[LessonSearchFilter.majorDeptIds] 变化）则丢弃回填。
+     */
+    private fun probeMajorClassCounts(departmentId: Long, majorIds: List<Long>) {
+        if (majorIds.isEmpty()) return
+        _uiState.update { it.copy(probingMajorCounts = true) }
+        viewModelScope.launch {
+            val counts: Map<Long, Int> = majorIds.map { id ->
+                async {
+                    val r = jwAuthRepository.executeWithSessionRetry {
+                        lessonSearchRepository.searchAdminClasses(majorIds = listOf(id))
+                    }
+                    r.getOrNull()?.let { id to it.size }
+                }
+            }.awaitAll().filterNotNull().toMap()
+            _uiState.update { st ->
+                if (st.appliedFilter.majorDeptIds.firstOrNull() != departmentId) st
+                else st.copy(majorClassCounts = st.majorClassCounts + counts, probingMajorCounts = false)
+            }
+        }
+    }
+
+    /**
+     * 选定专业后拉行政班候选（缓存整份未过滤列表到 [LessonSearchUiState.rawAdminClasses]）。
      *
      * ⚠ 运行时实测(2026-07-23 授权测试账号)：`search-adminclass` 端点上 **只有 `majors[]` 真正收窄**
-     * listing（选专业 → 从 1256 收到个位/十位数）；`grades=`/`departments=` 服务端忽略（恒返回全部 1256，
-     * 单数 `grade`/`gradeAssoc` 也无效）。因此年级过滤必须**客户端**按对象 `grade` 字段做。
-     * 结论：专业是缩小行政班列表的关键维度；仅选年级时列表仍较大（该年级全部班），需靠客户端 grade 过滤兜住。
+     * listing；`grades=`/`departments=` 服务端忽略。故年级只作客户端过滤（在 UiState.adminClassOptions
+     * 里按对象 `grade` 字段收窄），这里不带 grades，也不预过滤，整份缓存下来供切换年级时零网络重算。
      */
     private fun reloadAdminClasses() {
-        val draft = _uiState.value.draftFilter
-        // 无任何定位维度时不请求（结果会过大且无意义）。
-        if (draft.grades.isEmpty() && draft.majorDeptIds.isEmpty() && draft.majorIds.isEmpty()) {
-            _uiState.update { it.copy(adminClassOptions = emptyList()) }
+        val f = _uiState.value.appliedFilter
+        // 未选专业时不请求（学院级列表过大且无意义；专业是唯一服务端收窄维度）。
+        if (f.majorIds.isEmpty()) {
+            _uiState.update { it.copy(rawAdminClasses = emptyList(), loadingAdminClasses = false) }
             return
         }
+        val reqMajorIds = f.majorIds
         _uiState.update { it.copy(loadingAdminClasses = true) }
         viewModelScope.launch {
             val result = jwAuthRepository.executeWithSessionRetry {
-                // majorIds → majors[]（唯一服务端生效维度）；grades/majorDeptIds 传了也被服务端忽略。
-                lessonSearchRepository.searchAdminClasses(draft.grades, draft.majorDeptIds, draft.majorIds)
+                lessonSearchRepository.searchAdminClasses(majorIds = reqMajorIds)
             }
             val raw = result.getOrNull().orEmpty()
-            // 客户端按对象 grade 字段过滤（服务端 grades= 不生效）。
-            val filtered = if (draft.grades.isEmpty()) raw else raw.filter { it.grade in draft.grades }
-            val opts = filtered.mapNotNull { it.toOption() }
-            _uiState.update { it.copy(adminClassOptions = opts, loadingAdminClasses = false) }
+            _uiState.update { st ->
+                // 防竞态：专业已变则丢弃本次结果。
+                if (st.appliedFilter.majorIds != reqMajorIds) st
+                else st.copy(rawAdminClasses = raw, loadingAdminClasses = false)
+            }
         }
     }
 
@@ -582,8 +763,133 @@ private data class CachedLessonBrowse(
     val response: LessonSearchResponse?,
 )
 
-/** 列表视图 vs 周网格课表视图（仅定位到单个教学班时才允许网格）。 */
+/** 列表视图 vs 周网格课表视图（仅班级课表模式定位到单班时才允许网格）。 */
 enum class LessonViewMode { LIST, GRID }
+
+/**
+ * 顶层任务模式（2026-07-23 双模式重构）：
+ *  - [COURSE_LIST] 开课列表：关键词 + 开课属性筛选 → 卡片列表。
+ *  - [CLASS_SCHEDULE] 班级课表：年级→专业→行政班三级定位 → 该班周网格。
+ * 两模式共用学期上下文与同一搜索端点；切模式清理不属于该模式的筛选维度。
+ */
+enum class LessonScreenMode { COURSE_LIST, CLASS_SCHEDULE }
+
+/**
+ * 开课属性筛选维度（用于「生效筛选」可移除 chip）。
+ * 仅覆盖开课列表模式的服务端属性维度；班级课表级联用常驻下拉，不走 chip。
+ */
+enum class LessonFilterDimension {
+    DEPARTMENTS, COURSE_TYPE, CAMPUS, COMPULSORY, EXAM_MODE, TEACH_LANG,
+    WEEKDAYS, COURSE_UNITS, BUILDING, ROOM, CREDITS,
+}
+
+/** 一枚生效筛选 chip：维度 + 展示文案。点 × 调 [LessonSearchViewModel.removeAppliedFilter]。 */
+data class ActiveFilterChip(val dimension: LessonFilterDimension, val label: String)
+
+/**
+ * 从筛选中清掉某个开课属性维度（纯函数，与 [buildActiveFilterChips] 对称，便于单测）。
+ * CAMPUS 联动清 building（教学楼依赖校区）。
+ */
+internal fun clearFilterDimension(
+    filter: LessonSearchFilter,
+    dimension: LessonFilterDimension,
+): LessonSearchFilter = when (dimension) {
+    LessonFilterDimension.DEPARTMENTS -> filter.copy(departmentIds = emptyList())
+    LessonFilterDimension.COURSE_TYPE -> filter.copy(courseTypeId = null)
+    LessonFilterDimension.CAMPUS -> filter.copy(campusId = null, buildingId = null)
+    LessonFilterDimension.COMPULSORY -> filter.copy(compulsory = null)
+    LessonFilterDimension.EXAM_MODE -> filter.copy(examModeId = null)
+    LessonFilterDimension.TEACH_LANG -> filter.copy(teachLangId = null)
+    LessonFilterDimension.WEEKDAYS -> filter.copy(weekdays = emptyList())
+    LessonFilterDimension.COURSE_UNITS -> filter.copy(courseUnitIndexes = emptyList())
+    LessonFilterDimension.BUILDING -> filter.copy(buildingId = null)
+    LessonFilterDimension.ROOM -> filter.copy(roomNameLike = null)
+    LessonFilterDimension.CREDITS -> filter.copy(creditsGte = null, creditsLte = null)
+}
+
+/**
+ * 从已应用筛选构造「生效筛选」chip 列表（纯函数，便于单测）。
+ * 需要 [departmentOptions]/[buildingOptions] 解析 id→名；未加载到名时降级为计数文案。
+ */
+internal fun buildActiveFilterChips(
+    filter: LessonSearchFilter,
+    departmentOptions: List<LessonFilterOption>,
+    buildingOptions: List<LessonFilterOption>,
+): List<ActiveFilterChip> {
+    val chips = mutableListOf<ActiveFilterChip>()
+    if (filter.departmentIds.isNotEmpty()) {
+        val names = filter.departmentIds.mapNotNull { id -> departmentOptions.firstOrNull { it.id == id }?.nameZh }
+        val label = when {
+            names.isEmpty() -> "学院 ${filter.departmentIds.size} 项"
+            names.size == 1 -> names.first()
+            else -> "${names.first()} 等 ${filter.departmentIds.size} 个学院"
+        }
+        chips += ActiveFilterChip(LessonFilterDimension.DEPARTMENTS, label)
+    }
+    filter.courseTypeId?.let { id ->
+        chips += ActiveFilterChip(
+            LessonFilterDimension.COURSE_TYPE,
+            LessonInlineOptions.COURSE_TYPES.firstOrNull { it.id == id }?.nameZh ?: "课程类型",
+        )
+    }
+    filter.campusId?.let { id ->
+        chips += ActiveFilterChip(
+            LessonFilterDimension.CAMPUS,
+            LessonInlineOptions.CAMPUSES.firstOrNull { it.id == id }?.nameZh ?: "校区",
+        )
+    }
+    filter.compulsory?.takeIf { it.isNotBlank() }?.let { value ->
+        chips += ActiveFilterChip(
+            LessonFilterDimension.COMPULSORY,
+            LessonInlineOptions.COMPULSORY.firstOrNull { it.first == value }?.second ?: "性质",
+        )
+    }
+    filter.examModeId?.let { id ->
+        chips += ActiveFilterChip(
+            LessonFilterDimension.EXAM_MODE,
+            LessonInlineOptions.EXAM_MODES.firstOrNull { it.id == id }?.nameZh ?: "考核",
+        )
+    }
+    filter.teachLangId?.let { id ->
+        chips += ActiveFilterChip(
+            LessonFilterDimension.TEACH_LANG,
+            LessonInlineOptions.TEACH_LANGS.firstOrNull { it.id == id }?.nameZh ?: "语言",
+        )
+    }
+    if (filter.weekdays.isNotEmpty()) {
+        val names = filter.weekdays.sorted().joinToString("/") { WEEKDAY_LABELS[it] ?: it.toString() }
+        chips += ActiveFilterChip(LessonFilterDimension.WEEKDAYS, "周$names")
+    }
+    if (filter.courseUnitIndexes.isNotEmpty()) {
+        val units = filter.courseUnitIndexes.sorted().joinToString(",")
+        chips += ActiveFilterChip(LessonFilterDimension.COURSE_UNITS, "第 $units 节")
+    }
+    filter.buildingId?.let { id ->
+        chips += ActiveFilterChip(
+            LessonFilterDimension.BUILDING,
+            buildingOptions.firstOrNull { it.id == id }?.nameZh ?: "教学楼",
+        )
+    }
+    filter.roomNameLike?.takeIf { it.isNotBlank() }?.let { room ->
+        chips += ActiveFilterChip(LessonFilterDimension.ROOM, "教室:$room")
+    }
+    if (filter.creditsGte != null || filter.creditsLte != null) {
+        val lo = filter.creditsGte?.let { formatCreditLabel(it) } ?: ""
+        val hi = filter.creditsLte?.let { formatCreditLabel(it) } ?: ""
+        val label = when {
+            lo.isNotEmpty() && hi.isNotEmpty() -> "$lo~$hi 学分"
+            lo.isNotEmpty() -> "≥$lo 学分"
+            else -> "≤$hi 学分"
+        }
+        chips += ActiveFilterChip(LessonFilterDimension.CREDITS, label)
+    }
+    return chips
+}
+
+private val WEEKDAY_LABELS = mapOf(1 to "一", 2 to "二", 3 to "三", 4 to "四", 5 to "五", 6 to "六", 7 to "日")
+
+private fun formatCreditLabel(v: Double): String =
+    if (v % 1.0 == 0.0) v.toInt().toString() else v.toString()
 
 data class LessonSearchUiState(
     val isLoading: Boolean = false,
@@ -609,17 +915,27 @@ data class LessonSearchUiState(
     val draftFilter: LessonSearchFilter = LessonSearchFilter(CourseRepository.DEFAULT_SEMESTER_ID),
     /** 底部筛选面板是否展开。 */
     val filterSheetOpen: Boolean = false,
+    /** 顶层任务模式：开课列表 / 班级课表。 */
+    val screenMode: LessonScreenMode = LessonScreenMode.COURSE_LIST,
     // 级联选项列表（懒加载）+ 各自 loading。
     val departmentOptions: List<LessonFilterOption> = emptyList(),
-    val majorDeptOptions: List<LessonFilterOption> = emptyList(),
-    val majorOptions: List<LessonFilterOption> = emptyList(),
-    val adminClassOptions: List<LessonFilterOption> = emptyList(),
     val buildingOptions: List<LessonFilterOption> = emptyList(),
     val loadingDepartments: Boolean = false,
-    val loadingMajorDepts: Boolean = false,
     val loadingMajors: Boolean = false,
     val loadingAdminClasses: Boolean = false,
     val loadingBuildings: Boolean = false,
+    // ── 班级课表：学院→专业→行政班级联（2026-07-23 重构） ──
+    /** 学院候选（开课单位列表；级联第 1 环）。 */
+    val majorDeptOptions: List<LessonFilterOption> = emptyList(),
+    val loadingMajorDepts: Boolean = false,
+    /** 选定学院后按学院收窄的专业节点（未过滤僵尸项的原始列表）。 */
+    val scopedMajorNodes: List<LessonMajorNode> = emptyList(),
+    /** 各专业 id → 行政班数（后台预探回填；缺失=未探到/探测失败，不隐藏也不标注）。 */
+    val majorClassCounts: Map<Long, Int> = emptyMap(),
+    /** 正在后台预探专业班数。 */
+    val probingMajorCounts: Boolean = false,
+    /** 选定专业后行政班的完整未过滤列表（年级过滤在客户端从此列表重算，零网络）。 */
+    val rawAdminClasses: List<LessonAdminClass> = emptyList(),
     // ── 课表（周网格）视图 ──
     val viewMode: LessonViewMode = LessonViewMode.LIST,
     /** 网格当前展示的周次（1-based）。 */
@@ -641,12 +957,63 @@ data class LessonSearchUiState(
     val selectedSemesterName: String?
         get() = semesters.firstOrNull { it.id == selectedSemesterId }?.nameZh
 
-    /** 已激活的筛选维度数（供「筛选」入口徽标）。 */
+    /** 已激活的开课属性筛选维度数（供「筛选」入口徽标；仅开课列表模式有意义）。 */
     val activeFilterCount: Int get() = appliedFilter.activeCount
 
-    /** 恰好定位到单个教学班 → 允许「课表」网格切换。 */
-    val canShowGrid: Boolean get() = appliedFilter.isSingleAdminClass
+    /** 是否处于班级课表模式。 */
+    val isClassScheduleMode: Boolean get() = screenMode == LessonScreenMode.CLASS_SCHEDULE
+
+    /** 班级课表模式下已定位到单个行政班 → 有课表可展示 / 允许列表·网格切换。 */
+    val canShowGrid: Boolean get() = isClassScheduleMode && appliedFilter.isSingleAdminClass
 
     /** 网格视图生效（既定位到单班、又切到 GRID）。 */
     val isGridActive: Boolean get() = canShowGrid && viewMode == LessonViewMode.GRID
+
+    /** 班级课表模式：当前选中的年级（单选，取 grades 首个）。 */
+    val selectedGrade: String? get() = appliedFilter.grades.firstOrNull()
+
+    /** 班级课表模式：当前选中的学院 id（单选，取 majorDeptIds 首个）。 */
+    val selectedMajorDeptId: Long? get() = appliedFilter.majorDeptIds.firstOrNull()
+
+    /** 当前选中学院的中文名（下拉锚点显示）。 */
+    val selectedMajorDeptName: String?
+        get() = selectedMajorDeptId?.let { id -> majorDeptOptions.firstOrNull { it.id == id }?.nameZh }
+
+    /** 班级课表模式：当前选中的专业 id（单选，取 majorIds 首个）。 */
+    val selectedMajorId: Long? get() = appliedFilter.majorIds.firstOrNull()
+
+    /**
+     * 专业候选（学院收窄后）：预探到 0 班的僵尸专业隐藏；探到 N(>0) 的标注「· N个班」；
+     * 未探到的（缺 count）原样保留、不标注（避免因探测失败误杀真实专业）。
+     */
+    val majorOptions: List<LessonFilterOption>
+        get() = scopedMajorNodes.mapNotNull { node ->
+            val id = node.id ?: return@mapNotNull null
+            val count = majorClassCounts[id]
+            if (count == 0) return@mapNotNull null // 探到 0 班 → 僵尸专业，隐藏
+            val base = node.displayName.ifBlank { node.nameZh.orEmpty() }
+            if (base.isBlank()) return@mapNotNull null
+            val label = if (count != null && count > 0) "$base · ${count}个班" else base
+            LessonFilterOption(id, label)
+        }
+
+    /** 当前选中专业的中文名（下拉锚点显示；含「· N个班」标注）。 */
+    val selectedMajorName: String?
+        get() = selectedMajorId?.let { id -> majorOptions.firstOrNull { it.id == id }?.nameZh }
+
+    /** 行政班候选：从 [rawAdminClasses] 按选中年级客户端过滤（服务端 grades= 不生效）。 */
+    val adminClassOptions: List<LessonFilterOption>
+        get() {
+            val grade = selectedGrade
+            val src = if (grade == null) rawAdminClasses else rawAdminClasses.filter { it.grade == grade }
+            return src.mapNotNull { it.toOption() }
+        }
+
+    /** 当前选中行政班的中文名（下拉锚点显示）。 */
+    val selectedAdminClassName: String?
+        get() = appliedFilter.adminClassId?.let { id -> adminClassOptions.firstOrNull { it.id == id }?.nameZh }
+
+    /** 生效筛选 chip（开课列表模式，可移除）。 */
+    val activeFilterChips: List<ActiveFilterChip>
+        get() = buildActiveFilterChips(appliedFilter, departmentOptions, buildingOptions)
 }
