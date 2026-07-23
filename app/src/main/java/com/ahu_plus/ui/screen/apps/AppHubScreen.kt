@@ -79,6 +79,8 @@ import com.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomScreen
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
+import com.ahu_plus.ui.screen.lessonsearch.LessonSearchScreen
+import com.ahu_plus.ui.screen.lessonsearch.LessonSearchViewModel
 import com.ahu_plus.ui.screen.cengke.CengKeScreen
 import com.ahu_plus.ui.screen.cengke.CengKeViewModel
 import com.ahu_plus.ui.screen.roomcoursetable.RoomCourseTableScreen
@@ -137,6 +139,7 @@ private const val PAGE_FINANCE = "finance"
 private const val PAGE_TRAINING_PLAN = "trainingPlan"
 private const val PAGE_ATTENDANCE = "attendance"
 private const val PAGE_EMPTY_CLASSROOM = "emptyClassroom"
+private const val PAGE_LESSON_SEARCH = "lessonSearch"
 private const val PAGE_ROOM_COURSE_TABLE = "roomCourseTable"
 private const val PAGE_CENGKE = "cengke"
 private const val PAGE_WEATHER = "weather"
@@ -151,6 +154,7 @@ internal fun appHubPageForAppKey(appKey: String): String? = when (appKey) {
     AppRegistry.KEY_EXAM -> PAGE_EXAM
     AppRegistry.KEY_TRAINING_PLAN -> PAGE_TRAINING_PLAN
     AppRegistry.KEY_EMPTY_CLASSROOM -> PAGE_EMPTY_CLASSROOM
+    AppRegistry.KEY_LESSON_SEARCH -> PAGE_LESSON_SEARCH
     AppRegistry.KEY_ROOM_COURSE_TABLE -> PAGE_ROOM_COURSE_TABLE
     AppRegistry.KEY_CENGKE -> PAGE_CENGKE
     AppRegistry.KEY_CPROG -> PAGE_CPROG
@@ -177,6 +181,7 @@ fun AppHubScreen(
     examViewModel: ExamViewModel,
     trainingPlanViewModel: TrainingPlanViewModel,
     emptyClassroomViewModel: EmptyClassroomViewModel,
+    lessonSearchViewModel: LessonSearchViewModel,
     roomCourseTableViewModel: RoomCourseTableViewModel,
     cengKeViewModel: CengKeViewModel,
     cardViewModel: HomeViewModel,
@@ -317,6 +322,11 @@ fun AppHubScreen(
         )
         PAGE_EMPTY_CLASSROOM -> EmptyClassroomScreen(
             viewModel = emptyClassroomViewModel,
+            onBack = { currentPage = null },
+            onNeedsLogin = onNeedsLogin
+        )
+        PAGE_LESSON_SEARCH -> LessonSearchScreen(
+            viewModel = lessonSearchViewModel,
             onBack = { currentPage = null },
             onNeedsLogin = onNeedsLogin
         )

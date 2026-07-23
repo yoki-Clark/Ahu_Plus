@@ -60,6 +60,7 @@ import com.ahu_plus.data.repository.WeatherRepository
 import com.ahu_plus.data.announcement.AnnouncementManager
 import com.ahu_plus.data.weather.WeatherManager
 import com.ahu_plus.data.repository.JwcNoticeRepository
+import com.ahu_plus.data.repository.LessonSearchRepository
 import com.ahu_plus.data.repository.JwAuthRepository
 import com.ahu_plus.data.repository.JwAppAuthRepository
 import com.ahu_plus.data.repository.RoomCourseTableRepository
@@ -142,6 +143,8 @@ class AhuPlusApplication : Application() {
     lateinit var programCompletionRepository: ProgramCompletionRepository
         private set
     lateinit var emptyClassroomRepository: EmptyClassroomRepository
+        private set
+    lateinit var lessonSearchRepository: LessonSearchRepository
         private set
     lateinit var financeRepository: FinanceRepository
         private set
@@ -299,6 +302,7 @@ class AhuPlusApplication : Application() {
         gradeRepository = GradeRepository(jwAuthRepository)
         examRepository = ExamRepository(jwAuthRepository)
         emptyClassroomRepository = EmptyClassroomRepository(jwAuthRepository)
+        lessonSearchRepository = LessonSearchRepository(jwAuthRepository)
         roomCourseTableRepository = RoomCourseTableRepository(jwAppAuthRepository)
         // 蹭课:复用 jwapp 会话,走 /room/place/* 按日期查教室占用
         cengKeRepository = CengKeRepository(jwAppAuthRepository)

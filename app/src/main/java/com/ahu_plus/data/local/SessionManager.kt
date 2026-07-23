@@ -364,6 +364,11 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     @Volatile private var cachedEmptyClassroomPresets: List<EmptyClassroomPreset> = emptyList()
 
+    // \u5168\u6821\u5F00\u8BFE\u67E5\u8BE2\uFF08lesson-search\uFF09\uFF1A\u7F13\u5B58\u9ED8\u8BA4\u6D4F\u89C8\u9996\u5C4F,\u4F9B\u51B7\u542F\u52A8\u79D2\u56DE
+    @Volatile private var cachedLessonSearchJson: String? = null
+
+    @Volatile private var cachedLessonSearchUpdatedAt: Long = 0L
+
     // \u2500\u2500 \u8D85\u661F\u5B66\u4E60\u901A \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     @Volatile private var cachedCxCookies: String? = null
@@ -887,6 +892,9 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             val type = object : TypeToken<List<EmptyClassroomPreset>>() {}.type
             gson.fromJson<List<EmptyClassroomPreset>>(prefs[EMPTY_CLASSROOM_PRESETS_KEY], type)
         }.getOrNull().orEmpty()
+
+        cachedLessonSearchJson = prefs[LESSON_SEARCH_JSON_KEY]
+        cachedLessonSearchUpdatedAt = prefs[LESSON_SEARCH_UPDATED_AT_KEY] ?: 0L
 
         // \u8D85\u661F\u5B66\u4E60\u901A
 
@@ -2706,6 +2714,29 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    // ── 全校开课查询缓存（默认浏览首屏，冷启动秒回）─────────────
+    fun getLessonSearchJson(): String? = cachedLessonSearchJson
+
+    fun getLessonSearchUpdatedAt(): Long = cachedLessonSearchUpdatedAt
+
+    suspend fun saveLessonSearchJson(json: String) {
+        cachedLessonSearchJson = json
+        cachedLessonSearchUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit { preferences ->
+            preferences[LESSON_SEARCH_JSON_KEY] = json
+            preferences[LESSON_SEARCH_UPDATED_AT_KEY] = cachedLessonSearchUpdatedAt
+        }
+    }
+
+    suspend fun clearLessonSearchJson() {
+        cachedLessonSearchJson = null
+        cachedLessonSearchUpdatedAt = 0L
+        appDataStore.dataStore.edit { preferences ->
+            preferences.remove(LESSON_SEARCH_JSON_KEY)
+            preferences.remove(LESSON_SEARCH_UPDATED_AT_KEY)
+        }
+    }
+
     suspend fun clearTrainingPlanJson() {
 
         cachedTrainingPlanJson = null
@@ -3852,6 +3883,9 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         val EMPTY_CLASSROOM_UPDATED_AT_KEY = longPreferencesKey("empty_classroom_updated_at")
         val EMPTY_CLASSROOM_PRESETS_KEY = stringPreferencesKey("empty_classroom_presets")
 
+        val LESSON_SEARCH_JSON_KEY = stringPreferencesKey("lesson_search_json")
+        val LESSON_SEARCH_UPDATED_AT_KEY = longPreferencesKey("lesson_search_updated_at")
+
         val CX_COURSES_PROGRESS_JSON_KEY = stringPreferencesKey("cx_courses_progress_json")
         val CX_HOMEWORK_JSON_KEY = stringPreferencesKey("cx_homework_json")
         val CX_HOMEWORK_DETAIL_JSON_KEY = stringPreferencesKey("cx_homework_detail_json")
@@ -4044,6 +4078,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             COMPLETION_COURSES_JSON_KEY, COMPLETION_SUMMARY_JSON_KEY, COMPLETION_UPDATED_AT_KEY,
 
             EMPTY_CLASSROOM_JSON_KEY, EMPTY_CLASSROOM_KEY_KEY, EMPTY_CLASSROOM_UPDATED_AT_KEY,
+
+            LESSON_SEARCH_JSON_KEY, LESSON_SEARCH_UPDATED_AT_KEY,
 
             CX_COOKIES_KEY, CX_PHONE_KEY, CX_PASSWORD_KEY,
 
