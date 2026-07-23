@@ -24,7 +24,10 @@
 | `ui/navigation/MainNavigationViewModel.kt` | `SavedStateHandle` 持久化、`StateFlow` 暴露、4 个操作方法 |
 | `ui/navigation/NavigationIntentCodec.kt` | Intent 编解码、legacy 深链回退、纯 JVM 可测的 `decodeEncoded` |
 | `ui/screen/main/MainScreen.kt` | 顶层 6 个候选入口、响应式 NavigationBar/NavigationRail、所有业务页面状态机 |
-| `data/home/AppRegistry.kt` | 应用聚合页与最近使用的 21 个入口元数据 |
+| `data/home/AppRegistry.kt` | 应用聚合页与最近使用的入口元数据;`arrange()` 纯函数按排版配置隐藏/排序/分组(应用页与设置预览共用) |
+| `data/home/AppHubLayoutConfig.kt` | 应用页排版配置模型(列数/卡片样式/密度/分组/排序/显隐/自定义顺序)+ `normalize()` 清洗 |
+| `ui/screen/apps/AppHubScreen.kt` | 应用聚合页路由 + `AppHubPage` 按 `AppHubLayoutConfig` 渲染 + 横向/竖向/紧凑三种磁贴 |
+| `ui/screen/apps/AppHubSettingsScreen.kt` | 应用页排版设置子页:实时预览 + 全部控件 + 长按拖拽排序 + 显隐开关 + 重置 |
 
 ## 数据基础设施
 

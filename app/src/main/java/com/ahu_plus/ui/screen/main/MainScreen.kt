@@ -68,6 +68,7 @@ import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.data.developer.DeveloperRuntimeState
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.home.AppHubLayoutConfig
 import com.ahu_plus.data.local.BottomNavService
 import com.ahu_plus.data.local.reconcileBottomNavServices
 import com.ahu_plus.data.local.CourseNoteRepository
@@ -334,6 +335,9 @@ fun MainScreen(
     // 首页"我的收藏"应用列表 (mutableStateOf 保证 onFavoriteIdsChange 后 UI 立即刷新)
     var favoriteIds by remember { mutableStateOf(sessionManager.getFavoriteAppIds()) }
     var bottomNavServices by remember { mutableStateOf(sessionManager.getBottomNavServices()) }
+    // 应用页排版配置 + 使用次数 (mutableStateOf 保证设置变更/使用后跨 Tab 立即刷新)
+    var appHubLayout by remember { mutableStateOf(sessionManager.getAppHubLayout()) }
+    var appUsageCounts by remember { mutableStateOf(sessionManager.getAppUsageCounts()) }
     var previousEnabledServices by remember {
         mutableStateOf(buildSet {
             if (sessionManager.getThirdPartyServicesEnabled() && sessionManager.getMarketChildEnabled()) add(BottomNavService.MARKET)
@@ -347,7 +351,19 @@ fun MainScreen(
     var guideIntroSeen by remember { mutableStateOf(sessionManager.getGuideIntroSeen()) }
     val scope = rememberCoroutineScope()
     val recordApp: (String) -> Unit = remember {
-        { appKey: String -> scope.launch { sessionManager.recordRecentApp(appKey); recentApps = sessionManager.getRecentApps() } }
+        { appKey: String ->
+            scope.launch {
+                sessionManager.recordRecentApp(appKey)
+                recentApps = sessionManager.getRecentApps()
+                appUsageCounts = sessionManager.getAppUsageCounts()
+            }
+        }
+    }
+    val onAppHubLayoutChange: (AppHubLayoutConfig) -> Unit = remember {
+        { config: AppHubLayoutConfig ->
+            appHubLayout = config
+            scope.launch { sessionManager.saveAppHubLayout(config) }
+        }
     }
     val onFavoriteIdsChange: (List<String>) -> Unit = remember {
         { ids: List<String> ->
@@ -872,6 +888,7 @@ fun MainScreen(
                     marketInAppHub = marketVisible && !marketPinned,
                     chaoxingInAppHub = chaoxingVisible && !chaoxingPinned,
                     welearnInAppHub = welearnVisible && !welearnPinned,
+                    layout = appHubLayout,
                     onOpenMarket = {
                         mainNavigationViewModel.navigate(NavigationRequest(MarketTarget()))
                     },
@@ -913,6 +930,10 @@ fun MainScreen(
                     },
                     bottomNavServices = bottomNavServices,
                     onBottomNavServicesChanged = onBottomNavServicesChange,
+                    appHubLayout = appHubLayout,
+                    onAppHubLayoutChanged = onAppHubLayoutChange,
+                    appHubRecentKeys = recentApps,
+                    appHubUsageCounts = appUsageCounts,
                     onOpenScheduleSettings = {
                         returnToAggregateSettings = true
                         scheduleViewModel.onToggleSettings()

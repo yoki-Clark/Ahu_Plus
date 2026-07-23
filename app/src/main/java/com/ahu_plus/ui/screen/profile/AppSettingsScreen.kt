@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.Checkbox
@@ -80,6 +81,7 @@ internal fun AppSettingsScreen(
     welearnEnabled: Boolean = false,
     onBottomNavServicesChanged: (List<String>) -> Unit = {},
     onOpenScheduleSettings: () -> Unit = {},
+    onOpenAppHubSettings: () -> Unit = {},
     onOpenMarketSettings: () -> Unit = {},
     onOpenChaoxingSettings: () -> Unit = {},
     onOpenCacheCleanup: () -> Unit = {},
@@ -200,6 +202,13 @@ internal fun AppSettingsScreen(
                             description = "列宽、行高、字体和显示内容",
                             icon = Icons.Filled.CalendarMonth,
                             onClick = onOpenScheduleSettings,
+                        )
+                        HorizontalDivider()
+                        SettingsRouteRow(
+                            title = "应用页设置",
+                            description = "列数、卡片样式、分组排序与显示隐藏",
+                            icon = Icons.Filled.GridView,
+                            onClick = onOpenAppHubSettings,
                         )
                         if (marketEnabled) {
                             HorizontalDivider()
