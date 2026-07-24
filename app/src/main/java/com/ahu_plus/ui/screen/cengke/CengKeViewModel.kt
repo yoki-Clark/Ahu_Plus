@@ -4,7 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.model.jw.LessonSearchFilter
+import com.ahu_plus.data.model.jw.LessonSearchMode
 import com.ahu_plus.data.model.jwapp.CengCourse
+import com.ahu_plus.data.model.jwapp.CengCourseDetail
 import com.ahu_plus.data.model.jwapp.JwAppAccount
 import com.ahu_plus.data.model.jwapp.JwAppBuilding
 import com.ahu_plus.data.model.jwapp.JwAppCampus
@@ -12,14 +15,19 @@ import com.ahu_plus.data.model.jwapp.JwAppRoomType
 import com.ahu_plus.data.model.jwapp.TimeSlot
 import com.ahu_plus.data.repository.CengKeParser
 import com.ahu_plus.data.repository.CengKeRepository
+import com.ahu_plus.data.repository.CourseRepository
 import com.ahu_plus.data.repository.JwAppAuthRepository
 import com.ahu_plus.data.repository.JwAppAuthRequiredException
 import com.ahu_plus.data.repository.JwAppLoginResult
+import com.ahu_plus.data.repository.JwAuthRepository
+import com.ahu_plus.data.repository.LessonSearchRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -33,6 +41,11 @@ class CengKeViewModel(
     private val authRepository: JwAppAuthRepository,
     private val repository: CengKeRepository,
     sessionManager: SessionManager,
+    // ── 富化(best-effort):用开课查询补全推荐卡的选课人数/学分/性质/班级等 ──
+    // 蹭课登录的是 jwapp,富化走 jw 教务会话;无会话或匹配不到时静默降级,卡片保持现状。
+    private val jwAuthRepository: JwAuthRepository? = null,
+    private val lessonSearchRepository: LessonSearchRepository? = null,
+    private val courseRepository: CourseRepository? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -52,6 +65,20 @@ class CengKeViewModel(
     /** 已加载的候选池 + 其对应的 key(campus|date|buildings|roomTypes)。 */
     private var pool: List<CengCourse> = emptyList()
     private var poolKey: String? = null
+
+    // ── 富化状态 ──
+    /** fullCode → 详情缓存。值为 null 表示"查过但没匹配到",避免重复请求同一门课。 */
+    private val detailCache = HashMap<String, CengCourseDetail?>()
+
+    /** 反竞态:每次触发富化 +1;异步结果写回前校验 generation 未变且仍是当前推荐。 */
+    private var enrichGeneration = 0L
+
+    /** 开课查询用的学期 id(懒解析:首次富化时拉学期列表选最新,失败回退默认)。 */
+    private var enrichSemesterId: Int? = null
+
+    /** 富化是否可用(三个 jw 依赖齐全才尝试;缺任一则整体静默禁用)。 */
+    private val enrichEnabled: Boolean
+        get() = jwAuthRepository != null && lessonSearchRepository != null && courseRepository != null
 
     fun activate() {
         if (_uiState.value.activated) return
@@ -142,8 +169,16 @@ class CengKeViewModel(
         viewModelScope.launch {
             authRepository.clearSession()
             resetPool()
+            resetEnrichment()
             _uiState.value = CengKeUiState(activated = true, username = _uiState.value.username)
         }
+    }
+
+    /** 清富化缓存与已解析学期(退出/换账号时,旧账号的会话与学期可能失效)。 */
+    private fun resetEnrichment() {
+        enrichGeneration++
+        detailCache.clear()
+        enrichSemesterId = null
     }
 
     // ── 元数据:校区 + 教室类型,默认选第一个校区并拉楼 ──────────
@@ -319,9 +354,95 @@ class CengKeViewModel(
         )
         _uiState.value = _uiState.value.copy(
             recommended = next,
+            // 换卡瞬间清掉旧详情,避免新课短暂显示上一门的富化数据。
+            recommendedDetail = null,
+            detailLoading = false,
             filteredSize = filtered.size,
             noMatch = next == null && pool.isNotEmpty(),
         )
+        enrichRecommended(next)
+    }
+
+    // ── 富化:抽到课后用开课查询补全详情(best-effort,静默失败)──────────
+    /**
+     * 为推荐卡 [course] 拉开课查询详情。命中缓存直接回填;否则后台按 fullCode 精确查一次。
+     * 反竞态:进入时占一个 [enrichGeneration],结果写回前校验 generation 未变且推荐仍是这门课。
+     * 任何失败(无 jw 会话/网络/匹配不到)都静默,recommendedDetail 留 null,卡片保持蹭课原样。
+     */
+    private fun enrichRecommended(course: CengCourse?) {
+        if (course == null || !enrichEnabled) return
+        val fullCode = course.fullCode
+        val generation = ++enrichGeneration
+
+        // 命中缓存(含"查过没匹配到"的 null):直接回填,不打网络。
+        if (detailCache.containsKey(fullCode)) {
+            _uiState.value = _uiState.value.copy(
+                recommendedDetail = detailCache[fullCode],
+                detailLoading = false,
+            )
+            return
+        }
+
+        _uiState.value = _uiState.value.copy(detailLoading = true)
+        viewModelScope.launch {
+            val detail = fetchDetail(fullCode)
+            // generation 变了(又换卡/退出)或推荐已不是这门课:丢弃本次结果。
+            if (generation != enrichGeneration) return@launch
+            if (_uiState.value.recommended?.fullCode != fullCode) return@launch
+            _uiState.value = _uiState.value.copy(
+                recommendedDetail = detail,
+                detailLoading = false,
+            )
+        }
+    }
+
+    /** 实际查询:解析学期 → codeLike 精确搜 → 匹配详情。任何异常回退 null 并按"查过"缓存。 */
+    private suspend fun fetchDetail(fullCode: String): CengCourseDetail? {
+        val jw = jwAuthRepository ?: return null
+        val search = lessonSearchRepository ?: return null
+        return try {
+            val semesterId = resolveEnrichSemesterId()
+            val result = withContext(Dispatchers.IO) {
+                jw.executeWithSessionRetry {
+                    search.search(
+                        filter = LessonSearchFilter(
+                            semesterId = semesterId,
+                            mode = LessonSearchMode.CODE,
+                            keyword = fullCode,
+                        ),
+                        page = 1,
+                    )
+                }
+            }
+            val records = result.getOrNull()?.data.orEmpty()
+            val detail = CengKeParser.matchDetail(records, fullCode)
+            // 无论匹配与否都缓存(null=查过没中),避免同一门课反复请求。
+            detailCache[fullCode] = detail
+            detail
+        } catch (_: Exception) {
+            // 富化失败不缓存(可能是临时会话/网络问题),下次抽到同课可重试。
+            null
+        }
+    }
+
+    /**
+     * 懒解析开课查询用的学期 id 并缓存。蹭课查的日期基本落当前学期,故取学期列表最新一项
+     * (id 最大);列表为空或拉取失败时回退 [CourseRepository.DEFAULT_SEMESTER_ID]。
+     */
+    private suspend fun resolveEnrichSemesterId(): Int {
+        enrichSemesterId?.let { return it }
+        val jw = jwAuthRepository
+        val course = courseRepository
+        val resolved = if (jw != null && course != null) {
+            val list = withContext(Dispatchers.IO) {
+                jw.executeWithSessionRetry { course.getSemesterList() }
+            }.getOrNull().orEmpty()
+            list.mapNotNull { it.id }.maxOrNull() ?: CourseRepository.DEFAULT_SEMESTER_ID
+        } else {
+            CourseRepository.DEFAULT_SEMESTER_ID
+        }
+        enrichSemesterId = resolved
+        return resolved
     }
 
     /** 学院/时段变化后,若已有池且已推荐,则就地重筛换卡。 */
@@ -395,6 +516,9 @@ data class CengKeUiState(
     val filteredSize: Int = 0,
     val noMatch: Boolean = false,
     val error: String? = null,
+    // 富化(开课查询补全的详情;best-effort,可为 null)
+    val recommendedDetail: CengCourseDetail? = null,
+    val detailLoading: Boolean = false,
 ) {
     val hasCampus: Boolean get() = selectedCampusId != null
 }

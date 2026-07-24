@@ -1,7 +1,9 @@
 package com.ahu_plus.data.repository
 
 import com.ahu_plus.data.GsonProvider
+import com.ahu_plus.data.model.jw.LessonRecord
 import com.ahu_plus.data.model.jwapp.CengCourse
+import com.ahu_plus.data.model.jwapp.CengCourseDetail
 import com.ahu_plus.data.model.jwapp.JwAppBuilding
 import com.ahu_plus.data.model.jwapp.JwAppCampus
 import com.ahu_plus.data.model.jwapp.JwAppRoomType
@@ -232,6 +234,30 @@ object CengKeParser {
         val others = filtered.filter { it.dedupKey != exclude.dedupKey }
         val source = others.ifEmpty { filtered }
         return source[random.nextInt(source.size)]
+    }
+
+    /**
+     * 从开课查询结果里按 [fullCode] 精确匹配那条教学班,映射成蹭课富化详情 [CengCourseDetail]。
+     *
+     * 蹭课 [CengCourse.fullCode] 与开课查询 `LessonRecord.code` 同编码空间(如
+     * `202620271-GG61015.087`),`codeLike` 模糊搜索该完整编号通常只返回一条,这里再用
+     * `code == fullCode` 精确兜底,避免罕见的前缀重叠误配。匹配不到返回 null(交给 UI 静默降级)。
+     *
+     * 仅当详情里至少有一个可展示字段([CengCourseDetail.hasAny])时才返回,否则视同未命中返回 null。
+     */
+    fun matchDetail(records: List<LessonRecord>, fullCode: String): CengCourseDetail? {
+        val record = records.firstOrNull { it.code == fullCode } ?: return null
+        val detail = CengCourseDetail(
+            stdCount = record.stdCount,
+            limitCount = record.limitCount,
+            credits = record.course?.credits,
+            courseProperty = record.courseProperty?.nameZh?.takeIf { it.isNotBlank() },
+            className = record.nameZh?.takeIf { it.isNotBlank() },
+            courseType = record.courseType?.nameZh?.takeIf { it.isNotBlank() },
+            examMode = record.examMode?.nameZh?.takeIf { it.isNotBlank() },
+            teachLang = record.teachLang?.nameZh?.takeIf { it.isNotBlank() },
+        )
+        return detail.takeIf { it.hasAny }
     }
 }
 

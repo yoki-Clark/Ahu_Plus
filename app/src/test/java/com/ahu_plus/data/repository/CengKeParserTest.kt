@@ -1,5 +1,8 @@
 package com.ahu_plus.data.repository
 
+import com.ahu_plus.data.model.jw.LessonCourse
+import com.ahu_plus.data.model.jw.LessonNamed
+import com.ahu_plus.data.model.jw.LessonRecord
 import com.ahu_plus.data.model.jwapp.RoomOccupationInfo
 import com.ahu_plus.data.model.jwapp.RoomWithOccupancy
 import com.ahu_plus.data.model.jwapp.TimeSlot
@@ -316,4 +319,110 @@ class CengKeParserTest {
         startTime = start,
         timeSlot = CengKeParser.timeSlotOf(start),
     )
+
+    // ── matchDetail(开课查询富化) ──────────────────────────────
+    // 只填 matchDetail 关心的字段,其余 LessonRecord 字段给 null。
+    private fun lesson(
+        code: String? = "202620271-GG61015.087",
+        nameZh: String? = "高等数学-1班",
+        credits: Double? = 4.0,
+        courseProperty: String? = "必修",
+        courseType: String? = "理论课",
+        examMode: String? = "考试",
+        teachLang: String? = "中文",
+        stdCount: Int? = 58,
+        limitCount: Int? = 60,
+    ) = LessonRecord(
+        id = null,
+        code = code,
+        nameZh = nameZh,
+        course = credits?.let { LessonCourse(code = "GG61015", nameZh = "高等数学", credits = it, id = null) },
+        minorCourse = null,
+        openDepartment = null,
+        teacherAssignmentList = null,
+        stdCount = stdCount,
+        limitCount = limitCount,
+        courseType = courseType?.let { LessonNamed(nameZh = it, id = null) },
+        courseProperty = courseProperty?.let { LessonNamed(nameZh = it, id = null) },
+        examMode = examMode?.let { LessonNamed(nameZh = it, id = null) },
+        teachLang = teachLang?.let { LessonNamed(nameZh = it, id = null) },
+        scheduleText = null,
+        requiredPeriodInfo = null,
+        remark = null,
+    )
+
+    @Test
+    fun `matchDetail maps every field on exact code hit`() {
+        val detail = CengKeParser.matchDetail(listOf(lesson()), "202620271-GG61015.087")
+        assertNotNull(detail)
+        assertEquals(58, detail!!.stdCount)
+        assertEquals(60, detail.limitCount)
+        assertEquals(4.0, detail.credits!!, 0.0)
+        assertEquals("必修", detail.courseProperty)
+        assertEquals("高等数学-1班", detail.className)
+        assertEquals("理论课", detail.courseType)
+        assertEquals("考试", detail.examMode)
+        assertEquals("中文", detail.teachLang)
+    }
+
+    @Test
+    fun `matchDetail picks the record whose code equals fullCode`() {
+        val records = listOf(
+            lesson(code = "202620271-GG61015.001", nameZh = "别的班", stdCount = 10),
+            lesson(code = "202620271-GG61015.087", nameZh = "目标班", stdCount = 58),
+            lesson(code = "202620271-XX99999.001", nameZh = "无关课", stdCount = 20),
+        )
+        val detail = CengKeParser.matchDetail(records, "202620271-GG61015.087")
+        assertNotNull(detail)
+        assertEquals("目标班", detail!!.className)
+        assertEquals(58, detail.stdCount)
+    }
+
+    @Test
+    fun `matchDetail returns null when no code matches`() {
+        assertNull(CengKeParser.matchDetail(listOf(lesson()), "202620271-ZZ00000.999"))
+    }
+
+    @Test
+    fun `matchDetail returns null on empty result list`() {
+        assertNull(CengKeParser.matchDetail(emptyList(), "202620271-GG61015.087"))
+    }
+
+    @Test
+    fun `matchDetail returns null when matched record carries nothing`() {
+        // codeLike 命中但该教学班所有富化字段都空 → hasAny 为假 → 静默丢弃,卡片保持蹭课原样
+        val blank = lesson(
+            credits = null, courseProperty = null, courseType = null,
+            examMode = null, teachLang = null, stdCount = null, limitCount = null,
+            nameZh = null,
+        )
+        assertNull(CengKeParser.matchDetail(listOf(blank), "202620271-GG61015.087"))
+    }
+
+    @Test
+    fun `matchDetail blanks out whitespace-only named fields`() {
+        val detail = CengKeParser.matchDetail(
+            listOf(lesson(courseProperty = "   ", courseType = "")),
+            "202620271-GG61015.087",
+        )
+        assertNotNull(detail)
+        assertNull(detail!!.courseProperty)
+        assertNull(detail.courseType)
+        // 其它字段仍在,detail 整体有效
+        assertEquals(58, detail.stdCount)
+    }
+
+    @Test
+    fun `matchDetail isFull reflects enrollment`() {
+        val full = CengKeParser.matchDetail(
+            listOf(lesson(stdCount = 60, limitCount = 60)),
+            "202620271-GG61015.087",
+        )
+        assertTrue(full!!.isFull())
+        val open = CengKeParser.matchDetail(
+            listOf(lesson(stdCount = 30, limitCount = 60)),
+            "202620271-GG61015.087",
+        )
+        assertFalse(open!!.isFull())
+    }
 }
