@@ -61,7 +61,6 @@ fun CampusQrCodeCard(
     totalCountdownSeconds: Int,
     isStale: Boolean = false,
     ageSeconds: Int = 0,
-    onAutoLogin: () -> Unit,
     onRefresh: () -> Unit,
     onQrClick: () -> Unit
 ) {
@@ -233,31 +232,13 @@ fun CampusQrCodeCard(
                         }
                     }
 
-                    // 无 session — 自动登录
+                    // 首次请求启动前的瞬时状态；页面会自动触发加载。
                     else -> {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                modifier = Modifier.size(40.dp),
-                                strokeWidth = 3.dp
-                            )
-                            Text(
-                                text = "正在登录智慧安大...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.7f)
-                            )
-                        } else {
-                            // 此分支进入前提是 error == null(error != null 已被上方 when 分支处理),
-                            // 故不再重复判断 error
-                            Text(
-                                text = "点击按钮登录智慧安大",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.5f)
-                            )
-                            TextButton(onClick = onAutoLogin) {
-                                Text("登录智慧安大", color = Color.White)
-                            }
-                        }
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(40.dp),
+                            strokeWidth = 3.dp
+                        )
                     }
                 }
             }

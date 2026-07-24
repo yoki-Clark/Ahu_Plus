@@ -133,7 +133,6 @@ class HomeViewModel(
         } else {
             qrRefreshJob?.cancel()
             qrRefreshJob = null
-            qrRequested = false
             dismissAdwmhLogin()
         }
     }
@@ -1756,20 +1755,15 @@ class HomeViewModel(
     private fun startQrAutoRefresh() {
         if (adwmhCardRepository == null || qrRefreshJob?.isActive == true) return
         qrRefreshJob = viewModelScope.launch {
-            val baseInterval = (QR_REFRESH_INTERVAL_MS / 1000).toInt()
             while (true) {
                 if (!_uiState.value.adwmhLoginDialogVisible) {
                     loadCampusQrCode()
+                    // loadCampusQrCode launches separately so manual and automatic refresh share
+                    // one request path. Wait for it before choosing the failure backoff.
+                    qrLoadJob?.join()
                 }
-                // 指数退避：连续失败越多，等待越久（最多 4 分钟）
-                val backoffMultiplier = when {
-                    qrConsecutiveFailures >= 5 -> 6   // 5+ 次失败 → 4.5 分钟
-                    qrConsecutiveFailures >= 3 -> 3   // 3-4 次失败 → 2.25 分钟
-                    qrConsecutiveFailures >= 1 -> 2   // 1-2 次失败 → 1.5 分钟
-                    else -> 1                         // 正常 → 45 秒
-                }
-                val totalSeconds = baseInterval * backoffMultiplier
-                for (remaining in totalSeconds downTo 0) {
+                val delaySeconds = qrAutoRefreshDelaySeconds(qrConsecutiveFailures)
+                for (remaining in delaySeconds downTo 1) {
                     _uiState.update { state ->
                         // 按当前展示码的获取时间实时计算新鲜度
                         val fetchedAt = state.qrCode?.fetchedAt ?: 0L
@@ -1797,12 +1791,22 @@ class HomeViewModel(
     }
 
     private companion object {
-        const val QR_REFRESH_INTERVAL_MS = 45_000L
         /** 展示码超过此时长视为可能已失效,UI 弹出醒目提示。 */
         const val QR_STALE_THRESHOLD_MS = 60_000L
         /** 冷启动时,缓存码超过此时长则不再展示(太旧已无意义)。 */
         const val QR_CACHE_MAX_RESTORE_MS = 10 * 60_000L
     }
+}
+
+/**
+ * 支付码自动刷新间隔。正常时在 60 秒失效阈值前刷新；失败后逐步退避，
+ * 避免服务异常或风控期间持续请求。
+ */
+internal fun qrAutoRefreshDelaySeconds(consecutiveFailures: Int): Int = when {
+    consecutiveFailures <= 0 -> 45
+    consecutiveFailures == 1 -> 60
+    consecutiveFailures <= 3 -> 120
+    else -> 300
 }
 
 internal data class QrFreshness(

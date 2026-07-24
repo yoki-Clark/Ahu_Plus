@@ -681,6 +681,19 @@ private fun ProfileHomeScreen(
     var showQrCard by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
+    LaunchedEffect(showQrCard, qrCode, qrLoading, qrError) {
+        if (
+            shouldAutoLoadProfileQr(
+                isPanelVisible = showQrCard,
+                hasQrCode = qrCode != null,
+                isLoading = qrLoading,
+                hasError = qrError != null,
+            )
+        ) {
+            onQrRefresh()
+        }
+    }
+
     if (showThirdPartyDialog) {
         ThirdPartyEnableDialog(
             onConfirm = {
@@ -1411,21 +1424,27 @@ private fun ProfileQrCard(
                     TextButton(onClick = onRefresh) { Text("重试") }
                 }
                 else -> {
-                    Text("点击刷新加载支付码", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = onRefresh) { Text("加载") }
+                    CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp)
                 }
             }
 
-            // 刷新 + 放大按钮
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                TextButton(onClick = onRefresh) { Text("刷新") }
-                if (qrCode != null) {
+            // 有效支付码才提供手动刷新和放大；错误态在上方提供重试。
+            if (qrCode != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    TextButton(onClick = onRefresh) { Text("刷新") }
                     TextButton(onClick = onQrClick) { Text("放大") }
                 }
             }
         }
     }
 }
+
+internal fun shouldAutoLoadProfileQr(
+    isPanelVisible: Boolean,
+    hasQrCode: Boolean,
+    isLoading: Boolean,
+    hasError: Boolean,
+): Boolean = isPanelVisible && !hasQrCode && !isLoading && !hasError
 
 @Composable
 fun ProfileSection(content: @Composable () -> Unit) {
