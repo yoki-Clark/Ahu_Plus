@@ -13,10 +13,13 @@ function renderRelease(release) {
   hash.textContent = `SHA-256 ${release.sha256.slice(0, 8)}…${release.sha256.slice(-4)}`;
   links.forEach((link) => {
     link.href = release.downloadUrl;
+    link.removeAttribute("aria-disabled");
     link.setAttribute("download", release.fileName || `ahu-plus-${release.version}.apk`);
   });
   status.textContent = `${date} 发布。下载后可使用上方 SHA-256 校验文件完整性。`;
-  document.querySelector("[data-copy-hash]").dataset.fullHash = release.sha256;
+  const hashButton = document.querySelector("[data-copy-hash]");
+  hashButton.dataset.fullHash = release.sha256;
+  hashButton.disabled = false;
 }
 
 function renderReleaseUnavailable() {
@@ -24,7 +27,9 @@ function renderReleaseUnavailable() {
   document.querySelector("[data-size]").textContent = "--";
   document.querySelector("[data-hash]").textContent = "SHA-256 暂不可用";
   document.querySelector("[data-release-status]").textContent = "发布信息暂时不可用，请稍后重试。";
-  document.querySelector("[data-copy-hash]").dataset.fullHash = "";
+  const hashButton = document.querySelector("[data-copy-hash]");
+  hashButton.dataset.fullHash = "";
+  hashButton.disabled = true;
   document.querySelectorAll("[data-download]").forEach((link) => {
     link.removeAttribute("href");
     link.setAttribute("aria-disabled", "true");
