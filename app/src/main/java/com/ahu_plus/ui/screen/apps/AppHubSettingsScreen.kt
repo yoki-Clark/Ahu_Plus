@@ -405,6 +405,7 @@ private fun LayoutPreview(
                                     title = spec.title,
                                     icon = spec.icon,
                                     iconColor = spec.tint,
+                                    iconBackground = spec.gradient,
                                     cardStyle = config.cardStyle,
                                     density = config.density,
                                     showIcon = config.showIcons,

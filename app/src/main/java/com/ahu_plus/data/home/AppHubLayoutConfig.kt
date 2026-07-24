@@ -17,7 +17,7 @@ import com.google.gson.JsonParser
  * 所有默认值 == 改动前的应用页现状,保证老用户视觉零变化。
  */
 data class AppHubLayoutConfig(
-    val columns: AppHubColumns = AppHubColumns.TWO,
+    val columns: AppHubColumns = AppHubColumns.ONE,
     val cardStyle: AppHubCardStyle = AppHubCardStyle.HORIZONTAL,
     val density: AppHubDensity = AppHubDensity.COMFORTABLE,
     val groupMode: AppHubGroupMode = AppHubGroupMode.BY_CATEGORY,
