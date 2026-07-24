@@ -13,6 +13,11 @@ import org.junit.Test
  */
 class AppHubLayoutTest {
 
+    @Test
+    fun `default layout uses one column`() {
+        assertEquals(AppHubColumns.ONE, AppHubLayoutConfig.Default.columns)
+    }
+
     private val allKeys = AppRegistry.allKeys().toList()
     private val gson = GsonProvider.instance
 

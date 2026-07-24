@@ -66,9 +66,7 @@ import com.ahu_plus.ui.theme.AhuBlue
 import com.ahu_plus.ui.theme.AhuOrange
 import com.ahu_plus.ui.theme.AhuViolet
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.lerp
 import com.ahu_plus.ui.components.AhuSectionTitle
@@ -750,6 +748,7 @@ private fun AppHubPage(
                         title = spec.title,
                         icon = spec.icon,
                         iconColor = spec.tint,
+                        iconBackground = spec.gradient,
                         cardStyle = layout.cardStyle,
                         density = layout.density,
                         showIcon = layout.showIcons,
@@ -797,12 +796,16 @@ internal fun AppHubTile(
     cardStyle: AppHubCardStyle,
     density: AppHubDensity,
     showIcon: Boolean = true,
+    iconBackground: Brush? = null,
     onClick: () -> Unit,
 ) {
     when (cardStyle) {
-        AppHubCardStyle.HORIZONTAL -> HorizontalTile(title, icon, iconColor, density, showIcon, onClick)
-        AppHubCardStyle.VERTICAL -> VerticalTile(title, icon, iconColor, density, showIcon, onClick)
-        AppHubCardStyle.COMPACT -> CompactTile(title, icon, iconColor, showIcon, onClick)
+        AppHubCardStyle.HORIZONTAL ->
+            HorizontalTile(title, icon, iconColor, iconBackground, density, showIcon, onClick)
+        AppHubCardStyle.VERTICAL ->
+            VerticalTile(title, icon, iconColor, iconBackground, density, showIcon, onClick)
+        AppHubCardStyle.COMPACT ->
+            CompactTile(title, icon, iconColor, iconBackground, showIcon, onClick)
     }
 }
 
@@ -819,6 +822,7 @@ private fun HorizontalTile(
     title: String,
     icon: ImageVector,
     iconColor: Color,
+    iconBackground: Brush?,
     density: AppHubDensity,
     showIcon: Boolean,
     onClick: () -> Unit,
@@ -830,7 +834,7 @@ private fun HorizontalTile(
         compact -> 68.dp
         else -> 84.dp
     }
-    val iconBox = if (compact) 40.dp else 48.dp
+    val iconBox = if (compact) 36.dp else 42.dp
     Surface(
         onClick = onClick,
         modifier = Modifier
@@ -849,7 +853,12 @@ private fun HorizontalTile(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (showIcon) {
-                AppHubIcon(icon = icon, iconColor = iconColor, boxSize = iconBox)
+                AppHubIcon(
+                    icon = icon,
+                    iconColor = iconColor,
+                    background = iconBackground,
+                    boxSize = iconBox,
+                )
                 Spacer(modifier = Modifier.width(10.dp))
             }
             Text(
@@ -874,6 +883,7 @@ private fun VerticalTile(
     title: String,
     icon: ImageVector,
     iconColor: Color,
+    iconBackground: Brush?,
     density: AppHubDensity,
     showIcon: Boolean,
     onClick: () -> Unit,
@@ -885,7 +895,7 @@ private fun VerticalTile(
         compact -> 88.dp
         else -> 104.dp
     }
-    val iconBox = if (compact) 40.dp else 46.dp
+    val iconBox = if (compact) 36.dp else 42.dp
     Surface(
         onClick = onClick,
         modifier = Modifier
@@ -905,7 +915,12 @@ private fun VerticalTile(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (showIcon) {
-                AppHubIcon(icon = icon, iconColor = iconColor, boxSize = iconBox)
+                AppHubIcon(
+                    icon = icon,
+                    iconColor = iconColor,
+                    background = iconBackground,
+                    boxSize = iconBox,
+                )
                 Spacer(modifier = Modifier.height(6.dp))
             }
             Text(
@@ -927,6 +942,7 @@ private fun CompactTile(
     title: String,
     icon: ImageVector,
     iconColor: Color,
+    iconBackground: Brush?,
     showIcon: Boolean,
     onClick: () -> Unit,
 ) {
@@ -949,7 +965,12 @@ private fun CompactTile(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (showIcon) {
-                AppHubIcon(icon = icon, iconColor = iconColor, boxSize = 36.dp)
+                AppHubIcon(
+                    icon = icon,
+                    iconColor = iconColor,
+                    background = iconBackground,
+                    boxSize = 34.dp,
+                )
                 Spacer(modifier = Modifier.width(12.dp))
             }
             Text(
@@ -969,9 +990,10 @@ private fun CompactTile(
 private fun AppHubIcon(
     icon: ImageVector,
     iconColor: Color,
-    boxSize: androidx.compose.ui.unit.Dp = 48.dp,
+    background: Brush? = null,
+    boxSize: androidx.compose.ui.unit.Dp = 42.dp,
 ) {
-    val background = Brush.linearGradient(
+    val resolvedBackground = background ?: Brush.linearGradient(
         colors = listOf(
             lerp(iconColor, Color.White, 0.12f),
             lerp(iconColor, Color.Black, 0.08f),
@@ -981,24 +1003,15 @@ private fun AppHubIcon(
     Box(
         modifier = Modifier
             .size(boxSize)
-            .shadow(
-                elevation = 2.dp,
-                shape = AhuShapes.IconBox,
-            )
             .clip(AhuShapes.IconBox)
-            .background(background)
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.22f),
-                shape = AhuShapes.IconBox,
-            ),
+            .background(resolvedBackground),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = Color.White,
-            modifier = Modifier.size(boxSize * 0.5f),
+            modifier = Modifier.size(boxSize * 0.52f),
         )
     }
 }

@@ -2,25 +2,23 @@ package com.ahu_plus.data.home
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
-import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Grade
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.RateReview
+import androidx.compose.material.icons.filled.Room
 import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.ViewWeek
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Wifi
@@ -136,7 +134,7 @@ object AppRegistry {
         AppSpec(
             key = KEY_EMPTY_CLASSROOM,
             title = "空教室",
-            icon = Icons.Filled.MeetingRoom,
+            icon = Icons.Filled.Room,
             tint = AhuGreen,
             group = LEARNING,
         ),
@@ -150,7 +148,7 @@ object AppRegistry {
         AppSpec(
             key = KEY_ROOM_COURSE_TABLE,
             title = "教室课表",
-            icon = Icons.Filled.ViewWeek,
+            icon = Icons.Filled.Room,
             tint = AhuBlue,
             group = LEARNING,
         ),
@@ -249,21 +247,21 @@ object AppRegistry {
         AppSpec(
             key = KEY_STUDENT_INFO,
             title = "学生信息",
-            icon = Icons.Filled.Badge,
+            icon = Icons.Filled.Info,
             tint = AhuBlue,
             group = PERSONAL,
         ),
         AppSpec(
             key = KEY_FINANCE,
             title = "财务汇总",
-            icon = Icons.Filled.AccountBalance,
+            icon = Icons.Filled.AccountBalanceWallet,
             tint = AhuGreen,
             group = PERSONAL,
         ),
         AppSpec(
             key = KEY_ATTENDANCE,
             title = "考勤记录",
-            icon = Icons.AutoMirrored.Filled.FactCheck,
+            icon = Icons.Filled.EventBusy,
             tint = AhuRed,
             group = PERSONAL,
         ),
