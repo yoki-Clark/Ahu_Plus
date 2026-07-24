@@ -8,6 +8,16 @@ import org.junit.Test
 
 class HomeQrFreshnessTest {
     @Test
+    fun `automatic refresh backs off after consecutive failures`() {
+        assertEquals(45, qrAutoRefreshDelaySeconds(consecutiveFailures = 0))
+        assertEquals(60, qrAutoRefreshDelaySeconds(consecutiveFailures = 1))
+        assertEquals(120, qrAutoRefreshDelaySeconds(consecutiveFailures = 2))
+        assertEquals(120, qrAutoRefreshDelaySeconds(consecutiveFailures = 3))
+        assertEquals(300, qrAutoRefreshDelaySeconds(consecutiveFailures = 4))
+        assertEquals(300, qrAutoRefreshDelaySeconds(consecutiveFailures = 20))
+    }
+
+    @Test
     fun `code remains fresh at the threshold`() {
         val freshness = resolveQrFreshness(
             fetchedAtMillis = 1_000L,

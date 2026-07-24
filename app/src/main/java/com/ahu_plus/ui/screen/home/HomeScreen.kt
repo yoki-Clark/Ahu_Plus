@@ -96,6 +96,10 @@ fun HomeScreen(
     // 2026-06-29: 预创建避免 state.visible=true 时首次组合 SheetState 阻塞 2-4s
     val depositSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    LaunchedEffect(Unit) {
+        viewModel.loadCampusQrCode()
+    }
+
     Scaffold(
         topBar = {
             AhuTopAppBar(
@@ -134,7 +138,6 @@ fun HomeScreen(
                     totalCountdownSeconds = 45,
                     isStale = uiState.qrStale,
                     ageSeconds = uiState.qrAgeSeconds,
-                    onAutoLogin = viewModel::autoLoginAdwmh,
                     onRefresh = viewModel::loadCampusQrCode,
                     onQrClick = { showFullQrCode = true }
                 )
