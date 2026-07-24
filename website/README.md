@@ -27,9 +27,9 @@ python -m http.server 4173 --directory website/public
 
 版本、文件大小和 SHA-256 与仓库根目录稳定版发布清单一致；`downloadUrl` 指向对应版本的 Gitee Release 资产。候选版本只会在 dry-run 输出目录生成预览，不会提前覆盖官网稳定版信息。
 
-## Lighthouse 首次上线
+## Lighthouse 部署
 
-现有基础设施记录表明服务器是上海 Lighthouse、Ubuntu 24.04 Docker 镜像，Docker 与 Compose 已完成验证，公网 `80/443` 尚未开放。域名与备案完成后按以下顺序上线：
+生产站点运行在 `https://ahuplus.online`，部署环境为上海 Lighthouse、Ubuntu 24.04、Docker Compose 与 Caddy。站点目录是 `/opt/ahu-plus/website/`，公网只开放 SSH、HTTP 和 HTTPS 所需端口。首次部署或重建时按以下顺序操作：
 
 1. 在 DNSPod 为 `ahuplus.online` 添加 `A` 记录，指向 Lighthouse 公网 IP。
 2. 等待 DNS 生效，确认 `Resolve-DnsName ahuplus.online` 返回该公网 IP。
@@ -71,16 +71,17 @@ python -m http.server 4173 --directory website/public
 
 ## 更新站点
 
-把新的 `public/` 同步到原目录后，静态文件立即生效。配置未变化时无需重启 Caddy；如修改 `Caddyfile`，执行：
+把新的 `public/` 同步到原目录后，静态文件立即生效。配置未变化时无需重启 Caddy。管理端口已通过 `admin off` 关闭，因此修改 `Caddyfile` 后应先验证配置，再重启 Web 容器：
 
 ```bash
 cd /opt/ahu-plus/website/deploy
 docker compose exec -w /etc/caddy web caddy validate --config Caddyfile
-docker compose exec -w /etc/caddy web caddy reload --config Caddyfile
+docker compose restart web
+docker compose ps
 ```
 
 ## ICP 备案号
 
-网站底部已经预留备案链接，但默认隐藏。取得准确备案号后，在 `public/index.html` 中找到 `data-icp`，填入备案号并移除 `hidden`。不要猜测或使用域名备案订单号代替正式 ICP 备案号。
+网站底部已展示 ICP 备案号 `皖ICP备2026023445号-1`，并链接至工信部备案管理系统。备案号变更时需同步更新 `public/index.html` 中的 `data-icp` 链接文字。
 
 公安联网备案如适用，应在网站开通后按属地要求办理，并在完成后添加对应链接。
