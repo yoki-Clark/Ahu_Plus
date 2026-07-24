@@ -130,6 +130,10 @@ class MainScreenViewModelFactory(
                 authRepository = app.jwAppAuthRepository,
                 repository = app.cengKeRepository,
                 sessionManager = sessionManager,
+                // 富化:用开课查询(jw 教务会话)补全推荐卡详情,best-effort。
+                jwAuthRepository = jwAuthRepository,
+                lessonSearchRepository = app.lessonSearchRepository,
+                courseRepository = courseRepository,
             ) as T
             ChaoxingViewModel::class.java -> ChaoxingViewModel(
                 app.chaoxingRepository, app.chaoxingStudyRepository, app.chaoxingTikuRepository,

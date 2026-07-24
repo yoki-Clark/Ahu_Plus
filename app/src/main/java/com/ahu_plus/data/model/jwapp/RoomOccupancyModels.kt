@@ -103,3 +103,43 @@ data class CengCourse(
     /** 去重键:同课同教室同起始时间视为同一节。 */
     val dedupKey: String get() = "$fullCode|$date|$startTime|$roomName"
 }
+
+/**
+ * 一节蹭课的富化详情,来自全校开课查询(lesson-search)按 [CengCourse.fullCode] 精确匹配的
+ * `LessonRecord`。蹭课的教室占用接口只给到课名/教师/时间/地点,这些是它拿不到的字段:
+ * 选课人数、学分、课程性质/类型、面向班级、考核方式、授课语言。
+ *
+ * 富化是 best-effort:需要 jw 教务会话且能在当前学期匹配到该教学班;缺任一条件时为 null,
+ * 卡片保持蹭课原样。字段全可空,由 [CengKeParser.matchDetail] 从 `LessonRecord` 映射。
+ */
+data class CengCourseDetail(
+    val stdCount: Int?,        // 已选人数
+    val limitCount: Int?,      // 人数上限
+    val credits: Double?,      // 学分
+    val courseProperty: String?, // 课程性质(必修/选修)
+    val className: String?,    // 面向班级(教学班名,如 "2024级功能材料1班")
+    val courseType: String?,   // 课程类型(理论课/实验课…)
+    val examMode: String?,     // 考核方式(考试/考查)
+    val teachLang: String?,    // 授课语言(中文/双语/外语)
+) {
+    /** 至少有一个字段可展示(全空时 UI 不显示富化区)。 */
+    val hasAny: Boolean
+        get() = stdCount != null || limitCount != null || credits != null ||
+            !courseProperty.isNullOrBlank() || !className.isNullOrBlank() ||
+            !courseType.isNullOrBlank() || !examMode.isNullOrBlank() || !teachLang.isNullOrBlank()
+
+    /** 是否已满员(已选 ≥ 上限,且上限有效)。 */
+    fun isFull(): Boolean {
+        val std = stdCount ?: return false
+        val limit = limitCount ?: return false
+        return limit > 0 && std >= limit
+    }
+
+    /** 选课人数展示,如 "已选 86 / 120"。两者都缺则返回 null。 */
+    fun enrollmentText(): String? = when {
+        stdCount != null && limitCount != null -> "已选 $stdCount / $limitCount"
+        stdCount != null -> "已选 $stdCount"
+        limitCount != null -> "上限 $limitCount"
+        else -> null
+    }
+}

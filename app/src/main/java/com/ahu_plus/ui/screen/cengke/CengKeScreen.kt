@@ -37,6 +37,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.jwapp.CengCourse
+import com.ahu_plus.data.model.jwapp.CengCourseDetail
 import com.ahu_plus.data.model.jwapp.TimeSlot
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.CollapsibleSection
@@ -484,6 +486,7 @@ private fun RecommendationCard(course: CengCourse, state: CengKeUiState, viewMod
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
             )
+            EnrichmentSection(state.recommendedDetail, state.detailLoading)
             Spacer(Modifier.height(14.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = viewModel::reshuffle, enabled = !state.picking) {
@@ -523,3 +526,95 @@ private fun InfoRow(icon: androidx.compose.ui.graphics.vector.ImageVector, text:
         )
     }
 }
+
+/**
+ * 富化区(开课查询补全的详情)。三态:
+ *  - 加载中:小 spinner + 提示文字
+ *  - 有详情:分隔线 + 选课人数(满员标红)+ 学分·性质·类型 + 面向班级 + 考核·语言
+ *  - 无详情且不在加载:整块不渲染(静默,卡片保持蹭课原样)
+ */
+@Composable
+private fun EnrichmentSection(detail: CengCourseDetail?, loading: Boolean) {
+    val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
+    when {
+        loading -> {
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = onContainer.copy(alpha = 0.6f),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "正在补充课程详情…",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = onContainer.copy(alpha = 0.6f),
+                )
+            }
+        }
+        detail != null && detail.hasAny -> {
+            Spacer(Modifier.height(12.dp))
+            HorizontalDivider(color = onContainer.copy(alpha = 0.15f))
+            Spacer(Modifier.height(10.dp))
+            // 选课人数(满员标红 + "已满"徽标)
+            detail.enrollmentText()?.let { text ->
+                val full = detail.isFull()
+                val color = if (full) MaterialTheme.colorScheme.error else onContainer
+                Row(
+                    modifier = Modifier.padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = color,
+                    )
+                    if (full) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "已满",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+            // 学分 · 性质 · 类型
+            DetailLine(
+                listOfNotNull(
+                    detail.credits?.let { "${formatCredits(it)} 学分" },
+                    detail.courseProperty,
+                    detail.courseType,
+                ),
+                onContainer,
+            )
+            // 面向班级
+            detail.className?.takeIf { it.isNotBlank() }?.let {
+                DetailLine(listOf("面向 $it"), onContainer)
+            }
+            // 考核 · 语言
+            DetailLine(listOfNotNull(detail.examMode, detail.teachLang), onContainer)
+        }
+    }
+}
+
+/** 富化补充信息的一行(片段用 · 连接);片段为空则不渲染。 */
+@Composable
+private fun DetailLine(segments: List<String>, color: androidx.compose.ui.graphics.Color) {
+    if (segments.isEmpty()) return
+    Text(
+        segments.joinToString(" · "),
+        style = MaterialTheme.typography.bodyMedium,
+        color = color.copy(alpha = 0.85f),
+        overflow = TextOverflow.Ellipsis,
+        maxLines = 2,
+        modifier = Modifier.padding(vertical = 2.dp),
+    )
+}
+
+/** 学分去掉整数的 .0 尾巴(3.0 → "3"),否则原样(1.5 → "1.5")。 */
+private fun formatCredits(v: Double): String =
+    if (v % 1.0 == 0.0) v.toInt().toString() else v.toString()
