@@ -22,12 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.ahu_plus.AhuPlusApplication
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.Request
-import java.io.File
-import java.io.FileOutputStream
 
 /**
  * 推荐给朋友 (2026-06-22)。
@@ -59,7 +54,7 @@ fun ShareSheet(onDismiss: () -> Unit) {
     fun shareApk() {
         if (isDownloading) return
         isDownloading = true
-        scope.launch(Dispatchers.IO) {
+        scope.launch {
             try {
                 // 1. 获取下载 URL
                 val app = context.applicationContext as AhuPlusApplication
@@ -68,42 +63,15 @@ fun ShareSheet(onDismiss: () -> Unit) {
                     app.updateManager.checkManually()
                     info = app.updateManager.lastFetchedUpdateInfo
                 }
-                val url = info?.downloadUrl
-                if (url.isNullOrBlank()) {
-                    withContext(Dispatchers.Main) {
-                        isDownloading = false
-                        Toast.makeText(context, "未获取到下载地址,请检查网络", Toast.LENGTH_SHORT).show()
-                    }
+                val updateInfo = info
+                if (updateInfo == null) {
+                    isDownloading = false
+                    Toast.makeText(context, "未获取到下载地址,请检查网络", Toast.LENGTH_SHORT).show()
                     return@launch
                 }
 
-                // 2. 下载 APK — 复用 UpdateManager 同款 OkHttp 客户端
-                val fileName = info.apkFileName.ifBlank { "ahu_plus.apk" }
-                val dir = File(context.cacheDir, "apk_share").apply { mkdirs() }
-                val apkFile = File(dir, fileName)
-
-                val client = okhttp3.OkHttpClient.Builder()
-                    .followRedirects(true)
-                    .followSslRedirects(true)
-                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
-                val request = Request.Builder().url(url).get().build()
-                val response = client.newCall(request).execute()
-
-                if (!response.isSuccessful) {
-                    withContext(Dispatchers.Main) {
-                        isDownloading = false
-                        Toast.makeText(context, "下载失败(${response.code})", Toast.LENGTH_SHORT).show()
-                    }
-                    response.close()
-                    return@launch
-                }
-
-                response.body?.byteStream()?.use { input ->
-                    FileOutputStream(apkFile).use { out -> input.copyTo(out) }
-                }
-                response.close()
+                // 2. 仅分享通过更新管线完整校验的 APK。
+                val apkFile = app.updateManager.downloadVerifiedApkForSharing(updateInfo)
                 com.ahu_plus.data.diagnostic.SafeLog.d("ShareSheet", "APK 下载成功: ${apkFile.length()} bytes")
 
                 // 3. 分享
@@ -116,20 +84,16 @@ fun ShareSheet(onDismiss: () -> Unit) {
                     addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                withContext(Dispatchers.Main) {
-                    isDownloading = false
-                    runCatching {
-                        context.startActivity(android.content.Intent.createChooser(intent, "分享安装包"))
-                    }.onFailure { e ->
-                        Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                    onDismiss()
+                isDownloading = false
+                runCatching {
+                    context.startActivity(android.content.Intent.createChooser(intent, "分享安装包"))
+                }.onFailure { e ->
+                    Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
+                onDismiss()
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    isDownloading = false
-                    Toast.makeText(context, "下载失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
+                isDownloading = false
+                Toast.makeText(context, "下载失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }

@@ -2807,6 +2807,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         // \u5148\u6E05\u9664\u5185\u5B58\u7F13\u5B58
 
         clearCachedAuthData()
+        clearCachedUserAssets()
 
         cachedJwAppUsername = null
 
@@ -2986,8 +2987,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedKqcardAttendanceUpdatedAt = 0L
 
-        cachedUserScheduleJson = null
-
         cachedAssessmentJson = null
 
         cachedAssessmentUpdatedAt = 0L
@@ -2995,14 +2994,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedRecordIndexJson = null
 
         cachedRecordIndexUpdatedAt = 0L
-
-        cachedHomeworkJson = null
-
-        cachedHomeworkUpdatedAt = 0L
-
-        cachedUserTasksJson = null
-
-        cachedUserTasksUpdatedAt = 0L
 
         cachedBathroomPhone = null
 
@@ -3043,6 +3034,14 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedCProgJsessionid = null
         cachedCProgUserId = null
 
+    }
+
+    private fun clearCachedUserAssets() {
+        cachedUserScheduleJson = null
+        cachedHomeworkJson = null
+        cachedHomeworkUpdatedAt = 0L
+        cachedUserTasksJson = null
+        cachedUserTasksUpdatedAt = 0L
     }
 
     // \u2500\u2500 JSON \u89E3\u6790\u8F85\u52A9 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -4054,15 +4053,9 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
             KQCARD_ATTENDANCE_JSON_KEY, KQCARD_ATTENDANCE_UPDATED_AT_KEY,
 
-            USER_SCHEDULE_JSON_KEY,
-
             ASSESSMENT_JSON_KEY, ASSESSMENT_UPDATED_AT_KEY,
 
             RECORD_INDEX_JSON_KEY, RECORD_INDEX_UPDATED_AT_KEY,
-
-            HOMEWORK_JSON_KEY, HOMEWORK_UPDATED_AT_KEY,
-
-            USER_TASKS_JSON_KEY, USER_TASKS_UPDATED_AT_KEY,
 
             BATHROOM_PHONE_KEY,
 
@@ -4089,9 +4082,15 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         )
 
+        val USER_ASSET_KEYS = listOf(
+            USER_SCHEDULE_JSON_KEY,
+            HOMEWORK_JSON_KEY, HOMEWORK_UPDATED_AT_KEY,
+            USER_TASKS_JSON_KEY, USER_TASKS_UPDATED_AT_KEY,
+        )
+
         /** clearAll \u9700\u8981\u79FB\u9664\u7684 DataStore keys (AUTH_DATA + \u96C6\u5E02\u8BBE\u7F6E + UI \u504F\u597D + \u8D85\u661F) */
 
-        val ALL_CLEARABLE_KEYS = AUTH_DATA_KEYS + listOf(
+        val ALL_CLEARABLE_KEYS = AUTH_DATA_KEYS + USER_ASSET_KEYS + listOf(
 
             MARKET_API_IDENTITY_KEY,
 
