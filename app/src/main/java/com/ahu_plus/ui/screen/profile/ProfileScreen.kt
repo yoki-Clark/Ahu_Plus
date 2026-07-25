@@ -144,7 +144,7 @@ import com.ahu_plus.notification.CardBalanceAlertMode
 import com.ahu_plus.notification.recentCanteenDailyAverage
 import com.ahu_plus.ui.theme.AhuGreen
 import com.ahu_plus.util.BrowserOpener
-import com.ahu_plus.util.QrCodeBitmap
+import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -513,9 +513,9 @@ fun ProfileScreen(
             qrError = cardUiState.qrError,
             qrCountdownSeconds = cardUiState.qrCountdownSeconds,
             onQrRefresh = cardViewModel::loadCampusQrCode,
+            onQrEnsure = cardViewModel::ensureCampusQrCode,
             onQrClick = {
                 if (isLoggedIn) {
-                    cardViewModel.loadCampusQrCode()
                     showFullQrCode = true
                 } else {
                     onLogin()
@@ -617,6 +617,7 @@ private fun ProfileHomeScreen(
     qrError: String?,
     qrCountdownSeconds: Int,
     onQrRefresh: () -> Unit,
+    onQrEnsure: () -> Unit,
     onQrClick: () -> Unit,
     identityCount: Int,
     hasMarketIdentity: Boolean,
@@ -681,17 +682,8 @@ private fun ProfileHomeScreen(
     var showQrCard by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
-    LaunchedEffect(showQrCard, qrCode, qrLoading, qrError) {
-        if (
-            shouldAutoLoadProfileQr(
-                isPanelVisible = showQrCard,
-                hasQrCode = qrCode != null,
-                isLoading = qrLoading,
-                hasError = qrError != null,
-            )
-        ) {
-            onQrRefresh()
-        }
+    LaunchedEffect(showQrCard) {
+        if (shouldEnsureProfileQr(showQrCard)) onQrEnsure()
     }
 
     if (showThirdPartyDialog) {
@@ -1379,16 +1371,19 @@ private fun ProfileQrCard(
 
             when {
                 qrCode != null -> {
-                    val image = remember(qrCode.payload) {
-                        QrCodeBitmap.create(qrCode.payload, 720)
-                    }
-                    Image(
-                        bitmap = image,
-                        contentDescription = "支付码 — 点击放大",
+                    val image = rememberQrCodeImage(qrCode.payload, 720)
+                    Box(
                         modifier = Modifier
                             .size(200.dp)
-                            .clickable { onQrClick() }
-                    )
+                            .clickable { onQrClick() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (image != null) {
+                            Image(bitmap = image, contentDescription = "支付码 — 点击放大")
+                        } else {
+                            CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp)
+                        }
+                    }
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1439,12 +1434,7 @@ private fun ProfileQrCard(
     }
 }
 
-internal fun shouldAutoLoadProfileQr(
-    isPanelVisible: Boolean,
-    hasQrCode: Boolean,
-    isLoading: Boolean,
-    hasError: Boolean,
-): Boolean = isPanelVisible && !hasQrCode && !isLoading && !hasError
+internal fun shouldEnsureProfileQr(isPanelVisible: Boolean): Boolean = isPanelVisible
 
 @Composable
 fun ProfileSection(content: @Composable () -> Unit) {

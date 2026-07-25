@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.repository.CasAuthRepository
+import com.ahu_plus.data.repository.AdwmhRequestPriority
 import com.ahu_plus.data.repository.YcardRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -62,7 +63,12 @@ class AutoLoginViewModel(
                     if (adwmhCardRepository.hasSession()) {
                         Result.success(Unit)
                     } else {
-                        adwmhCardRepository.autoLogin(username, password, generation = generation).map { Unit }
+                        adwmhCardRepository.autoLogin(
+                            username,
+                            password,
+                            generation = generation,
+                            priority = AdwmhRequestPriority.BACKGROUND,
+                        ).map { Unit }
                     }
                 }
             } else null

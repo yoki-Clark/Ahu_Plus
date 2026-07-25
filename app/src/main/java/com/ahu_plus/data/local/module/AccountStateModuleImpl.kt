@@ -24,6 +24,8 @@ class AccountStateModuleImpl(
 
     @Volatile
     private var cachedGeneration: Long = 0L
+    @Volatile
+    private var generationLoaded = false
 
     // ── DataStore keys（兼容读取旧位置）──────────────────
     companion object {
@@ -57,13 +59,18 @@ class AccountStateModuleImpl(
 
     // ── Generation ──────────────────────────────────────
     override suspend fun currentGeneration(): Long = mutex.withLock {
-        if (cachedGeneration == 0L) {
+        if (!generationLoaded) {
             cachedGeneration = appDataStore.dataStore.data.first()[GENERATION_KEY] ?: 0L
+            generationLoaded = true
         }
         cachedGeneration
     }
 
     override suspend fun incrementGeneration(): Long = mutex.withLock {
+        if (!generationLoaded) {
+            cachedGeneration = appDataStore.dataStore.data.first()[GENERATION_KEY] ?: 0L
+            generationLoaded = true
+        }
         val newGen = cachedGeneration + 1
         cachedGeneration = newGen
         appDataStore.dataStore.edit { it[GENERATION_KEY] = newGen }

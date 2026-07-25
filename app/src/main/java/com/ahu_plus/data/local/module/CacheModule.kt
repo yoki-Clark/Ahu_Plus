@@ -81,7 +81,8 @@ interface CacheModule {
 
     // ── 支付码缓存 ──────────────────────────────────────
     data class QrCodeCache(
-        val payload: String,  // 已加密存储
+        /** Only populated in memory. Persisted metadata keeps this empty. */
+        val payload: String,
         val serverText: String,
         val fetchedAt: Long,
         val generation: Long

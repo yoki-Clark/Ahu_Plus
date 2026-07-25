@@ -53,7 +53,7 @@ import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.ui.components.CountdownArc
 import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuShapes
-import com.ahu_plus.util.QrCodeBitmap
+import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 
 /**
@@ -156,19 +156,26 @@ fun QrCodeFullScreenDialog(
                 when {
                     qrCode != null && !isStale -> {
                         // 已有 QR 码 → 显示大码
-                        val image = remember(qrCode.payload) {
-                            QrCodeBitmap.create(qrCode.payload, 720)
-                        }
-                        Image(
-                            bitmap = image,
-                            contentDescription = "校园支付码",
+                        val image = rememberQrCodeImage(qrCode.payload, 720)
+                        Box(
                             modifier = Modifier
                                 .size(300.dp)
                                 .graphicsLayer(
                                     scaleX = pulseScale,
                                     scaleY = pulseScale
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (image != null) {
+                                Image(bitmap = image, contentDescription = "校园支付码")
+                            } else {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    modifier = Modifier.size(48.dp),
+                                    strokeWidth = 3.dp,
                                 )
-                        )
+                            }
+                        }
 
                         // 倒计时环 + 余额行
                         Row(

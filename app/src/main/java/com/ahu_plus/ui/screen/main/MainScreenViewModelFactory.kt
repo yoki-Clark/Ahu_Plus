@@ -75,7 +75,7 @@ class MainScreenViewModelFactory(
         return when (modelClass) {
             HomeViewModel::class.java -> HomeViewModel(
                 app, cardRepository, casAuthRepository, ycardRepository, sessionManager,
-                studentInfoRepository, adwmhCardRepository,
+                studentInfoRepository, adwmhCardRepository, app.cacheModule, app.accountStateModule,
             ) as T
             ScheduleViewModel::class.java -> ScheduleViewModel(
                 application = app,
