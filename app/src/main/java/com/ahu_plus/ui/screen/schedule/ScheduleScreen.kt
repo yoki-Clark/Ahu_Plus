@@ -619,12 +619,6 @@ private fun WeekHeader(
     }
 }
 
-// (旧的 ScheduleSettingsSheet + SettingSlider 已在 2026-06-17 抽到独立文件
-//  ui/screen/schedule/ScheduleSettingsSheet.kt)
-
-/** @deprecated 旧的本地定义;新版本在独立文件中 */
-private fun OldSettingSliderPlaceholder() = Unit
-
 // ═══════════════════════ 添加课程 BottomSheet ═══════════════════════
 
 @OptIn(ExperimentalMaterial3Api::class)

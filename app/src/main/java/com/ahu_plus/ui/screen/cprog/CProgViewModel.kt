@@ -9,6 +9,7 @@ import com.ahu_plus.data.model.CProgExamRow
 import com.ahu_plus.data.model.CProgPaper
 import com.ahu_plus.data.model.CProgSubject
 import com.ahu_plus.data.repository.CProgRepository
+import com.ahu_plus.data.repository.ErrorClassifier
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -223,7 +224,7 @@ class CProgViewModel(
     }
 
     private fun handleListError(t: Throwable) {
-        val expired = t.message == CProgRepository.SESSION_EXPIRED
+        val expired = ErrorClassifier.shouldReauth(ErrorClassifier.classify(t))
         _list.value = _list.value.copy(
             loading = false,
             error = if (expired) null else (t.message ?: "加载失败"),
@@ -277,7 +278,7 @@ class CProgViewModel(
     }
 
     private fun handleHistoryError(error: Throwable) {
-        val expired = error.message == CProgRepository.SESSION_EXPIRED
+        val expired = ErrorClassifier.shouldReauth(ErrorClassifier.classify(error))
         _history.value = HistoryUiState(
             error = if (expired) null else (error.message ?: "作答记录加载失败"),
             needsLogin = expired,
@@ -292,7 +293,7 @@ class CProgViewModel(
             repo.getAttemptPaper(exam.examId, attempt.id).fold(
                 onSuccess = { _paper.value = PaperUiState(paper = it) },
                 onFailure = {
-                    val expired = it.message == CProgRepository.SESSION_EXPIRED
+                    val expired = ErrorClassifier.shouldReauth(ErrorClassifier.classify(it))
                     _paper.value = PaperUiState(
                         error = if (expired) null else (it.message ?: "试卷加载失败"),
                         needsLogin = expired,

@@ -1,6 +1,6 @@
 package com.ahu_plus.data.local
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.Preferences
@@ -27,6 +27,7 @@ import com.ahu_plus.data.model.AiCommentTemplate
 
 import com.ahu_plus.data.model.defaultAiCommentTemplates
 import com.ahu_plus.data.model.schedule.SchedulePaletteConfig
+import com.ahu_plus.data.home.AppHubLayoutConfig
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -159,6 +160,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     // 首页"我的收藏"应用列表 (JSON 数组 List<String>, 最多 6 个;退登保留)
     @Volatile private var cachedFavoriteIds: List<String> = emptyList()
+
+    // 应用页排版配置 (JSON 序列化的 AppHubLayoutConfig;退登保留)
+    @Volatile private var cachedAppHubLayout: AppHubLayoutConfig = AppHubLayoutConfig()
+
+    // 应用使用次数计数 (app key -> 累计打开次数, 供应用页 FREQUENCY 排序;退登保留)
+    @Volatile private var cachedAppUsageCounts: Map<String, Int> = emptyMap()
 
     /** 已注册的课程提醒 lessonKey 集合(换行分隔),供 cancelAll 精确清理,避免课表变更后旧闹钟成孤儿 */
     @Volatile private var cachedReminderKeys: String = ""
@@ -330,7 +337,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     @Volatile private var cachedQrBrightnessBoost: Boolean = false
 
-    @Volatile private var cachedAdwmhConcurrentRetry: Boolean = true
     @Volatile private var cachedCardBalanceAlertEnabled: Boolean = false
     @Volatile private var cachedCardBalanceAlertThreshold: Double = 20.0
     @Volatile private var cachedCardBalanceAlertMode: String = "FIXED"
@@ -344,6 +350,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     @Volatile private var cachedTrainingPlanCacheVersion: Long = 0L
 
+    @Volatile private var cachedCompletionCoursesJson: String? = null
+
+    @Volatile private var cachedCompletionSummaryJson: String? = null
+
+    @Volatile private var cachedCompletionUpdatedAt: Long = 0L
+
     @Volatile private var cachedEmptyClassroomJson: String? = null
 
     @Volatile private var cachedEmptyClassroomKey: String? = null
@@ -351,6 +363,11 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
     @Volatile private var cachedEmptyClassroomUpdatedAt: Long = 0L
 
     @Volatile private var cachedEmptyClassroomPresets: List<EmptyClassroomPreset> = emptyList()
+
+    // \u5168\u6821\u5F00\u8BFE\u67E5\u8BE2\uFF08lesson-search\uFF09\uFF1A\u7F13\u5B58\u9ED8\u8BA4\u6D4F\u89C8\u9996\u5C4F,\u4F9B\u51B7\u542F\u52A8\u79D2\u56DE
+    @Volatile private var cachedLessonSearchJson: String? = null
+
+    @Volatile private var cachedLessonSearchUpdatedAt: Long = 0L
 
     // \u2500\u2500 \u8D85\u661F\u5B66\u4E60\u901A \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
@@ -615,6 +632,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedFavoriteIds = parseStringList(prefs[FAVORITE_APP_IDS_KEY])
 
+        cachedAppHubLayout = parseAppHubLayout(prefs[APP_HUB_LAYOUT_KEY])
+
+        cachedAppUsageCounts = parseAppUsageCounts(prefs[APP_USAGE_COUNTS_KEY])
+
         // \u96C6\u5E02\u529F\u80FD\u603B\u5F00\u5173: \u7F3A\u7701 true,\u4FDD\u6301\u5411\u540E\u517C\u5BB9 (\u8001\u7528\u6237\u9ED8\u8BA4\u542F\u7528)
 
         // 第三方服务开关迁移:保留老用户已经使用过的服务,显式设置始终优先。
@@ -840,7 +861,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedQrBrightnessBoost = prefs[QR_BRIGHTNESS_BOOST_KEY] ?: false
 
-        cachedAdwmhConcurrentRetry = prefs[ADWMH_CONCURRENT_RETRY_KEY] ?: true
         cachedCardBalanceAlertEnabled = prefs[CARD_BALANCE_ALERT_ENABLED_KEY] ?: false
         cachedCardBalanceAlertThreshold = prefs[CARD_BALANCE_ALERT_THRESHOLD_KEY] ?: 20.0
         cachedCardBalanceAlertMode = prefs[CARD_BALANCE_ALERT_MODE_KEY] ?: "FIXED"
@@ -857,6 +877,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedTrainingPlanCacheVersion = prefs[TRAINING_PLAN_CACHE_VERSION_KEY] ?: 0L
 
+        cachedCompletionCoursesJson = prefs[COMPLETION_COURSES_JSON_KEY]
+
+        cachedCompletionSummaryJson = prefs[COMPLETION_SUMMARY_JSON_KEY]
+
+        cachedCompletionUpdatedAt = prefs[COMPLETION_UPDATED_AT_KEY] ?: 0L
+
         cachedEmptyClassroomJson = prefs[EMPTY_CLASSROOM_JSON_KEY]
 
         cachedEmptyClassroomKey = prefs[EMPTY_CLASSROOM_KEY_KEY]
@@ -866,6 +892,9 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             val type = object : TypeToken<List<EmptyClassroomPreset>>() {}.type
             gson.fromJson<List<EmptyClassroomPreset>>(prefs[EMPTY_CLASSROOM_PRESETS_KEY], type)
         }.getOrNull().orEmpty()
+
+        cachedLessonSearchJson = prefs[LESSON_SEARCH_JSON_KEY]
+        cachedLessonSearchUpdatedAt = prefs[LESSON_SEARCH_UPDATED_AT_KEY] ?: 0L
 
         // \u8D85\u661F\u5B66\u4E60\u901A
 
@@ -1558,7 +1587,15 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedRecentApps = value
 
-        appDataStore.dataStore.edit { it[RECENT_APPS_KEY] = value }
+        // 累计使用次数(供应用页 FREQUENCY 排序)
+        val counts = cachedAppUsageCounts.toMutableMap()
+        counts[appKey] = (counts[appKey] ?: 0) + 1
+        cachedAppUsageCounts = counts
+
+        appDataStore.dataStore.edit {
+            it[RECENT_APPS_KEY] = value
+            it[APP_USAGE_COUNTS_KEY] = gson.toJson(counts)
+        }
 
     }
 
@@ -1575,13 +1612,61 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    // ── 应用页排版配置 ─────────────────────────────────────────────
+
+    /** 应用页排版配置(已 normalize 过失效 key 剔除)。退登保留。 */
+    fun getAppHubLayout(): AppHubLayoutConfig = cachedAppHubLayout
+
+    suspend fun saveAppHubLayout(config: AppHubLayoutConfig) {
+
+        cachedAppHubLayout = config
+
+        appDataStore.dataStore.edit { it[APP_HUB_LAYOUT_KEY] = gson.toJson(config) }
+
+    }
+
+    /** 应用使用次数(app key -> 累计打开次数),供应用页 FREQUENCY 排序。退登保留。 */
+    fun getAppUsageCounts(): Map<String, Int> = cachedAppUsageCounts
+
+    private fun parseAppHubLayout(json: String?): AppHubLayoutConfig {
+
+        if (json.isNullOrBlank()) return AppHubLayoutConfig()
+
+        return runCatching {
+
+            // fromStoredJson 对「后加字段的旧 JSON」向后兼容(缺键回退默认,不被填成 false)
+            AppHubLayoutConfig.fromStoredJson(json)
+                .normalize(com.ahu_plus.data.home.AppRegistry.allKeys())
+
+        }.getOrDefault(AppHubLayoutConfig())
+
+    }
+
+    private fun parseAppUsageCounts(json: String?): Map<String, Int> {
+
+        if (json.isNullOrBlank()) return emptyMap()
+
+        return runCatching {
+
+            @Suppress("UNCHECKED_CAST")
+            val raw = gson.fromJson(json, Map::class.java) as? Map<String, Number> ?: emptyMap()
+            raw.mapValues { it.value.toInt() }
+
+        }.getOrDefault(emptyMap())
+
+    }
+
     // \u2500\u2500 \u6211\u7684\u4FE1\u606F\u7F13\u5B58 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     fun getStudentInfoJson(): String? = cachedStudentInfoJson
 
     fun getStudentInfoUpdatedAt(): Long = cachedStudentInfoUpdatedAt
 
-    suspend fun saveStudentInfoJson(json: String, updatedAt: Long = System.currentTimeMillis()) {
+    suspend fun saveStudentInfoJson(json: String, updatedAt: Long = System.currentTimeMillis(), generation: Long? = null) {
+        if (!isCurrentGeneration(generation)) {
+            Log.w(TAG, "saveStudentInfoJson: generation mismatch, skipping")
+            return
+        }
 
         cachedStudentInfoJson = json
 
@@ -1705,7 +1790,11 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
     fun getWeLearnCoursesJson(): String? = cachedWeLearnCoursesJson
     fun getWeLearnCoursesUpdatedAt(): Long = cachedWeLearnCoursesUpdatedAt
 
-    suspend fun saveWeLearnCoursesJson(json: String) {
+    suspend fun saveWeLearnCoursesJson(json: String, generation: Long? = null) {
+        if (!isCurrentGeneration(generation)) {
+            Log.w(TAG, "saveWeLearnCoursesJson: generation mismatch, skipping")
+            return
+        }
         cachedWeLearnCoursesJson = json
         cachedWeLearnCoursesUpdatedAt = System.currentTimeMillis()
         appDataStore.dataStore.edit {
@@ -2324,16 +2413,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     // \u2500\u2500 \u667A\u6167\u5B89\u5927\u767B\u5F55\u662F\u5426\u542F\u7528\u5E76\u53D1\u91CD\u8BD5\uFF08\u9ED8\u8BA4\u5173\u95ED\uFF09 \u2500\u2500
 
-    fun getAdwmhConcurrentRetry(): Boolean = cachedAdwmhConcurrentRetry
-
-    suspend fun setAdwmhConcurrentRetry(enabled: Boolean) {
-
-        cachedAdwmhConcurrentRetry = enabled
-
-        appDataStore.dataStore.edit { it[ADWMH_CONCURRENT_RETRY_KEY] = enabled }
-
-    }
-
     // ── 内测计划开关(退登保留) ──
 
     /** 用户是否加入内测计划。默认 false。 */
@@ -2547,6 +2626,39 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    /**
+     * 培养方案完成情况缓存（program-completion-preview 解析结果）。
+     *
+     * 与 training plan JSON 不同，这里保存的是已解析的 [CompletionCourse] 列表与
+     * [CompletionSummary] 概览。typeId / moduleName 已随 [CompletionCourse] 序列化，
+     * 因此冷启动恢复后无需重新请求网络即可还原子分类路由与进度条计算。
+     */
+    fun getCompletionCoursesJson(): String? = cachedCompletionCoursesJson
+
+    fun getCompletionSummaryJson(): String? = cachedCompletionSummaryJson
+
+    fun getCompletionUpdatedAt(): Long = cachedCompletionUpdatedAt
+
+    suspend fun saveCompletionData(coursesJson: String, summaryJson: String) {
+
+        cachedCompletionCoursesJson = coursesJson
+
+        cachedCompletionSummaryJson = summaryJson
+
+        cachedCompletionUpdatedAt = System.currentTimeMillis()
+
+        appDataStore.dataStore.edit { preferences ->
+
+            preferences[COMPLETION_COURSES_JSON_KEY] = coursesJson
+
+            preferences[COMPLETION_SUMMARY_JSON_KEY] = summaryJson
+
+            preferences[COMPLETION_UPDATED_AT_KEY] = cachedCompletionUpdatedAt
+
+        }
+
+    }
+
     fun getEmptyClassroomJson(): String? = cachedEmptyClassroomJson
 
     fun getEmptyClassroomKey(): String? = cachedEmptyClassroomKey
@@ -2602,6 +2714,29 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    // ── 全校开课查询缓存（默认浏览首屏，冷启动秒回）─────────────
+    fun getLessonSearchJson(): String? = cachedLessonSearchJson
+
+    fun getLessonSearchUpdatedAt(): Long = cachedLessonSearchUpdatedAt
+
+    suspend fun saveLessonSearchJson(json: String) {
+        cachedLessonSearchJson = json
+        cachedLessonSearchUpdatedAt = System.currentTimeMillis()
+        appDataStore.dataStore.edit { preferences ->
+            preferences[LESSON_SEARCH_JSON_KEY] = json
+            preferences[LESSON_SEARCH_UPDATED_AT_KEY] = cachedLessonSearchUpdatedAt
+        }
+    }
+
+    suspend fun clearLessonSearchJson() {
+        cachedLessonSearchJson = null
+        cachedLessonSearchUpdatedAt = 0L
+        appDataStore.dataStore.edit { preferences ->
+            preferences.remove(LESSON_SEARCH_JSON_KEY)
+            preferences.remove(LESSON_SEARCH_UPDATED_AT_KEY)
+        }
+    }
+
     suspend fun clearTrainingPlanJson() {
 
         cachedTrainingPlanJson = null
@@ -2617,6 +2752,26 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             preferences.remove(TRAINING_PLAN_UPDATED_AT_KEY)
 
             preferences.remove(TRAINING_PLAN_CACHE_VERSION_KEY)
+
+        }
+
+    }
+
+    suspend fun clearCompletionData() {
+
+        cachedCompletionCoursesJson = null
+
+        cachedCompletionSummaryJson = null
+
+        cachedCompletionUpdatedAt = 0L
+
+        appDataStore.dataStore.edit { preferences ->
+
+            preferences.remove(COMPLETION_COURSES_JSON_KEY)
+
+            preferences.remove(COMPLETION_SUMMARY_JSON_KEY)
+
+            preferences.remove(COMPLETION_UPDATED_AT_KEY)
 
         }
 
@@ -2652,6 +2807,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         // \u5148\u6E05\u9664\u5185\u5B58\u7F13\u5B58
 
         clearCachedAuthData()
+        clearCachedUserAssets()
 
         cachedJwAppUsername = null
 
@@ -2726,6 +2882,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedRecentApps = ""
 
+        cachedAppHubLayout = AppHubLayoutConfig()
+
+        cachedAppUsageCounts = emptyMap()
+
         cachedScheduleColWidth = 64f
 
         cachedScheduleRowHeight = 56f
@@ -2761,7 +2921,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         credentialStore.remove(
             EncryptedCredentialStore.ACCOUNT_KEYS +
-                EncryptedCredentialStore.THIRD_PARTY_ACCOUNT_KEYS
+                EncryptedCredentialStore.THIRD_PARTY_KEYS
         )
 
         Log.i(TAG, "\u6240\u6709\u4F1A\u8BDD\u548C\u51ED\u636E\u5DF2\u6E05\u9664")
@@ -2827,8 +2987,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedKqcardAttendanceUpdatedAt = 0L
 
-        cachedUserScheduleJson = null
-
         cachedAssessmentJson = null
 
         cachedAssessmentUpdatedAt = 0L
@@ -2836,14 +2994,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedRecordIndexJson = null
 
         cachedRecordIndexUpdatedAt = 0L
-
-        cachedHomeworkJson = null
-
-        cachedHomeworkUpdatedAt = 0L
-
-        cachedUserTasksJson = null
-
-        cachedUserTasksUpdatedAt = 0L
 
         cachedBathroomPhone = null
 
@@ -2868,6 +3018,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedTrainingPlanCacheVersion = 0L
 
+        cachedCompletionCoursesJson = null
+
+        cachedCompletionSummaryJson = null
+
+        cachedCompletionUpdatedAt = 0L
+
         cachedEmptyClassroomJson = null
 
         cachedEmptyClassroomKey = null
@@ -2878,6 +3034,14 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedCProgJsessionid = null
         cachedCProgUserId = null
 
+    }
+
+    private fun clearCachedUserAssets() {
+        cachedUserScheduleJson = null
+        cachedHomeworkJson = null
+        cachedHomeworkUpdatedAt = 0L
+        cachedUserTasksJson = null
+        cachedUserTasksUpdatedAt = 0L
     }
 
     // \u2500\u2500 JSON \u89E3\u6790\u8F85\u52A9 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -3573,6 +3737,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         val FAVORITE_APP_IDS_KEY = stringPreferencesKey("favorite_app_ids")
 
+        val APP_HUB_LAYOUT_KEY = stringPreferencesKey("app_hub_layout_json")
+
+        val APP_USAGE_COUNTS_KEY = stringPreferencesKey("app_usage_counts_json")
+
         val SCHEDULE_COL_WIDTH_KEY = stringPreferencesKey("schedule_col_width")
 
         val SCHEDULE_ROW_HEIGHT_KEY = stringPreferencesKey("schedule_row_height")
@@ -3685,7 +3853,6 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     private val QR_BRIGHTNESS_BOOST_KEY = booleanPreferencesKey("qr_brightness_boost")
 
-    private val ADWMH_CONCURRENT_RETRY_KEY = booleanPreferencesKey("adwmh_concurrent_retry")
     private val CARD_BALANCE_ALERT_ENABLED_KEY = booleanPreferencesKey("card_balance_alert_enabled")
     private val CARD_BALANCE_ALERT_THRESHOLD_KEY = doublePreferencesKey("card_balance_alert_threshold")
     private val CARD_BALANCE_ALERT_MODE_KEY = stringPreferencesKey("card_balance_alert_mode")
@@ -3702,12 +3869,21 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         val TRAINING_PLAN_CACHE_VERSION_KEY = longPreferencesKey("training_plan_cache_version")
 
+        val COMPLETION_COURSES_JSON_KEY = stringPreferencesKey("completion_courses_json")
+
+        val COMPLETION_SUMMARY_JSON_KEY = stringPreferencesKey("completion_summary_json")
+
+        val COMPLETION_UPDATED_AT_KEY = longPreferencesKey("completion_updated_at")
+
         val EMPTY_CLASSROOM_JSON_KEY = stringPreferencesKey("empty_classroom_json")
 
         val EMPTY_CLASSROOM_KEY_KEY = stringPreferencesKey("empty_classroom_key")
 
         val EMPTY_CLASSROOM_UPDATED_AT_KEY = longPreferencesKey("empty_classroom_updated_at")
         val EMPTY_CLASSROOM_PRESETS_KEY = stringPreferencesKey("empty_classroom_presets")
+
+        val LESSON_SEARCH_JSON_KEY = stringPreferencesKey("lesson_search_json")
+        val LESSON_SEARCH_UPDATED_AT_KEY = longPreferencesKey("lesson_search_updated_at")
 
         val CX_COURSES_PROGRESS_JSON_KEY = stringPreferencesKey("cx_courses_progress_json")
         val CX_HOMEWORK_JSON_KEY = stringPreferencesKey("cx_homework_json")
@@ -3877,15 +4053,9 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
             KQCARD_ATTENDANCE_JSON_KEY, KQCARD_ATTENDANCE_UPDATED_AT_KEY,
 
-            USER_SCHEDULE_JSON_KEY,
-
             ASSESSMENT_JSON_KEY, ASSESSMENT_UPDATED_AT_KEY,
 
             RECORD_INDEX_JSON_KEY, RECORD_INDEX_UPDATED_AT_KEY,
-
-            HOMEWORK_JSON_KEY, HOMEWORK_UPDATED_AT_KEY,
-
-            USER_TASKS_JSON_KEY, USER_TASKS_UPDATED_AT_KEY,
 
             BATHROOM_PHONE_KEY,
 
@@ -3898,7 +4068,11 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
             TRAINING_PLAN_JSON_KEY, TRAINING_PLAN_UPDATED_AT_KEY, TRAINING_PLAN_CACHE_VERSION_KEY,
 
+            COMPLETION_COURSES_JSON_KEY, COMPLETION_SUMMARY_JSON_KEY, COMPLETION_UPDATED_AT_KEY,
+
             EMPTY_CLASSROOM_JSON_KEY, EMPTY_CLASSROOM_KEY_KEY, EMPTY_CLASSROOM_UPDATED_AT_KEY,
+
+            LESSON_SEARCH_JSON_KEY, LESSON_SEARCH_UPDATED_AT_KEY,
 
             CX_COOKIES_KEY, CX_PHONE_KEY, CX_PASSWORD_KEY,
 
@@ -3908,9 +4082,15 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         )
 
+        val USER_ASSET_KEYS = listOf(
+            USER_SCHEDULE_JSON_KEY,
+            HOMEWORK_JSON_KEY, HOMEWORK_UPDATED_AT_KEY,
+            USER_TASKS_JSON_KEY, USER_TASKS_UPDATED_AT_KEY,
+        )
+
         /** clearAll \u9700\u8981\u79FB\u9664\u7684 DataStore keys (AUTH_DATA + \u96C6\u5E02\u8BBE\u7F6E + UI \u504F\u597D + \u8D85\u661F) */
 
-        val ALL_CLEARABLE_KEYS = AUTH_DATA_KEYS + listOf(
+        val ALL_CLEARABLE_KEYS = AUTH_DATA_KEYS + USER_ASSET_KEYS + listOf(
 
             MARKET_API_IDENTITY_KEY,
 
@@ -3930,7 +4110,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
             AI_COMMENT_TEMPLATES_KEY, AI_COMMENT_SELECTED_TEMPLATE_KEY,
 
-            RECENT_APPS_KEY,
+            RECENT_APPS_KEY, APP_HUB_LAYOUT_KEY, APP_USAGE_COUNTS_KEY,
 
             SCHEDULE_COL_WIDTH_KEY, SCHEDULE_ROW_HEIGHT_KEY, SCHEDULE_FONT_SCALE_KEY,
 

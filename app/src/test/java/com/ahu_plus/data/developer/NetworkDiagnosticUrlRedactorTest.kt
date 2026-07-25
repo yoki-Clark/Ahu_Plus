@@ -86,7 +86,7 @@ class NetworkDiagnosticUrlRedactorTest {
     @Test
     fun `diagnostic text removes standalone credentials and tickets`() {
         val source = "Authorization: Bearer top-secret; password=hunter2 ticket=ST-123456-api " +
-            "jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij123456"
+            "jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij123456" // scanner-fixture
 
         val sanitized = NetworkDiagnosticUrlRedactor.sanitizeDiagnosticText(source)
 

@@ -317,6 +317,45 @@ function Wait-ProxyReady($process, $seconds = 20){
     return $false
 }
 
+function Invoke-ProxyCapture([int]$TimeoutSeconds = 300){
+    # 内存扫描无法识别时的可靠兜底：直接观察真实 HTTPS 请求头。
+    # 代理只解密目标域名，结束时由主流程 finally 统一停止并清理。
+    $script:proxyAttempted = $true
+    Ensure-Cert
+
+    $existingListener = Get-NetTCPConnection -LocalPort $ProxyPort -State Listen -ErrorAction SilentlyContinue
+    if($existingListener){
+        throw "端口 $ProxyPort 已被其他程序占用，请关闭占用程序后重试。"
+    }
+
+    $mitmArgs = @("$MitmRun","-s","$Script","-p","$ProxyPort",
+                  "--set","confdir=$CaDir","--allow-hosts","^api\.zxs-bbs\.cn$",
+                  "--set","termlog_verbosity=warn","--set","flow_detail=0")
+    $script:mitmProcess = Start-Process -FilePath $PyExe -ArgumentList $mitmArgs -PassThru -NoNewWindow
+    if(-not (Wait-ProxyReady $script:mitmProcess)){
+        $exitDetail = if($script:mitmProcess.HasExited){ "退出码 $($script:mitmProcess.ExitCode)" } else { "等待监听超时" }
+        throw "抓包代理启动失败（$exitDetail），请查看窗口中的错误信息。"
+    }
+
+    $script:savedProxy = Get-ProxyState
+    Info "开启抓包代理（127.0.0.1:$ProxyPort）…"
+    Set-Proxy "$ProxyHost`:$ProxyPort"
+    $script:proxyChanged = $true
+
+    Write-Host ""
+    Ok "代理捕获已准备就绪！请在电脑版微信的集市小程序中下拉刷新帖子列表。"
+    Write-Host "    仅观察 api.zxs-bbs.cn，请求中的长期凭据只写入本机文件。" -ForegroundColor White
+    Write-Host ""
+    Info "正在等待抓取（最多 $TimeoutSeconds 秒）…"
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while((Get-Date) -lt $deadline){
+        if(Test-Path $DoneFlag){ Start-Sleep -Milliseconds 800; break }
+        if($script:mitmProcess.HasExited){ break }
+        Start-Sleep -Milliseconds 600
+    }
+}
+
 if($RuntimeSelfTest){
     $candidate = if($RuntimeSelfTestPython){ $RuntimeSelfTestPython } else { Resolve-SystemPython }
     if(-not $candidate){ throw "自检失败：未找到可用的 Python" }
@@ -358,6 +397,7 @@ Write-Host ""
 
 $savedProxy = $null
 $proxyChanged = $false
+$proxyAttempted = $false
 $mitmProcess = $null
 $memoryProcess = $null
 $certProcess = $null
@@ -385,70 +425,35 @@ try{
     $runningWeChat = Get-WeChatProcesses
     if($runningWeChat.Count -gt 0){
         Write-Host ""
-        Ok "检测到已运行的电脑版微信，将直接读取当前小程序登录态。"
-        Write-Host "    不需要退出微信，不修改系统代理，也不会转储微信内存。" -ForegroundColor White
+        Ok "检测到已运行的电脑版微信，先尝试读取当前小程序登录态。"
+        Write-Host "    内存扫描只读且不输出凭据；如果识别不到，将自动切换到请求捕获。" -ForegroundColor White
         Write-Host "    请打开【校园集市 / 赞噢校园集市】并下拉刷新帖子列表。" -ForegroundColor White
         Write-Host ""
-        Info "正在等待本地身份（最多 5 分钟）…"
+        Info "正在尝试本地身份（最多 30 秒）…"
 
         $memoryProcess = Start-Process -FilePath $PyExe `
-            -ArgumentList @("`"$MemoryScanner`"","--watch-seconds","300") `
+            -ArgumentList @("`"$MemoryScanner`"","--watch-seconds","30") `
             -PassThru -NoNewWindow
-        $deadline = (Get-Date).AddMinutes(5)
+        $deadline = (Get-Date).AddSeconds(30)
         while((Get-Date) -lt $deadline){
             if(Test-Path $DoneFlag){ Start-Sleep -Milliseconds 800; break }
             if($memoryProcess.HasExited){ break }
             Start-Sleep -Milliseconds 600
         }
         if($memoryProcess -and -not $memoryProcess.HasExited){ $memoryProcess.Kill() }
+
+        if(-not (Test-Path $DoneFlag)){
+            Warn "内存扫描未识别到身份，切换到请求捕获；请再次下拉刷新帖子列表。"
+            Invoke-ProxyCapture
+        }
     }else{
-        # 微信尚未运行时保留原代理路径：监听就绪后再让用户打开微信。
-        Ensure-Cert
-
-        $existingListener = Get-NetTCPConnection -LocalPort $ProxyPort -State Listen -ErrorAction SilentlyContinue
-        if($existingListener){
-            throw "端口 $ProxyPort 已被其他程序占用，请关闭占用程序后重试。"
-        }
-
-        # 先启动并验证监听器，再修改系统代理，避免启动失败时造成短暂断网。
-        $mitmArgs = @("$MitmRun","-s","$Script","-p","$ProxyPort",
-                      "--set","confdir=$CaDir","--allow-hosts","^api\.zxs-bbs\.cn$",
-                      "--set","termlog_verbosity=warn","--set","flow_detail=0")
-        $mitmProcess = Start-Process -FilePath $PyExe -ArgumentList $mitmArgs -PassThru -NoNewWindow
-        if(-not (Wait-ProxyReady $mitmProcess)){
-            $exitDetail = if($mitmProcess.HasExited){ "退出码 $($mitmProcess.ExitCode)" } else { "等待监听超时" }
-            throw "抓包代理启动失败（$exitDetail），请查看窗口中的错误信息。"
-        }
-
-        # 设代理（先存原状态）
-        $savedProxy = Get-ProxyState
-        Info "开启抓包代理（127.0.0.1:$ProxyPort）…"
-        Set-Proxy "$ProxyHost`:$ProxyPort"
-        $proxyChanged = $true
-
-        Write-Host ""
-        Ok   "准备就绪！现在请按下面做："
-        Write-Host "    1) 打开【电脑版微信】" -ForegroundColor White
-        Write-Host "    2) 搜索并打开【校园集市 / 赞噢校园集市】小程序" -ForegroundColor White
-        Write-Host "    3) 在小程序里随便点一下，比如下拉刷新帖子列表" -ForegroundColor White
-        Write-Host ""
-        Info "正在等待抓取（最多 5 分钟）… 抓到后会自动提示，无需手动操作。"
-        Write-Host ""
-
-        # 轮询 .captured；最多 5 分钟
-        $deadline = (Get-Date).AddMinutes(5)
-        while((Get-Date) -lt $deadline){
-            if(Test-Path $DoneFlag){ Start-Sleep -Milliseconds 800; break }
-            if($mitmProcess.HasExited){ break }
-            Start-Sleep -Milliseconds 600
-        }
-
-        if($mitmProcess -and -not $mitmProcess.HasExited){ $mitmProcess.Kill() }
+        # 微信尚未运行时直接走代理，监听就绪后再打开微信。
+        Invoke-ProxyCapture
     }
 
     Write-Host ""
     if(Test-Path $TokenFile){
-        Ok "已成功获取！Token 已复制到剪贴板，并保存在："
+        Ok "已成功获取！Token 仅保存在本机文件："
         Write-Host "    $TokenFile" -ForegroundColor White
         Write-Host ""
         if(Test-Path $QrFile){
@@ -456,9 +461,9 @@ try{
             Write-Host "    $QrFile" -ForegroundColor White
             Start-Process -FilePath $QrFile | Out-Null
         }
-        Ok "也可以回到 App 的【集市设置】，从剪贴板粘贴。"
+        Ok "工具不会自动复制 Token；需要时可手动打开本机 Token 文件。"
     }else{
-        if($runningWeChat.Count -gt 0){
+        if($runningWeChat.Count -gt 0 -and -not $proxyAttempted){
             Warn "已检测到微信，但没有在进程内存中识别到集市身份。"
             Write-Host "    请确认小程序已登录，并在帖子列表下拉刷新后保持页面打开。" -ForegroundColor White
             Write-Host "    若安全软件拦截了读取微信进程，请允许本工具后重试。" -ForegroundColor White

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.Checkbox
@@ -65,8 +66,6 @@ internal fun AppSettingsScreen(
     onThemeModeChange: (AppThemeMode) -> Unit,
     qrBrightnessBoost: Boolean = true,
     onQrBrightnessBoostChanged: (Boolean) -> Unit = {},
-    adwmhConcurrentRetry: Boolean = false,
-    onAdwmhConcurrentRetryChanged: (Boolean) -> Unit = {},
     cardBalanceAlertEnabled: Boolean = false,
     cardBalanceAlertThreshold: Double = 20.0,
     cardBalanceAlertMode: CardBalanceAlertMode = CardBalanceAlertMode.FIXED,
@@ -82,6 +81,7 @@ internal fun AppSettingsScreen(
     welearnEnabled: Boolean = false,
     onBottomNavServicesChanged: (List<String>) -> Unit = {},
     onOpenScheduleSettings: () -> Unit = {},
+    onOpenAppHubSettings: () -> Unit = {},
     onOpenMarketSettings: () -> Unit = {},
     onOpenChaoxingSettings: () -> Unit = {},
     onOpenCacheCleanup: () -> Unit = {},
@@ -89,7 +89,6 @@ internal fun AppSettingsScreen(
 ) {
     // 本地状态确保开关即时响应
     var localQrBrightness by remember { mutableStateOf(qrBrightnessBoost) }
-    var localAdwmhRetry by remember { mutableStateOf(adwmhConcurrentRetry) }
     var localCardAlert by remember { mutableStateOf(cardBalanceAlertEnabled) }
     var localCardThreshold by remember { mutableStateOf(formatThresholdInput(cardBalanceAlertThreshold)) }
     var localCardMode by remember { mutableStateOf(cardBalanceAlertMode) }
@@ -204,6 +203,13 @@ internal fun AppSettingsScreen(
                             icon = Icons.Filled.CalendarMonth,
                             onClick = onOpenScheduleSettings,
                         )
+                        HorizontalDivider()
+                        SettingsRouteRow(
+                            title = "应用页设置",
+                            description = "列数、卡片样式、分组排序与显示隐藏",
+                            icon = Icons.Filled.GridView,
+                            onClick = onOpenAppHubSettings,
+                        )
                         if (marketEnabled) {
                             HorizontalDivider()
                             SettingsRouteRow(
@@ -265,20 +271,6 @@ internal fun AppSettingsScreen(
                             onCheckedChange = {
                                 localQrBrightness = it
                                 onQrBrightnessBoostChanged(it)
-                            },
-                        )
-                        HorizontalDivider()
-                        SettingsSwitchRow(
-                            title = "智慧安大并发重试",
-                            description = if (localAdwmhRetry) {
-                                "登录超时时同时发起多个请求，任意一个成功即返回"
-                            } else {
-                                "登录失败时按顺序逐一重试"
-                            },
-                            checked = localAdwmhRetry,
-                            onCheckedChange = {
-                                localAdwmhRetry = it
-                                onAdwmhConcurrentRetryChanged(it)
                             },
                         )
                         HorizontalDivider()

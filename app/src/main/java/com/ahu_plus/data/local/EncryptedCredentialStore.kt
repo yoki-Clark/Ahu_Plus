@@ -2,7 +2,7 @@ package com.ahu_plus.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
@@ -12,7 +12,7 @@ import androidx.security.crypto.MasterKey
  * Business caches and ordinary preferences remain in DataStore. If the device Keystore is
  * unavailable, secrets stay in memory for the current process and are not written as plaintext.
  */
-internal class EncryptedCredentialStore(context: Context) {
+class EncryptedCredentialStore(context: Context) {
     private val preferences: SharedPreferences? = runCatching {
         val appContext = context.applicationContext
         EncryptedSharedPreferences.create(
@@ -58,10 +58,25 @@ internal class EncryptedCredentialStore(context: Context) {
         }
     }
 
+    fun clearAll() {
+        runCatching { preferences?.edit()?.clear()?.commit() }
+            .onFailure { Log.e(TAG, "Failed to clear encrypted credentials", it) }
+    }
+
     companion object {
         private const val TAG = "CredentialStore"
         private const val FILE_NAME = "ahu_plus_credentials"
 
+        // M2 Module 新增常量（与旧常量保持一致以兼容）
+        const val USERNAME = "cas_username"
+        const val PASSWORD = "cas_password"
+        const val PSTSID = "jw_pst_sid"
+        const val KQ_SESSION = "kq_session"  // 新增
+        const val MARKET_TOKEN = "market_legacy_identity"
+        const val CHAOXING_USERNAME = "chaoxing_phone"
+        const val CPROG_PASSWORD = "cprog_password"  // 新增
+
+        // 原有常量（保留兼容）
         const val CAS_USERNAME = "cas_username"
         const val CAS_PASSWORD = "cas_password"
         const val PORTAL_SESSION = "portal_session"
@@ -91,6 +106,7 @@ internal class EncryptedCredentialStore(context: Context) {
         const val CPROG_USER_ID = "cprog_user_id"
         const val CPROG_USERNAME = "cprog_username"
         const val CPROG_IDNO = "cprog_idno"
+        const val ADWMH_QR_PAYLOAD = "adwmh_qr_payload"
 
         val ACCOUNT_KEYS = setOf(
             CAS_USERNAME,
@@ -99,9 +115,11 @@ internal class EncryptedCredentialStore(context: Context) {
             JW_SESSION,
             JW_PST_SID,
             ADWMH_SESSION,
+            KQ_SESSION,
             EVALUATION_JWT,
+            ADWMH_QR_PAYLOAD,
         )
-        val THIRD_PARTY_ACCOUNT_KEYS = setOf(
+        val THIRD_PARTY_KEYS = setOf(
             JWAPP_USERNAME,
             JWAPP_PASSWORD,
             JWAPP_TOKEN,

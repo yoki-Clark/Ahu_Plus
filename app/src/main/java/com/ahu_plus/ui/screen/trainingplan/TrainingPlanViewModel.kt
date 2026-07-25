@@ -1,6 +1,6 @@
 package com.ahu_plus.ui.screen.trainingplan
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.GsonProvider
@@ -17,6 +17,7 @@ import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.ProgramCompletionRepository
 import com.ahu_plus.data.repository.SessionExpiredException
 import com.ahu_plus.data.repository.TrainingPlanRepository
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -88,6 +89,21 @@ class TrainingPlanViewModel(
                 if (scheduleJson != null) {
                     applyScheduleCache(scheduleJson)
                 }
+                // 从缓存加载完成数据（program-completion-preview 解析结果）。
+                // typeId / moduleName 已随 CompletionCourse 序列化，冷启动恢复后
+                // 子分类路由与进度条计算无需重新请求网络即可还原正确样式。
+                val compCoursesJson = sm.getCompletionCoursesJson()
+                val compSummaryJson = sm.getCompletionSummaryJson()
+                if (!compCoursesJson.isNullOrEmpty() && !compSummaryJson.isNullOrEmpty()) {
+                    runCatching {
+                        val courses = gson.fromJson(
+                            compCoursesJson,
+                            object : TypeToken<List<CompletionCourse>>() {}.type
+                        ) as List<CompletionCourse>
+                        val summary = gson.fromJson(compSummaryJson, CompletionSummary::class.java)
+                        applyCompletionData(courses, summary)
+                    }.onFailure { Log.w(TAG, "Failed to restore completion data from cache: ${it.message}") }
+                }
             }
             _uiState.update {
                 it.copy(dataStatus = DataSnapshotStatus.cache(sm.getTrainingPlanUpdatedAt()))
@@ -148,6 +164,17 @@ class TrainingPlanViewModel(
                     onSuccess = { (courses, summary) ->
                         if (generation != requestGeneration) return@fold
                         applyCompletionData(courses, summary)
+                        // 持久化完成数据到缓存，确保冷启动能还原 typeId / moduleName
+                        // 子分类路由与进度条计算无需重新请求网络。
+                        sessionManager?.let { sm ->
+                            try {
+                                val coursesJson = gson.toJson(courses)
+                                val summaryJson = gson.toJson(summary)
+                                sm.saveCompletionData(coursesJson, summaryJson)
+                            } catch (_: Exception) {
+                                Log.w(TAG, "Failed to cache completion data")
+                            }
+                        }
                     },
                     onFailure = { /* 完成数据加载失败使用兜底方案 */ }
                 )
@@ -206,23 +233,60 @@ class TrainingPlanViewModel(
 
             // 已通过但不在培养方案中的课程代码（如通识选修的 TX 课程）
             val unmatchedPassed = passedCodes - allPlanCodes
+
+            // 构建 typeId → moduleName 映射（含子模块），用于按 CompletionCourse.typeId 精确归属未匹配学分。
+            // typeId 来自 completion preview HTML 中 allCourseList 所属模块的 typeId，与 PlanModuleNode.type.id 对齐。
+            val typeIdToName = mutableMapOf<Int, String>()
+            // 同时构建 moduleName → typeId 反向映射，用于 typeId 为空时按名称回退匹配
+            val moduleNameToTypeId = mutableMapOf<String, Int>()
+            fun collectTypeNames(node: PlanModuleNode) {
+                node.type?.let { typeInfo ->
+                    typeInfo.id?.let { tid ->
+                        typeInfo.nameZh?.let { name ->
+                            typeIdToName[tid] = name
+                            moduleNameToTypeId[name] = tid
+                        }
+                    }
+                }
+                node.children?.forEach { collectTypeNames(it) }
+            }
+            state.topModules.forEach { collectTypeNames(it) }
+            Log.i(TAG, "typeId 映射: ${typeIdToName.size} 个, name 映射: ${moduleNameToTypeId.size} 个")
+
+            // 按 typeId 精确归属未匹配已通过学分到对应模块（含子分类）；
+            // typeId 为空或未命中时，回退到 moduleName 匹配；仍不命中则回退到「通识选修」
+            val flexModule = "通识选修"
+            val courseByCode = courses.filter { it.code != null }.associateBy { it.code!! }
+            val unmatchedCreditsByModule = mutableMapOf<String, Double>()
             var unmatchedPassedCredits = 0.0
-            unmatchedPassed.forEach { code -> unmatchedPassedCredits += codeCredits[code] ?: 0.0 }
+            for (code in unmatchedPassed) {
+                val credits = codeCredits[code] ?: 0.0
+                unmatchedPassedCredits += credits
+                val course = courseByCode[code]
+                // 三级匹配：typeId → moduleName → 通识选修回退
+                val targetName = course?.typeId?.let { typeIdToName[it] }
+                    ?: course?.moduleName?.let { name -> typeIdToName.values.find { it == name } }
+                    ?: flexModule
+                unmatchedCreditsByModule[targetName] = (unmatchedCreditsByModule[targetName] ?: 0.0) + credits
+            }
+
             // 同样收集未匹配的修读中/挂科/未修课程
             val allUnmatchedCodes = (passedCodes + takingCodes + failedCodes) - allPlanCodes
             val unmatchedCourses = courses.filter { it.code in allUnmatchedCodes }
+
             // ponytail: 与 applyGrades 兜底的 grades 通识选修历史选课合并去重,避免覆盖丢失
             val mergedUnmatched = uniqueUnmatched(unmatchedCourses, state.unmatchedCompletionCourses)
 
-            // 计算每模块完成学分，未匹配的归入「通识选修」
+            // 计算每模块完成学分
             val moduleCompletion = computeModuleCompletion(
                 state.topModules, passedCodes, takingCodes, failedCodes, codeCredits
             )
-            // 把未匹配学分加到通识选修
+            // 把未匹配学分按 typeId 精确分配到对应模块（含子分类），回退到通识选修
             val adjustedCompletion = moduleCompletion.toMutableMap()
-            val flexModule = "通识选修"
-            if (unmatchedPassedCredits > 0 && flexModule in adjustedCompletion) {
-                adjustedCompletion[flexModule] = (adjustedCompletion[flexModule] ?: 0.0) + unmatchedPassedCredits
+            for ((moduleName, credits) in unmatchedCreditsByModule) {
+                if (credits > 0) {
+                    adjustedCompletion[moduleName] = (adjustedCompletion[moduleName] ?: 0.0) + credits
+                }
             }
 
             state.copy(

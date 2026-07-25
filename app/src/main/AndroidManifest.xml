@@ -8,10 +8,9 @@
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- 2026-06-22 新增:WidgetUpdateScheduler / BootReceiver / 课程提醒 所需 -->
+    <!-- BootReceiver 与用户启用的课程/日程提醒所需；Widget 调度使用 WorkManager -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
@@ -66,15 +65,6 @@
             android:name=".notification.AgendaReminderReceiver"
             android:exported="false" />
 
-        <!-- Widget / 课程提醒统一调度接收器 (自递归 AlarmManager) -->
-        <receiver
-            android:name=".notification.WidgetUpdateScheduler"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.ahu_plus.widget.ACTION_UPDATE_WIDGETS" />
-            </intent-filter>
-        </receiver>
-
         <!-- 开机广播接收器 (重注册所有 PendingIntent) -->
         <receiver
             android:name=".notification.BootReceiver"
@@ -110,17 +100,6 @@
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-
-                <data
-                    android:host="market"
-                    android:path="/import"
-                    android:scheme="ahuplus" />
             </intent-filter>
         </activity>
 

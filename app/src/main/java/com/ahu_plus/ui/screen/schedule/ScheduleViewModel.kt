@@ -1,7 +1,7 @@
 package com.ahu_plus.ui.screen.schedule
 
 import android.app.Application
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock
@@ -25,15 +25,14 @@ import com.ahu_plus.data.model.schedule.SchedulePaletteConfig
 import com.ahu_plus.data.model.schedule.ScheduleBackgroundConfig
 import com.ahu_plus.data.repository.AssessmentRepository
 import com.ahu_plus.data.repository.CourseRepository
+import com.ahu_plus.data.repository.ErrorClassifier
 import com.ahu_plus.data.repository.ExamRepository
 import com.ahu_plus.data.repository.HomeworkRepository
 import com.ahu_plus.data.repository.JwAuthRepository
-import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.KqAttendanceRepository
 import com.ahu_plus.data.repository.RecordRepository
-import com.ahu_plus.data.repository.SessionExpiredException
 import com.ahu_plus.data.repository.UserTaskRepository
-import com.ahu_plus.ui.widget.TodayScheduleWidgetUpdater
+import com.ahu_plus.notification.WidgetRefreshScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -237,7 +236,7 @@ class ScheduleViewModel(
             try {
                 val json = gson.toJson(_uiState.value.userScheduleItems)
                 sm.saveUserScheduleJson(json)
-                TodayScheduleWidgetUpdater.updateAll(getApplication())
+                WidgetRefreshScheduler.refreshAndReplan(getApplication())
             } catch (_: Exception) { Log.w(TAG, "Failed to save user schedule items") }
         }
     }
@@ -430,7 +429,7 @@ class ScheduleViewModel(
                                 val json = com.ahu_plus.data.GsonProvider.instance.toJson(data)
                                 sm.saveScheduleJson(json)
                                 if (isCurrentScheduleRequest(requestId, semesterId)) {
-                                    TodayScheduleWidgetUpdater.updateAll(getApplication())
+                                    WidgetRefreshScheduler.refreshAndReplan(getApplication())
                                 }
                             } catch (e: Exception) { Log.w(TAG, "Failed to cache schedule JSON: ${e.message}") }
                         }
@@ -478,7 +477,7 @@ class ScheduleViewModel(
                             isLoading = false,
                             isLoadingSemester = false,
                             error = if (!wasLoaded) "课表加载失败: ${e.message}" else state.error,
-                            needsLogin = !wasLoaded && (e is SessionExpiredException || e is JwAuthException),
+                            needsLogin = !wasLoaded && (ErrorClassifier.shouldReauth(ErrorClassifier.classify(e))),
                             dataStatus = if (wasLoaded) {
                                 state.dataStatus?.withFailedRefresh()
                             } else state.dataStatus,
@@ -1026,7 +1025,7 @@ class ScheduleViewModel(
                     val json = com.ahu_plus.data.GsonProvider.instance.toJson(data)
                     sm.saveScheduleJson(json)
                     getApplication<android.app.Application>().let { app ->
-                        TodayScheduleWidgetUpdater.updateAll(app)
+                        WidgetRefreshScheduler.refreshAndReplan(app)
                     }
                 } catch (e: Exception) { Log.w(TAG, "Failed to cache schedule JSON: ${e.message}") }
             }

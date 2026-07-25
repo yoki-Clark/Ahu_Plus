@@ -1,5 +1,7 @@
 package com.ahu_plus.data.developer
 
+import com.ahu_plus.data.diagnostic.DiagnosticBuffer
+import com.ahu_plus.data.diagnostic.DiagnosticLevel
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -110,6 +112,15 @@ object DeveloperEventRecorder {
             detail = NetworkDiagnosticUrlRedactor.sanitizeDiagnosticText(detail).take(2_000),
         )
         _entries.update { current -> (current + entry).takeLast(MAX_ENTRIES) }
+        DiagnosticBuffer.record(
+            level = when (level) {
+                DeveloperLogLevel.INFO -> DiagnosticLevel.INFO
+                DeveloperLogLevel.WARNING -> DiagnosticLevel.WARNING
+                DeveloperLogLevel.ERROR -> DiagnosticLevel.ERROR
+            },
+            tag = category,
+            message = listOf(message, detail).filter { it.isNotBlank() }.joinToString(" · "),
+        )
     }
 
     fun clear() {

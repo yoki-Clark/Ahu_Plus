@@ -1,6 +1,6 @@
 package com.ahu_plus.ui.screen.grade
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.jw.GpaMetadata
@@ -9,10 +9,9 @@ import com.ahu_plus.data.model.jw.GradeResponse
 import com.ahu_plus.data.model.jw.SemesterInfo
 import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.local.DataSnapshotStatus
+import com.ahu_plus.data.repository.ErrorClassifier
 import com.ahu_plus.data.repository.GradeRepository
-import com.ahu_plus.data.repository.JwAuthException
 import com.ahu_plus.data.repository.JwAuthRepository
-import com.ahu_plus.data.repository.SessionExpiredException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -186,7 +185,7 @@ class GradeViewModel(
                                 error = if (!wasLoaded) (e.message ?: "成绩加载失败") else it.error,
                                 dataStatus = it.dataStatus?.withFailedRefresh(),
                                 needsLogin = !wasLoaded &&
-                                    (e is SessionExpiredException || e is JwAuthException),
+                                    (ErrorClassifier.shouldReauth(ErrorClassifier.classify(e))),
                                 // I-012 fix: grades 失败时不覆盖已缓存的 gpaMetadata
                             )
                         }
@@ -204,7 +203,7 @@ class GradeViewModel(
                     error = if (!wasLoaded) "未知错误: ${e.message}" else it.error,
                     dataStatus = it.dataStatus?.withFailedRefresh(),
                     needsLogin = !wasLoaded &&
-                        (e is SessionExpiredException || e is JwAuthException)
+                        (ErrorClassifier.shouldReauth(ErrorClassifier.classify(e)))
                 )
             }
         }

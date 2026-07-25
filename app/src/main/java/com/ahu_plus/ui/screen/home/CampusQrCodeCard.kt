@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,7 +42,7 @@ import com.ahu_plus.ui.components.AhuHeroCard
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.CountdownArc
 import com.ahu_plus.ui.theme.AhuGradient
-import com.ahu_plus.util.QrCodeBitmap
+import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 
 /**
@@ -61,7 +61,6 @@ fun CampusQrCodeCard(
     totalCountdownSeconds: Int,
     isStale: Boolean = false,
     ageSeconds: Int = 0,
-    onAutoLogin: () -> Unit,
     onRefresh: () -> Unit,
     onQrClick: () -> Unit
 ) {
@@ -144,20 +143,27 @@ fun CampusQrCodeCard(
 
                     // 已加载 QR 码
                     qrCode != null && !isStale -> {
-                        val image = remember(qrCode.payload) {
-                            QrCodeBitmap.create(qrCode.payload, 720)
-                        }
-                        Image(
-                            bitmap = image,
-                            contentDescription = "校园支付码",
+                        val image = rememberQrCodeImage(qrCode.payload, 720)
+                        Box(
                             modifier = Modifier
                                 .size(220.dp)
                                 .clickable { onQrClick() }
                                 .graphicsLayer(
                                     scaleX = pulseScale,
                                     scaleY = pulseScale
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (image != null) {
+                                Image(bitmap = image, contentDescription = "校园支付码")
+                            } else {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    modifier = Modifier.size(40.dp),
+                                    strokeWidth = 3.dp,
                                 )
-                        )
+                            }
+                        }
                         // "点击放大" 文字提示
                         Text(
                             text = "点击放大",
@@ -233,31 +239,13 @@ fun CampusQrCodeCard(
                         }
                     }
 
-                    // 无 session — 自动登录
+                    // 首次请求启动前的瞬时状态；页面会自动触发加载。
                     else -> {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                modifier = Modifier.size(40.dp),
-                                strokeWidth = 3.dp
-                            )
-                            Text(
-                                text = "正在登录智慧安大...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.7f)
-                            )
-                        } else {
-                            // 此分支进入前提是 error == null(error != null 已被上方 when 分支处理),
-                            // 故不再重复判断 error
-                            Text(
-                                text = "点击按钮登录智慧安大",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.5f)
-                            )
-                            TextButton(onClick = onAutoLogin) {
-                                Text("登录智慧安大", color = Color.White)
-                            }
-                        }
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(40.dp),
+                            strokeWidth = 3.dp
+                        )
                     }
                 }
             }

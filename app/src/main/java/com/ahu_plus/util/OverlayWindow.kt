@@ -11,7 +11,7 @@ import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View

@@ -1,6 +1,6 @@
 package com.ahu_plus.data.network
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.repository.CasAuthRepository
 import kotlinx.coroutines.runBlocking
 import okhttp3.Authenticator

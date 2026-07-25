@@ -19,7 +19,6 @@ app/build/
 /captures
 .externalNativeBuild
 .cxx
-local.properties
 
 # ── 密钥与凭据 ────────────────────────────────────────────
 .env
@@ -33,8 +32,10 @@ local.properties
 cos_config.properties
 app/src/main/assets/cos_config.properties
 
-# ── 本地技术文档（不上传）────────────────────────────────
-docs/
+# ── 本地技术文档（ADR 例外，必须进入版本控制）────────────
+/docs/*
+!/docs/adr/
+!/docs/adr/**
 AGENTS.md
 BETA_TESTING.md
 BUG_REVIEW.md
@@ -43,12 +44,26 @@ SECURITY.md
 .obsidian/
 .understand-anything/
 .claude/
+/.agents/
 
 # ── 开发工具脚本（不上传）────────────────────────────────
 # 例外 — 公开发布的工具：排考预测 + 集市 Token 获取工具
 tools/*
 !tools/exam_prediction/
 !tools/集市Token获取工具/
+!tools/release/
+!tools/release/**
+!tools/ci/
+!tools/ci/**
+# 智慧安大验证码采集与训练工具（脚本公开，采集到的图片和训练产物不入库）
+!tools/captcha_collector/
+!tools/captcha_collector/**
+tools/captcha_collector/raw/
+tools/captcha_collector/models/
+tools/captcha_collector/labels.csv
+tools/captcha_collector/verified_samples.csv
+tools/captcha_collector/.keras/
+tools/captcha_collector/__pycache__/
 
 # ── 备份与调试产物 ────────────────────────────────────────
 *.log
@@ -62,15 +77,19 @@ tools/exam_prediction/cache_daily.jsonl
 /release-snapshots/
 /downloads/
 /beta_release/
+/output/
 *.html
 *.csv
 !tools/exam_prediction/output_*.csv
+!website/
+!website/**
 
 # ── git 重写历史时的临时备份目录 ──────────────────────
 .git.backup-*/
 
 # ── 截图与导出 ────────────────────────────────────────────
 *.png
+!website/**/*.png
 tools/_cap*.png
 
 # ── 根目录临时探针/调试产物(grep _tmp / _probe / _plan.* / _tp_) ──
@@ -79,3 +98,7 @@ tools/_cap*.png
 /_plan.json
 /_tmp_prefs.pb
 /_tp_log.txt
+
+# ── 个人简历(与项目无关,不入库) ─────────────────────────
+/resume.md
+/resume.pdf

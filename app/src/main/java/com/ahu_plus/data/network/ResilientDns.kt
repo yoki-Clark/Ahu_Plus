@@ -1,6 +1,6 @@
 package com.ahu_plus.data.network
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import okhttp3.Dns
 import java.net.InetAddress
 import java.net.UnknownHostException

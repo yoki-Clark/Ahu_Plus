@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.ahu_plus.data.GsonProvider
@@ -37,7 +37,7 @@ class StudentTableClient(
         cookieJar = casAuthRepository.getCookieJar(),
         followRedirects = true,
         disableGzip = false,
-        trustAll = true  // tp_ep_stu / one.ahu.edu.cn 自签名证书
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf("one.ahu.edu.cn"))
     )
 
     /**

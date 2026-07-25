@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.network.SecureHttpClientFactory
 import com.ahu_plus.data.network.awaitResponse
@@ -30,7 +30,6 @@ class ChaoxingNotificationRepository(
     }
 
     private val client: OkHttpClient = SecureHttpClientFactory.create(
-        trustAll = false,
         retryOnConnectionFailure = false,
     )
 

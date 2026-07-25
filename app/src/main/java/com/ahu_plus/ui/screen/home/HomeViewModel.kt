@@ -1,12 +1,14 @@
 package com.ahu_plus.ui.screen.home
 
 import android.app.Application
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.ElectricityRoomConfig
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.local.module.CacheModule
+import com.ahu_plus.data.local.module.AccountStateModule
 import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.model.BathroomBalanceData
 import com.ahu_plus.data.model.BillRecord
@@ -19,14 +21,18 @@ import com.ahu_plus.data.model.InternetBalanceData
 import com.ahu_plus.data.model.InternetBillRecord
 import com.ahu_plus.data.model.StudentInfo
 import com.ahu_plus.data.repository.AdwmhCardRepository
+import com.ahu_plus.data.repository.AdwmhCaptchaRequiredException
 import com.ahu_plus.data.repository.AdwmhLoginInfo
 import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.data.repository.CardRepository
 import com.ahu_plus.data.repository.CasAuthRepository
+import com.ahu_plus.data.repository.ErrorClassifier
+import com.ahu_plus.data.repository.ErrorKind
 import com.ahu_plus.data.repository.SessionExpiredException
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.YcardAuthExpiredException
 import com.ahu_plus.data.repository.YcardRepository
+import com.ahu_plus.data.repository.shouldRequestManualAdwmhCaptcha
 import com.ahu_plus.notification.CampusCardAlertNotifier
 import com.ahu_plus.data.repository.YcardPayRepository
 import kotlinx.coroutines.Dispatchers
@@ -52,7 +58,9 @@ class HomeViewModel(
     private val ycardRepository: YcardRepository,
     private val sessionManager: SessionManager,
     private val studentInfoRepository: StudentInfoRepository? = null,
-    private val adwmhCardRepository: AdwmhCardRepository? = null
+    private val adwmhCardRepository: AdwmhCardRepository? = null,
+    private val cacheModule: CacheModule? = null,
+    private val accountStateModule: AccountStateModule? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -72,7 +80,13 @@ class HomeViewModel(
     private var buildingCatalog: FeeItemBuildingCatalog? = null
     private var qrRefreshJob: Job? = null
     private var qrLoadJob: Job? = null
+    private var adwmhCaptchaJob: Job? = null
+    private var adwmhLoginJob: Job? = null
+    private var adwmhCaptchaRequestId = 0L
+    private var adwmhLoginRequestId = 0L
     private var visible = false
+    /** 仅由用户主动加载支付码置为 true；页面可见本身不能触发 adwmh 登录。 */
+    private var qrRequested = false
 
     init {
         val savedBathroomPhone = sessionManager.getBathroomPhone().orEmpty()
@@ -118,11 +132,12 @@ class HomeViewModel(
         if (visible == value) return
         visible = value
         if (value) {
-            startQrAutoRefresh()
             loadBalanceAndBills()
+            if (qrRequested) startQrAutoRefresh()
         } else {
             qrRefreshJob?.cancel()
             qrRefreshJob = null
+            dismissAdwmhLogin()
         }
     }
 
@@ -1162,7 +1177,19 @@ class HomeViewModel(
      */
     private fun restoreCachedQr() {
         if (adwmhCardRepository == null) return
-        val (payload, serverText, fetchedAt) = sessionManager.getAdwmhQrCache()
+        val module = cacheModule
+        if (module == null) {
+            val (payload, serverText, fetchedAt) = sessionManager.getAdwmhQrCache()
+            applyCachedQr(payload, serverText, fetchedAt)
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val cache = module.getQrCodeCache() ?: return@launch
+            applyCachedQr(cache.payload, cache.serverText, cache.fetchedAt)
+        }
+    }
+
+    private fun applyCachedQr(payload: String?, serverText: String, fetchedAt: Long) {
         if (payload.isNullOrBlank() || fetchedAt <= 0L) return
         val ageMs = System.currentTimeMillis() - fetchedAt
         if (ageMs > QR_CACHE_MAX_RESTORE_MS) return
@@ -1182,22 +1209,45 @@ class HomeViewModel(
     }
 
     /** 持久化最近一次成功的支付码,供下次冷启动兜底展示。 */
-    private suspend fun persistQr(qr: AdwmhQrCode) {
-        sessionManager.saveAdwmhQrCache(qr.payload, qr.statusMsg, qr.fetchedAt)
+    private suspend fun persistQr(qr: AdwmhQrCode, generation: Long) {
+        val module = cacheModule
+        if (module != null) {
+            module.saveQrCodeCache(
+                payload = qr.payload,
+                serverText = qr.statusMsg,
+                fetchedAt = qr.fetchedAt,
+                generation = generation,
+            )
+        } else {
+            sessionManager.saveAdwmhQrCache(qr.payload, qr.statusMsg, qr.fetchedAt)
+        }
+    }
+
+    /** 打开支付码时复用仍然新鲜的码；临近过期时保留当前码并后台刷新。 */
+    fun ensureCampusQrCode() {
+        qrRequested = true
+        val decision = qrOpenRefreshDecision(
+            fetchedAtMillis = _uiState.value.qrCode?.fetchedAt,
+            nowMillis = System.currentTimeMillis(),
+        )
+        if (decision != QrOpenRefreshDecision.NONE) loadCampusQrCode()
+        if (visible) startQrAutoRefresh()
     }
 
     fun loadCampusQrCode() {
         val qrRepository = adwmhCardRepository ?: return
+        qrRequested = true
         if (qrLoadJob?.isActive == true) return
         qrLoadJob = viewModelScope.launch {
             _uiState.update { it.copy(qrLoading = true, qrError = null) }
             withContext(Dispatchers.IO) {
+                val cacheGeneration = accountStateModule?.currentGeneration()
+                    ?: sessionManager.currentAccountGeneration()
                 // 先尝试直接加载（用已有 session）
                 val qrResult = qrRepository.getQrCode()
                 if (qrResult.isSuccess) {
                     qrConsecutiveFailures = 0
                     val qr = qrResult.getOrThrow()
-                    persistQr(qr)
                     _uiState.update { state ->
                         state.copy(
                             qrCode = qr,
@@ -1208,17 +1258,17 @@ class HomeViewModel(
                             qrAgeSeconds = 0
                         )
                     }
+                    viewModelScope.launch(Dispatchers.IO) { persistQr(qr, cacheGeneration) }
                     return@withContext
                 }
 
-                val errorMsg = qrResult.exceptionOrNull()?.message.orEmpty()
-                val isTimeout = errorMsg.contains("超时") || errorMsg.contains("timeout")
+                val errorThrowable = qrResult.exceptionOrNull()
+                val errorMsg = errorThrowable?.message.orEmpty()
+                val errorKind = ErrorClassifier.classify(errorThrowable)
 
                 // 仅会话过期时自动重登录；超时/网络问题不触发重登录（避免加重速率限制）
-                val isAuthError = errorMsg.contains("会话已过期") ||
-                    errorMsg.contains("重新登录") ||
-                    errorMsg.contains("请先登录") ||
-                    errorMsg.contains("返回 HTML")
+                val isAuthError = ErrorClassifier.shouldReauth(errorKind)
+                val isTimeout = errorKind == ErrorKind.NETWORK_UNREACHABLE
 
                 if (isAuthError) {
                     val username = sessionManager.getUsername()
@@ -1226,7 +1276,6 @@ class HomeViewModel(
                     if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
                         val loginResult = qrRepository.autoLogin(
                             username, password,
-                            concurrentRetry = false  // 速率限制下禁用并发重试
                         )
                         if (loginResult.isSuccess) {
                             qrConsecutiveFailures = 0
@@ -1252,7 +1301,14 @@ class HomeViewModel(
                                     }
                                 )
                             }
-                            retryQr.getOrNull()?.let { persistQr(it) }
+                            retryQr.getOrNull()?.let { qr ->
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    persistQr(qr, cacheGeneration)
+                                }
+                            }
+                            return@withContext
+                        } else if (loginResult.exceptionOrNull() is AdwmhCaptchaRequiredException) {
+                            requestAdwmhCaptcha(loginResult.exceptionOrNull()?.message)
                             return@withContext
                         }
                     }
@@ -1268,6 +1324,7 @@ class HomeViewModel(
                 }
             }
         }
+        if (visible) startQrAutoRefresh()
     }
 
     // ── 智慧安大自动登录（参考 AHUTong）──────────────────
@@ -1284,17 +1341,21 @@ class HomeViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(qrLoading = true, qrError = null) }
             withContext(Dispatchers.IO) {
-                qrRepository.autoLogin(username, password, sessionManager.getAdwmhConcurrentRetry()).fold(
+                qrRepository.autoLogin(username, password).fold(
                     onSuccess = {
                         // 登录成功 → 加载 QR 码
                         loadCampusQrCode()
                     },
                     onFailure = { e ->
-                        _uiState.update {
-                            it.copy(
-                                qrLoading = false,
-                                qrError = e.message ?: "智慧安大登录失败"
-                            )
+                        if (e is AdwmhCaptchaRequiredException) {
+                            requestAdwmhCaptcha(e.message)
+                        } else {
+                            _uiState.update {
+                                it.copy(
+                                    qrLoading = false,
+                                    qrError = e.message ?: "智慧安大登录失败"
+                                )
+                            }
                         }
                     }
                 )
@@ -1304,18 +1365,119 @@ class HomeViewModel(
 
     fun hasAdwmhSession(): Boolean = adwmhCardRepository?.hasSession() ?: false
 
+    private fun requestAdwmhCaptcha(reason: String? = null) {
+        val repository = adwmhCardRepository ?: return
+        adwmhCaptchaJob?.cancel()
+        val requestId = ++adwmhCaptchaRequestId
+        _uiState.update {
+            it.copy(
+                adwmhLoginDialogVisible = true,
+                adwmhCaptchaBytes = null,
+                adwmhCaptchaLoading = true,
+                adwmhCaptchaError = null,
+                adwmhLoginError = reason,
+                qrLoading = false,
+            )
+        }
+        adwmhCaptchaJob = viewModelScope.launch(Dispatchers.IO) {
+            repository.fetchCaptcha().fold(
+                onSuccess = { bytes ->
+                    if (requestId != adwmhCaptchaRequestId) return@fold
+                    _uiState.update { state ->
+                        if (!state.adwmhLoginDialogVisible) state else state.copy(
+                            adwmhCaptchaBytes = bytes,
+                            adwmhCaptchaLoading = false,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    if (requestId != adwmhCaptchaRequestId) return@fold
+                    _uiState.update { state ->
+                        if (!state.adwmhLoginDialogVisible) state else state.copy(
+                            adwmhCaptchaBytes = null,
+                            adwmhCaptchaLoading = false,
+                            adwmhCaptchaError = error.message ?: "验证码获取失败",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun refreshAdwmhCaptcha() {
+        requestAdwmhCaptcha()
+    }
+
+    fun submitAdwmhCaptcha(captcha: String) {
+        val repository = adwmhCardRepository ?: return
+        val username = sessionManager.getUsername()
+        val password = sessionManager.getPassword()
+        if (username.isNullOrBlank() || password.isNullOrBlank()) {
+            _uiState.update { it.copy(adwmhLoginError = "请先完成统一身份认证") }
+            return
+        }
+        adwmhCaptchaJob?.cancel()
+        adwmhCaptchaRequestId++
+        adwmhLoginJob?.cancel()
+        val requestId = ++adwmhLoginRequestId
+        adwmhLoginJob = viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(adwmhLoginLoading = true, adwmhLoginError = null) }
+            repository.loginWithCaptcha(username, password, captcha).fold(
+                onSuccess = { info ->
+                    if (requestId != adwmhLoginRequestId) return@fold
+                    _uiState.update {
+                        it.copy(
+                            adwmhLoginDialogVisible = false,
+                            adwmhCaptchaBytes = null,
+                            adwmhLoginLoading = false,
+                            adwmhLoginError = null,
+                            adwmhLoginInfo = info,
+                        )
+                    }
+                    loadCampusQrCode()
+                },
+                onFailure = { error ->
+                    if (requestId != adwmhLoginRequestId) return@fold
+                    _uiState.update {
+                        it.copy(
+                            adwmhLoginLoading = false,
+                            adwmhLoginError = error.message ?: "验证码或账号信息错误",
+                        )
+                    }
+                    if (shouldRequestManualAdwmhCaptcha(error)) {
+                        requestAdwmhCaptcha(error.message)
+                    }
+                },
+            )
+        }
+    }
+
+    fun dismissAdwmhLogin() {
+        adwmhCaptchaJob?.cancel()
+        adwmhLoginJob?.cancel()
+        adwmhCaptchaRequestId++
+        adwmhLoginRequestId++
+        _uiState.update {
+            it.copy(
+                adwmhLoginDialogVisible = false,
+                adwmhCaptchaBytes = null,
+                adwmhCaptchaLoading = false,
+                adwmhCaptchaError = null,
+                adwmhLoginLoading = false,
+                adwmhLoginError = null,
+            )
+        }
+    }
+
     /** 读取设置：是否在支付码界面自动调高亮度 */
     fun getQrBrightnessBoost(): Boolean = sessionManager.getQrBrightnessBoost()
 
-    /** 读取设置：智慧安大登录是否启用并发重试 */
-    fun getAdwmhConcurrentRetry(): Boolean = sessionManager.getAdwmhConcurrentRetry()
     fun getCardBalanceAlertEnabled(): Boolean = sessionManager.getCardBalanceAlertEnabled()
     fun getCardBalanceAlertThreshold(): Double = sessionManager.getCardBalanceAlertThreshold()
     fun getCardBalanceAlertMode(): String = sessionManager.getCardBalanceAlertMode()
     fun getCardBalanceAlertLookbackDays(): Int = sessionManager.getCardBalanceAlertLookbackDays()
 
     fun setQrBrightnessBoost(enabled: Boolean) { viewModelScope.launch { sessionManager.setQrBrightnessBoost(enabled) } }
-    fun setAdwmhConcurrentRetry(enabled: Boolean) { viewModelScope.launch { sessionManager.setAdwmhConcurrentRetry(enabled) } }
     fun setCardBalanceAlertEnabled(enabled: Boolean) {
         viewModelScope.launch { sessionManager.setCardBalanceAlertEnabled(enabled) }
     }
@@ -1394,7 +1556,7 @@ class HomeViewModel(
         exceptionOrNull() is YcardAuthExpiredException
 
     fun onRefresh() {
-        loadCampusQrCode()
+        if (qrRequested) loadCampusQrCode()
         loadBalanceAndBills(forceBills = true)
     }
 
@@ -1636,47 +1798,117 @@ class HomeViewModel(
     private fun startQrAutoRefresh() {
         if (adwmhCardRepository == null || qrRefreshJob?.isActive == true) return
         qrRefreshJob = viewModelScope.launch {
-            val baseInterval = (QR_REFRESH_INTERVAL_MS / 1000).toInt()
             while (true) {
-                loadCampusQrCode()
-                // 指数退避：连续失败越多，等待越久（最多 4 分钟）
-                val backoffMultiplier = when {
-                    qrConsecutiveFailures >= 5 -> 6   // 5+ 次失败 → 4.5 分钟
-                    qrConsecutiveFailures >= 3 -> 3   // 3-4 次失败 → 2.25 分钟
-                    qrConsecutiveFailures >= 1 -> 2   // 1-2 次失败 → 1.5 分钟
-                    else -> 1                         // 正常 → 45 秒
-                }
-                val totalSeconds = baseInterval * backoffMultiplier
-                for (remaining in totalSeconds downTo 0) {
+                // A user-triggered load may already be active. Let it publish the new fetchedAt
+                // before calculating when another refresh is actually needed.
+                qrLoadJob?.join()
+                val state = _uiState.value
+                val delaySeconds = qrNextRefreshDelaySeconds(
+                    consecutiveFailures = qrConsecutiveFailures,
+                    fetchedAtMillis = state.qrCode?.fetchedAt,
+                    nowMillis = System.currentTimeMillis(),
+                )
+                for (remaining in delaySeconds downTo 1) {
                     _uiState.update { state ->
                         // 按当前展示码的获取时间实时计算新鲜度
                         val fetchedAt = state.qrCode?.fetchedAt ?: 0L
                         if (fetchedAt <= 0L) {
                             state.copy(qrCountdownSeconds = remaining)
                         } else {
-                            val ageMs = System.currentTimeMillis() - fetchedAt
+                            val freshness = resolveQrFreshness(
+                                fetchedAtMillis = fetchedAt,
+                                nowMillis = System.currentTimeMillis(),
+                                staleThresholdMillis = QR_STALE_THRESHOLD_MS,
+                            )
                             state.copy(
                                 qrCountdownSeconds = remaining,
-                                qrAgeSeconds = (ageMs / 1000).toInt(),
-                                qrStale = ageMs > QR_STALE_THRESHOLD_MS,
-                                qrCode = if (ageMs > QR_STALE_THRESHOLD_MS) null else state.qrCode,
-                                qrError = if (ageMs > QR_STALE_THRESHOLD_MS) "鏀粯鐮佸凡杩囨湡锛岃鍒锋柊" else state.qrError
+                                qrAgeSeconds = freshness.ageSeconds,
+                                qrStale = freshness.isStale,
+                                qrCode = if (freshness.isStale) null else state.qrCode,
+                                qrError = freshness.errorMessage ?: state.qrError,
                             )
                         }
                     }
                     delay(1000)
                 }
+                if (_uiState.value.adwmhLoginDialogVisible) {
+                    delay(1000)
+                    continue
+                }
+                loadCampusQrCode()
             }
         }
     }
 
     private companion object {
-        const val QR_REFRESH_INTERVAL_MS = 45_000L
         /** 展示码超过此时长视为可能已失效,UI 弹出醒目提示。 */
         const val QR_STALE_THRESHOLD_MS = 60_000L
         /** 冷启动时,缓存码超过此时长则不再展示(太旧已无意义)。 */
         const val QR_CACHE_MAX_RESTORE_MS = 10 * 60_000L
     }
+}
+
+/**
+ * 支付码自动刷新间隔。正常时在 60 秒失效阈值前刷新；失败后逐步退避，
+ * 避免服务异常或风控期间持续请求。
+ */
+internal fun qrAutoRefreshDelaySeconds(consecutiveFailures: Int): Int = when {
+    consecutiveFailures <= 0 -> 45
+    consecutiveFailures == 1 -> 60
+    consecutiveFailures <= 3 -> 120
+    else -> 300
+}
+
+internal enum class QrOpenRefreshDecision {
+    NONE,
+    BACKGROUND,
+    REQUIRED,
+}
+
+internal fun qrOpenRefreshDecision(
+    fetchedAtMillis: Long?,
+    nowMillis: Long,
+    backgroundRefreshAgeMillis: Long = 45_000L,
+    staleThresholdMillis: Long = 60_000L,
+): QrOpenRefreshDecision {
+    if (fetchedAtMillis == null || fetchedAtMillis <= 0L) return QrOpenRefreshDecision.REQUIRED
+    val ageMillis = (nowMillis - fetchedAtMillis).coerceAtLeast(0L)
+    return when {
+        ageMillis <= backgroundRefreshAgeMillis -> QrOpenRefreshDecision.NONE
+        ageMillis <= staleThresholdMillis -> QrOpenRefreshDecision.BACKGROUND
+        else -> QrOpenRefreshDecision.REQUIRED
+    }
+}
+
+internal fun qrNextRefreshDelaySeconds(
+    consecutiveFailures: Int,
+    fetchedAtMillis: Long?,
+    nowMillis: Long,
+): Int {
+    if (consecutiveFailures > 0) return qrAutoRefreshDelaySeconds(consecutiveFailures)
+    if (fetchedAtMillis == null || fetchedAtMillis <= 0L) return 0
+    val remainingMillis = 45_000L - (nowMillis - fetchedAtMillis).coerceAtLeast(0L)
+    return ((remainingMillis.coerceAtLeast(0L) + 999L) / 1_000L).toInt()
+}
+
+internal data class QrFreshness(
+    val ageSeconds: Int,
+    val isStale: Boolean,
+    val errorMessage: String?,
+)
+
+internal fun resolveQrFreshness(
+    fetchedAtMillis: Long,
+    nowMillis: Long,
+    staleThresholdMillis: Long,
+): QrFreshness {
+    val ageMillis = nowMillis - fetchedAtMillis
+    val isStale = ageMillis > staleThresholdMillis
+    return QrFreshness(
+        ageSeconds = (ageMillis / 1_000).toInt(),
+        isStale = isStale,
+        errorMessage = if (isStale) "支付码已过期，请刷新" else null,
+    )
 }
 
 // ── UI State ──────────────────────────────────────────────
@@ -1724,6 +1956,7 @@ data class HomeUiState(
     /** 当前展示码的获取距今秒数,用于"X 秒前"文案。 */
     val qrAgeSeconds: Int = 0,
     // 智慧安大登录态
+    val adwmhLoginDialogVisible: Boolean = false,
     val adwmhCaptchaBytes: ByteArray? = null,
     val adwmhCaptchaLoading: Boolean = false,
     val adwmhCaptchaError: String? = null,

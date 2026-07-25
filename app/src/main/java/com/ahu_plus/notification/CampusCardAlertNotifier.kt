@@ -14,6 +14,11 @@ import androidx.core.content.ContextCompat
 import com.ahu_plus.MainActivity
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.BillRecord
+import com.ahu_plus.ui.navigation.HomeRoute
+import com.ahu_plus.ui.navigation.HomeTarget
+import com.ahu_plus.ui.navigation.NavigationIntentCodec
+import com.ahu_plus.ui.navigation.NavigationRequest
+import com.ahu_plus.ui.navigation.NavigationSource
 
 object CampusCardAlertNotifier {
     suspend fun evaluate(
@@ -50,6 +55,10 @@ object CampusCardAlertNotifier {
             NOTIFICATION_ID,
             Intent(appContext, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                NavigationIntentCodec.put(
+                    this,
+                    NavigationRequest(HomeTarget(HomeRoute.BILLS), NavigationSource.NOTIFICATION),
+                )
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

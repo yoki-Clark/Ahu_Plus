@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.JsonParser
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.network.SecureHttpClientFactory
@@ -64,7 +64,9 @@ class JwAuthRepository(
         cookieJar = jwCookieJar,
         followRedirects = false,
         disableGzip = true,
-        trustAll = true  // jw.ahu.edu.cn / cas.ahu.edu.cn 自签名证书
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(
+            setOf("jw.ahu.edu.cn", "one.ahu.edu.cn")
+        )
     )
 
     // ── CAS 回退客户端(独立 cookie store,不污染主 store)──
@@ -72,7 +74,7 @@ class JwAuthRepository(
         cookieJar = createIsolatedCasJar(),
         followRedirects = false,
         disableGzip = true,
-        trustAll = true  // cas.ahu.edu.cn 自签名证书
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf("one.ahu.edu.cn"))
     )
 
     /** 清除所有内存 Cookie(退出登录时调用) */

@@ -1,0 +1,35 @@
+{
+	email {$ACME_EMAIL}
+	admin off
+}
+
+ahuplus.online {
+	root * /srv
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), geolocation=(), microphone=()"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+	}
+
+	@release path /release.json
+	header @release Cache-Control "no-store"
+
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=604800"
+
+	file_server
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+http://127.0.0.1:8080 {
+	respond /healthz 200
+}

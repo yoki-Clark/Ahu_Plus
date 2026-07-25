@@ -22,6 +22,7 @@ jsoup = "1.18.1"
 zxing = "3.5.3"
 camerax = "1.4.2"
 glance = "1.1.1"
+work = "2.10.1"
 conscrypt = "2.5.2"
 desugarJdkLibs = "2.1.4"  # 让 minSdk 24 也能用 java.time (LocalDate/LocalTime/ZoneOffset 等)
 
@@ -60,6 +61,8 @@ androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycl
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 androidx-glance = { group = "androidx.glance", name = "glance", version.ref = "glance" }
 androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
+androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "work" }
 conscrypt-android = { group = "org.conscrypt", name = "conscrypt-android", version.ref = "conscrypt" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 

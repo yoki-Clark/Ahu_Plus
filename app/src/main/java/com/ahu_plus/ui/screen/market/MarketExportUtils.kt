@@ -17,7 +17,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint

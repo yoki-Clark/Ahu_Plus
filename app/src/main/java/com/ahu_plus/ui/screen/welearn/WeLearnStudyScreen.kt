@@ -20,10 +20,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.AhuPlusApplication
+import com.ahu_plus.data.legal.LegalRiskAcknowledgement
+import com.ahu_plus.data.job.BackgroundJobPlatform
 import com.ahu_plus.data.model.WeLearnCourse
 import com.ahu_plus.data.model.WeLearnScoStatus
 import com.ahu_plus.data.model.WeLearnUnitScos
 import kotlinx.coroutines.launch
+import com.ahu_plus.ui.components.BackgroundJobHistoryCard
 
 /**
  * WeLearn 单课程刷课屏 (2026-06-27)。
@@ -52,10 +55,51 @@ fun WeLearnStudyScreen(
     // 2026-06-28:增量/全量切换 — 增量=跳过已完成(默认),全量=已完成的也重提交
     var fullMode by rememberSaveable { mutableStateOf(false) }
     // 2026-06-28:刷时长(默认开,3 分钟/节;从 SessionManager 恢复)
-    val sessionManager = (ctx.applicationContext as AhuPlusApplication).sessionManager
+    val app = ctx.applicationContext as AhuPlusApplication
+    val sessionManager = app.sessionManager
+    var automationRiskAcknowledged by rememberSaveable { mutableStateOf(false) }
+    var showAutomationRiskDialog by rememberSaveable { mutableStateOf(false) }
     var heartbeatEnabled by rememberSaveable { mutableStateOf(sessionManager.getWeLearnHeartbeatEnabled()) }
     var heartbeatMinutesText by rememberSaveable { mutableStateOf(sessionManager.getWeLearnHeartbeatMinutesPerSco().toString()) }
     val heartbeatMinutes = heartbeatMinutesText.toIntOrNull()?.coerceIn(1, 60) ?: 3
+
+    LaunchedEffect(Unit) {
+        automationRiskAcknowledged = app.legalConsentRepository.hasAcknowledged(
+            LegalRiskAcknowledgement.WELEARN_AUTOMATION
+        )
+    }
+
+    fun startStudy() {
+        uiScope.launch {
+            sessionManager.saveWeLearnHeartbeatEnabled(heartbeatEnabled)
+            sessionManager.saveWeLearnHeartbeatMinutesPerSco(heartbeatMinutes)
+        }
+        viewModel.startStudying(
+            ctx, course.cid, accuracy.ifBlank { "100" }, fullMode,
+            heartbeatEnabled = heartbeatEnabled, heartbeatMinutesPerSco = heartbeatMinutes,
+        )
+    }
+
+    if (showAutomationRiskDialog) {
+        AlertDialog(
+            onDismissRequest = { showAutomationRiskDialog = false },
+            title = { Text("开始 WeLearn 自动学习？") },
+            text = {
+                Text("自动学习会向 WeLearn 提交学习时长、完成状态和答题结果，可能受课程要求与平台规则限制。请在官方平台复核最终状态；录音、作文及无法确认语义的任务可能被跳过。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    uiScope.launch {
+                        app.legalConsentRepository.acknowledge(LegalRiskAcknowledgement.WELEARN_AUTOMATION)
+                        automationRiskAcknowledged = true
+                        showAutomationRiskDialog = false
+                        startStudy()
+                    }
+                }) { Text("了解并开始") }
+            },
+            dismissButton = { TextButton(onClick = { showAutomationRiskDialog = false }) { Text("取消") } },
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -126,6 +170,8 @@ fun WeLearnStudyScreen(
                     }
                 }
             }
+
+            BackgroundJobHistoryCard(BackgroundJobPlatform.WELEARN)
 
             // 正确率输入
             OutlinedTextField(
@@ -238,16 +284,10 @@ fun WeLearnStudyScreen(
                 onClick = {
                     if (state.isRunning) {
                         viewModel.stopStudying(ctx)
+                    } else if (!automationRiskAcknowledged) {
+                        showAutomationRiskDialog = true
                     } else {
-                        // 2026-06-28:写回 SessionManager(下次默认带上)+ 启 service
-                        uiScope.launch {
-                            sessionManager.saveWeLearnHeartbeatEnabled(heartbeatEnabled)
-                            sessionManager.saveWeLearnHeartbeatMinutesPerSco(heartbeatMinutes)
-                        }
-                        viewModel.startStudying(
-                            ctx, course.cid, accuracy.ifBlank { "100" }, fullMode,
-                            heartbeatEnabled = heartbeatEnabled, heartbeatMinutesPerSco = heartbeatMinutes,
-                        )
+                        startStudy()
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
