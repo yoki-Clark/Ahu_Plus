@@ -1,23 +1,22 @@
 {
   "channel": "beta",
-  "latestVersion": "2.2.2.7",
-  "latestVersionCode": 31,
+  "latestVersion": "2.2.2.10",
+  "latestVersionCode": 34,
   "minSupportedVersionCode": 0,
   "downloadUrl": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/ahu_plus_beta.apk",
   "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
   "apkFileName": "ahu_plus_beta.apk",
   "releaseNotes": [
-    "本次为 v2.2.2.7 先行版，基于 2.2.2.6 增量更新：",
-    "启动与认证：支持游客直达主界面，并在后台静默恢复校园会话。",
-    "校园服务：原生化校长信箱，接入 JWApp 教室课表，完善教务通知附件与校园支付码。",
-    "集市：增强身份导入，新增二维码扫描入口及 Windows 辅助工具。",
-    "学习通：恢复章节学习流程，强化请求限流、取消与后台服务稳定性。",
-    "开发者中心与宽屏体验：补充诊断、测试能力并优化导航和多项校园数据交互。",
+    "本次为 v2.2.2.10 先行版，基于 v2.2.2.7 增量更新：",
+    "课程查询：新增全校开课、班级课表和教学班周网格，并提供按教室占用生成的蹭课推荐。",
+    "一卡通：支付码支持自动加载与刷新，优化展示速度；智慧安大验证码改为设备端识别或手动输入。",
+    "应用与导航：应用页支持布局配置，恢复填充图标和单列默认；完善多栈导航、错误分类与冷启动缓存。",
+    "安全与稳定性：移除旧集市外部身份深链和 Widget 闹钟迁移壳，完善后台任务、退出清理与 APK 分享校验。",
     "本先行版在线安装包面向 arm64-v8a 真机。"
   ],
   "forceUpdate": false,
-  "updateTime": "2026-07-18T23:27:38+08:00",
+  "updateTime": "2026-07-25T09:38:30+08:00",
   "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus",
-  "sha256": "7A63ED092AB252ACCCA27DF360D5FDEE7B2A0263F89060030A297C819C2A65C5",
-  "fileSize": 9028314
+  "sha256": "C248E53B41B069D2209DE314722D337968FB8A9F14EFFD33EA4E5A3889674C67",
+  "fileSize": 8272557
 }
