@@ -3,15 +3,13 @@ title = "Ahu_Plus gitleaks configuration"
 [extend]
 useDefault = true
 
-[[allowlists]]
-description = "Documented placeholder environment file"
+[allowlist]
+description = "Documented placeholders and synthetic scanner fixtures"
+regexTarget = "line"
 paths = ['''website/deploy/\.env\.example''']
-
-[[allowlists]]
-description = "Exact synthetic tokens used by redaction and scanner tests"
-regexTarget = "match"
 regexes = [
   '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.abcdefghij123456''',
   '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.abcdefghijklmnopqrstuv''',
-  '''ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'''
+  '''ABCDEFGHIJKLMNOPQRSTUVWXYZ123456''',
+  '''scanner-fixture'''
 ]
