@@ -59,11 +59,6 @@ object WidgetRefreshScheduler {
             cancelUniqueWork(MIDNIGHT_WORK)
             cancelUniqueWork(COURSE_BOUNDARY_WORK)
         }
-        cancelLegacyAlarms(context)
-    }
-
-    fun cancelLegacyAlarms(context: Context) {
-        WidgetUpdateScheduler.cancel(context.applicationContext)
     }
 
     private fun enqueue(workManager: WorkManager, name: String, delayMillis: Long) {

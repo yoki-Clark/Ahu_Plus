@@ -13,5 +13,6 @@ class ManifestSecurityTest {
         assertTrue(manifest.contains("android.permission.SCHEDULE_EXACT_ALARM"))
         assertFalse(manifest.contains("android.permission.USE_EXACT_ALARM"))
         assertFalse(manifest.contains(".notification.WidgetUpdateScheduler"))
+        assertFalse(manifest.contains("android:host=\"market\""))
     }
 }

@@ -3,9 +3,6 @@ package com.ahu_plus.data.remote.market
 import com.google.gson.JsonParser
 import com.ahu_plus.data.model.MarketNode
 import okhttp3.MediaType.Companion.toMediaType
-import java.net.URI
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -31,7 +28,6 @@ data class MarketImportPayloadV2(
 enum class MarketImportSource {
     IN_APP_QR,
     MANUAL_PASTE,
-    LEGACY_EXTERNAL_LINK,
 }
 
 data class MarketImportRequest(
@@ -56,7 +52,6 @@ enum class MarketIdentityExpiryState {
  */
 object MarketApi {
 
-    const val IMPORT_URI_PREFIX = "ahuplus://market/import"
     const val IMPORT_PAYLOAD_FORMAT = "ahuplus.market.identity"
     const val IMPORT_PAYLOAD_VERSION = 2
     const val EXPIRY_WARNING_SECONDS = 3L * 24 * 60 * 60
@@ -168,24 +163,6 @@ object MarketApi {
     fun parseManualImport(value: String): Result<MarketImportRequest> =
         parseIdentity(value).map { MarketImportRequest(it, MarketImportSource.MANUAL_PASTE) }
 
-    /** versionCode 33 的只读兼容入口；versionCode 34 删除。 */
-    fun parseLegacyImportUri(value: String): Result<MarketImportRequest> = runCatching {
-        val uri = URI(value.trim())
-        require(uri.scheme.equals("ahuplus", ignoreCase = true)) { "不是 Ahu_Plus 导入链接" }
-        require(uri.host.equals("market", ignoreCase = true) && uri.path == "/import") {
-            "不是集市身份导入链接"
-        }
-        val params = parseQuery(uri.rawQuery)
-        require(params["v"] == "1") { "不支持的导入链接版本" }
-        require(!params["nonce"].isNullOrBlank()) { "导入链接缺少随机校验值" }
-        val token = params["token"]?.takeIf { it.isNotBlank() }
-            ?: error("导入链接中没有身份字段")
-        MarketImportRequest(
-            identity = parseIdentity(token).getOrThrow(),
-            source = MarketImportSource.LEGACY_EXTERNAL_LINK,
-        )
-    }
-
     fun expiryState(
         expiresAtEpochSeconds: Long,
         nowEpochSeconds: Long = Instant.now().epochSecond,
@@ -232,13 +209,4 @@ object MarketApi {
         return String(Base64.getUrlDecoder().decode(padded), Charsets.UTF_8)
     }
 
-    private fun parseQuery(rawQuery: String?): Map<String, String> {
-        require(!rawQuery.isNullOrBlank()) { "导入链接缺少参数" }
-        return rawQuery.split('&').associate { pair ->
-            val parts = pair.split('=', limit = 2)
-            val key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8.name())
-            val value = URLDecoder.decode(parts.getOrElse(1) { "" }, StandardCharsets.UTF_8.name())
-            key to value
-        }
-    }
 }

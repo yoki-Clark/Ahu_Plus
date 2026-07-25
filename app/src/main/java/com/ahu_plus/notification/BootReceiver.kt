@@ -46,7 +46,6 @@ class BootReceiver : BroadcastReceiver() {
                     return@launch
                 }
                 Log.i(TAG, "onReceive: $action, 重新调度 widget + 课程提醒")
-                WidgetRefreshScheduler.cancelLegacyAlarms(appContext)
                 val appWidgetManager = AppWidgetManager.getInstance(appContext)
                 val widgetComponent = ComponentName(appContext, TodayScheduleWidgetReceiver::class.java)
                 val hasWidgets = appWidgetManager.getAppWidgetIds(widgetComponent).isNotEmpty()
