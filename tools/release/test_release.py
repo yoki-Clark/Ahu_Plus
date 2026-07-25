@@ -60,7 +60,9 @@ class ReleaseStateTest(unittest.TestCase):
 
     def test_build_version_may_equal_identical_published_release(self) -> None:
         state = copy.deepcopy(self.state)
-        state["build"]["versionCode"] = 31
+        beta = state["published"]["beta"]
+        state["build"]["versionName"] = beta["versionName"]
+        state["build"]["versionCode"] = beta["versionCode"]
         release.validate_state(state)
 
     def test_same_version_allows_only_identical_artifact(self) -> None:
