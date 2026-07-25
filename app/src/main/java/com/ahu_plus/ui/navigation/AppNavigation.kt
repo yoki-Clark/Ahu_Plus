@@ -30,7 +30,6 @@ import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.SessionManager
-import com.ahu_plus.data.remote.market.MarketImportRequest
 import com.ahu_plus.data.repository.AdwmhCardRepository
 import com.ahu_plus.data.repository.KqAttendanceRepository
 import com.ahu_plus.data.repository.CardRepository
@@ -79,8 +78,6 @@ fun AppNavigation(
     navigationRequest: NavigationRequest? = null,
     navigationRequestId: Long = 0L,
     onNavigationRequestConsumed: () -> Unit = {},
-    marketImportRequest: MarketImportRequest? = null,
-    onMarketImportConsumed: () -> Unit = {},
     onSessionInitialized: () -> Unit = {},
     onAccountDataCleared: suspend () -> Unit = {},
 ) {
@@ -246,8 +243,6 @@ fun AppNavigation(
                 navigationRequest = navigationRequest,
                 navigationRequestId = navigationRequestId,
                 onNavigationRequestConsumed = onNavigationRequestConsumed,
-                marketImportRequest = marketImportRequest,
-                onMarketImportConsumed = onMarketImportConsumed,
                 hasCredentials = hasCredentials,
                 authRefreshVersion = authRefreshVersion,
                 onLogin = navigateToLogin,

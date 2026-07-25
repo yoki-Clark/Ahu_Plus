@@ -3,7 +3,6 @@ package com.ahu_plus.data.remote.market
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.ZoneId
 import java.util.Base64
@@ -27,23 +26,6 @@ class MarketApiTest {
     }
 
     @Test
-    fun parseLegacyImportUri_requiresVersionTokenAndNonce() {
-        val token = jwt(exp = 2_000_000_000L)
-        val encoded = URLEncoder.encode(token, StandardCharsets.UTF_8.name())
-        val parsed = MarketApi.parseLegacyImportUri(
-            "ahuplus://market/import?v=1&token=$encoded&nonce=random-value"
-        ).getOrThrow().identity
-
-        assertEquals("安徽大学", parsed.metadata.school)
-        assertTrue(MarketApi.parseLegacyImportUri(
-            "ahuplus://market/import?v=2&token=$encoded&nonce=random-value"
-        ).isFailure)
-        assertTrue(MarketApi.parseLegacyImportUri(
-            "https://market/import?v=1&token=$encoded&nonce=random-value"
-        ).isFailure)
-    }
-
-    @Test
     fun parseQrPayload_acceptsOnlyDedicatedV2Json() {
         val token = jwt(exp = 2_000_000_000L)
         val payload = """{"format":"ahuplus.market.identity","version":2,"token":"Bearer $token"}"""
@@ -54,18 +36,6 @@ class MarketApiTest {
         assertEquals("安徽大学", request.identity.metadata.school)
         assertTrue(MarketApi.parseQrPayload(token).isFailure)
         assertTrue(MarketApi.parseQrPayload(payload.replace("\"version\":2", "\"version\":1")).isFailure)
-    }
-
-    @Test
-    fun legacyImport_isMarkedAsExternalSource() {
-        val token = jwt(exp = 2_000_000_000L)
-        val encoded = URLEncoder.encode(token, StandardCharsets.UTF_8.name())
-
-        val request = MarketApi.parseLegacyImportUri(
-            "ahuplus://market/import?v=1&token=$encoded&nonce=random-value"
-        ).getOrThrow()
-
-        assertEquals(MarketImportSource.LEGACY_EXTERNAL_LINK, request.source)
     }
 
     @Test

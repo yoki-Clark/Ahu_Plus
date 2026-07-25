@@ -148,7 +148,6 @@
 - `notification/AgendaReminderScheduler.kt` / `AgendaReminderReceiver.kt`
 - `notification/BootReceiver.kt`
 - `notification/WidgetRefreshScheduler.kt`（WorkManager）
-- `notification/WidgetUpdateScheduler.kt`（versionCode 33 遗留闹钟取消壳）
 - `notification/CampusCardAlertNotifier.kt`
 - `ui/widget/TodayScheduleWidget.kt`
 

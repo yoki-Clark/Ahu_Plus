@@ -10,8 +10,8 @@
     ]
   },
   "build": {
-    "versionName": "2.2.2.9",
-    "versionCode": 33
+    "versionName": "2.2.2.10",
+    "versionCode": 34
   },
   "candidate": {
     "channel": "beta",
@@ -20,10 +20,12 @@
     "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
     "apkFileName": "ahu_plus_beta.apk",
     "releaseNotes": [
-      "集市身份导入改为 App 内专用二维码，旧深链仅保留一版安全兼容。",
-      "学习通与 WeLearn 后台作业新增互斥、持久终态、取消和系统中断恢复提示。",
-      "今日课表 Widget 改为数据、午夜和课程节点驱动，不再使用每分钟闹钟。",
-      "收紧校园 TLS 例外并统一脱敏日志与本地诊断记录。"
+      "本次为 v2.2.2.10 先行版，基于 v2.2.2.7 增量更新：",
+      "课程查询：新增全校开课、班级课表和教学班周网格，并提供按教室占用生成的蹭课推荐。",
+      "一卡通：支付码支持自动加载与刷新，优化展示速度；智慧安大验证码改为设备端识别或手动输入。",
+      "应用与导航：应用页支持布局配置，恢复填充图标和单列默认；完善多栈导航、错误分类与冷启动缓存。",
+      "安全与稳定性：移除旧集市外部身份深链和 Widget 闹钟迁移壳，完善后台任务、退出清理与 APK 分享校验。",
+      "本先行版在线安装包面向 arm64-v8a 真机。"
     ],
     "forceUpdate": false,
     "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus"

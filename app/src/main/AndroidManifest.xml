@@ -101,17 +101,6 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-
-                <data
-                    android:host="market"
-                    android:path="/import"
-                    android:scheme="ahuplus" />
-            </intent-filter>
         </activity>
 
         <!-- 2026-06-22 新增:学习通后台学习 ForegroundService (悬浮窗进度) -->
