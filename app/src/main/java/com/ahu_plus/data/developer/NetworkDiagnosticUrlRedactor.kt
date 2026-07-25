@@ -53,7 +53,8 @@ object NetworkDiagnosticUrlRedactor {
     private val jwtToken = Regex("\\b[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b")
     private val casTicket = Regex("(?i)\\b(?:ST|TGT)-[A-Za-z0-9._-]+")
     private val namedSecret = Regex(
-        "(?i)\\b(token|password|passwd|pwd|cookie|authorization|secret|ticket|session|jwt|studentid|username|xh)" +
+        "(?i)\\b(token|password|passwd|pwd|cookie|authorization|secret|ticket|session|jwt|" +
+            "studentid|username|xh|jsessionid|phone|mobile|telphone|room|roomname|building|dorm)" +
             "(\\s*[:=]\\s*)([^\\s,;\\t]+)",
     )
 

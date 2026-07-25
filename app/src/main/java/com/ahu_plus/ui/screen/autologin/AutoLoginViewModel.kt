@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.repository.CasAuthRepository
+import com.ahu_plus.data.repository.AdwmhRequestPriority
 import com.ahu_plus.data.repository.YcardRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -62,7 +63,12 @@ class AutoLoginViewModel(
                     if (adwmhCardRepository.hasSession()) {
                         Result.success(Unit)
                     } else {
-                        adwmhCardRepository.autoLogin(username, password, generation = generation).map { Unit }
+                        adwmhCardRepository.autoLogin(
+                            username,
+                            password,
+                            generation = generation,
+                            priority = AdwmhRequestPriority.BACKGROUND,
+                        ).map { Unit }
                     }
                 }
             } else null
@@ -70,7 +76,7 @@ class AutoLoginViewModel(
             // adwmh 完成后静默处理（不阻塞导航）
             adwmhDeferred?.invokeOnCompletion { cause ->
                 if (cause != null) {
-                    android.util.Log.w("AutoLogin", "智慧安大登录失败: ${cause.message}")
+                    com.ahu_plus.data.diagnostic.SafeLog.w("AutoLogin", "智慧安大登录失败: ${cause.message}")
                 }
             }
 
@@ -83,7 +89,7 @@ class AutoLoginViewModel(
                         ycardRepository.login(username, password)
                     }
                     ycardResult.onFailure {
-                        android.util.Log.w("AutoLogin", "ycard 登录失败: ${it.message}")
+                        com.ahu_plus.data.diagnostic.SafeLog.w("AutoLogin", "ycard 登录失败: ${it.message}")
                     }
                     _uiState.value = AutoLoginState.Success
                 },

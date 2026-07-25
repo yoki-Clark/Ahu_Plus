@@ -2,7 +2,7 @@ package com.ahu_plus.util
 
 import android.content.Context
 import android.util.Base64
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import org.json.JSONObject
 
 /**
@@ -103,7 +103,7 @@ object CxFontDecoder {
                 }
                 Log.w(TAG, "cxSecretStyle 标签中 base64 解码失败")
             } else {
-                Log.w(TAG, "cxSecretStyle 标签中未找到 base64 数据, 内容前200字: ${styleContent.take(200)}")
+                Log.w(TAG, "cxSecretStyle 标签中未找到 base64 数据")
             }
         } else {
             // 检查是否有 cxSecretStyle 但正则不匹配

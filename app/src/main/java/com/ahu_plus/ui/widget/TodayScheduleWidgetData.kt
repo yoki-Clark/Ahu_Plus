@@ -2,6 +2,7 @@ package com.ahu_plus.ui.widget
 
 import android.content.Context
 import com.ahu_plus.data.GsonProvider
+import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.jw.CourseDisplayItem
@@ -24,6 +25,7 @@ internal data class TodayScheduleWidgetState(
     val todayCount: Int,
     val updatedText: String,
     val upcoming: List<TodayScheduleWidgetCourse>,
+    val nextRefreshAtMillis: Long? = null,
 )
 
 internal data class TodayScheduleWidgetCourse(
@@ -46,7 +48,19 @@ internal object TodayScheduleWidgetData {
     private val updateFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
 
     suspend fun load(context: Context): TodayScheduleWidgetState {
-        val sessionManager = SessionManager(AppDataStore(context.applicationContext))
+        val appDataStore = AppDataStore(context.applicationContext)
+        if (!LegalConsentRepository(appDataStore).hasAcceptedCurrent()) {
+            return TodayScheduleWidgetState(
+                status = TodayScheduleStatus.NoCache,
+                title = "等待隐私确认",
+                subtitle = "打开安大加后继续",
+                detail = "尚未读取课表数据",
+                todayCount = 0,
+                updatedText = "",
+                upcoming = emptyList(),
+            )
+        }
+        val sessionManager = SessionManager(appDataStore)
         sessionManager.init()
 
         val scheduleJson = sessionManager.getScheduleJson()
@@ -125,7 +139,18 @@ internal object TodayScheduleWidgetData {
             "更新 ${Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(updateFormatter)}"
         }.orEmpty()
 
-        return when {
+        val nextBoundaryMillis = items
+            .flatMap { item -> listOfNotNull(item.startMinutes(unitTimes), item.endMinutes(unitTimes)?.plus(1)) }
+            .filter { it > now.toMinutes() }
+            .minOrNull()
+            ?.let { minutes ->
+                LocalDate.now().atTime(minutes / 60, minutes % 60)
+                    .atZone(ZoneId.systemDefault())
+                    .toInstant()
+                    .toEpochMilli()
+            }
+
+        return (when {
             current != null -> {
                 val end = current.endMinutes(unitTimes)
                 val remaining = end?.minus(now.toMinutes())?.coerceAtLeast(0)
@@ -176,7 +201,7 @@ internal object TodayScheduleWidgetData {
                 updatedText = updatedText,
                 upcoming = emptyList(),
             )
-        }
+        }).copy(nextRefreshAtMillis = nextBoundaryMillis)
     }
 
     private fun CourseDisplayItem.toWidgetCourse(unitTimes: List<CourseUnit>) = TodayScheduleWidgetCourse(

@@ -102,6 +102,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ahu_plus.data.repository.CacheCleanupRepository
+import com.ahu_plus.data.home.AppHubLayoutConfig
+import com.ahu_plus.ui.screen.apps.AppHubSettingsScreen
 import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.model.BillRecord
 import com.ahu_plus.data.model.CheckResult
@@ -111,6 +113,8 @@ import com.ahu_plus.data.model.StudentInfoCodeLookup
 import com.ahu_plus.data.model.StudentInfoField
 import com.ahu_plus.data.model.jw.SemesterInfo
 import com.ahu_plus.data.repository.AdwmhQrCode
+import com.ahu_plus.ui.navigation.ProfileRoute
+import com.ahu_plus.ui.navigation.ProfileTarget
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.ui.components.AhuInfoRow
 import com.ahu_plus.ui.components.AhuSectionHeader
@@ -129,6 +133,7 @@ import com.ahu_plus.ui.screen.home.ElectricityBalanceCard
 import com.ahu_plus.ui.screen.home.ElectricityBillRange
 import com.ahu_plus.ui.screen.home.ElectricityState
 import com.ahu_plus.ui.screen.home.HomeViewModel
+import com.ahu_plus.ui.screen.home.AdwmhCaptchaDialog
 import com.ahu_plus.ui.screen.home.ElectricityTarget
 import com.ahu_plus.ui.screen.home.InternetBalanceCard
 import com.ahu_plus.ui.screen.home.QrCodeFullScreenDialog
@@ -139,7 +144,7 @@ import com.ahu_plus.notification.CardBalanceAlertMode
 import com.ahu_plus.notification.recentCanteenDailyAverage
 import com.ahu_plus.ui.theme.AhuGreen
 import com.ahu_plus.util.BrowserOpener
-import com.ahu_plus.util.QrCodeBitmap
+import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -160,16 +165,18 @@ fun ProfileScreen(
     onThemeModeChange: (AppThemeMode) -> Unit,
     scrollTarget: String? = null,
     onScrollTargetConsumed: () -> Unit = {},
-    profileSubPage: String? = null,
-    onProfileSubPageConsumed: () -> Unit = {},
-    openCardAnalytics: Boolean = false,
-    onCardAnalyticsConsumed: () -> Unit = {},
+    profileTarget: ProfileTarget? = null,
+    onNavigateBack: () -> Unit = {},
     /** 使用帮助首开说明弹窗是否已看过（持久化，退登不清）。 */
     guideIntroSeen: Boolean = true,
     /** 首次展示帮助弹窗后落盘标记。 */
     onGuideIntroSeen: () -> Unit = {},
     bottomNavServices: List<String> = emptyList(),
     onBottomNavServicesChanged: (List<String>) -> Unit = {},
+    appHubLayout: AppHubLayoutConfig = AppHubLayoutConfig(),
+    onAppHubLayoutChanged: (AppHubLayoutConfig) -> Unit = {},
+    appHubRecentKeys: List<String> = emptyList(),
+    appHubUsageCounts: Map<String, Int> = emptyMap(),
     onOpenScheduleSettings: () -> Unit = {},
     onOpenMarketSettings: () -> Unit = {},
     onOpenChaoxingSettings: () -> Unit = {},
@@ -189,6 +196,7 @@ fun ProfileScreen(
     var showAcademicWarning by rememberSaveable { mutableStateOf(false) }
     var showFinance by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showAppHubSettings by rememberSaveable { mutableStateOf(false) }
     var showUtilities by rememberSaveable { mutableStateOf(false) }
     var showCardAnalytics by rememberSaveable { mutableStateOf(false) }
     var showCacheCleanup by rememberSaveable { mutableStateOf(false) }
@@ -236,24 +244,18 @@ fun ProfileScreen(
         }
     }
 
-    LaunchedEffect(profileSubPage) {
-        when (profileSubPage) {
-            "myInfoHub" -> showMyInfoHub = true
-            "finance" -> showFinance = true
-            "settings" -> showSettings = true
-            "cardAnalytics" -> showCardAnalytics = true
-            "cacheCleanup" -> showCacheCleanup = true
+    // 从导航目标派生子页面路由,消费后弹栈回到 Profile 根
+    LaunchedEffect(profileTarget?.route) {
+        val route = profileTarget?.route ?: return@LaunchedEffect
+        when (route) {
+            ProfileRoute.MY_INFO -> showMyInfoHub = true
+            ProfileRoute.FINANCE -> showFinance = true
+            ProfileRoute.SETTINGS -> showSettings = true
+            ProfileRoute.CARD_ANALYTICS -> showCardAnalytics = true
+            ProfileRoute.CACHE_CLEANUP -> showCacheCleanup = true
+            else -> return@LaunchedEffect
         }
-        if (profileSubPage != null) {
-            onProfileSubPageConsumed()
-        }
-    }
-
-    LaunchedEffect(openCardAnalytics) {
-        if (openCardAnalytics) {
-            showCardAnalytics = true
-            onCardAnalyticsConsumed()
-        }
+        onNavigateBack()
     }
 
     LaunchedEffect(showCardAnalytics) {
@@ -404,8 +406,6 @@ fun ProfileScreen(
             onThemeModeChange = onThemeModeChange,
             qrBrightnessBoost = cardViewModel.getQrBrightnessBoost(),
             onQrBrightnessBoostChanged = cardViewModel::setQrBrightnessBoost,
-            adwmhConcurrentRetry = cardViewModel.getAdwmhConcurrentRetry(),
-            onAdwmhConcurrentRetryChanged = cardViewModel::setAdwmhConcurrentRetry,
             cardBalanceAlertEnabled = cardViewModel.getCardBalanceAlertEnabled(),
             cardBalanceAlertThreshold = cardViewModel.getCardBalanceAlertThreshold(),
             cardBalanceAlertMode = CardBalanceAlertMode.fromStored(cardViewModel.getCardBalanceAlertMode()),
@@ -426,6 +426,10 @@ fun ProfileScreen(
                 showSettings = false
                 onOpenScheduleSettings()
             },
+            onOpenAppHubSettings = {
+                showSettings = false
+                showAppHubSettings = true
+            },
             onOpenMarketSettings = {
                 showSettings = false
                 onOpenMarketSettings()
@@ -439,6 +443,15 @@ fun ProfileScreen(
                 showSettings = false
             },
             onBack = { showSettings = false }
+        )
+    } else if (showAppHubSettings) {
+        BackHandler(enabled = true) { showAppHubSettings = false; showSettings = true }
+        AppHubSettingsScreen(
+            config = appHubLayout,
+            recentKeys = appHubRecentKeys,
+            usageCounts = appHubUsageCounts,
+            onConfigChange = onAppHubLayoutChanged,
+            onBack = { showAppHubSettings = false; showSettings = true },
         )
     } else if (showCacheCleanup) {
         BackHandler(enabled = true) { showCacheCleanup = false; showSettings = true }
@@ -499,9 +512,10 @@ fun ProfileScreen(
             qrLoading = cardUiState.qrLoading,
             qrError = cardUiState.qrError,
             qrCountdownSeconds = cardUiState.qrCountdownSeconds,
+            onQrRefresh = cardViewModel::loadCampusQrCode,
+            onQrEnsure = cardViewModel::ensureCampusQrCode,
             onQrClick = {
                 if (isLoggedIn) {
-                    cardViewModel.loadCampusQrCode()
                     showFullQrCode = true
                 } else {
                     onLogin()
@@ -570,6 +584,18 @@ fun ProfileScreen(
             onRefresh = { cardViewModel.loadCampusQrCode() }
         )
     }
+    if (cardUiState.adwmhLoginDialogVisible) {
+        AdwmhCaptchaDialog(
+            captchaBytes = cardUiState.adwmhCaptchaBytes,
+            captchaLoading = cardUiState.adwmhCaptchaLoading,
+            captchaError = cardUiState.adwmhCaptchaError,
+            loginLoading = cardUiState.adwmhLoginLoading,
+            loginError = cardUiState.adwmhLoginError,
+            onRefresh = cardViewModel::refreshAdwmhCaptcha,
+            onSubmit = cardViewModel::submitAdwmhCaptcha,
+            onDismiss = cardViewModel::dismissAdwmhLogin,
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -590,6 +616,8 @@ private fun ProfileHomeScreen(
     qrLoading: Boolean,
     qrError: String?,
     qrCountdownSeconds: Int,
+    onQrRefresh: () -> Unit,
+    onQrEnsure: () -> Unit,
     onQrClick: () -> Unit,
     identityCount: Int,
     hasMarketIdentity: Boolean,
@@ -646,13 +674,17 @@ private fun ProfileHomeScreen(
         "登录后查看校园账户与个人数据"
     }
     var showLogoutConfirm by rememberSaveable { mutableStateOf(false) }
-    // 第三方服务 parent 启用前的 5s 风险声明弹窗 (子开关不需要二次确认)
+    // 第三方服务总开关启用前说明平台与数据边界，子开关仍由用户分别选择。
     var showThirdPartyDialog by rememberSaveable { mutableStateOf(false) }
     var unpinnedServiceName by rememberSaveable { mutableStateOf<String?>(null) }
     var showDeveloperContact by rememberSaveable { mutableStateOf(false) }
     var showShareSheet by rememberSaveable { mutableStateOf(false) }
     var showQrCard by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+
+    LaunchedEffect(showQrCard) {
+        if (shouldEnsureProfileQr(showQrCard)) onQrEnsure()
+    }
 
     if (showThirdPartyDialog) {
         ThirdPartyEnableDialog(
@@ -803,7 +835,7 @@ private fun ProfileHomeScreen(
                         qrCountdownSeconds = qrCountdownSeconds,
                         onBack = { showQrCard = false },
                         onQrClick = onQrClick,
-                        onRefresh = onRefresh
+                        onRefresh = onQrRefresh,
                     )
                 } else {
                     BalanceCard(
@@ -1339,16 +1371,19 @@ private fun ProfileQrCard(
 
             when {
                 qrCode != null -> {
-                    val image = remember(qrCode.payload) {
-                        QrCodeBitmap.create(qrCode.payload, 720)
-                    }
-                    Image(
-                        bitmap = image,
-                        contentDescription = "支付码 — 点击放大",
+                    val image = rememberQrCodeImage(qrCode.payload, 720)
+                    Box(
                         modifier = Modifier
                             .size(200.dp)
-                            .clickable { onQrClick() }
-                    )
+                            .clickable { onQrClick() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (image != null) {
+                            Image(bitmap = image, contentDescription = "支付码 — 点击放大")
+                        } else {
+                            CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp)
+                        }
+                    }
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1384,21 +1419,22 @@ private fun ProfileQrCard(
                     TextButton(onClick = onRefresh) { Text("重试") }
                 }
                 else -> {
-                    Text("点击刷新加载支付码", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = onRefresh) { Text("加载") }
+                    CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp)
                 }
             }
 
-            // 刷新 + 放大按钮
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                TextButton(onClick = onRefresh) { Text("刷新") }
-                if (qrCode != null) {
+            // 有效支付码才提供手动刷新和放大；错误态在上方提供重试。
+            if (qrCode != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    TextButton(onClick = onRefresh) { Text("刷新") }
                     TextButton(onClick = onQrClick) { Text("放大") }
                 }
             }
         }
     }
 }
+
+internal fun shouldEnsureProfileQr(isPanelVisible: Boolean): Boolean = isPanelVisible
 
 @Composable
 fun ProfileSection(content: @Composable () -> Unit) {

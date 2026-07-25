@@ -17,7 +17,19 @@ data class CompletionCourse(
     @SerializedName("semesterId") val semesterId: Int? = null,
     @SerializedName("courseId") val courseId: Int? = null,
     @SerializedName("moduleCompletionId") val moduleCompletionId: Int? = null,
-    val recognized: Boolean? = null
+    val recognized: Boolean? = null,
+    /**
+     * 课程所属模块的 typeId（与 [PlanModuleNode.type.id] 对齐），用于精确归属到子分类。
+     *
+     * HTML 的 `allCourseList` 课程对象本身没有 typeId，这里由解析器从所属模块上下文写入。
+     * 该字段参与 Gson 序列化，以便缓存后冷启动能恢复 typeId，无需重新请求网络。
+     */
+    @SerializedName("typeId") var typeId: Int? = null,
+    /**
+     * 课程所属模块的名称，作为 typeId 为空或未命中时的回退匹配策略。
+     * 同样由解析器写入，参与序列化以支持缓存恢复。
+     */
+    @SerializedName("moduleName") var moduleName: String? = null
 ) {
     val isPassed: Boolean get() = finalResultType?.name == "PASSED"
     val isTaking: Boolean get() = finalResultType?.name == "TAKING"

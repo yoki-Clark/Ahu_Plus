@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.annotations.SerializedName
 import com.ahu_plus.BuildConfig
 import com.ahu_plus.data.GsonProvider

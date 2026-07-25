@@ -10,11 +10,20 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.core.app.NotificationCompat
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.MainActivity
+import com.ahu_plus.ui.navigation.ChaoxingTarget
+import com.ahu_plus.ui.navigation.NavigationIntentCodec
+import com.ahu_plus.ui.navigation.NavigationRequest
+import com.ahu_plus.ui.navigation.NavigationSource
 import com.ahu_plus.data.model.CxStudyUiState
+import com.ahu_plus.data.job.BackgroundJobCommand
+import com.ahu_plus.data.job.BackgroundJobInterruption
+import com.ahu_plus.data.job.BackgroundJobPayload
+import com.ahu_plus.data.job.BackgroundJobPlatform
+import com.ahu_plus.data.job.BackgroundJobStartResult
 import com.ahu_plus.data.repository.CxAnswerMode
 import com.ahu_plus.util.OverlayWindow
 import kotlinx.coroutines.CoroutineScope
@@ -64,10 +73,12 @@ class ChaoxingStudyService : Service() {
 
     private var nextRunGeneration = 0L
     private var latestStartId = 0
+    private var activeJobId: String? = null
+    private var lastPersistedProgress: Pair<Int, Int>? = null
 
     override fun onCreate() {
         super.onCreate()
-        android.util.Log.e(tag, "★★★ onCreate START ★★★")
+        com.ahu_plus.data.diagnostic.SafeLog.e(tag, "★★★ onCreate START ★★★")
         try {
             createNotificationChannel()
 
@@ -78,21 +89,21 @@ class ChaoxingStudyService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, initialNotification)
             }
-            android.util.Log.e(tag, "startForeground 成功")
+            com.ahu_plus.data.diagnostic.SafeLog.e(tag, "startForeground 成功")
 
             // 尝试显示悬浮窗（需同时满足：用户已授权 + 设置中已开启）
             val app = applicationContext as AhuPlusApplication
             val overlayEnabled = app.sessionManager.showStudyOverlay
             val hasPerm = OverlayWindow.hasOverlayPermission(this)
-            android.util.Log.e(tag, "悬浮窗权限: $hasPerm, 设置开关: $overlayEnabled")
+            com.ahu_plus.data.diagnostic.SafeLog.e(tag, "悬浮窗权限: $hasPerm, 设置开关: $overlayEnabled")
             if (hasPerm && overlayEnabled) {
                 try {
                     val overlayWin = OverlayWindow(this)
                     val shown = overlayWin.show()
-                    android.util.Log.e(tag, "悬浮窗 show()=$shown")
+                    com.ahu_plus.data.diagnostic.SafeLog.e(tag, "悬浮窗 show()=$shown")
                     if (shown) overlay = overlayWin
                 } catch (e: Exception) {
-                    android.util.Log.e(tag, "悬浮窗异常: ${safeErrorLabel(e)}")
+                    com.ahu_plus.data.diagnostic.SafeLog.e(tag, "悬浮窗异常: ${safeErrorLabel(e)}")
                 }
             }
 
@@ -101,11 +112,19 @@ class ChaoxingStudyService : Service() {
                 app.chaoxingStudyRepository.studyState.collect { state ->
                     updateNotification(state)
                     overlay?.update(state)
+                    val jobId = activeJobId
+                    val progress = state.completedCount to state.totalTasks
+                    if (jobId != null && progress != lastPersistedProgress) {
+                        lastPersistedProgress = progress
+                        app.applicationScope.launch(Dispatchers.IO) {
+                            app.backgroundJobController.updateProgress(jobId, progress.first, progress.second)
+                        }
+                    }
                 }
             }
-            android.util.Log.e(tag, "★★★ onCreate DONE ★★★")
+            com.ahu_plus.data.diagnostic.SafeLog.e(tag, "★★★ onCreate DONE ★★★")
         } catch (e: Exception) {
-            android.util.Log.e(tag, "onCreate 失败: ${safeErrorLabel(e)}")
+            com.ahu_plus.data.diagnostic.SafeLog.e(tag, "onCreate 失败: ${safeErrorLabel(e)}")
         }
     }
 
@@ -126,22 +145,16 @@ class ChaoxingStudyService : Service() {
 
         when (intent.action) {
             ACTION_START -> {
-                val courseKeys = intent.getStringArrayListExtra(EXTRA_COURSE_KEYS) ?: emptyList()
-                val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
-                val concurrency = intent.getIntExtra(EXTRA_CONCURRENCY, 1)
-                val answerMode = CxAnswerMode.fromSetting(intent.getStringExtra(EXTRA_ANSWER_MODE))
-                val enabledTaskTypes = if (intent.hasExtra(EXTRA_ENABLED_TASK_TYPES)) {
-                    intent.getStringArrayListExtra(EXTRA_ENABLED_TASK_TYPES)?.toSet() ?: emptySet()
-                } else {
-                    null
-                }
-
-                if (!startStudying(startId, courseKeys, speed, concurrency, answerMode, enabledTaskTypes)) {
+                val jobId = intent.getStringExtra(EXTRA_JOB_ID)
+                if (jobId.isNullOrBlank() || !startStudying(startId, jobId)) {
                     notifyStartRejected()
                 }
             }
             ACTION_STOP -> {
-                stopStudyingAndSelf(startId)
+                val jobId = intent.getStringExtra(EXTRA_JOB_ID) ?: activeJobId
+                if (jobId == null) stopStudyingAndSelf(startId) else {
+                    scope.launch { (applicationContext as AhuPlusApplication).backgroundJobController.cancel(jobId) }
+                }
             }
         }
 
@@ -150,11 +163,7 @@ class ChaoxingStudyService : Service() {
 
     private fun startStudying(
         startId: Int,
-        courseKeys: List<String>,
-        speed: Float,
-        concurrency: Int,
-        answerMode: CxAnswerMode,
-        enabledTaskTypes: Set<String>?,
+        jobId: String,
     ): Boolean {
         val app = applicationContext as AhuPlusApplication
         synchronized(activeJobLock) {
@@ -167,9 +176,15 @@ class ChaoxingStudyService : Service() {
             // LAZY makes the guard assignment and coroutine start one atomic section.
             val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
                 try {
+                    val controller = app.backgroundJobController
+                    val record = controller.get(jobId)
+                        ?: throw IllegalArgumentException("missing background job")
+                    require(record.platform == BackgroundJobPlatform.CHAOXING) { "wrong job platform" }
+                    val payload = record.payload
+                    val courseKeys = payload.courseKeys
+                    controller.markRunning(jobId)
                     if (courseKeys.isEmpty()) {
-                        Log.w(tag, "未选择课程，停止服务")
-                        return@launch
+                        throw IllegalArgumentException("no course selected")
                     }
                     // 从 ChaoxingRepository 拉取课程列表(避免传整个对象 Intent 序列化复杂)
                     val allCoursesResult = app.chaoxingRepository.getCourseList()
@@ -181,8 +196,7 @@ class ChaoxingStudyService : Service() {
                     }
                     val allCourses = allCoursesResult.getOrNull().orEmpty()
                     if (allCourses.isEmpty()) {
-                        Log.w(tag, "课程列表为空，停止服务")
-                        return@launch
+                        throw IllegalArgumentException("empty course list")
                     }
                     val selectedKeys = courseKeys.toSet()
                     val coursesToStudy = allCourses.filter { course ->
@@ -190,30 +204,40 @@ class ChaoxingStudyService : Service() {
                     }
 
                     if (coursesToStudy.isEmpty()) {
-                        Log.w(tag, "未找到匹配的课程,停止服务")
-                        return@launch
+                        throw IllegalArgumentException("selected courses missing")
                     }
 
                     app.chaoxingStudyRepository.studyAll(
                         courses = coursesToStudy,
-                        speed = speed,
-                        concurrency = concurrency,
-                        answerMode = answerMode,
-                        enabledTaskTypes = enabledTaskTypes ?: app.sessionManager.getCxTaskTypes(),
+                        speed = payload.speed,
+                        concurrency = payload.concurrency,
+                        answerMode = CxAnswerMode.fromSetting(payload.answerMode),
+                        enabledTaskTypes = payload.enabledTaskTypes.ifEmpty { app.sessionManager.getCxTaskTypes() },
                     )
 
+                    controller.markSucceeded(jobId)
                     Log.i(tag, "学习完成,自动停止服务")
                 } catch (_: CancellationException) {
                     Log.i(tag, "学习已由用户停止")
                 } catch (e: Exception) {
+                    app.backgroundJobController.markFailed(
+                        jobId,
+                        app.backgroundJobController.classifyFailure(e),
+                    )
                     Log.e(tag, "学习失败: ${safeErrorLabel(e)}")
                 } finally {
+                    app.backgroundJobController.detachCanceller(jobId)
                     withContext(NonCancellable + Dispatchers.Main.immediate) {
                         finishRunIfOwned(generation)
                     }
                 }
             }
             activeStudyRun = StudyRun(generation = generation, startId = startId, job = job)
+            activeJobId = jobId
+            app.backgroundJobController.attachCanceller(jobId) {
+                job.cancel()
+                app.chaoxingStudyRepository.stop()
+            }
             job.start()
             return true
         }
@@ -224,6 +248,7 @@ class ChaoxingStudyService : Service() {
             val current = activeStudyRun
             if (current?.generation != generation) return
             activeStudyRun = null
+            activeJobId = null
             latestStartId
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -269,6 +294,7 @@ class ChaoxingStudyService : Service() {
 
     override fun onDestroy() {
         Log.i(tag, "onDestroy")
+        val interruptedJobId = activeJobId
         val ownedRun = synchronized(activeJobLock) {
             activeStudyRun.also { activeStudyRun = null }
         }
@@ -276,11 +302,37 @@ class ChaoxingStudyService : Service() {
         if (ownedRun != null) {
             (applicationContext as? AhuPlusApplication)?.chaoxingStudyRepository?.stop()
         }
+        if (interruptedJobId != null) {
+            val app = applicationContext as AhuPlusApplication
+            app.applicationScope.launch(Dispatchers.IO) {
+                val current = app.backgroundJobController.get(interruptedJobId)
+                if (current?.phase?.isActive == true) {
+                    app.backgroundJobController.markInterrupted(
+                        interruptedJobId,
+                        BackgroundJobInterruption.SERVICE_DESTROYED,
+                    )
+                }
+            }
+        }
         overlay?.dismiss()
         overlay = null
         stateCollectionJob?.cancel()
         scope.cancel()
         super.onDestroy()
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        val app = applicationContext as AhuPlusApplication
+        val jobId = activeJobId
+        synchronized(activeJobLock) { activeStudyRun }?.job?.cancel()
+        app.chaoxingStudyRepository.stop()
+        if (jobId != null) {
+            app.applicationScope.launch(Dispatchers.IO) {
+                app.backgroundJobController.markInterrupted(jobId, BackgroundJobInterruption.SYSTEM_TIMEOUT)
+            }
+        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -342,14 +394,20 @@ class ChaoxingStudyService : Service() {
             this, 0,
             Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra("open_tab", "chaoxing")  // 2026-06-22: 通知点击直接跳到学习通 Tab
+                NavigationIntentCodec.put(
+                    this,
+                    NavigationRequest(ChaoxingTarget(), NavigationSource.SERVICE),
+                )
             },
             PendingIntent.FLAG_IMMUTABLE,
         )
 
         val stopIntent = PendingIntent.getService(
             this, 1,
-            Intent(this, ChaoxingStudyService::class.java).apply { action = ACTION_STOP },
+            Intent(this, ChaoxingStudyService::class.java).apply {
+                action = ACTION_STOP
+                putExtra(EXTRA_JOB_ID, activeJobId)
+            },
             PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -378,11 +436,7 @@ class ChaoxingStudyService : Service() {
         const val ACTION_START = "com.ahu_plus.action.START_STUDY"
         const val ACTION_STOP = "com.ahu_plus.action.STOP_STUDY"
 
-        const val EXTRA_COURSE_KEYS = "course_keys"
-        const val EXTRA_SPEED = "speed"
-        const val EXTRA_CONCURRENCY = "concurrency"
-        const val EXTRA_ANSWER_MODE = "answer_mode"
-        const val EXTRA_ENABLED_TASK_TYPES = "enabled_task_types"
+        const val EXTRA_JOB_ID = "job_id"
 
         /** 启动服务开始学习 */
         fun start(
@@ -393,33 +447,72 @@ class ChaoxingStudyService : Service() {
             answerMode: CxAnswerMode = CxAnswerMode.SKIP,
             enabledTaskTypes: Set<String>,
         ) {
-            android.util.Log.i("CxStudyService", "start() called, courseCount=${courseKeys.size}")
+            com.ahu_plus.data.diagnostic.SafeLog.i("CxStudyService", "start() called, courseCount=${courseKeys.size}")
             try {
-                val intent = Intent(context, ChaoxingStudyService::class.java).apply {
-                    action = ACTION_START
-                    putStringArrayListExtra(EXTRA_COURSE_KEYS, ArrayList(courseKeys))
-                    putExtra(EXTRA_SPEED, speed)
-                    putExtra(EXTRA_CONCURRENCY, concurrency)
-                    putExtra(EXTRA_ANSWER_MODE, answerMode.settingValue)
-                    putStringArrayListExtra(EXTRA_ENABLED_TASK_TYPES, ArrayList(enabledTaskTypes))
+                val app = context.applicationContext as AhuPlusApplication
+                app.applicationScope.launch(Dispatchers.IO) {
+                    val result = app.backgroundJobController.start(
+                        BackgroundJobCommand(
+                            platform = BackgroundJobPlatform.CHAOXING,
+                            payload = BackgroundJobPayload(
+                                courseKeys = courseKeys,
+                                speed = speed,
+                                concurrency = concurrency,
+                                answerMode = answerMode.settingValue,
+                                enabledTaskTypes = enabledTaskTypes,
+                            ),
+                        )
+                    )
+                    if (result is BackgroundJobStartResult.Accepted) {
+                        runCatching { launchService(context, result.record.id) }
+                            .onFailure {
+                                app.backgroundJobController.markFailed(
+                                    result.record.id,
+                                    app.backgroundJobController.classifyFailure(it),
+                                )
+                            }
+                    }
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-                android.util.Log.e("CxStudyService", "★★★ startForegroundService 调用成功 ★★★")
             } catch (e: Exception) {
-                android.util.Log.e("CxStudyService", "start() failed: ${e.javaClass.simpleName}")
+                com.ahu_plus.data.diagnostic.SafeLog.e("CxStudyService", "start() failed: ${e.javaClass.simpleName}")
             }
         }
 
         /** 停止服务 */
         fun stop(context: Context) {
-            val intent = Intent(context, ChaoxingStudyService::class.java).apply {
-                action = ACTION_STOP
+            val app = context.applicationContext as AhuPlusApplication
+            app.applicationScope.launch(Dispatchers.IO) {
+                app.backgroundJobController.active(BackgroundJobPlatform.CHAOXING)?.let {
+                    app.backgroundJobController.cancel(it.id)
+                }
             }
-            context.startService(intent)
+        }
+
+        fun resume(context: Context, jobId: String) {
+            val app = context.applicationContext as AhuPlusApplication
+            app.applicationScope.launch(Dispatchers.IO) {
+                if (app.backgroundJobController.resume(jobId) is BackgroundJobStartResult.Accepted) {
+                    runCatching { launchService(context, jobId) }
+                        .onFailure {
+                            app.backgroundJobController.markFailed(
+                                jobId,
+                                app.backgroundJobController.classifyFailure(it),
+                            )
+                        }
+                }
+            }
+        }
+
+        private fun launchService(context: Context, jobId: String) {
+            val intent = Intent(context, ChaoxingStudyService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_JOB_ID, jobId)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
         }
     }
 }

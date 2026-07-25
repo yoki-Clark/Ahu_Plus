@@ -3,9 +3,9 @@
   "latestVersion": "2.2.2",
   "latestVersionCode": 24,
   "minSupportedVersionCode": 13,
-  "downloadUrl": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/app-release.apk",
-  "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
-  "apkFileName": "ahu_plus_v2.2.2.apk",
+  "downloadUrl": "https://gitee.com/yao-enqi/Ahu_Plus/releases/download/v2.2.2/app-arm64-v8a-release.apk",
+  "downloadUrlMirror": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/app-release.apk",
+  "apkFileName": "app-arm64-v8a-release.apk",
   "releaseNotes": [
     "本次为 v2.2.2 功能更新,具体功能请以「我的 → 使用帮助」为准。",
     "新增日程功能:取代首页近期任务,可查看和管理日程安排。",

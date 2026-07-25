@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.market
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +40,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -67,6 +69,7 @@ internal fun IdentityCard(
 ) {
     var showIdentity by rememberSaveable { mutableStateOf(false) }
     var showScanner by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Card(
         shape = AhuShapes.Card,
@@ -181,8 +184,12 @@ internal fun IdentityCard(
         MarketQrScannerDialog(
             onDismiss = { showScanner = false },
             onDecoded = { value ->
-                val identity = MarketApi.parseImportUri(value).getOrNull()?.normalizedToken ?: value
-                onIdentityChanged(identity)
+                MarketApi.parseQrPayload(value).fold(
+                    onSuccess = { onIdentityChanged(it.identity.normalizedToken) },
+                    onFailure = {
+                        Toast.makeText(context, it.message ?: "无法识别集市身份二维码", Toast.LENGTH_LONG).show()
+                    },
+                )
                 showScanner = false
             },
         )
@@ -228,6 +235,7 @@ fun CompactIdentityCard(
 ) {
     var showDialog by rememberSaveable { mutableStateOf(false) }
     var showScanner by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
     val identityCount = uiState.identities.size
 
     Card(
@@ -323,8 +331,12 @@ fun CompactIdentityCard(
                 showDialog = true
             },
             onDecoded = { value ->
-                val identity = MarketApi.parseImportUri(value).getOrNull()?.normalizedToken ?: value
-                onIdentityChanged(identity)
+                MarketApi.parseQrPayload(value).fold(
+                    onSuccess = { onIdentityChanged(it.identity.normalizedToken) },
+                    onFailure = {
+                        Toast.makeText(context, it.message ?: "无法识别集市身份二维码", Toast.LENGTH_LONG).show()
+                    },
+                )
                 showScanner = false
                 showDialog = true
             },

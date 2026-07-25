@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.model.AhuUnitTimes
 import com.ahu_plus.data.model.jw.FreeRoom
@@ -47,7 +47,7 @@ class EmptyClassroomRepository(
         cookieJar = jwAuthRepository.jwCookieJar,
         followRedirects = false,
         disableGzip = false,
-        trustAll = true,  // jw.ahu.edu.cn 自签名证书
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf("jw.ahu.edu.cn")),
         extraInterceptors = listOf(
             okhttp3.Interceptor { chain ->
                 val req = chain.request().newBuilder()

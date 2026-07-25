@@ -144,7 +144,7 @@ internal fun MessagesTabContent(
                         }
                     }
                     result.onFailure { e ->
-                        android.util.Log.e("CxMsg", "下载失败: ${e.javaClass.simpleName}")
+                        com.ahu_plus.data.diagnostic.SafeLog.e("CxMsg", "下载失败: ${e.javaClass.simpleName}")
                     }
                 }
             },
@@ -653,7 +653,7 @@ private fun MessageDetailSheet(
                                     forbidDownload = cloud.get("forbidDownload")?.asInt ?: 0,
                                 )
                             } catch (e: Exception) {
-                                android.util.Log.w("CxMsg", "附件解析失败: ${e.javaClass.simpleName}")
+                                com.ahu_plus.data.diagnostic.SafeLog.w("CxMsg", "附件解析失败: ${e.javaClass.simpleName}")
                                 null
                             }
                         }

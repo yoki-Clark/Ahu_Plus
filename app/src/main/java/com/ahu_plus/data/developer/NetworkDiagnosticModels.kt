@@ -180,8 +180,6 @@ object NetworkDiagnosticHosts {
         host("github_raw", "GitHub Raw CDN", "https://raw.githubusercontent.com/", NetworkDiagnosticCategory.PUBLIC_DATA),
         host("weather", "Open-Meteo 天气", "https://api.open-meteo.com/", NetworkDiagnosticCategory.PUBLIC_DATA),
         host("air_quality", "Open-Meteo 空气质量", "https://air-quality-api.open-meteo.com/", NetworkDiagnosticCategory.PUBLIC_DATA),
-        host("openahu", "OpenAHU 服务", "https://openahu.org/", NetworkDiagnosticCategory.PUBLIC_DATA),
-
         host("ai_openai", "OpenAI", "https://api.openai.com/", NetworkDiagnosticCategory.AI_PROVIDER),
         host("ai_deepseek", "DeepSeek", "https://api.deepseek.com/", NetworkDiagnosticCategory.AI_PROVIDER),
         host("ai_moonshot", "Moonshot", "https://api.moonshot.cn/", NetworkDiagnosticCategory.AI_PROVIDER),

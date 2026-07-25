@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.ahu_plus.data.model.WeLearnCourse
@@ -259,7 +259,7 @@ class WeLearnRepository(
                     val ok = resp.isSuccessful && runCatching {
                         org.json.JSONObject(text).optInt("ret", -1)
                     }.getOrDefault(-1) == 0
-                    if (!ok) Log.w(TAG, "heartbeatStart $scoid ret!=0: ${text.take(120)}")
+                    if (!ok) Log.w(TAG, "heartbeatStart ret!=0; response body omitted")
                     ok
                 }
             }.getOrElse {
@@ -295,7 +295,7 @@ class WeLearnRepository(
                 val text = resp.body?.string().orEmpty()
                 val ret = runCatching { org.json.JSONObject(text).optInt("ret", -1) }.getOrDefault(-1)
                 val ok = resp.isSuccessful && (ret == 0 || ret == 1)  // 0/1 都视为成功(jhl337 + welearn-helper 都接受)
-                if (!ok) Log.w(TAG, "heartbeatKeep $scoid t=$sessionTime ret=$ret: ${text.take(120)}")
+                if (!ok) Log.w(TAG, "heartbeatKeep ret=$ret; response body omitted")
                 ok
             }
         }.getOrElse {
@@ -329,7 +329,7 @@ class WeLearnRepository(
                 val text = resp.body?.string().orEmpty()
                 val ret = runCatching { org.json.JSONObject(text).optInt("ret", -1) }.getOrDefault(-1)
                 val ok = resp.isSuccessful && ret == 0
-                if (!ok) Log.w(TAG, "heartbeatSave $scoid ret=$ret: ${text.take(120)}")
+                if (!ok) Log.w(TAG, "heartbeatSave ret=$ret; response body omitted")
                 ok
             }
         }.getOrElse {

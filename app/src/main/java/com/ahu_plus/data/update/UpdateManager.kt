@@ -7,7 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.core.content.FileProvider
 import androidx.core.content.pm.PackageInfoCompat
 import com.google.gson.Gson
@@ -18,6 +18,7 @@ import com.ahu_plus.data.model.CheckResult
 import com.ahu_plus.data.model.UpdateChannel
 import com.ahu_plus.data.model.UpdateInfo
 import com.ahu_plus.data.network.ResilientDns
+import com.ahu_plus.data.network.SecureHttpClientFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,8 +34,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Call
-import okhttp3.ConnectionSpec
-import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import java.io.File
@@ -62,17 +61,18 @@ class UpdateManager(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val checkMutex = Mutex()
+    private val artifactMutex = Mutex()
     private val lastFetchedByChannel = ConcurrentHashMap<UpdateChannel, UpdateInfo>()
 
-    private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+    private val client by lazy {
+        SecureHttpClientFactory.create(
+            connectTimeoutSec = 30,
+            readTimeoutSec = 120,
+            retryOnConnectionFailure = true,
+        ).newBuilder()
             .writeTimeout(30, TimeUnit.SECONDS)
             .callTimeout(600, TimeUnit.SECONDS) // APK 可能 30MB+,弱网允许 10 分钟
-            .retryOnConnectionFailure(true)
             .protocols(listOf(Protocol.HTTP_1_1))
-            .connectionSpecs(listOf(ConnectionSpec.COMPATIBLE_TLS, ConnectionSpec.CLEARTEXT))
             .dns(ResilientDns)
             .build()
     }
@@ -324,6 +324,35 @@ class UpdateManager(
         forceUpdate: Boolean,
         channel: UpdateChannel,
     ) {
+        val targetFile = withArtifactLock {
+            acquireVerifiedApk(info, channel, trackActiveCall = true) { progress, downloadedBytes, totalBytes ->
+                _uiState.value = UpdateUiState.Downloading(
+                    info = info,
+                    progress = progress,
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes,
+                    forceUpdate = forceUpdate,
+                )
+            }
+        }
+        publishReadyToInstall(info, targetFile, forceUpdate)
+    }
+
+    /** Returns an APK only after the normal update download and identity checks succeed. */
+    suspend fun downloadVerifiedApkForSharing(info: UpdateInfo): File = withContext(Dispatchers.IO) {
+        val channel = currentChannel()
+        info.validationError(channel)?.let { throw IllegalArgumentException(it) }
+        withArtifactLock {
+            acquireVerifiedApk(info, channel, trackActiveCall = false) { _, _, _ -> }
+        }
+    }
+
+    private suspend fun acquireVerifiedApk(
+        info: UpdateInfo,
+        channel: UpdateChannel,
+        trackActiveCall: Boolean,
+        onProgress: (progress: Int, downloadedBytes: Long, totalBytes: Long) -> Unit,
+    ): File {
         val targetFile = apkFileFor(info, channel)
         cleanupOldApks(targetFile)
 
@@ -337,8 +366,7 @@ class UpdateManager(
                 Log.w(TAG, "cached APK invalid, downloading again: ${it.message}")
             }.isSuccess
             if (reusable) {
-                publishReadyToInstall(info, targetFile, forceUpdate)
-                return
+                return targetFile
             }
             targetFile.delete()
         }
@@ -347,15 +375,9 @@ class UpdateManager(
         for ((index, url) in info.downloadUrls().withIndex()) {
             if (!currentCoroutineContext().isActive) throw CancellationException("用户取消")
             tmpFile.delete()
-            _uiState.value = UpdateUiState.Downloading(
-                info = info,
-                progress = -1,
-                downloadedBytes = 0,
-                totalBytes = 0,
-                forceUpdate = forceUpdate
-            )
+            onProgress(-1, 0, 0)
             try {
-                downloadFromSource(url, tmpFile, info, forceUpdate)
+                downloadFromSource(url, tmpFile, info, trackActiveCall, onProgress)
                 validateDownloadedFile(tmpFile, info)
 
                 if (targetFile.exists() && !targetFile.delete()) {
@@ -365,8 +387,7 @@ class UpdateManager(
                     throw RuntimeException("文件保存失败")
                 }
 
-                publishReadyToInstall(info, targetFile, forceUpdate)
-                return
+                return targetFile
             } catch (e: Throwable) {
                 tmpFile.delete()
                 if (e is CancellationException || !currentCoroutineContext().isActive) {
@@ -384,7 +405,8 @@ class UpdateManager(
         url: String,
         tmpFile: File,
         info: UpdateInfo,
-        forceUpdate: Boolean
+        trackActiveCall: Boolean,
+        onProgress: (progress: Int, downloadedBytes: Long, totalBytes: Long) -> Unit,
     ) {
         val job = currentCoroutineContext()[Job]
         val request = Request.Builder()
@@ -395,7 +417,7 @@ class UpdateManager(
 
         Log.d(TAG, "downloading APK from $url")
         val call = client.newCall(request)
-        activeDownloadCall = call
+        if (trackActiveCall) activeDownloadCall = call
         try {
             call.execute().use { response ->
                 if (!response.isSuccessful) {
@@ -421,13 +443,7 @@ class UpdateManager(
                             }
                             if (progress != lastProgress) {
                                 lastProgress = progress
-                                _uiState.value = UpdateUiState.Downloading(
-                                    info = info,
-                                    progress = progress,
-                                    downloadedBytes = downloaded,
-                                    totalBytes = totalBytes,
-                                    forceUpdate = forceUpdate
-                                )
+                                onProgress(progress, downloaded, totalBytes)
                             }
                         }
                         output.flush()
@@ -436,7 +452,16 @@ class UpdateManager(
                 }
             }
         } finally {
-            if (activeDownloadCall === call) activeDownloadCall = null
+            if (trackActiveCall && activeDownloadCall === call) activeDownloadCall = null
+        }
+    }
+
+    private suspend fun <T> withArtifactLock(block: suspend () -> T): T {
+        artifactMutex.lock()
+        return try {
+            block()
+        } finally {
+            artifactMutex.unlock()
         }
     }
 

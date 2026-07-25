@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.model.WeLearnSco
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

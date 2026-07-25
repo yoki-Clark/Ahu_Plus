@@ -24,6 +24,7 @@ import com.ahu_plus.ui.screen.chaoxing.ChaoxingViewModel
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeListViewModel
 import com.ahu_plus.ui.screen.dashboard.JwcNoticeViewModel
 import com.ahu_plus.ui.screen.emptyclassroom.EmptyClassroomViewModel
+import com.ahu_plus.ui.screen.lessonsearch.LessonSearchViewModel
 import com.ahu_plus.ui.screen.evaluation.EvaluationViewModel
 import com.ahu_plus.ui.screen.exam.ExamViewModel
 import com.ahu_plus.ui.screen.grade.GradeViewModel
@@ -33,6 +34,7 @@ import com.ahu_plus.ui.screen.profile.AttendanceViewModel
 import com.ahu_plus.ui.screen.profile.FinanceViewModel
 import com.ahu_plus.ui.screen.profile.StudentInfoViewModel
 import com.ahu_plus.ui.screen.schedule.ScheduleViewModel
+import com.ahu_plus.ui.screen.cengke.CengKeViewModel
 import com.ahu_plus.ui.screen.roomcoursetable.RoomCourseTableViewModel
 import com.ahu_plus.ui.screen.trainingplan.TrainingPlanViewModel
 import com.ahu_plus.ui.screen.weather.WeatherViewModel
@@ -73,7 +75,7 @@ class MainScreenViewModelFactory(
         return when (modelClass) {
             HomeViewModel::class.java -> HomeViewModel(
                 app, cardRepository, casAuthRepository, ycardRepository, sessionManager,
-                studentInfoRepository, adwmhCardRepository,
+                studentInfoRepository, adwmhCardRepository, app.cacheModule, app.accountStateModule,
             ) as T
             ScheduleViewModel::class.java -> ScheduleViewModel(
                 application = app,
@@ -113,10 +115,25 @@ class MainScreenViewModelFactory(
                 emptyClassroomRepository = app.emptyClassroomRepository,
                 sessionManager = sessionManager,
             ) as T
+            LessonSearchViewModel::class.java -> LessonSearchViewModel(
+                jwAuthRepository = jwAuthRepository,
+                lessonSearchRepository = app.lessonSearchRepository,
+                courseRepository = courseRepository,
+                sessionManager = sessionManager,
+            ) as T
             RoomCourseTableViewModel::class.java -> RoomCourseTableViewModel(
                 authRepository = app.jwAppAuthRepository,
                 repository = app.roomCourseTableRepository,
                 sessionManager = sessionManager,
+            ) as T
+            CengKeViewModel::class.java -> CengKeViewModel(
+                authRepository = app.jwAppAuthRepository,
+                repository = app.cengKeRepository,
+                sessionManager = sessionManager,
+                // 富化:用开课查询(jw 教务会话)补全推荐卡详情,best-effort。
+                jwAuthRepository = jwAuthRepository,
+                lessonSearchRepository = app.lessonSearchRepository,
+                courseRepository = courseRepository,
             ) as T
             ChaoxingViewModel::class.java -> ChaoxingViewModel(
                 app.chaoxingRepository, app.chaoxingStudyRepository, app.chaoxingTikuRepository,

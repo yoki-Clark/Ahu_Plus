@@ -1,13 +1,34 @@
 package com.ahu_plus
 
 import android.app.Application
-import android.util.Log
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.os.Environment
+import com.ahu_plus.data.diagnostic.SafeLog as Log
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.data.local.CourseNoteRepository
+import com.ahu_plus.data.local.EncryptedCredentialStore
 import com.ahu_plus.data.local.JwcWafCookieStore
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.local.XzxxWafCookieStore
+import com.ahu_plus.data.local.module.AccountStateModule
+import com.ahu_plus.data.local.module.AccountStateModuleImpl
+import com.ahu_plus.data.local.module.SettingsModule
+import com.ahu_plus.data.local.module.SettingsModuleImpl
+import com.ahu_plus.data.local.module.CacheModule
+import com.ahu_plus.data.local.module.CacheModuleImpl
+import com.ahu_plus.data.local.module.UserAssetModule
+import com.ahu_plus.data.local.module.UserAssetModuleImpl
+import com.ahu_plus.data.local.module.MigrationRegistry
+import com.ahu_plus.data.local.module.MigrationRegistryImpl
+import com.ahu_plus.data.job.BackgroundJobController
+import com.ahu_plus.data.job.BackgroundJobPlatform
+import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.repository.AdwmhCardRepository
+import com.ahu_plus.data.repository.AdwmhCaptchaRecognizer
 import com.ahu_plus.data.repository.AiCommentRepository
 import com.ahu_plus.data.repository.AssessmentRepository
 import com.ahu_plus.data.repository.ChaoxingNotificationRepository
@@ -24,6 +45,7 @@ import com.ahu_plus.data.repository.KqAttendanceRepository
 import com.ahu_plus.data.update.UpdateManager
 import com.ahu_plus.data.repository.CardRepository
 import com.ahu_plus.data.repository.CasAuthRepository
+import com.ahu_plus.data.repository.CengKeRepository
 import com.ahu_plus.data.repository.CourseRepository
 import com.ahu_plus.data.repository.EmptyClassroomRepository
 import com.ahu_plus.data.repository.ExamRepository
@@ -38,6 +60,7 @@ import com.ahu_plus.data.repository.WeatherRepository
 import com.ahu_plus.data.announcement.AnnouncementManager
 import com.ahu_plus.data.weather.WeatherManager
 import com.ahu_plus.data.repository.JwcNoticeRepository
+import com.ahu_plus.data.repository.LessonSearchRepository
 import com.ahu_plus.data.repository.JwAuthRepository
 import com.ahu_plus.data.repository.JwAppAuthRepository
 import com.ahu_plus.data.repository.RoomCourseTableRepository
@@ -47,20 +70,49 @@ import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.UserTaskRepository
 import com.ahu_plus.data.repository.YcardRepository
 import com.ahu_plus.data.repository.XzxxRepository
-import com.ahu_plus.notification.WidgetUpdateScheduler
+import com.ahu_plus.notification.WidgetRefreshScheduler
+import com.ahu_plus.notification.CourseReminderScheduler
+import com.ahu_plus.notification.AgendaReminderScheduler
+import com.ahu_plus.service.ChaoxingStudyService
+import com.ahu_plus.service.WeLearnStudyService
 import com.ahu_plus.util.CxFontDecoder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import org.conscrypt.Conscrypt
+import java.io.File
 import java.security.Security
+import kotlin.coroutines.resume
 
 class AhuPlusApplication : Application() {
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     lateinit var appDataStore: AppDataStore
         private set
+    lateinit var encryptedCredentialStore: EncryptedCredentialStore
+        private set
+    lateinit var backgroundJobController: BackgroundJobController
+        private set
     lateinit var sessionManager: SessionManager
+        private set
+
+    // M2 Modules（2026-07-21）
+    lateinit var accountStateModule: AccountStateModule
+        private set
+    lateinit var settingsModule: SettingsModule
+        private set
+    lateinit var cacheModule: CacheModule
+        private set
+    lateinit var userAssetModule: UserAssetModule
+        private set
+    lateinit var migrationRegistry: MigrationRegistry
+        private set
+
+    lateinit var legalConsentRepository: LegalConsentRepository
         private set
     lateinit var courseNoteRepository: CourseNoteRepository
         private set
@@ -74,33 +126,32 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var roomCourseTableRepository: RoomCourseTableRepository
         private set
+    lateinit var cengKeRepository: CengKeRepository
+        private set
     lateinit var courseRepository: CourseRepository
         private set
-    lateinit var ycardRepository: YcardRepository
-        private set
-    lateinit var marketRepository: MarketRepository
-        private set
-    lateinit var aiCommentRepository: AiCommentRepository
-        private set
-    lateinit var jwcNoticeRepository: JwcNoticeRepository
-        private set
-    lateinit var xzxxRepository: XzxxRepository
-        private set
     lateinit var studentInfoRepository: StudentInfoRepository
+        private set
+    lateinit var ycardRepository: YcardRepository
         private set
     lateinit var gradeRepository: GradeRepository
         private set
     lateinit var examRepository: ExamRepository
         private set
+    lateinit var trainingPlanRepository: TrainingPlanRepository
+        private set
+    lateinit var programCompletionRepository: ProgramCompletionRepository
+        private set
     lateinit var emptyClassroomRepository: EmptyClassroomRepository
+        private set
+    lateinit var lessonSearchRepository: LessonSearchRepository
         private set
     lateinit var financeRepository: FinanceRepository
         private set
     lateinit var attendanceRepository: KqAttendanceRepository
         private set
-    lateinit var trainingPlanRepository: TrainingPlanRepository
-        private set
-    lateinit var programCompletionRepository: ProgramCompletionRepository
+    /** adwmh 验证码本地识别器。紧凑模型缺失时 isAvailable=false，autoLogin 自动回退手动输入。 */
+    lateinit var adwmhCaptchaRecognizer: AdwmhCaptchaRecognizer
         private set
     lateinit var adwmhCardRepository: AdwmhCardRepository
         private set
@@ -112,15 +163,17 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var userTaskRepository: UserTaskRepository
         private set
+    lateinit var marketRepository: MarketRepository
+        private set
+    lateinit var aiCommentRepository: AiCommentRepository
+        private set
+    lateinit var jwcNoticeRepository: JwcNoticeRepository
+        private set
+    lateinit var xzxxRepository: XzxxRepository
+        private set
     lateinit var initCoordinator: com.ahu_plus.data.repository.InitCoordinator
         private set
-    /**
-     * 首次登录初始化消息流 (LoginScreen 触发 → MainScreen 订阅 → 底部 Snackbar 显示 1 秒)。
-     * 使用 MutableSharedFlow 而非 StateFlow,因为消息不需要保留"最新值"——重复消息不应被吞掉。
-     */
-    val initMessageFlow = kotlinx.coroutines.flow.MutableSharedFlow<String>(
-        replay = 0, extraBufferCapacity = 16
-    )
+    // 超星学习通 (chaoxing.com) - 6 阶段刷课(2026-06-24 大重构后)
     lateinit var chaoxingRepository: ChaoxingRepository
         private set
     lateinit var chaoxingTikuRepository: ChaoxingTikuRepository
@@ -156,6 +209,9 @@ class AhuPlusApplication : Application() {
     lateinit var evaluationRepository: com.ahu_plus.data.repository.EvaluationRepository
         private set
 
+    @Volatile
+    private var postConsentServicesStarted = false
+
     fun restorePersistedRepositoryState() {
         recordRepository.reloadFromSession()
         homeworkRepository.reloadFromSession()
@@ -166,6 +222,9 @@ class AhuPlusApplication : Application() {
     }
 
     suspend fun clearAccountScopedRepositoryState() {
+        com.ahu_plus.util.QrCodeBitmap.clear()
+        accountStateModule.incrementGeneration()
+        cacheModule.clearQrCodeCache()
         attendanceRepository.clearCookies()
         cProgAuthRepository.clearSession()
         gradeRepository.clearAccountState()
@@ -175,6 +234,18 @@ class AhuPlusApplication : Application() {
         recordRepository.reloadFromSession()
         homeworkRepository.reloadFromSession()
         userTaskRepository.reloadFromSession()
+    }
+
+    suspend fun withdrawPrivacyConsent() {
+        legalConsentRepository.withdraw()
+        clearAllLocalData()
+    }
+
+    suspend fun clearAllLocalData() {
+        appDataStore.clearAllLocalData()
+        encryptedCredentialStore.clearAll()
+        CookieManager.getInstance().removeAllCookies(null)
+        WebStorage.getInstance().deleteAllData()
     }
 
     override fun onCreate() {
@@ -194,10 +265,24 @@ class AhuPlusApplication : Application() {
             Log.w("AhuPlusApp", "Conscrypt 加载失败,使用系统默认 TLS: ${e.message}")
         }
 
-        // ── 基础存储层 ─────────────────────────────
+        // ── 基础存储层 ─────────────────────────────────
         appDataStore = AppDataStore(this)
+        encryptedCredentialStore = EncryptedCredentialStore(this)
+        backgroundJobController = BackgroundJobController(appDataStore)
+        legalConsentRepository = LegalConsentRepository(appDataStore)
+
+        // ── M2 Modules（2026-07-21）─────────────────────
+        accountStateModule = AccountStateModuleImpl(encryptedCredentialStore, appDataStore)
+        settingsModule = SettingsModuleImpl(appDataStore)
+        cacheModule = CacheModuleImpl(appDataStore, encryptedCredentialStore, accountStateModule)
+        userAssetModule = UserAssetModuleImpl(this, settingsModule, com.ahu_plus.data.GsonProvider.instance)
+        migrationRegistry = MigrationRegistryImpl(appDataStore.dataStore, emptyList())
+
         sessionManager = SessionManager(appDataStore)
         courseNoteRepository = CourseNoteRepository(appDataStore)
+        applicationScope.launch(Dispatchers.IO) {
+            backgroundJobController.initialize()
+        }
 
         // ── 认证层 ────────────────────────────────
         casAuthRepository = CasAuthRepository(sessionManager)
@@ -220,7 +305,10 @@ class AhuPlusApplication : Application() {
         gradeRepository = GradeRepository(jwAuthRepository)
         examRepository = ExamRepository(jwAuthRepository)
         emptyClassroomRepository = EmptyClassroomRepository(jwAuthRepository)
+        lessonSearchRepository = LessonSearchRepository(jwAuthRepository)
         roomCourseTableRepository = RoomCourseTableRepository(jwAppAuthRepository)
+        // 蹭课:复用 jwapp 会话,走 /room/place/* 按日期查教室占用
+        cengKeRepository = CengKeRepository(jwAppAuthRepository)
         // 排考预测:从 Gitee yao-enqi/ahu-plus-update 仓库拉取标准化 JSON,
         // 不再走 jwapp JWT 登录流程 (2026-06-23 重构)。
         examDataRepository = ExamDataRepository(sessionManager)
@@ -229,7 +317,9 @@ class AhuPlusApplication : Application() {
         // 财务汇总 / 考勤缺勤 复用 studentInfoRepository 的 SSO 会话 (tp_ep_stu)
         financeRepository = FinanceRepository(sessionManager, casAuthRepository)
         attendanceRepository = KqAttendanceRepository(casAuthRepository, sessionManager)
-        adwmhCardRepository = AdwmhCardRepository(sessionManager)
+        // adwmh 验证码本地识别器（纯本地紧凑模型，模型缺失时自动回退手动输入）
+        adwmhCaptchaRecognizer = AdwmhCaptchaRecognizer(this)
+        adwmhCardRepository = AdwmhCardRepository(sessionManager, adwmhCaptchaRecognizer)
         // 课表 2.0 仓储 (2026-06-17)
         assessmentRepository = AssessmentRepository(appDataStore, this)
         recordRepository = RecordRepository(sessionManager)
@@ -291,31 +381,31 @@ class AhuPlusApplication : Application() {
             sessionManager = sessionManager,
         )
 
-        // ── Widget / 课程提醒统一调度(2026-06-22 借鉴 AHUTong) ──
-        // 首次启动排程,后续每次 scheduleNext 自递归。
-        // 放在 onCreate 末尾确保所有 Repository 都已构造完毕。
-        WidgetUpdateScheduler.scheduleNext(this)
-        WidgetUpdateScheduler.scheduleTicker(this)  // 2026-06-22: 1 分钟 RTC 倒计时刷新
-
+        // 启动后台任务平台（法律同意后延迟启动，见 startPostConsentServices）
+        // 无需阻塞主线程等待同意检查
     }
 
-    /**
-     * 退出登录时统一清理:
-     * 1. SessionManager 清掉持久化数据(DataStore)
-     * 2. 各 Repository 清掉内存 Cookie 和 JWT
-     *
-     * 备注:课程备注 [courseNoteRepository] 不被清空 — 用户重新登录后仍能看到自己之前写的备注。
-     */
-    suspend fun clearAllSessions() {
-        casAuthRepository.clearCookies()
-        jwAuthRepository.clearCookies()
-        jwAppAuthRepository.clearSession()
-        ycardRepository.clearCookies()
-        adwmhCardRepository.clearCookies()
-        sessionManager.clearAll()
+    fun startPostConsentServices() {
+        if (postConsentServicesStarted) return
+        synchronized(this) {
+            if (postConsentServicesStarted) return
+            postConsentServicesStarted = true
+        }
+
+        // 所有异步启动的服务 (不阻塞主线程)
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                WidgetRefreshScheduler.refreshAndReplan(this@AhuPlusApplication)
+                // CourseReminderScheduler 和 AgendaReminderScheduler 在设置开启时由 UI 触发
+                Log.i("AhuPlusApp", "Post-consent services started")
+            } catch (e: Exception) {
+                Log.e("AhuPlusApp", "Failed to start post-consent services", e)
+            }
+        }
     }
 
     override fun onTerminate() {
         super.onTerminate()
+        // 前台服务由各自 Service 内部管理生命周期
     }
 }

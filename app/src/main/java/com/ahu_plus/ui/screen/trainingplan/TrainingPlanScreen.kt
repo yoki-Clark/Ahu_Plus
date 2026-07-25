@@ -154,11 +154,11 @@ fun TrainingPlanScreen(
                                 depth = row.depth,
                                 expandable = row.expandable,
                                 isExpanded = row.module.idOrHash in uiState.expandedIds,
-                                isFlexAbsorber = row.isFlexAbsorber,
+                                moduleUnmatchedCourses = row.moduleUnmatchedCourses,
+                                subtreeExtraPassed = row.subtreeExtraPassed,
                                 passedCodes = uiState.passedCourseCodes,
                                 inProgressCodes = uiState.inProgressCourseCodes,
                                 failedCodes = uiState.failedCourseCodes,
-                                unmatchedCourses = uiState.unmatchedCompletionCourses,
                                 onToggle = viewModel::toggleExpand,
                                 modifier = Modifier
                                     .animateItem()
@@ -281,12 +281,15 @@ private fun ModuleHeader(
     depth: Int,
     expandable: Boolean,
     isExpanded: Boolean,
-    isFlexAbsorber: Boolean,
+    moduleUnmatchedCourses: List<CompletionCourse>,
     passedCodes: Set<String>,
     inProgressCodes: Set<String>,
     failedCodes: Set<String>,
-    unmatchedCourses: List<CompletionCourse>,
     onToggle: (Int) -> Unit,
+    /** 本模块及所有后代模块的未匹配课程已通过学分总和（用于进度条计算）。
+     *  课程精确归属到子分类后，父模块自身的 moduleUnmatchedCourses 可能为空，
+     *  但子分类的已通过学分仍应计入父模块进度，否则进度条会错误显示 0。 */
+    subtreeExtraPassed: Double = 0.0,
     modifier: Modifier = Modifier
 ) {
     val moduleId = module.idOrHash
@@ -298,10 +301,10 @@ private fun ModuleHeader(
 
     // 计算本模块的完成进度
     val compStats = computeModuleCompletion(module, passedCodes, inProgressCodes, failedCodes)
-    // 仅「自由选修吸收桶」一个模块吸收未匹配课程的学分（避免被多个带"选修"模块重复累加）
-    val extraPassed = if (isFlexAbsorber) {
-        unmatchedCourses.filter { it.isPassed }.sumOf { it.credits ?: 0.0 }
-    } else 0.0
+    // 未匹配课程已通过学分：使用子树总和（含本模块及所有后代模块的未匹配课程），
+    // 而非仅本模块的 moduleUnmatchedCourses。课程精确归属到子分类后，父模块自身的
+    // 未匹配课程为空，但子分类的已通过学分仍应计入父模块进度。
+    val extraPassed = subtreeExtraPassed
     val totalPassed = compStats.passedCredits + extraPassed
     val effectiveRequired = reqCredits ?: sumCredits ?: 0.0
     val moduleProgress = if (effectiveRequired > 0) (totalPassed / effectiveRequired).toFloat().coerceIn(0f, 1f) else -1f
@@ -406,7 +409,10 @@ sealed interface PlanRow {
         val module: PlanModuleNode,
         override val depth: Int,
         val expandable: Boolean,
-        val isFlexAbsorber: Boolean
+        /** 本模块下需要展示的未匹配课程（通过 typeId 精确归属或回退到吸收桶） */
+        val moduleUnmatchedCourses: List<CompletionCourse>,
+        /** 本模块及所有后代模块的未匹配课程已通过学分总和（用于进度条计算） */
+        val subtreeExtraPassed: Double = 0.0
     ) : PlanRow {
         override val key get() = "mod_${module.idOrHash}"
     }
@@ -430,12 +436,12 @@ sealed interface PlanRow {
 }
 
 /**
- * 在整棵树里挑「唯一」一个吸收桶，用来归置未匹配课程（学生自选、但不在方案固定课表里的课）。
+ * 在整棵树里挑「唯一」一个吸收桶，用来归置无法通过 typeId 精确归属的未匹配课程。
  * 优先级：名含「通识选修」的模块 > 名含「选修」且本身无固定课表的自由桶。
  * 找不到则返回 null（未匹配课程不挂到任何模块，但总览仍统计）。
- * ponytail: 名字启发式；后端 moduleCompletionId 若能精确对到 plan 模块再换精确归属。
+ * 能通过 typeId 精确对到 plan 模块的课程走精确归属，不经过此回退。
  */
-private fun findFlexAbsorberId(modules: List<PlanModuleNode>): Int? {
+internal fun findFlexAbsorberId(modules: List<PlanModuleNode>): Int? {
     var general: Int? = null    // 含「通识选修」
     var freeBucket: Int? = null // 含「选修」且无固定课表
 
@@ -452,24 +458,117 @@ private fun findFlexAbsorberId(modules: List<PlanModuleNode>): Int? {
 }
 
 /**
- * 把模块树展平成行列表。只展开的模块才会吐出其子行；父子可同时展开。
+ * 按 [CompletionCourse.typeId] 将未匹配课程精确归属到对应 plan 模块。
+ * - typeId 能命中树中某模块 `type.id` 的课程 → 归入该模块
+ * - typeId 为空或未命中时，用 [CompletionCourse.moduleName] 与 `type.nameZh` 做名称匹配
+ * - 仍不命中的课程 → 归入吸收桶（回退）
+ *
+ * typeId 来自 completion preview HTML 中 allCourseList 所属模块的 typeId，
+ * 与 [PlanModuleNode.type.id] 对齐，能把通识选修下的 TX 课程精确路由到子分类模块。
+ * moduleName 是 typeId 提取失败时的回退策略。
+ *
+ * 返回 (typeId -> 课程列表) 的映射；回退课程以 [FALLBACK_KEY] 为 key。
  */
-private fun buildPlanRows(
+internal fun groupUnmatchedByModule(
+    modules: List<PlanModuleNode>,
+    unmatchedCourses: List<CompletionCourse>
+): Map<Int?, List<CompletionCourse>> {
+    if (unmatchedCourses.isEmpty()) return emptyMap()
+
+    // 收集树中所有模块的 type.id 和 nameZh → typeId 反向映射
+    val typeIds = mutableSetOf<Int>()
+    val nameToTypeId = mutableMapOf<String, Int>()
+    fun collectModuleInfo(node: PlanModuleNode) {
+        node.type?.let { type ->
+            type.id?.let { typeIds.add(it) }
+            if (type.id != null && type.nameZh != null) {
+                nameToTypeId[type.nameZh!!] = type.id!!
+            }
+        }
+        node.children?.forEach { collectModuleInfo(it) }
+    }
+    modules.forEach { collectModuleInfo(it) }
+
+    val byModule = mutableMapOf<Int?, MutableList<CompletionCourse>>()
+    for (course in unmatchedCourses) {
+        // 三级匹配：typeId 精确匹配 → moduleName 名称匹配 → 回退桶
+        val targetId = course.typeId?.takeIf { it in typeIds }
+            ?: course.moduleName?.let { name -> nameToTypeId[name] }
+        if (targetId != null) {
+            byModule.getOrPut(targetId) { mutableListOf() }.add(course)
+        } else {
+            // 回退到吸收桶；用 null key 标记，调用方再映射到 findFlexAbsorberId 结果
+            byModule.getOrPut(null) { mutableListOf() }.add(course)
+        }
+    }
+    return byModule
+}
+
+/** 回退课程在 [groupUnmatchedByModule] 返回 map 中的 key（null 表示无法精确归属的回退桶） */
+internal val FALLBACK_KEY: Int? = null
+
+/**
+ * 递归计算模块子树的未匹配课程已通过学分总和（含本模块及所有后代模块）。
+ *
+ * 课程精确归属到子分类后，父模块（如「通识选修」）自身的 `moduleUnmatchedCourses` 可能为空，
+ * 但子分类下已通过的未匹配课程学分仍应计入父模块的进度条，否则进度会错误显示 0。
+ */
+private fun calculateSubtreeExtraPassed(
+    module: PlanModuleNode,
+    grouped: Map<Int?, List<CompletionCourse>>,
+    fallbackId: Int?,
+    fallbackCourses: List<CompletionCourse>
+): Double {
+    var total = 0.0
+    val typeId = module.type?.id
+    if (typeId != null) {
+        grouped[typeId]?.let { courses ->
+            total += courses.filter { it.isPassed }.sumOf { it.credits ?: 0.0 }
+        }
+    }
+    if (module.idOrHash == fallbackId) {
+        total += fallbackCourses.filter { it.isPassed }.sumOf { it.credits ?: 0.0 }
+    }
+    module.children?.forEach { child ->
+        total += calculateSubtreeExtraPassed(child, grouped, fallbackId, fallbackCourses)
+    }
+    return total
+}
+
+/**
+ * 把模块树展平成行列表。只展开的模块才会吐出其子行；父子可同时展开。
+ * 未匹配课程优先通过 [CompletionCourse.typeId] 精确归属到对应子分类模块（按 `typeId ↔ type.id` 匹配），
+ * 无法精确归属的回退到吸收桶模块（通常是「通识选修」主栏目）。
+ */
+internal fun buildPlanRows(
     modules: List<PlanModuleNode>,
     expandedIds: Set<Int>,
     unmatchedCourses: List<CompletionCourse>
 ): List<PlanRow> {
     val rows = mutableListOf<PlanRow>()
-    val flexAbsorberId = if (unmatchedCourses.isEmpty()) null else findFlexAbsorberId(modules)
+    val grouped = groupUnmatchedByModule(modules, unmatchedCourses)
+    val fallbackId = if (unmatchedCourses.isEmpty()) null else findFlexAbsorberId(modules)
+    val fallbackCourses = grouped[FALLBACK_KEY].orEmpty()
 
     fun walk(module: PlanModuleNode, depth: Int) {
-        val isAbsorber = module.idOrHash == flexAbsorberId
-        val showUnmatched = isAbsorber && unmatchedCourses.isNotEmpty()
+        val typeId = module.type?.id
+        // 精确归属到本模块的未匹配课程（按 typeId ↔ type.id 匹配）+ （若本模块是吸收桶）回退课程
+        val moduleUnmatched = mutableListOf<CompletionCourse>()
+        if (typeId != null) {
+            grouped[typeId]?.let { moduleUnmatched.addAll(it) }
+        }
+        if (module.idOrHash == fallbackId) {
+            moduleUnmatched.addAll(fallbackCourses)
+        }
+        val showUnmatched = moduleUnmatched.isNotEmpty()
         val expandable = !module.planCourses.isNullOrEmpty() ||
             !module.children.isNullOrEmpty() || showUnmatched
 
+        // 计算本模块子树的未匹配课程已通过学分总和（含本模块及所有后代模块）
+        val subtreeExtra = calculateSubtreeExtraPassed(module, grouped, fallbackId, fallbackCourses)
+
         val parentKey = "mod_${module.idOrHash}"
-        rows += PlanRow.Module(module, depth, expandable, isAbsorber)
+        rows += PlanRow.Module(module, depth, expandable, moduleUnmatched, subtreeExtra)
 
         if (module.idOrHash !in expandedIds) return
 
@@ -479,10 +578,10 @@ private fun buildPlanRows(
         }
         // 子模块递归
         module.children?.forEach { child -> walk(child, depth + 1) }
-        // 未匹配课程（仅唯一吸收桶模块显示，避免多个带"选修"模块重复）
+        // 本模块对应的未匹配课程（精确归属 + 回退）
         if (showUnmatched) {
             rows += PlanRow.SectionLabel("已选课程", depth + 1, parentKey)
-            unmatchedCourses.forEachIndexed { index, cc ->
+            moduleUnmatched.forEachIndexed { index, cc ->
                 val fake = PlanCourse(
                     course = PlanCourseInfo(nameZh = cc.nameZh, code = cc.code, credits = cc.credits),
                     courseProperty = PlanEnumValue(nameZh = if (cc.compulsory == true) "必修" else "选修"),

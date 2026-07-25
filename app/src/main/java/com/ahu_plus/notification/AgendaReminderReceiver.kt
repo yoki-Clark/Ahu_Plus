@@ -7,9 +7,19 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.core.app.NotificationCompat
 import com.ahu_plus.MainActivity
+import com.ahu_plus.data.legal.LegalConsentRepository
+import com.ahu_plus.data.local.AppDataStore
+import com.ahu_plus.ui.navigation.HomeRoute
+import com.ahu_plus.ui.navigation.HomeTarget
+import com.ahu_plus.ui.navigation.NavigationIntentCodec
+import com.ahu_plus.ui.navigation.NavigationRequest
+import com.ahu_plus.ui.navigation.NavigationSource
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * 日程提醒通知广播接收器。
@@ -25,14 +35,31 @@ class AgendaReminderReceiver : BroadcastReceiver() {
         val key = intent.getStringExtra(EXTRA_EVENT_KEY) ?: return
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "日程提醒"
         val body = intent.getStringExtra(EXTRA_BODY).orEmpty()
-        Log.i(TAG, "onReceive: 日程提醒 key=$key")
-
         val appContext = context.applicationContext
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (!LegalConsentRepository(AppDataStore(appContext)).hasAcceptedCurrent()) {
+                    Log.i(TAG, "未接受当前隐私政策,跳过日程提醒")
+                    return@launch
+                }
+                showReminder(appContext, key, title, body)
+            } finally {
+                pendingResult.finish()
+            }
+        }
+    }
+
+    private fun showReminder(appContext: Context, key: String, title: String, body: String) {
+        Log.i(TAG, "onReceive: 日程提醒 key=$key")
         ensureChannel(appContext)
 
         val deepLink = Intent(appContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(MainActivity.EXTRA_DEEP_LINK, MainActivity.DEEP_LINK_AGENDA)
+            NavigationIntentCodec.put(
+                this,
+                NavigationRequest(HomeTarget(HomeRoute.AGENDA), NavigationSource.NOTIFICATION),
+            )
         }
         val pendingIntent = PendingIntent.getActivity(
             appContext,

@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -33,6 +34,15 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.ahu_plus.MainActivity
+import com.ahu_plus.AhuPlusApplication
+import com.ahu_plus.notification.WidgetRefreshScheduler
+import com.ahu_plus.ui.navigation.HomeRoute
+import com.ahu_plus.ui.navigation.HomeTarget
+import com.ahu_plus.ui.navigation.NavigationIntentCodec
+import com.ahu_plus.ui.navigation.NavigationRequest
+import com.ahu_plus.ui.navigation.NavigationSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class TodayScheduleWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
@@ -40,13 +50,21 @@ class TodayScheduleWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val state = TodayScheduleWidgetData.load(context)
         provideContent {
-            TodayScheduleWidgetContent(state)
+            TodayScheduleWidgetContent(state, context)
         }
     }
 }
 
 class TodayScheduleWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TodayScheduleWidget()
+
+    override fun onEnabled(context: Context) {
+        super.onEnabled(context)
+        val app = context.applicationContext as? AhuPlusApplication ?: return
+        app.applicationScope.launch(Dispatchers.IO) {
+            WidgetRefreshScheduler.refreshAndReplan(context)
+        }
+    }
 }
 
 object TodayScheduleWidgetUpdater {
@@ -60,7 +78,7 @@ object TodayScheduleWidgetUpdater {
  *
  * 借鉴 AHUTong RefreshAction:点击后调用 [TodayScheduleWidget.update] 重新拉取
  * provideGlance → 刷新显示。注意这里只是触发 widget 重渲染,不会重新拉取网络
- * (网络数据由 WidgetUpdateScheduler 每 30 分钟拉一次)。
+ * (网络数据由业务页面刷新，本操作只重新读取本地缓存)。
  */
 class RefreshWidgetAction : ActionCallback {
     override suspend fun onAction(
@@ -85,12 +103,20 @@ private val WidgetOnDark = Color(0xFFFFFFFF)
 
 @androidx.glance.GlanceComposable
 @Composable
-private fun TodayScheduleWidgetContent(state: TodayScheduleWidgetState) {
+private fun TodayScheduleWidgetContent(state: TodayScheduleWidgetState, context: Context) {
+    val navigationTargetKey = ActionParameters.Key<String>(
+        NavigationIntentCodec.EXTRA_NAVIGATION_TARGET
+    )
+    val openScheduleParameters = actionParametersOf(
+        navigationTargetKey to NavigationIntentCodec.encode(
+            NavigationRequest(HomeTarget(HomeRoute.SCHEDULE), NavigationSource.WIDGET)
+        )
+    )
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
             .background(ColorProvider(WidgetBackground))
-            .clickable(actionStartActivity<MainActivity>())
+            .clickable(actionStartActivity<MainActivity>(openScheduleParameters))
             .padding(12.dp),
     ) {
         HeaderRow(state)

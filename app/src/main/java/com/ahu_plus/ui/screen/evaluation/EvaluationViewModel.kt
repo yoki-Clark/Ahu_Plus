@@ -1,6 +1,6 @@
 package com.ahu_plus.ui.screen.evaluation
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.local.SessionManager
@@ -12,11 +12,9 @@ import com.ahu_plus.data.model.evaluation.EvaluationSemester
 import com.ahu_plus.data.model.evaluation.SubmissionPayload
 import com.ahu_plus.data.model.evaluation.TeacherEvaluationTask
 import com.ahu_plus.data.GsonProvider
-import com.ahu_plus.data.repository.EvaluationApiException
-import com.ahu_plus.data.repository.EvaluationAuthException
+import com.ahu_plus.data.repository.ErrorClassifier
 import com.ahu_plus.data.repository.EvaluationRepository
 import com.ahu_plus.data.repository.JwAuthRepository
-import com.ahu_plus.data.repository.SessionExpiredException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -163,7 +161,7 @@ class EvaluationViewModel(
                     ))
                 },
                 onFailure = { e ->
-                    if (!wasLoaded && e is EvaluationAuthException) {
+                    if (!wasLoaded && ErrorClassifier.shouldReauth(ErrorClassifier.classify(e))) {
                         _listState.update { it.copy(isLoading = false, needsLogin = true) }
                         return@fold
                     }
@@ -177,7 +175,7 @@ class EvaluationViewModel(
         val msg = e.message ?: "未知错误"
         Log.w(TAG, "列表操作失败: $msg", e)
         _listState.update {
-            it.copy(isLoading = false, error = msg, needsLogin = e is SessionExpiredException)
+            it.copy(isLoading = false, error = msg, needsLogin = ErrorClassifier.shouldReauth(ErrorClassifier.classify(e)))
         }
     }
 
@@ -221,7 +219,7 @@ class EvaluationViewModel(
                         it.copy(
                             isLoading = false,
                             error = e.message ?: "加载问卷失败",
-                            needsLogin = e is EvaluationAuthException,
+                            needsLogin = ErrorClassifier.shouldReauth(ErrorClassifier.classify(e)),
                         )
                     }
                 }

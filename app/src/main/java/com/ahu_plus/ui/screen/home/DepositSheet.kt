@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -37,7 +38,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,7 +51,6 @@ import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.BathroomBalanceData
 import com.ahu_plus.data.model.ElectricityBalanceData
 import com.ahu_plus.ui.theme.AhuShapes
-import kotlinx.coroutines.launch
 
 /**
  * 充值 sheet。HomeScreen / UtilityDetailScreens 共用。
@@ -72,7 +71,29 @@ fun DepositSheet(
     onDismiss: () -> Unit,
 ) {
     if (!state.visible) return
-    val scope = rememberCoroutineScope()
+    var showFinalConfirmation by rememberSaveable { mutableStateOf(false) }
+
+    if (showFinalConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showFinalConfirmation = false },
+            title = { Text("确认真实充值") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(state.title, fontWeight = FontWeight.SemiBold)
+                    Text("金额：¥${state.amount}")
+                    state.subtitle.takeIf(String::isNotBlank)?.let { Text(it) }
+                    Text("提交后会在学校系统产生真实交易，请再次核对账户、项目和金额。")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showFinalConfirmation = false
+                    onConfirm()
+                }) { Text("确认充值") }
+            },
+            dismissButton = { TextButton(onClick = { showFinalConfirmation = false }) { Text("返回检查") } },
+        )
+    }
 
     ModalBottomSheet(
         sheetState = sheetState,
@@ -215,11 +236,7 @@ fun DepositSheet(
                     modifier = Modifier.weight(1f),
                 ) { Text("取消") }
                 Button(
-                    onClick = {
-                        scope.launch {
-                            onConfirm()
-                        }
-                    },
+                    onClick = { showFinalConfirmation = true },
                     enabled = !state.inProgress && state.canConfirm,
                     modifier = Modifier
                         .weight(1f)

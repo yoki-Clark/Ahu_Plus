@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "application": {
+    "applicationId": "com.yourname.ahu_plus",
+    "minSdk": 24,
+    "targetSdk": 36,
+    "primaryAbi": "arm64-v8a",
+    "allowedSigningCertificateSha256": [
+      "D290B9CF0653C1F80B2DF26EF39B3385C854F9D653793FB34CAE36AC9FB6D463"
+    ]
+  },
+  "build": {
+    "versionName": "2.2.2.10",
+    "versionCode": 34
+  },
+  "candidate": {
+    "channel": "beta",
+    "minSupportedVersionCode": 0,
+    "downloadUrl": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/ahu_plus_beta.apk",
+    "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
+    "apkFileName": "ahu_plus_beta.apk",
+    "releaseNotes": [
+      "本次为 v2.2.2.10 先行版，基于 v2.2.2.7 增量更新：",
+      "课程查询：新增全校开课、班级课表和教学班周网格，并提供按教室占用生成的蹭课推荐。",
+      "一卡通：支付码支持自动加载与刷新，优化展示速度；智慧安大验证码改为设备端识别或手动输入。",
+      "应用与导航：应用页支持布局配置，恢复填充图标和单列默认；完善多栈导航、错误分类与冷启动缓存。",
+      "安全与稳定性：移除旧集市外部身份深链和 Widget 闹钟迁移壳，完善后台任务、退出清理与 APK 分享校验。",
+      "本先行版在线安装包面向 arm64-v8a 真机。"
+    ],
+    "forceUpdate": false,
+    "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus"
+  },
+  "published": {
+    "stable": {
+      "channel": "stable",
+      "versionName": "2.2.2",
+      "versionCode": 24,
+      "minSupportedVersionCode": 13,
+      "downloadUrl": "https://gitee.com/yao-enqi/Ahu_Plus/releases/download/v2.2.2/app-arm64-v8a-release.apk",
+      "downloadUrlMirror": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/app-release.apk",
+      "apkFileName": "app-arm64-v8a-release.apk",
+      "releaseNotes": [
+        "本次为 v2.2.2 功能更新,具体功能请以「我的 → 使用帮助」为准。",
+        "新增日程功能:取代首页近期任务,可查看和管理日程安排。",
+        "首页收藏应用:支持长按直接进入编辑并拖拽排序。",
+        "校园集市:返回顶部按钮支持拖动刷新;评论支持显示图片;帖子图片支持滑动浏览。",
+        "若干稳定性修复。"
+      ],
+      "forceUpdate": false,
+      "publishedAt": "2026-07-07T20:00:00+08:00",
+      "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus",
+      "sha256": "601A157A0A4F9608899B09D12E54C40D3941E6423273961BA5FA303A3242B409",
+      "fileSize": 8158167
+    },
+    "beta": {
+      "channel": "beta",
+      "minSupportedVersionCode": 0,
+      "downloadUrl": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/ahu_plus_beta.apk",
+      "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
+      "apkFileName": "ahu_plus_beta.apk",
+      "releaseNotes": [
+        "本次为 v2.2.2.10 先行版，基于 v2.2.2.7 增量更新：",
+        "课程查询：新增全校开课、班级课表和教学班周网格，并提供按教室占用生成的蹭课推荐。",
+        "一卡通：支付码支持自动加载与刷新，优化展示速度；智慧安大验证码改为设备端识别或手动输入。",
+        "应用与导航：应用页支持布局配置，恢复填充图标和单列默认；完善多栈导航、错误分类与冷启动缓存。",
+        "安全与稳定性：移除旧集市外部身份深链和 Widget 闹钟迁移壳，完善后台任务、退出清理与 APK 分享校验。",
+        "本先行版在线安装包面向 arm64-v8a 真机。"
+      ],
+      "forceUpdate": false,
+      "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus",
+      "versionName": "2.2.2.10",
+      "versionCode": 34,
+      "publishedAt": "2026-07-25T09:38:30+08:00",
+      "sha256": "C248E53B41B069D2209DE314722D337968FB8A9F14EFFD33EA4E5A3889674C67",
+      "fileSize": 8272557
+    }
+  }
+}

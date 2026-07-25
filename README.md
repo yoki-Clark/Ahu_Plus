@@ -4,7 +4,6 @@
 ![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?logo=kotlin&logoColor=white)
 ![Compose](https://img.shields.io/badge/Compose_BOM-2026.02.01-4285F4)
-![Version](https://img.shields.io/badge/version-2.2.2.7-2563eb)
 
 安徽大学校园助手 Android 应用。项目把学校门户、教务、一卡通、学习平台和若干公开数据源整合到一个 Jetpack Compose 客户端中。
 
@@ -82,7 +81,8 @@ ABI split 会生成：
 adb install -r app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
 ```
 
-Release 签名从未提交的 `local.properties` 读取：
+构建版本由 `release/release-state.json` 单一维护。Release 签名按环境变量、Gradle
+属性、未提交的 `local.properties` 顺序读取：
 
 ```properties
 AHU_RELEASE_STORE_FILE=/absolute/path/to/release.jks
@@ -91,7 +91,17 @@ AHU_RELEASE_KEY_ALIAS=...
 AHU_RELEASE_KEY_PASSWORD=...
 ```
 
-未配置时会回退到本机 debug keystore，仅用于本地验证，不能用于分发。
+四项配置缺失、keystore 无法打开或证书指纹不在 allowlist 时，Release 构建会在
+打包前失败；不会回退到 debug keystore。发布前在仓库根目录执行：
+
+```bash
+python tools/release/release.py check
+python tools/release/release.py dry-run --channel beta
+```
+
+dry-run 的发布预览只写入 `build/release-dry-run/`，常规构建产物仍位于 `app/build/`；
+它不会更新公开清单、提交 Git 或发布远端资产。
+完整流程见 `tools/release/README.md`。
 
 ## 代码结构
 
@@ -119,7 +129,7 @@ app/src/main/java/com/ahu_plus/
 └── util/                       # DES/AES、字体解析、支付签名、分享等
 ```
 
-文件级索引见 [CODEMAP.md](CODEMAP.md)，主题文档入口见 [docs/Ahu-Plus-总览.md](docs/Ahu-Plus-总览.md)。
+文件级索引见 [CODEMAP.md](CODEMAP.md)。
 
 ## 认证与网络
 
@@ -136,11 +146,12 @@ app/src/main/java/com/ahu_plus/
 | WeLearn | `welearn.sflep.com`/`sso.sflep.com` | 独立账号，OIDC/Cookie |
 | 大学计算机平台 | 内网地址或 `wvpn.ahu.edu.cn` | 独立账号、验证码、JWT/Cookie |
 
-学校部分 HTTPS 端点使用客户端无法验证的证书，调用处必须显式选择 `trustAll = true`；普通公网服务必须保持系统证书校验。详细边界见 [SECURITY.md](SECURITY.md)。
+学校部分 HTTPS 端点使用客户端无法验证的证书，调用处必须通过 `TlsPolicy.LegacyCampusHosts` 精确列出域名；普通公网服务保持系统证书校验，`adwmh` 使用系统校验并限制 TLS 1.2。
 
 ## 本地数据
 
 - 普通设置和业务缓存保存在 `ahu_plus_prefs` DataStore。
+- 首次联网前需确认内置《隐私政策》和《免责声明与使用须知》；可在“我的 -> 关于”随时查看、撤回同意或清除全部本地数据。
 - 账号、密码、会话、Bearer token 和 API key 保存在 Android Keystore 支持的 `EncryptedSharedPreferences`。
 - 启动时会迁移旧版 DataStore 中的明文敏感键；加密存储不可用时，敏感值只保留在当前进程内，不回退明文持久化。
 - 退出校园账号会清理校园账号数据、JWApp、学习通、WeLearn 和 CProg 账号会话；集市身份、普通设置和课程备注保留。“清除全部数据”路径会移除全部可清理凭据和缓存。
@@ -150,10 +161,10 @@ app/src/main/java/com/ahu_plus/
 - `CourseRepository.DEFAULT_SEMESTER_ID` 仍为 `112`，虽然 UI 支持拉取学期列表，但默认回退值需要随教务数据变化验证。
 - 学习通的签到码、二维码和拍照签到仍有待真机抓包校准的分支，源码中保留了明确 TODO。
 - 大学计算机平台的直接地址是校内明文 HTTP；自定义地址还受 Android 网络安全白名单约束。
-- 课程/日程精确提醒受系统通知和精确闹钟权限影响；权限缺失时会降级，可能延迟。
+- 课程/日程精确提醒受系统通知和精确闹钟权限影响；权限缺失时会降级，可能延迟。今日课表 Widget 使用 WorkManager 在数据变化、午夜和课程节点刷新，不申请精确闹钟。
 - 自动学习、自动答题或自动签到可能违反对应平台规则，风险由使用者承担。
 
-当前可确认问题见 [BUG_REVIEW.md](BUG_REVIEW.md)，内测流程见 [BETA_TESTING.md](BETA_TESTING.md)。
+当前问题和修复进度以仓库 Issue 与现行源码为准；真机验收应以实际界面和网络结果为准。
 
 ## 安全与贡献
 
@@ -162,7 +173,7 @@ app/src/main/java/com/ahu_plus/
 - 网络代码必须关闭响应体并在 IO 调度器执行。
 - 修改认证、缓存、提醒或升级逻辑时必须补充对应单元测试。
 
-漏洞报告方式见 [SECURITY.md](SECURITY.md)。
+安全漏洞请使用代码托管平台的私密漏洞报告能力，或发送邮件至 `2867299793@qq.com`；不要在公开 Issue 中附带凭据或个人数据。
 
 ## 许可
 

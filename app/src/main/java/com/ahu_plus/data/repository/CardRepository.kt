@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.JsonObject
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.network.SecureHttpClientFactory
@@ -19,7 +19,7 @@ class CardRepository(
     private val portalClient: OkHttpClient = SecureHttpClientFactory.create(
         followRedirects = true,
         disableGzip = false,
-        trustAll = true,  // one.ahu.edu.cn 自签名证书
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(setOf("one.ahu.edu.cn")),
         extraInterceptors = listOf(
             okhttp3.Interceptor { chain ->
                 val req = chain.request()
@@ -79,7 +79,7 @@ class CardRepository(
                 val json = try {
                     gson.fromJson(body, JsonObject::class.java)
                 } catch (_: Exception) {
-                    Log.w(TAG, "Failed to parse balance JSON: ${body.take(200)}")
+                    Log.w(TAG, "Failed to parse balance JSON; response body omitted")
                     return@withContext Result.failure(Exception("failed to parse balance data"))
                 }
 

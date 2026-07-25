@@ -3,7 +3,7 @@ package com.ahu_plus.data.announcement
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.Announcement
 import com.ahu_plus.data.repository.AnnouncementRepository

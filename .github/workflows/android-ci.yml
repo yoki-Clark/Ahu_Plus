@@ -1,0 +1,101 @@
+name: Android CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Sensitive information
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Test repository scanner
+        run: python -m unittest tools.ci.test_check_secrets -v
+
+      - name: Scan tracked files
+        run: python tools/ci/check_secrets.py
+
+      - name: Scan pull request commits with Gitleaks
+        if: github.event_name == 'pull_request'
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_VERSION: "8.24.3"
+
+  android:
+    name: Android verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@017a9effdb900e5b5b2fddfb590a105619dca3c3 # v4.4.2
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Verify release state tooling
+        run: |
+          python -m unittest tools.release.test_release -v
+          python tools/release/release.py check
+
+      - name: Enforce safe Android logging
+        shell: bash
+        run: |
+          if rg -n 'import android\.util\.Log|android\.util\.Log\.' app/src/main/java \
+            --glob '*.kt' --glob '!**/data/diagnostic/SafeLog.kt'; then
+            echo 'Direct android.util.Log usage is forbidden; use SafeLog.' >&2
+            exit 1
+          fi
+
+      - name: Run JVM tests
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+
+      - name: Run Android Lint
+        run: ./gradlew :app:lintDebug --console=plain
+
+      - name: Assemble Debug APKs
+        run: ./gradlew assembleDebug --console=plain
+
+      - name: Upload verification reports
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-verification-reports
+          if-no-files-found: ignore
+          path: |
+            app/build/reports/lint-results-debug.*
+            app/build/reports/tests/
+            app/build/test-results/

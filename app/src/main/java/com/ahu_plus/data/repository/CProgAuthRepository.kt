@@ -2,7 +2,7 @@ package com.ahu_plus.data.repository
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.google.gson.JsonParser
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.network.SecureHttpClientFactory
@@ -110,7 +110,6 @@ class CProgAuthRepository(
     val client: OkHttpClient = SecureHttpClientFactory.create(
         cookieJar = cookieJar,
         followRedirects = false,   // 登录跳转/踢回登录页需要自己判 302,不自动跟
-        trustAll = false,          // 明文 HTTP,不涉及证书;走 network config cleartext 白名单
         connectTimeoutSec = 15,
         readTimeoutSec = 20,
     )

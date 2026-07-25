@@ -17,6 +17,23 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
+sealed interface TlsPolicy {
+    data object SystemDefault : TlsPolicy
+    data object SystemTls12Only : TlsPolicy
+
+    data class LegacyCampusHosts(val exactHosts: Set<String>) : TlsPolicy {
+        init {
+            require(exactHosts.isNotEmpty()) { "Legacy campus TLS host set must not be empty" }
+            require(exactHosts.all(SecureHttpClientFactory::isAhuHost)) {
+                "Legacy campus TLS only accepts exact *.ahu.edu.cn hosts"
+            }
+            require(exactHosts.none { it.startsWith("*.") }) { "Wildcard TLS exceptions are forbidden" }
+        }
+
+        internal val normalizedHosts: Set<String> = exactHosts.map { it.trim().lowercase() }.toSet()
+    }
+}
+
 /**
  * 统一的 OkHttp 客户端工厂。
  *
@@ -26,7 +43,10 @@ import javax.net.ssl.X509TrustManager
  * 使用方式:
  *   val client = SecureHttpClientFactory.create(cookieJar = cookieJar)
  *   val casClient = SecureHttpClientFactory.create(cookieJar = cookieJar, disableGzip = true)
- *   val adwmhClient = SecureHttpClientFactory.create(cookieJar = cookieJar, tls12Only = true)
+ *   val adwmhClient = SecureHttpClientFactory.create(
+ *       cookieJar = cookieJar,
+ *       tlsPolicy = TlsPolicy.SystemTls12Only,
+ *   )
  */
 object SecureHttpClientFactory {
 
@@ -92,13 +112,7 @@ object SecureHttpClientFactory {
      * @param extraInterceptors 额外的应用拦截器(在 network 拦截器之前)
      * @param extraNetworkInterceptors 额外的网络拦截器；会观察重定向后的每个网络 hop
      * @param connectTimeoutSec / readTimeoutSec 超时秒数
-     * @param trustAll 历史参数名。true 表示仅对 *.ahu.edu.cn 启用自签名证书兼容模式,
-     *                 兼容安大自签名证书；标准 HTTPS 域名(如 api.zxs-bbs.cn /
-     *                 openahu.org / 集市头像 CDN)必须保持默认值,否则一旦 MITM 接管
-     *                 流量,本工厂创建的所有客户端都会变成开放代理。
-     *                 历史背景:本参数曾默认 true,见 2026-06-24 安全审查改为 false。
-     * @param tls12Only 是否仅启用 TLS 1.2。adwmh.ahu.edu.cn 的 nginx
-     *                 在 TLS 1.3 下接受握手但永不发送 HTTP 响应，必须降级。
+     * @param tlsPolicy 系统校验、系统校验 + TLS 1.2，或精确校园域名的遗留证书兼容。
      * @param authenticator OkHttp Authenticator;用于 401/403 时自动重认证。
      *                      推荐传入 [SessionAuthenticator](https://one.ahu.edu.cn)。
      * @param sessionExpiredInterceptor 嗅探 HTML 表单型 session 过期(安大门户典型);
@@ -114,8 +128,7 @@ object SecureHttpClientFactory {
         extraNetworkInterceptors: List<Interceptor> = emptyList(),
         connectTimeoutSec: Long = DEFAULT_TIMEOUT_SEC,
         readTimeoutSec: Long = DEFAULT_TIMEOUT_SEC,
-        trustAll: Boolean = false,
-        tls12Only: Boolean = false,
+        tlsPolicy: TlsPolicy = TlsPolicy.SystemDefault,
         authenticator: Authenticator? = null,
         sessionExpiredInterceptor: Interceptor? = null,
         retryOnConnectionFailure: Boolean = true,
@@ -123,11 +136,13 @@ object SecureHttpClientFactory {
         val builder = OkHttpClient.Builder()
             .connectionPool(sharedPool)
             .dispatcher(sharedDispatcher)
-        if (trustAll) {
+        if (tlsPolicy is TlsPolicy.LegacyCampusHosts) {
             builder.sslSocketFactory(ahuCompatibleSslContext.socketFactory, ahuCompatibleTrustManager)
-            builder.hostnameVerifier { hostname, _ -> isAhuHost(hostname) }
+            builder.hostnameVerifier { hostname, _ ->
+                hostname.trim().lowercase() in tlsPolicy.normalizedHosts
+            }
         }
-        if (tls12Only) {
+        if (tlsPolicy == TlsPolicy.SystemTls12Only) {
             // 关键:必须保留 ConnectionSpec.CLEARTEXT,否则 OkHttp 在遇到
             // HTTP URL(即使是 302 跳转到 http://)时会抛出
             // "CLEARTEXT communication not enabled for client"。OkHttp

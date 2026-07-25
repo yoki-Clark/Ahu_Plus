@@ -1,6 +1,6 @@
 package com.ahu_plus.data.repository
 
-import android.util.Log
+import com.ahu_plus.data.diagnostic.SafeLog as Log
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.model.BathroomBalanceData
 import com.ahu_plus.data.model.BathroomBalanceResponse
@@ -90,7 +90,9 @@ class YcardRepository(
         cookieJar = cookieJar,
         followRedirects = false,
         disableGzip = true,
-        trustAll = true,  // ycard.ahu.edu.cn 自签名证书
+        tlsPolicy = com.ahu_plus.data.network.TlsPolicy.LegacyCampusHosts(
+            setOf("one.ahu.edu.cn", "ycard.ahu.edu.cn")
+        ),
         connectTimeoutSec = 30,
         readTimeoutSec = 30
     )
@@ -356,7 +358,7 @@ class YcardRepository(
                 .post(formBody)
                 .build()
 
-            Log.d(TAG, "电费 API 请求: feeitemid=$feeitemid building=$building floor=$floor room=$room level=$level")
+            Log.d(TAG, "电费 API 请求: feeitemid=$feeitemid level=$level; location omitted")
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 val code = response.code
@@ -515,7 +517,7 @@ class YcardRepository(
                 .get()
                 .build()
 
-            Log.d(TAG, "电费账单请求: feeitemid=$feeitemid building=$building floor=$floor room=$room $startDate~$endDate")
+            Log.d(TAG, "电费账单请求: feeitemid=$feeitemid $startDate~$endDate; location omitted")
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 val code = response.code

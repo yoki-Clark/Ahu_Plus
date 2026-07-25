@@ -1,3 +1,6 @@
+import groovy.json.JsonSlurper
+import java.security.KeyStore
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -21,6 +24,45 @@ val localProps = Properties().apply {
 }
 fun localProp(key: String): String? = localProps.getProperty(key)?.takeIf { it.isNotBlank() }
 
+fun configuredValue(key: String): String? =
+    System.getenv(key)?.takeIf { it.isNotBlank() }
+        ?: providers.gradleProperty(key).orNull?.takeIf { it.isNotBlank() }
+        ?: localProp(key)
+
+@Suppress("UNCHECKED_CAST")
+fun jsonObject(value: Any?, label: String): Map<String, Any?> =
+    value as? Map<String, Any?> ?: error("$label 必须是 JSON object")
+
+val releaseStateFile = rootProject.layout.projectDirectory.file("release/release-state.json")
+check(releaseStateFile.asFile.isFile) { "缺少单一 Release 状态源: ${releaseStateFile.asFile.path}" }
+val releaseStateJson = providers.fileContents(releaseStateFile).asText.get()
+val releaseState = jsonObject(JsonSlurper().parseText(releaseStateJson), "release-state.json")
+val releaseApplication = jsonObject(releaseState["application"], "application")
+val releaseBuild = jsonObject(releaseState["build"], "build")
+val releaseVersionName = releaseBuild["versionName"] as? String
+    ?: error("build.versionName 必须是字符串")
+val releaseVersionCode = (releaseBuild["versionCode"] as? Number)?.toInt()
+    ?: error("build.versionCode 必须是整数")
+val allowedReleaseCertificates = (releaseApplication["allowedSigningCertificateSha256"] as? List<*>)
+    ?.mapNotNull { (it as? String)?.replace(":", "")?.uppercase() }
+    ?.toSet()
+    .orEmpty()
+check(releaseVersionName.isNotBlank()) { "build.versionName 不能为空" }
+check(releaseVersionCode > 0) { "build.versionCode 必须大于 0" }
+check(allowedReleaseCertificates.isNotEmpty()) { "签名证书 allowlist 不能为空" }
+check(releaseApplication["applicationId"] == "com.yourname.ahu_plus") {
+    "applicationId 必须保持为 com.yourname.ahu_plus"
+}
+
+val releaseSigningKeys = listOf(
+    "AHU_RELEASE_STORE_FILE",
+    "AHU_RELEASE_STORE_PASSWORD",
+    "AHU_RELEASE_KEY_ALIAS",
+    "AHU_RELEASE_KEY_PASSWORD",
+)
+val releaseSigningValues = releaseSigningKeys.associateWith(::configuredValue)
+val hasCompleteReleaseSigning = releaseSigningValues.values.all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.ahu_plus"
     compileSdk = 36
@@ -32,8 +74,8 @@ android {
         applicationId = "com.yourname.ahu_plus"
         minSdk = 24
         targetSdk = 36
-        versionCode = 31
-        versionName = "2.2.2.7"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -48,27 +90,16 @@ android {
     }
 
     // ── 签名配置 ─────────────────────────────────────────
-    // 优先使用 local.properties 中配置的正式签名;
-    // 未配置时回退到本机 Android SDK 自带的 debug.keystore(仅限本机自测,
-    // 不应分发安装包)。开源版本 fork 后请务必生成自己的 keystore。
+    // 只有四项正式签名配置全部存在时才创建 release signingConfig。
+    // Release 任务还会先执行 validateReleaseSigning；不允许回退 debug keystore。
     signingConfigs {
-        create("release") {
-            val storeFilePath = localProp("AHU_RELEASE_STORE_FILE")
-            if (storeFilePath != null) {
-                storeFile = file(storeFilePath)
-                storePassword = localProp("AHU_RELEASE_STORE_PASSWORD")
-                    ?: error("AHU_RELEASE_STORE_PASSWORD 未在 local.properties 配置")
-                keyAlias = localProp("AHU_RELEASE_KEY_ALIAS")
-                    ?: error("AHU_RELEASE_KEY_ALIAS 未在 local.properties 配置")
-                keyPassword = localProp("AHU_RELEASE_KEY_PASSWORD")
-                    ?: error("AHU_RELEASE_KEY_PASSWORD 未在 local.properties 配置")
-            } else {
-                // Fallback: 本机 debug.keystore,密码已知,仅用于本地自测
-                val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
-                storeFile = debugKeystore
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
+        if (hasCompleteReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseSigningValues["AHU_RELEASE_STORE_FILE"]))
+                storePassword = requireNotNull(releaseSigningValues["AHU_RELEASE_STORE_PASSWORD"])
+                keyAlias = requireNotNull(releaseSigningValues["AHU_RELEASE_KEY_ALIAS"])
+                keyPassword = requireNotNull(releaseSigningValues["AHU_RELEASE_KEY_PASSWORD"])
+                storeType = "PKCS12"
             }
         }
     }
@@ -81,7 +112,9 @@ android {
             isShrinkResources = true
             isDebuggable = false
             isJniDebuggable = false
-            signingConfig = signingConfigs.getByName("release")
+            if (hasCompleteReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -109,6 +142,62 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    // ABI split APK 以下载体积为发布约束。保留 Conscrypt 能力，但压缩 JNI 库；
+    // Android 安装时会将其解压，不改变运行期加载和 TLS 行为。
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+}
+
+val validateReleaseSigning by tasks.registering {
+    group = "verification"
+    description = "Fails unless the configured Release keystore matches the certificate allowlist."
+
+    doLast {
+        val missing = releaseSigningValues.filterValues { it.isNullOrBlank() }.keys.sorted()
+        if (missing.isNotEmpty()) {
+            throw GradleException("Release 签名配置缺失: ${missing.joinToString()}")
+        }
+
+        val storePath = requireNotNull(releaseSigningValues["AHU_RELEASE_STORE_FILE"])
+        val store = file(storePath)
+        if (!store.isFile) {
+            throw GradleException("Release keystore 不存在: ${store.path}")
+        }
+
+        val storePassword = requireNotNull(releaseSigningValues["AHU_RELEASE_STORE_PASSWORD"])
+        val alias = requireNotNull(releaseSigningValues["AHU_RELEASE_KEY_ALIAS"])
+        val keyStore = try {
+            KeyStore.getInstance("PKCS12").apply {
+                store.inputStream().use { load(it, storePassword.toCharArray()) }
+            }
+        } catch (_: Exception) {
+            throw GradleException("Release keystore 无法使用当前配置打开")
+        }
+        if (!keyStore.isKeyEntry(alias)) {
+            throw GradleException("Release keystore 中不存在配置的私钥别名")
+        }
+        val certificate = keyStore.getCertificate(alias)
+            ?: throw GradleException("Release keystore 中的别名没有证书")
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(certificate.encoded)
+            .joinToString("") { "%02X".format(it.toInt() and 0xFF) }
+        if (digest !in allowedReleaseCertificates) {
+            throw GradleException("Release 签名证书不在 allowlist 中: $digest")
+        }
+        logger.lifecycle("Release signing identity verified: $digest")
+    }
+}
+
+tasks.configureEach {
+    val releaseArtifactTask = name == "preReleaseBuild" ||
+        Regex("^(assemble|bundle|package|sign|makeApk|zipApks).*Release.*$").matches(name)
+    if (releaseArtifactTask) {
+        dependsOn(validateReleaseSigning)
     }
 }
 
@@ -138,6 +227,7 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.glance)
     implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.conscrypt.android)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     // AboutLibraries 依赖已临时移除 (Aliyun 镜像未缓存 11.6.1),改用 OpenSourceLicensesScreen 手写列表
@@ -145,6 +235,7 @@ dependencies {
     testImplementation(libs.mockwebserver)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
+    testImplementation(libs.androidx.work.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

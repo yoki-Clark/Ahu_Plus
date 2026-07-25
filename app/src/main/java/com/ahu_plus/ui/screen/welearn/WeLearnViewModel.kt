@@ -120,12 +120,17 @@ class WeLearnViewModel(
 
     fun refreshCourses() {
         viewModelScope.launch {
+            // 捕获请求开始时的 generation
+            val requestGeneration = app.sessionManager.currentAccountGeneration()
             _coursesState.value = _coursesState.value.copy(loading = true, error = null)
             val res = retryWithRelogin { queryRepo.getCourses() }
             _coursesState.value = res.fold(
                 onSuccess = {
                     lastCoursesLoadedAt = System.currentTimeMillis()
-                    app.sessionManager.saveWeLearnCoursesJson(GsonProvider.instance.toJson(it))
+                    app.sessionManager.saveWeLearnCoursesJson(
+                        GsonProvider.instance.toJson(it),
+                        generation = requestGeneration
+                    )
                     CoursesUiState(loading = false, courses = it)
                 },
                 onFailure = {

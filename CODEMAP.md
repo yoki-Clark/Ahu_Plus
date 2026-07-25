@@ -2,15 +2,32 @@
 
 本文是当前源码的文件级导航。路径均相对 `app/src/main/java/com/ahu_plus/`，内容只描述仓库中已经存在的实现。
 
+## 发布与工程门禁
+
+| 文件 | 职责 |
+|---|---|
+| `release/release-state.json` | 构建版本、候选版本、stable/beta 已发布元数据和签名证书 allowlist 的唯一来源 |
+| `tools/release/release.py` | 清单一致性、APK 签名/包名/版本/ABI/SHA-256 校验、dry-run 和晋升预览 |
+| `tools/ci/check_secrets.py` | 跟踪文件路径与高置信度凭据内容扫描 |
+| `tools/captcha_collector/` | 智慧安大验证码本地采集、双模型伪标注、人工真值标注、紧凑 CNN 训练与量化导出 |
+| `.github/workflows/android-ci.yml` | JVM 测试、Lint、Debug 构建和敏感信息门禁 |
+
 ## 入口与组装
 
 | 文件 | 职责 |
 |---|---|
-| `MainActivity.kt` | Edge-to-edge Activity、主题订阅、更新/公告弹窗、通知与 `ahuplus://market/import` 深链 |
-| `AhuPlusApplication.kt` | Conscrypt 初始化、手动 DI、Repository 状态恢复和账号数据清理 |
+| `MainActivity.kt` | Edge-to-edge Activity、主题订阅、更新/公告弹窗、通知深链与 v1 集市导入边界解析 |
+| `AhuPlusApplication.kt` | Conscrypt 初始化、手动 DI、后台作业恢复、Repository 状态恢复和账号数据清理 |
 | `ui/navigation/AppNavigation.kt` | `login`/`main` NavHost、静默登录、显式重认证、退出登录 |
+| `ui/navigation/MainNavigationModels.kt` | `TopLevelDestination` 枚举、`NavigationTarget` sealed 层级、`NavigationRequest`/`NavigationSource` |
+| `ui/navigation/MainNavigationState.kt` | 多栈导航状态机(selectTopLevel/navigate/back/disable)、`MainNavigationSnapshotCodec` |
+| `ui/navigation/MainNavigationViewModel.kt` | `SavedStateHandle` 持久化、`StateFlow` 暴露、4 个操作方法 |
+| `ui/navigation/NavigationIntentCodec.kt` | Intent 编解码、legacy 深链回退、纯 JVM 可测的 `decodeEncoded` |
 | `ui/screen/main/MainScreen.kt` | 顶层 6 个候选入口、响应式 NavigationBar/NavigationRail、所有业务页面状态机 |
-| `data/home/AppRegistry.kt` | 应用聚合页与最近使用的 21 个入口元数据 |
+| `data/home/AppRegistry.kt` | 应用聚合页与最近使用的入口元数据;`arrange()` 纯函数按排版配置隐藏/排序/分组(应用页与设置预览共用) |
+| `data/home/AppHubLayoutConfig.kt` | 应用页排版配置模型(列数/卡片样式/密度/分组/排序/显隐/自定义顺序)+ `normalize()` 清洗 |
+| `ui/screen/apps/AppHubScreen.kt` | 应用聚合页路由 + `AppHubPage` 按 `AppHubLayoutConfig` 渲染 + 横向/竖向/紧凑三种磁贴 |
+| `ui/screen/apps/AppHubSettingsScreen.kt` | 应用页排版设置子页:实时预览 + 全部控件 + 长按拖拽排序 + 显隐开关 + 重置 |
 
 ## 数据基础设施
 
@@ -20,13 +37,19 @@
 | `data/local/SessionManager.kt` | 会话内存镜像、普通偏好、业务缓存、迁移和清理策略 |
 | `data/local/EncryptedCredentialStore.kt` | Keystore 支持的账号、会话、token、API key 加密存储 |
 | `data/GsonProvider.kt` | 全局 Gson 配置 |
-| `data/network/SecureHttpClientFactory.kt` | 系统证书、按需 trust-all、TLS 1.2、CookieJar 和超时策略 |
+| `data/network/SecureHttpClientFactory.kt` | 系统证书、精确校园域名兼容、TLS 1.2、CookieJar 和超时策略 |
+| `data/network/NetworkSecurityPolicy.kt` | 明文网络精确域名 allowlist |
+| `data/diagnostic/SafeLog.kt` | 统一脱敏日志和 500 条本地环形诊断记录 |
+| `data/job/` | 学习通/WeLearn 作业状态、DataStore 持久化、互斥、取消和恢复协调 |
 | `data/network/SessionAuthenticator.kt` | 失败请求的会话恢复协调 |
 | `data/network/ResilientDns.kt` | DNS 解析和伪 IP 过滤 |
 | `data/network/CancellableCall.kt` | 可取消 OkHttp 调用桥接 |
 | `data/network/ChaoxingTrafficGovernor.kt` | 学习通请求节流、退避和状态 |
 | `data/local/DataRefreshPolicy.kt` | 缓存新鲜度判断 |
 | `data/local/DataSnapshotStatus.kt` | UI 数据来源/时间状态 |
+| `data/repository/ErrorKind.kt` | 9 种错误分类枚举(AUTH_EXPIRED/NETWORK_UNREACHABLE/RATE_LIMITED 等) |
+| `data/repository/RepositoryException.kt` | 携带 `ErrorKind` 的结构化异常 |
+| `data/repository/ErrorClassifier.kt` | Throwable/消息 → `ErrorKind` 映射、用户文案、重试/重认证决策 |
 
 ## 校园账号与教务
 
@@ -51,7 +74,7 @@
 | 校园卡门户余额 | `CardRepository.kt` | `home/HomeViewModel.kt` 的支付码余额兜底 |
 | 一卡通账单/生活缴费 | `YcardRepository.kt` | `home/`、`profile/BillScreens.kt`、`UtilityDetailScreens.kt` |
 | 充值 | `YcardPayRepository.kt` | `home/DepositSheet.kt` |
-| 智慧安大支付码 | `AdwmhCardRepository.kt` | `home/CampusQrCodeCard.kt` |
+| 智慧安大支付码 | `AdwmhCardRepository.kt`、`AdwmhCaptchaRecognizer.kt`、`CompactCaptchaModel.kt` | `home/CampusQrCodeCard.kt` |
 | 考勤 | `KqAttendanceRepository.kt` | `attendance/`、课表详情、Profile |
 | 学生一张表公共客户端 | `StudentTableClient.kt` | StudentInfo/Finance 共享 |
 | 学生信息 | `StudentInfoRepository.kt` | `profile/MyInfoScreens.kt` |
@@ -116,6 +139,7 @@
 | 天气 | `WeatherRepository.kt`、`data/weather/`、`ui/screen/weather/` |
 | 开发者公告 | `AnnouncementRepository.kt`、`data/announcement/AnnouncementManager.kt` |
 | 应用升级 | `data/update/UpdateManager.kt`、`ui/components/UpdateDialog.kt` |
+| 隐私与法律 | `data/legal/LegalConsentRepository.kt`、`data/legal/LegalContent.kt`、`ui/screen/legal/LegalScreens.kt` |
 | 开发者诊断 | `data/developer/`、`ui/screen/developer/` |
 
 ## 通知、Widget 与平台组件
@@ -123,11 +147,11 @@
 - `notification/CourseReminderScheduler.kt` / `CourseReminderReceiver.kt`
 - `notification/AgendaReminderScheduler.kt` / `AgendaReminderReceiver.kt`
 - `notification/BootReceiver.kt`
-- `notification/WidgetUpdateScheduler.kt`
+- `notification/WidgetRefreshScheduler.kt`（WorkManager）
 - `notification/CampusCardAlertNotifier.kt`
 - `ui/widget/TodayScheduleWidget.kt`
 
-`AndroidManifest.xml` 当前声明 5 个 receiver、2 个前台 service、1 个 FileProvider 和 1 个 Activity。
+`AndroidManifest.xml` 当前声明 4 个 receiver、2 个前台 service、1 个 FileProvider 和 1 个 Activity。
 
 ## 主题与组件
 

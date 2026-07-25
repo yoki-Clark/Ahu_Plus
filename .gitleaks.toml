@@ -1,0 +1,15 @@
+title = "Ahu_Plus gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented placeholders and synthetic scanner fixtures"
+regexTarget = "line"
+paths = ['''website/deploy/\.env\.example''']
+regexes = [
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.abcdefghij123456''',
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.abcdefghijklmnopqrstuv''',
+  '''ABCDEFGHIJKLMNOPQRSTUVWXYZ123456''',
+  '''scanner-fixture'''
+]

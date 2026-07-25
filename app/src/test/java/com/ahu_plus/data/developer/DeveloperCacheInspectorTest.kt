@@ -34,7 +34,7 @@ class DeveloperCacheInspectorTest {
 
     @Test
     fun `sensitive raw values never enter report or exports`() {
-        val secret = "do-not-export-this-value"
+        val secret = "do-not-export-this-value" // scanner-fixture
         val report = DeveloperCacheInspector.inspect(
             mapOf(
                 "api_token" to secret,
