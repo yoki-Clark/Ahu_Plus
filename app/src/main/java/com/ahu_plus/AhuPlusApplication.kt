@@ -222,6 +222,9 @@ class AhuPlusApplication : Application() {
     }
 
     suspend fun clearAccountScopedRepositoryState() {
+        com.ahu_plus.util.QrCodeBitmap.clear()
+        accountStateModule.incrementGeneration()
+        cacheModule.clearQrCodeCache()
         attendanceRepository.clearCookies()
         cProgAuthRepository.clearSession()
         gradeRepository.clearAccountState()

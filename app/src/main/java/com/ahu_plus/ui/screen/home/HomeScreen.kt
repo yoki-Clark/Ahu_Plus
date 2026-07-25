@@ -97,7 +97,7 @@ fun HomeScreen(
     val depositSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(Unit) {
-        viewModel.loadCampusQrCode()
+        viewModel.ensureCampusQrCode()
     }
 
     Scaffold(

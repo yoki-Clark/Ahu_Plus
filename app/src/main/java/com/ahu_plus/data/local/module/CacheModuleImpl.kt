@@ -6,6 +6,8 @@ import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.data.local.EncryptedCredentialStore
 import androidx.datastore.preferences.core.*
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * CacheModule 实现。
@@ -20,6 +22,7 @@ class CacheModuleImpl(
 ) : CacheModule {
 
     private val gson = GsonProvider.instance
+    private val qrCacheMutex = Mutex()
 
     companion object {
         private const val TAG = "CacheModule"
@@ -50,6 +53,7 @@ class CacheModuleImpl(
         private val OLD_STUDENT_INFO_UPDATED_AT_KEY = longPreferencesKey("student_info_updated_at")
         private val OLD_BILLS_JSON_KEY = stringPreferencesKey("bills_json")
         private val OLD_BILLS_UPDATED_AT_KEY = longPreferencesKey("bills_updated_at")
+        private val OLD_ADWMH_QR_PAYLOAD_KEY = stringPreferencesKey("adwmh_qr_payload")
         private val OLD_ADWMH_QR_SERVER_TEXT_KEY = stringPreferencesKey("adwmh_qr_server_text")
         private val OLD_ADWMH_QR_FETCHED_AT_KEY = longPreferencesKey("adwmh_qr_fetched_at")
         private val OLD_WELEARN_COURSES_JSON_KEY = stringPreferencesKey("welearn_courses_json")
@@ -270,37 +274,54 @@ class CacheModuleImpl(
     }
 
     // ── 支付码缓存 ──────────────────────────────────────
-    override suspend fun getQrCodeCache(): CacheModule.QrCodeCache? {
+    override suspend fun getQrCodeCache(): CacheModule.QrCodeCache? = qrCacheMutex.withLock {
         val prefs = appDataStore.dataStore.data.first()
-
-        prefs[QR_CODE_CACHE_KEY]?.let { json ->
-            return gson.fromJson(json, CacheModule.QrCodeCache::class.java)
+        val storedMetadata = prefs[QR_CODE_CACHE_KEY]?.let { json ->
+            gson.fromJson(json, CacheModule.QrCodeCache::class.java)
         }
-
-        // 兼容读旧 key（payload 已迁移到加密存储）
-        val oldPayload = credentialStore.getString(EncryptedCredentialStore.ADWMH_QR_PAYLOAD) ?: return null
-        val oldServerText = prefs[OLD_ADWMH_QR_SERVER_TEXT_KEY] ?: ""
-        val oldFetchedAt = prefs[OLD_ADWMH_QR_FETCHED_AT_KEY] ?: 0L
-        return CacheModule.QrCodeCache(
-            payload = oldPayload,
-            serverText = oldServerText,
-            fetchedAt = oldFetchedAt,
-            generation = 0L
+        val currentGeneration = accountStateModule.currentGeneration()
+        if (storedMetadata != null && storedMetadata.generation != currentGeneration) return@withLock null
+        val encryptedPayload = credentialStore.getString(EncryptedCredentialStore.ADWMH_QR_PAYLOAD)
+        val legacyPlaintextPayload = storedMetadata?.payload?.takeIf { it.isNotBlank() }
+            ?: prefs[OLD_ADWMH_QR_PAYLOAD_KEY]?.takeIf { it.isNotBlank() }
+        val payload = encryptedPayload ?: legacyPlaintextPayload ?: return@withLock null
+        val cache = storedMetadata?.copy(payload = payload) ?: CacheModule.QrCodeCache(
+            payload = payload,
+            serverText = prefs[OLD_ADWMH_QR_SERVER_TEXT_KEY] ?: "",
+            fetchedAt = prefs[OLD_ADWMH_QR_FETCHED_AT_KEY] ?: 0L,
+            generation = currentGeneration,
         )
+
+        // One-time compatibility migration. The DataStore metadata never retains the payload.
+        if (storedMetadata == null || encryptedPayload == null || legacyPlaintextPayload != null) {
+            credentialStore.putString(EncryptedCredentialStore.ADWMH_QR_PAYLOAD, payload)
+            appDataStore.dataStore.edit { mutablePrefs ->
+                mutablePrefs[QR_CODE_CACHE_KEY] = gson.toJson(cache.copy(payload = ""))
+                mutablePrefs.remove(OLD_ADWMH_QR_PAYLOAD_KEY)
+                mutablePrefs.remove(OLD_ADWMH_QR_SERVER_TEXT_KEY)
+                mutablePrefs.remove(OLD_ADWMH_QR_FETCHED_AT_KEY)
+            }
+        }
+        cache
     }
 
-    override suspend fun saveQrCodeCache(payload: String, serverText: String, fetchedAt: Long, generation: Long) {
+    override suspend fun saveQrCodeCache(
+        payload: String,
+        serverText: String,
+        fetchedAt: Long,
+        generation: Long,
+    ) = qrCacheMutex.withLock {
         if (!accountStateModule.isCurrentGeneration(generation)) {
             Log.w(TAG, "Ignoring stale QR code cache write")
-            return
+            return@withLock
         }
 
         // payload 存加密存储
         credentialStore.putString(EncryptedCredentialStore.ADWMH_QR_PAYLOAD, payload)
 
-        // 其他元数据存 CacheModule
+        // DataStore only contains metadata; never duplicate the sensitive payload in JSON.
         val cache = CacheModule.QrCodeCache(
-            payload = payload,  // 引用，实际在加密存储
+            payload = "",
             serverText = serverText,
             fetchedAt = fetchedAt,
             generation = generation
@@ -308,14 +329,22 @@ class CacheModuleImpl(
 
         appDataStore.dataStore.edit { prefs ->
             prefs[QR_CODE_CACHE_KEY] = gson.toJson(cache)
+            prefs.remove(OLD_ADWMH_QR_PAYLOAD_KEY)
+            prefs.remove(OLD_ADWMH_QR_SERVER_TEXT_KEY)
+            prefs.remove(OLD_ADWMH_QR_FETCHED_AT_KEY)
         }
+        Unit
     }
 
-    override suspend fun clearQrCodeCache() {
+    override suspend fun clearQrCodeCache() = qrCacheMutex.withLock {
         credentialStore.remove(EncryptedCredentialStore.ADWMH_QR_PAYLOAD)
         appDataStore.dataStore.edit { prefs ->
             prefs.remove(QR_CODE_CACHE_KEY)
+            prefs.remove(OLD_ADWMH_QR_PAYLOAD_KEY)
+            prefs.remove(OLD_ADWMH_QR_SERVER_TEXT_KEY)
+            prefs.remove(OLD_ADWMH_QR_FETCHED_AT_KEY)
         }
+        Unit
     }
 
     // ── 空教室/楼层/天气/公告等（简化实现，完整版需补充旧 key 兼容）──

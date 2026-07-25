@@ -1,15 +1,11 @@
 package com.ahu_plus.data.repository
 
 import com.ahu_plus.data.diagnostic.SafeLog as Log
-import android.os.SystemClock
 import com.google.gson.JsonObject
 import com.ahu_plus.data.GsonProvider
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.network.SecureHttpClientFactory
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -85,20 +81,12 @@ class AdwmhCardRepository(
      * adwmh 对重叠请求和突发请求都很敏感。锁必须覆盖完整 HTTP 往返，而不是只保护
      * 请求开始时间；否则前一个请求卡住时，后续请求仍会在 1.5 秒后并发发出。
      */
-    private val requestMutex = Mutex()
-    private var lastRequestCompletedAtMs = 0L
+    private val requestScheduler = AdwmhRequestScheduler(REQUEST_MIN_GAP_MS)
 
-    private suspend fun <T> executeThrottled(request: () -> T): T = requestMutex.withLock {
-        val elapsed = SystemClock.elapsedRealtime() - lastRequestCompletedAtMs
-        if (lastRequestCompletedAtMs > 0L && elapsed < REQUEST_MIN_GAP_MS) {
-            delay(REQUEST_MIN_GAP_MS - elapsed)
-        }
-        try {
-            request()
-        } finally {
-            lastRequestCompletedAtMs = SystemClock.elapsedRealtime()
-        }
-    }
+    private suspend fun <T> executeThrottled(
+        priority: AdwmhRequestPriority = AdwmhRequestPriority.USER_ACTION,
+        request: () -> T,
+    ): T = requestScheduler.execute(priority) { request() }
 
     // ── 登录 ─────────────────────────────────────────────
 
@@ -112,8 +100,9 @@ class AdwmhCardRepository(
         username: String,
         password: String,
         generation: Long = sessionManager.currentAccountGeneration(),
+        priority: AdwmhRequestPriority = AdwmhRequestPriority.USER_ACTION,
     ): Result<AdwmhLoginInfo> = withContext(Dispatchers.IO) {
-        val result = doLogin(username, password, "", generation)
+        val result = doLogin(username, password, "", generation, priority)
         if (result.isSuccess) return@withContext result
         val failure = result.exceptionOrNull()
         if (!shouldRequestManualAdwmhCaptcha(failure)) {
@@ -131,14 +120,14 @@ class AdwmhCardRepository(
         // 因此循环间无需额外 delay；每次重试至少间隔 3s（取码 1.5s + 登录 1.5s）。
         repeat(LOCAL_RECOGNIZE_MAX_RETRIES) { attempt ->
             currentCoroutineContext().ensureActive()
-            val captchaBytes = fetchCaptcha().getOrNull() ?: return@repeat
+            val captchaBytes = fetchCaptcha(priority).getOrNull() ?: return@repeat
             val recognized = recognizer.recognize(captchaBytes)
             if (recognized.isNullOrBlank()) {
                 Log.w(TAG, "autoLogin: 本地识别失败 attempt=${attempt + 1}")
                 return@repeat
             }
             Log.d(TAG, "autoLogin: 本地识别完成 attempt=${attempt + 1}")
-            val retryResult = doLogin(username, password, recognized, generation)
+            val retryResult = doLogin(username, password, recognized, generation, priority)
             if (retryResult.isSuccess) {
                 Log.i(TAG, "autoLogin: 本地识别登录成功 attempt=${attempt + 1}")
                 return@withContext retryResult
@@ -152,7 +141,9 @@ class AdwmhCardRepository(
     }
 
     /** 从智慧安大获取验证码图片；图片只返回给本地 UI 展示。 */
-    suspend fun fetchCaptcha(): Result<ByteArray> = withContext(Dispatchers.IO) {
+    suspend fun fetchCaptcha(
+        priority: AdwmhRequestPriority = AdwmhRequestPriority.USER_ACTION,
+    ): Result<ByteArray> = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder()
                 .url("https://$HOST/remind/authcode")
@@ -161,7 +152,7 @@ class AdwmhCardRepository(
                 .header("X-Requested-With", "XMLHttpRequest")
                 .get()
                 .build()
-            executeThrottled {
+            executeThrottled(priority) {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw AdwmhAuthException("验证码获取失败")
                     response.body?.bytes() ?: throw AdwmhAuthException("验证码为空")
@@ -189,6 +180,7 @@ class AdwmhCardRepository(
         password: String,
         captcha: String,
         generation: Long = sessionManager.currentAccountGeneration(),
+        priority: AdwmhRequestPriority = AdwmhRequestPriority.USER_ACTION,
     ): Result<AdwmhLoginInfo> = withContext(Dispatchers.IO) {
         runCatching {
             val formBody = FormBody.Builder()
@@ -205,7 +197,7 @@ class AdwmhCardRepository(
                 .header("Referer", "https://$HOST/www/index.html")
                 .post(formBody)
                 .build()
-            val (loginInfo, jsessionid) = executeThrottled {
+            val (loginInfo, jsessionid) = executeThrottled(priority) {
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string().orEmpty()
                     if (!response.isSuccessful) {
@@ -259,7 +251,7 @@ class AdwmhCardRepository(
         runCatching {
             ensureSessionId()
             Log.d(TAG, "getQrCode: fetching...")
-            val json = getJson("/xzxcard/qrcode")
+            val json = getJson("/xzxcard/qrcode", priority = AdwmhRequestPriority.USER_ACTION)
             val payload = json.get("object")?.asString?.takeIf { it.isNotBlank() }
                 ?: throw AdwmhAuthException("QR payload is empty")
             Log.d(TAG, "getQrCode: OK (payload len=${payload.length})")
@@ -274,7 +266,7 @@ class AdwmhCardRepository(
     suspend fun getBalance(): Result<Double> = withContext(Dispatchers.IO) {
         runCatching {
             ensureSessionId()
-            val json = getJson("/xzxcard/yue")
+            val json = getJson("/xzxcard/yue", priority = AdwmhRequestPriority.BACKGROUND)
             json.get("object")?.asDouble ?: throw AdwmhAuthException("balance is empty")
         }
     }
@@ -282,7 +274,11 @@ class AdwmhCardRepository(
     suspend fun validateSession(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             ensureSessionId()
-            getJson("/user/session", method = "POST")
+            getJson(
+                "/user/session",
+                method = "POST",
+                priority = AdwmhRequestPriority.BACKGROUND,
+            )
             Unit
         }
     }
@@ -325,7 +321,11 @@ class AdwmhCardRepository(
         }
     }
 
-    private suspend fun getJson(path: String, method: String = "GET"): JsonObject {
+    private suspend fun getJson(
+        path: String,
+        method: String = "GET",
+        priority: AdwmhRequestPriority = AdwmhRequestPriority.USER_ACTION,
+    ): JsonObject {
         val url = "https://$HOST$path"
         Log.d(TAG, "$method $url")
         val requestBuilder = Request.Builder()
@@ -342,7 +342,7 @@ class AdwmhCardRepository(
         }
 
         try {
-            return executeThrottled {
+            return executeThrottled(priority) {
                 client.newCall(requestBuilder.build()).execute().use { response ->
                     val body = response.body?.string().orEmpty()
                     Log.d(TAG, "$method $path → ${response.code} (body len=${body.length})")

@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.ElectricityRoomConfig
 import com.ahu_plus.data.local.SessionManager
+import com.ahu_plus.data.local.module.CacheModule
+import com.ahu_plus.data.local.module.AccountStateModule
 import com.ahu_plus.data.local.DataRefreshPolicy
 import com.ahu_plus.data.model.BathroomBalanceData
 import com.ahu_plus.data.model.BillRecord
@@ -56,7 +58,9 @@ class HomeViewModel(
     private val ycardRepository: YcardRepository,
     private val sessionManager: SessionManager,
     private val studentInfoRepository: StudentInfoRepository? = null,
-    private val adwmhCardRepository: AdwmhCardRepository? = null
+    private val adwmhCardRepository: AdwmhCardRepository? = null,
+    private val cacheModule: CacheModule? = null,
+    private val accountStateModule: AccountStateModule? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -1173,7 +1177,19 @@ class HomeViewModel(
      */
     private fun restoreCachedQr() {
         if (adwmhCardRepository == null) return
-        val (payload, serverText, fetchedAt) = sessionManager.getAdwmhQrCache()
+        val module = cacheModule
+        if (module == null) {
+            val (payload, serverText, fetchedAt) = sessionManager.getAdwmhQrCache()
+            applyCachedQr(payload, serverText, fetchedAt)
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val cache = module.getQrCodeCache() ?: return@launch
+            applyCachedQr(cache.payload, cache.serverText, cache.fetchedAt)
+        }
+    }
+
+    private fun applyCachedQr(payload: String?, serverText: String, fetchedAt: Long) {
         if (payload.isNullOrBlank() || fetchedAt <= 0L) return
         val ageMs = System.currentTimeMillis() - fetchedAt
         if (ageMs > QR_CACHE_MAX_RESTORE_MS) return
@@ -1193,8 +1209,29 @@ class HomeViewModel(
     }
 
     /** 持久化最近一次成功的支付码,供下次冷启动兜底展示。 */
-    private suspend fun persistQr(qr: AdwmhQrCode) {
-        sessionManager.saveAdwmhQrCache(qr.payload, qr.statusMsg, qr.fetchedAt)
+    private suspend fun persistQr(qr: AdwmhQrCode, generation: Long) {
+        val module = cacheModule
+        if (module != null) {
+            module.saveQrCodeCache(
+                payload = qr.payload,
+                serverText = qr.statusMsg,
+                fetchedAt = qr.fetchedAt,
+                generation = generation,
+            )
+        } else {
+            sessionManager.saveAdwmhQrCache(qr.payload, qr.statusMsg, qr.fetchedAt)
+        }
+    }
+
+    /** 打开支付码时复用仍然新鲜的码；临近过期时保留当前码并后台刷新。 */
+    fun ensureCampusQrCode() {
+        qrRequested = true
+        val decision = qrOpenRefreshDecision(
+            fetchedAtMillis = _uiState.value.qrCode?.fetchedAt,
+            nowMillis = System.currentTimeMillis(),
+        )
+        if (decision != QrOpenRefreshDecision.NONE) loadCampusQrCode()
+        if (visible) startQrAutoRefresh()
     }
 
     fun loadCampusQrCode() {
@@ -1204,12 +1241,13 @@ class HomeViewModel(
         qrLoadJob = viewModelScope.launch {
             _uiState.update { it.copy(qrLoading = true, qrError = null) }
             withContext(Dispatchers.IO) {
+                val cacheGeneration = accountStateModule?.currentGeneration()
+                    ?: sessionManager.currentAccountGeneration()
                 // 先尝试直接加载（用已有 session）
                 val qrResult = qrRepository.getQrCode()
                 if (qrResult.isSuccess) {
                     qrConsecutiveFailures = 0
                     val qr = qrResult.getOrThrow()
-                    persistQr(qr)
                     _uiState.update { state ->
                         state.copy(
                             qrCode = qr,
@@ -1220,6 +1258,7 @@ class HomeViewModel(
                             qrAgeSeconds = 0
                         )
                     }
+                    viewModelScope.launch(Dispatchers.IO) { persistQr(qr, cacheGeneration) }
                     return@withContext
                 }
 
@@ -1262,7 +1301,11 @@ class HomeViewModel(
                                     }
                                 )
                             }
-                            retryQr.getOrNull()?.let { persistQr(it) }
+                            retryQr.getOrNull()?.let { qr ->
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    persistQr(qr, cacheGeneration)
+                                }
+                            }
                             return@withContext
                         } else if (loginResult.exceptionOrNull() is AdwmhCaptchaRequiredException) {
                             requestAdwmhCaptcha(loginResult.exceptionOrNull()?.message)
@@ -1756,13 +1799,15 @@ class HomeViewModel(
         if (adwmhCardRepository == null || qrRefreshJob?.isActive == true) return
         qrRefreshJob = viewModelScope.launch {
             while (true) {
-                if (!_uiState.value.adwmhLoginDialogVisible) {
-                    loadCampusQrCode()
-                    // loadCampusQrCode launches separately so manual and automatic refresh share
-                    // one request path. Wait for it before choosing the failure backoff.
-                    qrLoadJob?.join()
-                }
-                val delaySeconds = qrAutoRefreshDelaySeconds(qrConsecutiveFailures)
+                // A user-triggered load may already be active. Let it publish the new fetchedAt
+                // before calculating when another refresh is actually needed.
+                qrLoadJob?.join()
+                val state = _uiState.value
+                val delaySeconds = qrNextRefreshDelaySeconds(
+                    consecutiveFailures = qrConsecutiveFailures,
+                    fetchedAtMillis = state.qrCode?.fetchedAt,
+                    nowMillis = System.currentTimeMillis(),
+                )
                 for (remaining in delaySeconds downTo 1) {
                     _uiState.update { state ->
                         // 按当前展示码的获取时间实时计算新鲜度
@@ -1786,6 +1831,11 @@ class HomeViewModel(
                     }
                     delay(1000)
                 }
+                if (_uiState.value.adwmhLoginDialogVisible) {
+                    delay(1000)
+                    continue
+                }
+                loadCampusQrCode()
             }
         }
     }
@@ -1807,6 +1857,38 @@ internal fun qrAutoRefreshDelaySeconds(consecutiveFailures: Int): Int = when {
     consecutiveFailures == 1 -> 60
     consecutiveFailures <= 3 -> 120
     else -> 300
+}
+
+internal enum class QrOpenRefreshDecision {
+    NONE,
+    BACKGROUND,
+    REQUIRED,
+}
+
+internal fun qrOpenRefreshDecision(
+    fetchedAtMillis: Long?,
+    nowMillis: Long,
+    backgroundRefreshAgeMillis: Long = 45_000L,
+    staleThresholdMillis: Long = 60_000L,
+): QrOpenRefreshDecision {
+    if (fetchedAtMillis == null || fetchedAtMillis <= 0L) return QrOpenRefreshDecision.REQUIRED
+    val ageMillis = (nowMillis - fetchedAtMillis).coerceAtLeast(0L)
+    return when {
+        ageMillis <= backgroundRefreshAgeMillis -> QrOpenRefreshDecision.NONE
+        ageMillis <= staleThresholdMillis -> QrOpenRefreshDecision.BACKGROUND
+        else -> QrOpenRefreshDecision.REQUIRED
+    }
+}
+
+internal fun qrNextRefreshDelaySeconds(
+    consecutiveFailures: Int,
+    fetchedAtMillis: Long?,
+    nowMillis: Long,
+): Int {
+    if (consecutiveFailures > 0) return qrAutoRefreshDelaySeconds(consecutiveFailures)
+    if (fetchedAtMillis == null || fetchedAtMillis <= 0L) return 0
+    val remainingMillis = 45_000L - (nowMillis - fetchedAtMillis).coerceAtLeast(0L)
+    return ((remainingMillis.coerceAtLeast(0L) + 999L) / 1_000L).toInt()
 }
 
 internal data class QrFreshness(
