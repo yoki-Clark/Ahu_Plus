@@ -484,7 +484,7 @@ private fun WeekHeader(
         IconButton(
             onClick = onPrevious,
             enabled = hasPrevious,
-            modifier = Modifier.size(32.dp)
+            modifier = Modifier.minimumInteractiveComponentSize().size(32.dp)
         ) {
             Icon(
                 Icons.Filled.ChevronLeft,
@@ -580,7 +580,7 @@ private fun WeekHeader(
         IconButton(
             onClick = onNext,
             enabled = hasNext,
-            modifier = Modifier.size(32.dp)
+            modifier = Modifier.minimumInteractiveComponentSize().size(32.dp)
         ) {
             Icon(
                 Icons.Filled.ChevronRight,

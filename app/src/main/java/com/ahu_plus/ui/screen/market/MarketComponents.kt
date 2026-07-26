@@ -458,7 +458,7 @@ internal fun StaggerMarketTopicCard(
             if (topic.imgs.isNotEmpty()) {
                 AsyncImage(
                     model = topic.imgs.first(),
-                    contentDescription = null,
+                    contentDescription = "帖子配图",
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(0.75f)
@@ -650,7 +650,8 @@ private fun TopicImageGrid(
                         .fillMaxWidth()
                         .height(singleHeight)
                         .clip(corner)
-                        .clickable { onImageClick(visible[page], page) }
+                        .clickable { onImageClick(visible[page], page) },
+                    description = "帖子配图 ${page + 1}／${visible.size}",
                 )
             }
             if (visible.size > 1) {
@@ -692,10 +693,10 @@ private fun TopicImageGrid(
 }
 
 @Composable
-private fun TopicImage(url: String, modifier: Modifier) {
+private fun TopicImage(url: String, modifier: Modifier, description: String = "帖子配图") {
     AsyncImage(
         model = url,
-        contentDescription = null,
+        contentDescription = description,
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
         contentScale = ContentScale.Crop
     )

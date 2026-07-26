@@ -153,6 +153,18 @@ android {
     }
 }
 
+// 所有 *UiState 都标了 @Immutable，但 @Immutable 是"承诺"不是"校验"。
+// 开着报告才能确认 Composable 真的可跳过：
+//   ./gradlew :app:assembleDebug -PcomposeMetrics
+//   产物 build/compose-metrics/*-composables.txt 与 build/compose-reports/*-classes.txt
+// 默认不开，避免给日常构建加开销。
+composeCompiler {
+    if (providers.gradleProperty("composeMetrics").isPresent) {
+        metricsDestination = layout.buildDirectory.dir("compose-metrics")
+        reportsDestination = layout.buildDirectory.dir("compose-reports")
+    }
+}
+
 val validateReleaseSigning by tasks.registering {
     group = "verification"
     description = "Fails unless the configured Release keystore matches the certificate allowlist."
