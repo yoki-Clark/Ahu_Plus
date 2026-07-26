@@ -285,7 +285,7 @@ class CacheModuleImpl(
         val legacyPlaintextPayload = storedMetadata?.payload?.takeIf { it.isNotBlank() }
             ?: prefs[OLD_ADWMH_QR_PAYLOAD_KEY]?.takeIf { it.isNotBlank() }
         val payload = encryptedPayload ?: legacyPlaintextPayload ?: return@withLock null
-        val cache = storedMetadata?.copy(payload = payload) ?: CacheModule.QrCodeCache(
+        val cache = storedMetadata?.copy(payload = payload, serverText = storedMetadata.serverText ?: "") ?: CacheModule.QrCodeCache(
             payload = payload,
             serverText = prefs[OLD_ADWMH_QR_SERVER_TEXT_KEY] ?: "",
             fetchedAt = prefs[OLD_ADWMH_QR_FETCHED_AT_KEY] ?: 0L,
