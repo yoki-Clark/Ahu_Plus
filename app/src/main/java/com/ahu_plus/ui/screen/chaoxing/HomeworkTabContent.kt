@@ -54,6 +54,7 @@ import com.ahu_plus.data.model.CxHomeworkDetailState
 import com.ahu_plus.data.model.CxHomeworkItem
 import com.ahu_plus.data.model.CxHomeworkListState
 import com.ahu_plus.data.model.CxQuestion
+import com.ahu_plus.ui.theme.ChaoxingColors
 
 /**
  * 课程作业 Tab 列表。
@@ -146,15 +147,17 @@ fun HomeworkTabContent(
 
 // ══════════════════════════════════════════════════════════════
 
+private fun homeworkStatusColor(status: String): Color = when {
+    status.contains("完成") -> ChaoxingColors.HomeworkDone
+    status.contains("批阅") -> ChaoxingColors.HomeworkPending
+    status.contains("未交") -> ChaoxingColors.HomeworkOverdue
+    status.contains("待做") -> ChaoxingColors.HomeworkOverdue
+    else -> ChaoxingColors.HomeworkUnknown
+}
+
 @Composable
 private fun HomeworkCard(work: CxHomeworkItem, onClick: () -> Unit) {
-    val statusColor = when {
-        work.status.contains("完成") -> Color(0xFF4CAF50)
-        work.status.contains("批阅") -> Color(0xFFFF9800)
-        work.status.contains("未交") -> Color(0xFFF44336)
-        work.status.contains("待做") -> Color(0xFFF44336)
-        else -> Color(0xFF9E9E9E)
-    }
+    val statusColor = homeworkStatusColor(work.status)
     val statusIcon = when {
         work.status.contains("完成") -> Icons.Filled.CheckCircle
         work.status.contains("批阅") -> Icons.Filled.Schedule
@@ -237,11 +240,7 @@ fun HomeworkDetailScreen(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    val statusColor = when {
-                        homework.status.contains("完成") -> Color(0xFF4CAF50)
-                        homework.status.contains("批阅") -> Color(0xFFFF9800)
-                        else -> Color(0xFFF44336)
-                    }
+                    val statusColor = homeworkStatusColor(homework.status)
                     Card(
                         colors = CardDefaults.cardColors(containerColor = statusColor.copy(alpha = 0.12f)),
                         shape = RoundedCornerShape(6.dp),
