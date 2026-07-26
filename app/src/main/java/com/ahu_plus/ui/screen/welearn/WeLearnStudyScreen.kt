@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.legal.LegalRiskAcknowledgement
 import com.ahu_plus.data.job.BackgroundJobPlatform
@@ -44,9 +45,9 @@ fun WeLearnStudyScreen(
     onBack: () -> Unit,
 ) {
     val ctx = LocalContext.current
-    val state by viewModel.studyState.collectAsState()
+    val state by viewModel.studyState.collectAsStateWithLifecycle()
     val uiScope = rememberCoroutineScope()  // 2026-06-28:用于异步写 SessionManager
-    val treeState by viewModel.treeState.collectAsState()
+    val treeState by viewModel.treeState.collectAsStateWithLifecycle()
     val unitInfo: WeLearnUnitScos? = remember(unitFilter, treeState.units) {
         val idx = unitFilter?.firstOrNull() ?: return@remember null
         treeState.units.firstOrNull { it.unit.unitIdx == idx }
