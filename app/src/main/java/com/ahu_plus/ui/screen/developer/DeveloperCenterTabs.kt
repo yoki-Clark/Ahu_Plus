@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.Immutable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -106,8 +107,10 @@ import kotlinx.coroutines.launch
 internal sealed interface DeveloperDataUiState {
     data object Loading : DeveloperDataUiState
 
+    @Immutable
     data class Ready(val report: DeveloperCacheReport) : DeveloperDataUiState
 
+    @Immutable
     data class Failed(val message: String) : DeveloperDataUiState
 }
 
@@ -1193,14 +1196,13 @@ private fun DeveloperMaintenanceStatus.color(): Color = when (this) {
 private fun DeveloperLogEntry.asExportLine(): String =
     "${formatTime(timestampMillis)}\t$level\t$category\t$message\t$detail"
 
-private fun formatTime(timestampMillis: Long): String =
-    SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date(timestampMillis))
+private val TIME_FORMAT = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+private val DATE_TIME_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
 
-private fun formatDate(timestampMillis: Long): String =
-    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(timestampMillis))
-
-private fun formatDateTime(timestampMillis: Long): String =
-    SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date(timestampMillis))
+private fun formatTime(timestampMillis: Long): String = TIME_FORMAT.format(Date(timestampMillis))
+private fun formatDate(timestampMillis: Long): String = DATE_FORMAT.format(Date(timestampMillis))
+private fun formatDateTime(timestampMillis: Long): String = DATE_TIME_FORMAT.format(Date(timestampMillis))
 
 internal fun networkResultExportText(result: NetworkDiagnosticResult): String {
     val output = buildString {

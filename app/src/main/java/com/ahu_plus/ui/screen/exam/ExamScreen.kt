@@ -112,12 +112,15 @@ fun ExamScreen(
             }
             else -> {
                 val now = DebugClock.nowMillis()
-                val unfinished = uiState.exams
-                    .filter { !isExamFinished(it, now) }
-                    .sortedWith(compareBy { parseExamStartMillis(it.examTime) ?: Long.MAX_VALUE })
-                val finished = uiState.exams
-                    .filter { isExamFinished(it, now) }
-                    .sortedWith(compareByDescending { parseExamStartMillis(it.examTime) ?: 0L })
+                val (unfinished, finished) = remember(uiState.exams) {
+                    val u = uiState.exams
+                        .filter { !isExamFinished(it, now) }
+                        .sortedWith(compareBy { parseExamStartMillis(it.examTime) ?: Long.MAX_VALUE })
+                    val f = uiState.exams
+                        .filter { isExamFinished(it, now) }
+                        .sortedWith(compareByDescending { parseExamStartMillis(it.examTime) ?: 0L })
+                    Pair(u, f)
+                }
 
                 LazyColumn(
                     modifier = Modifier
@@ -279,6 +282,9 @@ private fun ExamRow(exam: Exam, isFinished: Boolean = false) {
     }
 }
 
+private val EXAM_DATE_TIME_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+private val EXAM_DATE_ONLY_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
 /**
  * 解析考试时间字符串，构建系统日历 Intent。
  *
@@ -290,14 +296,12 @@ private fun buildCalendarIntent(exam: Exam): Intent {
     val match = timePattern.find(exam.examTime)
 
     val beginTime = if (match != null) {
-        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-        sdf.parse("${match.groupValues[1]} ${match.groupValues[2]}")?.time ?: 0L
+        EXAM_DATE_TIME_FORMAT.parse("${match.groupValues[1]} ${match.groupValues[2]}")?.time ?: 0L
     } else {
         0L
     }
     val endTime = if (match != null) {
-        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-        sdf.parse("${match.groupValues[1]} ${match.groupValues[3]}")?.time ?: (beginTime + 2 * 60 * 60 * 1000)
+        EXAM_DATE_TIME_FORMAT.parse("${match.groupValues[1]} ${match.groupValues[3]}")?.time ?: (beginTime + 2 * 60 * 60 * 1000)
     } else {
         beginTime + 2 * 60 * 60 * 1000
     }
@@ -322,8 +326,7 @@ private fun buildCalendarIntent(exam: Exam): Intent {
             val datePattern = Regex("""(\d{4}-\d{2}-\d{2})""")
             val dateMatch = datePattern.find(exam.examTime)
             if (dateMatch != null) {
-                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                val dateMs = sdf.parse(dateMatch.groupValues[1])?.time ?: 0L
+                val dateMs = EXAM_DATE_ONLY_FORMAT.parse(dateMatch.groupValues[1])?.time ?: 0L
                 if (dateMs > 0) {
                     putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, dateMs)
                     putExtra(CalendarContract.EXTRA_EVENT_END_TIME, dateMs + 24 * 60 * 60 * 1000)
