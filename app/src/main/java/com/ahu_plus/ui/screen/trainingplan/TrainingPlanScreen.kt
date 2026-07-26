@@ -67,6 +67,7 @@ import com.ahu_plus.data.model.jw.PlanModuleNode
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuStatusColors
 
 // ── 颜色常量 ──────────────────────────────────────────────────────────
 private val PropRequired = Color(0xFF1565C0)
@@ -76,7 +77,7 @@ private val TypeTheory = Color(0xFF2E7D32)
 private val TypeExperiment = Color(0xFF0277BD)
 private val TypePractice = Color(0xFF6A1B9A)
 private val TypeOther = Color(0xFF616161)
-private val PassedGreen = Color(0xFF27AE60)
+private val PassedGreen = AhuStatusColors.NormalGreen
 private val NotTakenGray = Color(0xFFBDBDBD)
 private val InProgressOrange = Color(0xFFEF6C00)
 private val FailedRed = Color(0xFFD32F2F)
