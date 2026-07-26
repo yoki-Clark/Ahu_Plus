@@ -29,7 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @Composable
-fun BackgroundJobHistoryCard(platform: BackgroundJobPlatform) {
+fun BackgroundJobHistoryCard(platform: BackgroundJobPlatform, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val app = context.applicationContext as AhuPlusApplication
     val allRecords by app.backgroundJobController.records.collectAsStateWithLifecycle()
@@ -38,7 +38,7 @@ fun BackgroundJobHistoryCard(platform: BackgroundJobPlatform) {
     if (records.isEmpty()) return
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
