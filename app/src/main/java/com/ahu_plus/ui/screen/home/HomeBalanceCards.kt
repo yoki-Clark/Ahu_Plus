@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -192,7 +193,7 @@ private fun PhoneInputDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    var input by remember { mutableStateOf(currentPhone) }
+    var input by rememberSaveable { mutableStateOf(currentPhone) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("设置浴室手机号") },
