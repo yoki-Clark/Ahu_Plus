@@ -1,6 +1,8 @@
 package com.ahu_plus.data.repository
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import com.ahu_plus.data.local.AppDataStore
 import com.ahu_plus.data.model.course.AssessmentPlan
 import kotlinx.coroutines.Dispatchers
@@ -92,4 +94,27 @@ class AssessmentRepository(
     /** 课程的图片附件目录 (绝对路径) */
     fun courseAssetsDir(lessonId: String): File =
         File(application.filesDir, "course_assets/$lessonId")
+
+    /**
+     * 解码缩略图,IO 线程执行 + 按 [reqSizePx] 采样降分辨率,
+     * 避免为一个几十 dp 的缩略图解码全尺寸原图占用过多内存。
+     */
+    suspend fun loadThumbnail(relativePath: String, reqSizePx: Int = 160): Bitmap? =
+        withContext(Dispatchers.IO) {
+            val file = resolveImagePath(relativePath)
+            runCatching {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, bounds)
+                var sampleSize = 1
+                var width = bounds.outWidth
+                var height = bounds.outHeight
+                while (width / 2 >= reqSizePx && height / 2 >= reqSizePx) {
+                    width /= 2
+                    height /= 2
+                    sampleSize *= 2
+                }
+                val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                BitmapFactory.decodeFile(file.absolutePath, options)
+            }.getOrNull()
+        }
 }

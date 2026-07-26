@@ -33,6 +33,7 @@ import com.ahu_plus.ui.theme.AhuRed
 import com.ahu_plus.ui.theme.AhuTeal
 import com.ahu_plus.ui.theme.AhuViolet
 import com.ahu_plus.ui.theme.AhuGradient
+import com.ahu_plus.ui.theme.AhuStatusColors
 
 /**
  * 静态应用注册表。
@@ -127,7 +128,7 @@ object AppRegistry {
             key = KEY_TRAINING_PLAN,
             title = "培养方案",
             icon = Icons.Filled.School,
-            tint = Color(0xFF6C63FF),
+            tint = AhuStatusColors.AppIndigo,
             group = LEARNING,
             gradient = AhuGradient.Violet.brush,
         ),
