@@ -46,6 +46,7 @@ import com.ahu_plus.data.model.weather.WeatherFeed
 import com.ahu_plus.data.weather.WeatherManager
 import com.ahu_plus.ui.components.WeatherPanel
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuStatusColors
 import com.ahu_plus.data.model.jw.CourseUnit
 import com.ahu_plus.data.model.jw.parseTimeMinutes
 import kotlinx.coroutines.delay
@@ -347,8 +348,8 @@ private fun courseTotalMinutes(course: CourseDisplayItem, unitTimes: List<Course
 @Composable
 private fun AttendanceBadge(status: Int) {
     val (label, color) = when (status) {
-        1 -> "已签到" to Color(0xFF27AE60)
-        2 -> "迟到" to Color(0xFFE67E22)
+        1 -> "已签到" to AhuStatusColors.NormalGreen
+        2 -> "迟到" to AhuStatusColors.WarningOrange
         3 -> "缺勤" to MaterialTheme.colorScheme.error
         else -> return
     }

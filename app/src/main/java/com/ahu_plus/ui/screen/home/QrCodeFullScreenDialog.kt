@@ -53,6 +53,7 @@ import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.ui.components.CountdownArc
 import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuStatusColors
 import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 
@@ -207,7 +208,7 @@ fun QrCodeFullScreenDialog(
                             Row(
                                 modifier = Modifier
                                     .clip(AhuShapes.Pill)
-                                    .background(Color(0xFFFFA000).copy(alpha = 0.22f))
+                                    .background(AhuStatusColors.QrStaleAmberBg.copy(alpha = 0.22f))
                                     .padding(horizontal = 14.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -215,14 +216,14 @@ fun QrCodeFullScreenDialog(
                                 Icon(
                                     Icons.Filled.Refresh,
                                     contentDescription = null,
-                                    tint = Color(0xFFFFE082),
+                                    tint = AhuStatusColors.QrStaleAmber,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
                                     text = "${formatQrAge(ageSeconds)}的码，可能已失效，请点击刷新",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFFFE082),
+                                    color = AhuStatusColors.QrStaleAmber,
                                     textAlign = TextAlign.Center
                                 )
                             }

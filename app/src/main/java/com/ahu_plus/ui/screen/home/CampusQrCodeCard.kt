@@ -42,6 +42,7 @@ import com.ahu_plus.ui.components.AhuHeroCard
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.CountdownArc
 import com.ahu_plus.ui.theme.AhuGradient
+import com.ahu_plus.ui.theme.AhuStatusColors
 import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 
@@ -51,8 +52,7 @@ import java.text.DecimalFormat
  * 新版主流程已迁移到「我的」页,这里保留为独立页面以便后续复用或调试。
  */
 
-/** 支付码可能已失效 — 琥珀警示色 */
-private val QrStaleAmber = Color(0xFFFFE082)
+private val QrStaleAmber = AhuStatusColors.QrStaleAmber
 
 @Composable
 fun CampusQrCodeCard(
@@ -191,7 +191,7 @@ fun CampusQrCodeCard(
                             Row(
                                 modifier = Modifier
                                     .clip(AhuShapes.Pill)
-                                    .background(Color(0xFFFFA000).copy(alpha = 0.22f))
+                                    .background(AhuStatusColors.QrStaleAmberBg.copy(alpha = 0.22f))
                                     .padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -234,7 +234,7 @@ fun CampusQrCodeCard(
                     error != null -> {
                         Text(
                             text = error,
-                            color = Color(0xFFFFCDD2),
+                            color = AhuStatusColors.UrgentPink,
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center
                         )

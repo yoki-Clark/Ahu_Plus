@@ -90,6 +90,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.JwcNotice
@@ -116,10 +120,10 @@ import com.ahu_plus.ui.theme.AhuRed
 import com.ahu_plus.ui.theme.AhuTeal
 import com.ahu_plus.ui.theme.AhuViolet
 import com.ahu_plus.ui.theme.AhuGradient
+import com.ahu_plus.ui.theme.AhuStatusColors
 import com.ahu_plus.ui.screen.home.FavoritesPickerSheet
 
-/** 课程即将开始/已开始的倒计时徽标 — 粉红警示色 */
-private val CountdownUrgentPink = Color(0xFFFFCDD2)
+private val CountdownUrgentPink = AhuStatusColors.UrgentPink
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1058,6 +1062,24 @@ private fun FavoritesGrid(
                                             displayIds = latestFavoriteIds
                                             dragRestart++
                                         },
+                                        onMoveEarlier = {
+                                            val from = flatIdx
+                                            if (from in 1 until displayIds.size) {
+                                                val newList = displayIds.toMutableList()
+                                                    .apply { add(from - 1, removeAt(from)) }
+                                                displayIds = newList
+                                                onReorder(newList)
+                                            }
+                                        },
+                                        onMoveLater = {
+                                            val from = flatIdx
+                                            if (from in 0 until displayIds.size - 1) {
+                                                val newList = displayIds.toMutableList()
+                                                    .apply { add(from + 1, removeAt(from)) }
+                                                displayIds = newList
+                                                onReorder(newList)
+                                            }
+                                        },
                                         modifier = cellModifier,
                                     )
                                 }
@@ -1116,6 +1138,8 @@ private fun FavoriteItem(
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
+    onMoveEarlier: () -> Unit,
+    onMoveLater: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // 拖拽真身在父组件浮层(绝对定位,不被行裁剪),这里 placeholder=true 时把原格淡成
@@ -1138,6 +1162,13 @@ private fun FavoriteItem(
                     },
                     onDragEnd = { onDragEnd() },
                     onDragCancel = { onDragCancel() },
+                )
+            }
+            .semantics {
+                contentDescription = "${spec.title},长按拖动排序,可用无障碍自定义操作上移或下移"
+                customActions = listOf(
+                    CustomAccessibilityAction("上移") { onMoveEarlier(); true },
+                    CustomAccessibilityAction("下移") { onMoveLater(); true },
                 )
             }
             .graphicsLayer {
