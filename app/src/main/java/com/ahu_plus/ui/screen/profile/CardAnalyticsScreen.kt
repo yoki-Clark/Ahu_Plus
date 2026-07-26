@@ -50,6 +50,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -427,11 +429,20 @@ private fun SmoothTrendChart(points: List<DailyPoint>) {
     }
     val primary = Color(0xFF4F73C8)
     val grid = MaterialTheme.colorScheme.outlineVariant
+    val chartDescription = remember(points) {
+        val first = points.first()
+        val last = points.last()
+        val maxPoint = points.maxBy { it.totalExpense }
+        "每日支出趋势图,${first.date} 支出 ${"%.2f".format(first.totalExpense)} 元," +
+            "${last.date} 支出 ${"%.2f".format(last.totalExpense)} 元," +
+            "最高单日支出出现在 ${maxPoint.date},为 ${"%.2f".format(maxPoint.totalExpense)} 元"
+    }
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
             .height(210.dp)
             .padding(top = 8.dp, bottom = 8.dp)
+            .semantics { contentDescription = chartDescription }
     ) {
         val top = 12f
         val bottom = size.height - 24f
@@ -637,7 +648,10 @@ private fun TransactionListDialog(
                         .heightIn(max = 420.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(transactions.size) { index ->
+                    items(
+                        count = transactions.size,
+                        key = { index -> "${transactions[index].day}_${transactions[index].time}_${transactions[index].amount}_$index" },
+                    ) { index ->
                         val item = transactions[index]
                         TransactionRow(item)
                     }

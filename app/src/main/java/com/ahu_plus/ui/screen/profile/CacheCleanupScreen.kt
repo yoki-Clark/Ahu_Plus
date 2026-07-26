@@ -156,7 +156,7 @@ fun CacheCleanupScreen(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     )
                 }
-                items(groupDefs) { group ->
+                items(groupDefs, key = { it.id }) { group ->
                     val size = when (group.id) {
                         "download" -> downloadSize
                         else -> sizeInfo?.getSize(group.id) ?: 0L

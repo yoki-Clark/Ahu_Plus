@@ -53,10 +53,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.ui.components.AhuStatusCard
+import com.ahu_plus.ui.theme.AhuGreen
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.ElectricityRoomConfig
@@ -669,10 +672,10 @@ private fun InternetBillRow(record: InternetBillRecord) {
             modifier = Modifier
                 .size(38.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF2A9D8F).copy(alpha = 0.14f)),
+                .background(AhuGreen.copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Filled.ArrowDownward, contentDescription = null, tint = Color(0xFF2A9D8F))
+            Icon(Icons.Filled.ArrowDownward, contentDescription = null, tint = AhuGreen)
         }
         Column(
             modifier = Modifier
@@ -698,7 +701,7 @@ private fun InternetBillRow(record: InternetBillRecord) {
             text = "+${DecimalFormat("¥#,##0.00").format(record.tranAmt)}",
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF2A9D8F)
+            color = AhuGreen
         )
     }
 }
@@ -805,11 +808,20 @@ private fun UsageMetricCard(label: String, value: String, sub: String, modifier:
 private fun ElectricityUsageSmoothChart(points: List<DailyKwhPoint>) {
     val primary = Color(0xFF00A6A6)
     val grid = MaterialTheme.colorScheme.outlineVariant
+    val chartDescription = remember(points) {
+        val first = points.first()
+        val last = points.last()
+        val maxPoint = points.maxBy { it.kwh }
+        "用电量趋势图,${first.date} 用电 ${formatKwh(first.kwh)} 度," +
+            "${last.date} 用电 ${formatKwh(last.kwh)} 度," +
+            "最高单日用电出现在 ${maxPoint.date},为 ${formatKwh(maxPoint.kwh)} 度"
+    }
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
             .height(180.dp)
             .padding(top = 4.dp, bottom = 4.dp)
+            .semantics { contentDescription = chartDescription }
     ) {
         val top = 12f
         val bottom = size.height - 24f
