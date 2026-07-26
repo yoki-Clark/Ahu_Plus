@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,9 +38,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+import com.ahu_plus.ui.theme.AhuPlusTheme
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuSpacing
 
@@ -553,6 +556,71 @@ fun CenteredMessage(text: String, modifier: Modifier = Modifier) {
             text = text,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Preview(name = "Ahu Icon Box", showBackground = true)
+@Composable
+private fun PreviewAhuIconBox() {
+    AhuPlusTheme {
+        AhuIconBox(
+            imageVector = Icons.Filled.School,
+            tint = Color(0xFF2196F3),
+            modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+
+@Preview(name = "Ahu Tag", showBackground = true)
+@Composable
+private fun PreviewAhuTag() {
+    AhuPlusTheme {
+        Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AhuTag(text = "必修", color = Color(0xFF4CAF50))
+            AhuTag(text = "选修", color = Color(0xFFFF9800))
+        }
+    }
+}
+
+@Preview(name = "Ahu Status Card - Loading", showBackground = true)
+@Composable
+private fun PreviewAhuStatusCardLoading() {
+    AhuPlusTheme {
+        AhuStatusCard(
+            text = "正在刷新课程数据...",
+            loading = true,
+            modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+
+@Preview(name = "Ahu Status Card - Action", showBackground = true)
+@Composable
+private fun PreviewAhuStatusCardAction() {
+    AhuPlusTheme {
+        AhuStatusCard(
+            text = "认证已过期",
+            tone = MaterialTheme.colorScheme.error,
+            actionText = "重新登录",
+            onAction = {},
+            modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+
+@Preview(name = "Ahu Empty State", showBackground = true)
+@Composable
+private fun PreviewAhuEmptyState() {
+    AhuPlusTheme {
+        AhuEmptyState(
+            icon = Icons.Filled.School,
+            title = "暂无课程",
+            subtitle = "当前学期还未录入课表",
+            actionText = "刷新",
+            onAction = {},
+            centered = false,
+            modifier = Modifier.padding(16.dp)
         )
     }
 }

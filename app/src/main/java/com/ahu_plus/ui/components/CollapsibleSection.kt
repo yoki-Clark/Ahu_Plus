@@ -31,7 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.ahu_plus.ui.theme.AhuPlusTheme
 
 /**
  * 通用可折叠 section。
@@ -116,6 +118,41 @@ fun CollapsibleSection(
             ) {
                 content()
             }
+        }
+    }
+}
+
+@Preview(name = "Collapsible Section - Collapsed", showBackground = true)
+@Composable
+private fun PreviewCollapsibleSectionCollapsed() {
+    AhuPlusTheme {
+        CollapsibleSection(
+            title = "课程信息",
+            defaultExpanded = false,
+            badge = "5",
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text("本周共有 5 节课", style = MaterialTheme.typography.bodyMedium)
+            Text("周一: 高等数学", style = MaterialTheme.typography.bodySmall)
+            Text("周三: 线性代数", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Preview(name = "Collapsible Section - Expanded", showBackground = true)
+@Composable
+private fun PreviewCollapsibleSectionExpanded() {
+    AhuPlusTheme {
+        CollapsibleSection(
+            title = "课程信息",
+            defaultExpanded = true,
+            badge = "5",
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text("本周共有 5 节课", style = MaterialTheme.typography.bodyMedium)
+            Text("周一: 高等数学", style = MaterialTheme.typography.bodySmall)
+            Text("周三: 线性代数", style = MaterialTheme.typography.bodySmall)
+            Text("周五: 概率论", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
