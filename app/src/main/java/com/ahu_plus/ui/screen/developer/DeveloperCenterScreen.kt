@@ -60,7 +60,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -83,6 +82,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.developer.DeveloperCacheRepository
@@ -132,14 +132,14 @@ fun DeveloperCenterScreen(onBack: () -> Unit) {
     val viewModel: DeveloperCenterViewModel = viewModel(factory = factory)
     val scope = rememberCoroutineScope()
 
-    val overview by viewModel.overview.collectAsState()
-    val tests by viewModel.moduleTests.collectAsState()
-    val networkResults by viewModel.networkResults.collectAsState()
-    val runningNetworkIds by viewModel.runningNetworkIds.collectAsState()
-    val runningModules by viewModel.runningAllModules.collectAsState()
-    val moduleBatchProgress by viewModel.moduleBatchProgress.collectAsState()
-    val runningNetworkBatch by viewModel.runningNetworkBatch.collectAsState()
-    val networkBatchProgress by viewModel.networkBatchProgress.collectAsState()
+    val overview by viewModel.overview.collectAsStateWithLifecycle()
+    val tests by viewModel.moduleTests.collectAsStateWithLifecycle()
+    val networkResults by viewModel.networkResults.collectAsStateWithLifecycle()
+    val runningNetworkIds by viewModel.runningNetworkIds.collectAsStateWithLifecycle()
+    val runningModules by viewModel.runningAllModules.collectAsStateWithLifecycle()
+    val moduleBatchProgress by viewModel.moduleBatchProgress.collectAsStateWithLifecycle()
+    val runningNetworkBatch by viewModel.runningNetworkBatch.collectAsStateWithLifecycle()
+    val networkBatchProgress by viewModel.networkBatchProgress.collectAsStateWithLifecycle()
     val runningAnyModule = runningModules || tests.any { it.status == DeveloperTestStatus.RUNNING }
 
     DisposableEffect(context, viewModel) {

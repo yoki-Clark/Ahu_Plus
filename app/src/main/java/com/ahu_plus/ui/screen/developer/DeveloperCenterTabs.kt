@@ -52,7 +52,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +72,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.developer.DeveloperCacheCategory
 import com.ahu_plus.data.developer.DeveloperCacheCategorySummary
@@ -465,8 +465,8 @@ internal fun DeveloperToolsTab(
     app: AhuPlusApplication,
     viewModel: DeveloperCenterViewModel,
 ) {
-    val runtime by DeveloperRuntime.state.collectAsState()
-    val analysis by viewModel.payloadAnalysis.collectAsState()
+    val runtime by DeveloperRuntime.state.collectAsStateWithLifecycle()
+    val analysis by viewModel.payloadAnalysis.collectAsStateWithLifecycle()
     var targetHost by rememberSaveable { mutableStateOf(runtime.targetHost) }
     var latencyMillis by rememberSaveable { mutableFloatStateOf(runtime.latencyMillis.toFloat()) }
     var selectedFault by rememberSaveable { mutableStateOf(runtime.networkFault) }
@@ -901,7 +901,7 @@ private fun MaintenanceResultDialog(
 
 @Composable
 internal fun DeveloperLogsTab() {
-    val entries by DeveloperEventRecorder.entries.collectAsState()
+    val entries by DeveloperEventRecorder.entries.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipboard = remember(context) {
         context.getSystemService(android.content.ClipboardManager::class.java)

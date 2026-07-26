@@ -154,7 +154,7 @@ fun LoginScreen(
                     Icon(
                         if (passwordVisible) Icons.Filled.VisibilityOff
                         else Icons.Filled.Visibility,
-                        contentDescription = null
+                        contentDescription = if (passwordVisible) "隐藏密码" else "显示密码"
                     )
                 }
             },
