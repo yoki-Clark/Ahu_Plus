@@ -643,7 +643,7 @@ private fun CommentComposerBar(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(aiTemplates) { template ->
+                        items(aiTemplates, key = { it.id }) { template ->
                             FilterChip(
                                 selected = template.id == selectedAiTemplateId,
                                 onClick = {

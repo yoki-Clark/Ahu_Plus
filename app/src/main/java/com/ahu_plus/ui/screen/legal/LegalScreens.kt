@@ -206,7 +206,7 @@ fun LegalDocumentScreen(
                 )
             }
             item { Text(document.introduction, style = MaterialTheme.typography.bodyLarge) }
-            items(document.sections) { section ->
+            items(document.sections, key = { it.title }) { section ->
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(section.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     section.paragraphs.forEach { paragraph ->
