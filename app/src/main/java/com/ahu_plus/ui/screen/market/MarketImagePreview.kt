@@ -144,7 +144,7 @@ private fun PagerImageItem(url: String) {
     ) {
         AsyncImage(
             model = url,
-            contentDescription = null,
+            contentDescription = "图片，双击放大缩小，放大后可双指缩放",
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()

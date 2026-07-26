@@ -61,6 +61,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -690,6 +692,18 @@ private fun FreeTimeBar(
 ) {
     val totalUnits = AhuUnitTimes.totalUnits()
 
+    val barDescription = remember(freeSegments, currentUnit) {
+        if (freeSegments.isEmpty()) {
+            "空闲时间条,全天 $totalUnits 节课均被占用"
+        } else {
+            val segmentsText = freeSegments.joinToString("、") { range ->
+                if (range.first == range.last) "第${range.first}节" else "第${range.first}-${range.last}节"
+            }
+            val currentText = currentUnit?.let { "当前为第${it}节" } ?: ""
+            "空闲时间条,共 $totalUnits 节课,空闲节次:$segmentsText。$currentText"
+        }
+    }
+
     val nowLineFraction: Float? = remember(isToday, currentUnit) {
         if (!isToday) return@remember null
         val now = DebugClock.nowTime()
@@ -702,7 +716,7 @@ private fun FreeTimeBar(
         (nowMin - startMin).toFloat() / (endMin - startMin).toFloat()
     }
 
-    Canvas(modifier = modifier) {
+    Canvas(modifier = modifier.semantics { contentDescription = barDescription }) {
         val barWidth = size.width
         val barHeight = size.height
         val cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())

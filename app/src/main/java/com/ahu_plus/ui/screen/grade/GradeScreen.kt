@@ -62,6 +62,7 @@ import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuGradient
+import com.ahu_plus.ui.theme.AhuStatusColors
 
 // ── 语义色 ──
 private val Score90 = Color(0xFFE53935)
@@ -69,7 +70,7 @@ private val Score80 = Color(0xFFFB8C00)
 private val Score70 = Color(0xFF43A047)
 private val Score60 = Color(0xFF1E88E5)
 private val ScoreNa = Color(0xFF8A8A8A)
-private val BarColor = Color(0xFF2F80ED)
+private val BarColor = AhuStatusColors.ActionBlue
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

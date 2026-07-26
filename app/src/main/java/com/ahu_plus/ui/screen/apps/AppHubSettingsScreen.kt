@@ -36,6 +36,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -48,6 +49,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -497,6 +501,8 @@ private fun ReorderList(
                             moveState.value(start, end)
                         }
                     },
+                    onMoveUp = { if (index > 0) moveState.value(index, index - 1) },
+                    onMoveDown = { if (index < order.lastIndex) moveState.value(index, index + 1) },
                 )
             }
         }
@@ -511,11 +517,19 @@ private fun ReorderRow(
     onDragStart: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
 ) {
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(REORDER_ROW_HEIGHT),
+            .height(REORDER_ROW_HEIGHT)
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction("上移") { onMoveUp(); true },
+                    CustomAccessibilityAction("下移") { onMoveDown(); true },
+                )
+            },
         color = if (dragging) MaterialTheme.colorScheme.surfaceVariant
         else MaterialTheme.colorScheme.surface,
         tonalElevation = if (dragging) 4.dp else 0.dp,
@@ -538,9 +552,10 @@ private fun ReorderRow(
             )
             Icon(
                 imageVector = Icons.Filled.DragHandle,
-                contentDescription = "拖动排序",
+                contentDescription = "拖动排序,可用无障碍自定义操作上移或下移",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .size(24.dp)
                     .pointerInput(spec.key) {
                         detectDragGesturesAfterLongPress(

@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.KqAttendanceRecord
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuStatusColors
 import com.ahu_plus.ui.screen.profile.EmptyBlock
 import com.ahu_plus.ui.screen.profile.ErrorBlock
 import com.ahu_plus.ui.screen.profile.LoadingBlock
@@ -159,8 +160,8 @@ private fun AttendanceRow(record: KqAttendanceRecord) {
     val isNormal = status == 1
     val typeColor = when {
         isAbsent -> MaterialTheme.colorScheme.error
-        isNormal -> Color(0xFF27AE60)
-        else -> Color(0xFF888888)
+        isNormal -> AhuStatusColors.NormalGreen
+        else -> AhuStatusColors.UnknownGray
     }
     val badgeText = when { isAbsent -> "缺"; isNormal -> "到"; else -> "?" }
     val statusLabel = when {
