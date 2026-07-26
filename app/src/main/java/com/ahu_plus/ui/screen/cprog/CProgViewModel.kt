@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.cprog
 
 import android.graphics.Bitmap
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.AhuPlusApplication
@@ -40,6 +41,7 @@ class CProgViewModel(
     val page: StateFlow<Page> = _page.asStateFlow()
 
     // ── 登录态 ───────────────────────────────────────────────
+    @Immutable
     data class LoginUiState(
         val captcha: Bitmap? = null,
         val captchaLoading: Boolean = false,
@@ -58,6 +60,7 @@ class CProgViewModel(
     val login: StateFlow<LoginUiState> = _login.asStateFlow()
 
     // ── 列表态 ───────────────────────────────────────────────
+    @Immutable
     data class ListUiState(
         val loading: Boolean = false,
         val subjects: List<CProgSubject> = emptyList(),
@@ -74,6 +77,7 @@ class CProgViewModel(
     private val _list = MutableStateFlow(ListUiState())
     val list: StateFlow<ListUiState> = _list.asStateFlow()
 
+    @Immutable
     data class HistoryUiState(
         val loading: Boolean = false,
         val attempts: List<CProgAttempt> = emptyList(),
@@ -89,6 +93,7 @@ class CProgViewModel(
     val history: StateFlow<HistoryUiState> = _history.asStateFlow()
 
     // ── 整卷态 ───────────────────────────────────────────────
+    @Immutable
     data class PaperUiState(
         val loading: Boolean = false,
         val paper: CProgPaper? = null,

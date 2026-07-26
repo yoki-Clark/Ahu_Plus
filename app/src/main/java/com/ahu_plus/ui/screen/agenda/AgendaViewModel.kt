@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.agenda
 
 import android.app.Application
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.GsonProvider
@@ -347,6 +348,7 @@ class AgendaViewModel(
     }
 }
 
+@Immutable
 data class CalendarSyncUiState(
     val isSyncing: Boolean = false,
     val message: String? = null,

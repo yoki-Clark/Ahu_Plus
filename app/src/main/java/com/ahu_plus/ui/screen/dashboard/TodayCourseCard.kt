@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -302,6 +303,7 @@ private fun CourseSummary(course: CourseDisplayItem, unitTimes: List<CourseUnit>
 }
 
 /** 今日课程 UI 状态 (从 ScheduleUiState 派生) */
+@Immutable
 data class TodayCourseUiState(
     val todayItems: List<CourseDisplayItem>,
     val unitTimes: List<CourseUnit>,

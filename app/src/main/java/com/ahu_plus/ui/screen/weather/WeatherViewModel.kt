@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.weather
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.weather.WeatherFeed
@@ -57,6 +58,7 @@ class WeatherViewModel(
     }
 }
 
+@Immutable
 data class WeatherUiState(
     val isLoading: Boolean = false,
     val ageMillis: Long = Long.MAX_VALUE,

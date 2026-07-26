@@ -2,6 +2,7 @@ package com.ahu_plus.ui.screen.schedule
 
 import android.app.Application
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock
@@ -1075,6 +1076,7 @@ private data class Quad(
     val elapsed: Int,
 )
 
+@Immutable
 data class ScheduleUiState(
     val needsLogin: Boolean = false,
     val isLoading: Boolean = true,

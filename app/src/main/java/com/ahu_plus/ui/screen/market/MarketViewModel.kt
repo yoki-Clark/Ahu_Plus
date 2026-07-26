@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.market
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.MarketComment
@@ -1453,6 +1454,7 @@ class MarketViewModel(
     }
 }
 
+@Immutable
 data class MarketUiState(
     val identityInput: String = "",
     val hasSavedIdentity: Boolean = false,

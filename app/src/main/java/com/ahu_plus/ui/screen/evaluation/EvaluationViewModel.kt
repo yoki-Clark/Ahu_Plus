@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.evaluation
 
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.local.SessionManager
@@ -425,6 +426,7 @@ class EvaluationViewModel(
 // UI State
 // ──────────────────────────────────────────────────────────
 
+@Immutable
 data class EvaluationListUiState(
     val isLoading: Boolean = false,
     val semesters: List<EvaluationSemester> = emptyList(),
@@ -434,6 +436,7 @@ data class EvaluationListUiState(
     val needsLogin: Boolean = false,
 )
 
+@Immutable
 data class EvaluationDetailUiState(
     val isLoading: Boolean = false,
     val task: TeacherEvaluationTask? = null,

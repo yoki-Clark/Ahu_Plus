@@ -1,5 +1,6 @@
 package com.ahu_plus.data.model
 
+import androidx.compose.runtime.Immutable
 import com.google.gson.annotations.SerializedName
 
 // ── 课程 ──────────────────────────────────────────────────────────
@@ -216,6 +217,7 @@ enum class CxTaskStatus {
 }
 
 /** 学习总览 UI 状态 */
+@Immutable
 data class CxStudyUiState(
     val isRunning: Boolean = false,
     val currentTask: CxTaskProgress? = null,

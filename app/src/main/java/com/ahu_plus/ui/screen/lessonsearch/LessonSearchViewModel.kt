@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.lessonsearch
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.GsonProvider
@@ -891,6 +892,7 @@ private val WEEKDAY_LABELS = mapOf(1 to "一", 2 to "二", 3 to "三", 4 to "四
 private fun formatCreditLabel(v: Double): String =
     if (v % 1.0 == 0.0) v.toInt().toString() else v.toString()
 
+@Immutable
 data class LessonSearchUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
