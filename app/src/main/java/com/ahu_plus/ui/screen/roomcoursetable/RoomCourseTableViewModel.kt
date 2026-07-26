@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.roomcoursetable
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.local.SessionManager
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 
+@Immutable
 data class RoomCourseTableUiState(
     val activated: Boolean = false,
     val loggedIn: Boolean = false,

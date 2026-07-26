@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.profile
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -20,6 +21,7 @@ class CacheCleanupViewModel(
     private val repository: CacheCleanupRepository
 ) : ViewModel() {
 
+    @Immutable
     data class UiState(
         val sizeInfo: CacheSizeInfo? = null,
         val downloadSize: Long = 0L,

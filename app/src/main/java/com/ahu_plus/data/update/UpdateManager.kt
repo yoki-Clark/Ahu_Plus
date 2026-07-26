@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.core.content.FileProvider
 import androidx.core.content.pm.PackageInfoCompat
 import com.google.gson.Gson
@@ -635,12 +636,14 @@ sealed class UpdateUiState {
     object Idle : UpdateUiState()
 
     /** 发现新版本,等待用户选择 "立即更新 / 以后再说 / 忽略此版本" */
+    @Immutable
     data class UpdateReady(
         val info: com.ahu_plus.data.model.UpdateInfo,
         val forceUpdate: Boolean
     ) : UpdateUiState()
 
     /** 正在下载;progress=-1 表示总大小未知,UI 用 indeterminate 动画 */
+    @Immutable
     data class Downloading(
         val info: com.ahu_plus.data.model.UpdateInfo,
         val progress: Int,
@@ -650,6 +653,7 @@ sealed class UpdateUiState {
     ) : UpdateUiState()
 
     /** 下载失败,允许重试或关闭 */
+    @Immutable
     data class DownloadFailed(
         val info: com.ahu_plus.data.model.UpdateInfo,
         val message: String,
@@ -657,6 +661,7 @@ sealed class UpdateUiState {
     ) : UpdateUiState()
 
     /** 下载完成,已触发系统安装 Intent;用户可重试安装 */
+    @Immutable
     data class ReadyToInstall(
         val info: com.ahu_plus.data.model.UpdateInfo,
         val apkFile: java.io.File,

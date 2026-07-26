@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.profile
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.local.DataRefreshPolicy
@@ -73,6 +74,7 @@ class FinanceViewModel(
     }
 }
 
+@Immutable
 data class FinanceUiState(
     val isLoading: Boolean = false,
     val error: String? = null,

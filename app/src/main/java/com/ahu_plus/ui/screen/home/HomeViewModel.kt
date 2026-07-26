@@ -2,6 +2,7 @@ package com.ahu_plus.ui.screen.home
 
 import android.app.Application
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock
@@ -1913,6 +1914,7 @@ internal fun resolveQrFreshness(
 
 // ── UI State ──────────────────────────────────────────────
 
+@Immutable
 data class HomeUiState(
     val balance: Double = 0.0,
     val timestamp: Long = 0,

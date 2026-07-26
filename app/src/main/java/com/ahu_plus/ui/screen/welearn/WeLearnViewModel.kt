@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.welearn
 
 import android.content.Context
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.AhuPlusApplication
@@ -35,6 +36,7 @@ class WeLearnViewModel(
     private val studyRepo = app.weLearnStudyRepository
 
     // 课程列表 + 加载状态
+    @Immutable
     data class CoursesUiState(
         val loading: Boolean = false,
         val courses: List<WeLearnCourse> = emptyList(),
@@ -55,6 +57,7 @@ class WeLearnViewModel(
     }
 
     // 课程详情(单元+章节树)
+    @Immutable
     data class TreeUiState(
         val loading: Boolean = false,
         // 当前树所属的课程;相同 cid 不重复拉(避免"去刷课→返回"时整树重置 + 折叠态丢失)

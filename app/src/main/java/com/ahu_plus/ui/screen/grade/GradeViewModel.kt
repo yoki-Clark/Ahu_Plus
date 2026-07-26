@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.grade
 
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.jw.GpaMetadata
@@ -266,6 +267,7 @@ private fun GradeResponse.academicSemesters(): List<SemesterInfo> =
         .distinctBy { it.id ?: it.nameZh }
         .sortedByDescending { it.id }
 
+@Immutable
 data class GradeUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,

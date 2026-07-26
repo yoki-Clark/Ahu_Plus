@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.login
 
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.local.SessionManager
@@ -126,6 +127,7 @@ class LoginViewModel(
     }
 }
 
+@Immutable
 data class LoginUiState(
     val username: String = "",
     val password: String = "",
