@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +32,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryTabRow
@@ -835,6 +838,7 @@ private fun PalettePresetCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CustomPaletteEditor(
     config: SchedulePaletteConfig,
@@ -856,6 +860,8 @@ private fun CustomPaletteEditor(
             Box(
                 modifier = Modifier
                     .weight(1f)
+                    .clickable { selectedSlot = index }
+                    .minimumInteractiveComponentSize()
                     .height(28.dp)
                     .clip(RoundedCornerShape(7.dp))
                     .background(color)
@@ -863,8 +869,7 @@ private fun CustomPaletteEditor(
                         if (selectedSlot == index) Modifier.border(
                             2.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(7.dp)
                         ) else Modifier
-                    )
-                    .clickable { selectedSlot = index },
+                    ),
             )
         }
     }
@@ -874,22 +879,22 @@ private fun CustomPaletteEditor(
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
     )
-    CoursePalettes.customColorBank.chunked(8).forEach { rowColors ->
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            rowColors.forEach { color ->
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(color)
-                        .clickable {
-                            onColorChanged(selectedSlot, CoursePalettes.toStorage(color))
-                        },
-                )
-            }
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        CoursePalettes.customColorBank.forEach { color ->
+            Box(
+                modifier = Modifier
+                    .clickable {
+                        onColorChanged(selectedSlot, CoursePalettes.toStorage(color))
+                    }
+                    .minimumInteractiveComponentSize()
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(color),
+            )
         }
     }
 }
