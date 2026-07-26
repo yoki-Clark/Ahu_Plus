@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -105,7 +106,10 @@ fun ChaoxingStudyScreen(
                     Text("已完成 (${studyState.completedTasks.size})", style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(4.dp))
                 }
-                items(studyState.completedTasks.reversed()) { task ->
+                items(
+                    studyState.completedTasks.reversed(),
+                    key = { "${it.courseTitle}_${it.chapterTitle}_${it.job.jobid}" },
+                ) { task ->
                     TaskRow(task = task, showProgress = false)
                 }
                 item { Spacer(Modifier.height(16.dp)) }
@@ -117,7 +121,10 @@ fun ChaoxingStudyScreen(
                     Text("日志", style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(4.dp))
                 }
-                items(studyState.logs) { log ->
+                itemsIndexed(
+                    studyState.logs,
+                    key = { index, log -> "$index-${log.hashCode()}" },
+                ) { _, log ->
                     Text(
                         text = log,
                         style = MaterialTheme.typography.bodySmall,
