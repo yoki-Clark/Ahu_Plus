@@ -131,7 +131,9 @@ fun AttendanceScreen(
                     if (records.isEmpty()) {
                         item { EmptyBlock("暂未查到缺勤记录") }
                     } else {
-                        itemsIndexed(items = records, key = { idx, _ -> idx }) { _, rec ->
+                        itemsIndexed(items = records, key = { _, rec ->
+                            "${rec.accountBean?.checkdate}_${rec.accountBean?.jtNo}_${rec.subjectBean?.sCode}"
+                        }) { _, rec ->
                             AttendanceRow(record = rec)
                         }
                     }
