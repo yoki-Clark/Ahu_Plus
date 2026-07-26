@@ -39,13 +39,11 @@ import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.KqAttendanceRecord
 import com.ahu_plus.ui.components.CollapsibleSection
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuStatusColors
 
-/** 考勤正常 — 绿色 */
-private val AttendanceNormalGreen = Color(0xFF27AE60)
-/** 考勤迟到 — 橙色 */
-private val AttendanceLateOrange = Color(0xFFE67E22)
-/** 考勤状态未知兜底灰 */
-private val AttendanceUnknownGray = Color(0xFF888888)
+private val AttendanceNormalGreen = AhuStatusColors.NormalGreen
+private val AttendanceLateOrange = AhuStatusColors.WarningOrange
+private val AttendanceUnknownGray = AhuStatusColors.UnknownGray
 
 /**
  * 课程考勤记录 section (教务考勤联动)。

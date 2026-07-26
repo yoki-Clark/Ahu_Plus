@@ -49,6 +49,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -66,6 +67,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -468,7 +470,7 @@ private fun WeekHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 返回键
-        IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = onBack, modifier = Modifier.minimumInteractiveComponentSize().size(36.dp)) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "返回",
@@ -536,7 +538,7 @@ private fun WeekHeader(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            items((minWeek..maxWeek).toList()) { week ->
+                            items((minWeek..maxWeek).toList(), key = { it }) { week ->
                                 val isSelected = week == selectedWeek
                                 val isCurrent = week == currentWeek
                                 Surface(
@@ -590,7 +592,7 @@ private fun WeekHeader(
         Spacer(modifier = Modifier.weight(1f))
 
         // 加课
-        IconButton(onClick = onAddCourse, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = onAddCourse, modifier = Modifier.minimumInteractiveComponentSize().size(36.dp)) {
             Icon(
                 Icons.Filled.Add,
                 contentDescription = "添加课程",
@@ -600,7 +602,7 @@ private fun WeekHeader(
         // 保存当前周课表到相册 (2026-06-28 新增)
         IconButton(
             onClick = onExport,
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier.minimumInteractiveComponentSize().size(36.dp),
         ) {
             Icon(
                 Icons.Filled.Image,
@@ -609,7 +611,7 @@ private fun WeekHeader(
             )
         }
         // 课表设置
-        IconButton(onClick = onSettings, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = onSettings, modifier = Modifier.minimumInteractiveComponentSize().size(36.dp)) {
             Icon(
                 Icons.Filled.Settings,
                 contentDescription = "课表设置",
@@ -629,13 +631,13 @@ private fun AddCourseSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var name by remember { mutableStateOf("") }
-    var weekday by remember { mutableIntStateOf(1) }
-    var startUnit by remember { mutableIntStateOf(1) }
-    var endUnit by remember { mutableIntStateOf(2) }
-    var room by remember { mutableStateOf("") }
-    var teacher by remember { mutableStateOf("") }
-    var selectedWeeks by remember { mutableStateOf((1..18).toSet()) }
+    var name by rememberSaveable { mutableStateOf("") }
+    var weekday by rememberSaveable { mutableIntStateOf(1) }
+    var startUnit by rememberSaveable { mutableIntStateOf(1) }
+    var endUnit by rememberSaveable { mutableIntStateOf(2) }
+    var room by rememberSaveable { mutableStateOf("") }
+    var teacher by rememberSaveable { mutableStateOf("") }
+    var selectedWeeks by rememberSaveable { mutableStateOf((1..18).toSet()) }
 
     val sortedUnits = remember(unitTimes) {
         unitTimes.filter { it.indexNo != null }.sortedBy { it.indexNo }
@@ -758,7 +760,7 @@ private fun AddCourseSheet(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items((1..18).toList()) { week ->
+                items((1..18).toList(), key = { it }) { week ->
                     FilterChip(
                         selected = week in selectedWeeks,
                         onClick = {

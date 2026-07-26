@@ -1,6 +1,8 @@
 package com.ahu_plus.ui.screen.schedule
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +23,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -230,6 +233,7 @@ fun CourseDetailSheet(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CourseColorPickerDialog(
     item: CourseDisplayItem,
@@ -251,29 +255,28 @@ private fun CourseColorPickerDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                choices.chunked(7).forEach { rowColors ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        rowColors.forEach { color ->
-                            val storage = CoursePalettes.toStorage(color)
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                                    .then(
-                                        if (selected == storage) Modifier.border(
-                                            3.dp,
-                                            MaterialTheme.colorScheme.onSurface,
-                                            CircleShape,
-                                        ) else Modifier
-                                    )
-                                    .clickable { onSelect(storage) },
-                            )
-                        }
-                        repeat(7 - rowColors.size) { Spacer(Modifier.size(32.dp)) }
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    choices.forEach { color ->
+                        val storage = CoursePalettes.toStorage(color)
+                        Box(
+                            modifier = Modifier
+                                .clickable { onSelect(storage) }
+                                .minimumInteractiveComponentSize()
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .then(
+                                    if (selected == storage) Modifier.border(
+                                        3.dp,
+                                        MaterialTheme.colorScheme.onSurface,
+                                        CircleShape,
+                                    ) else Modifier
+                                ),
+                        )
                     }
                 }
             }
