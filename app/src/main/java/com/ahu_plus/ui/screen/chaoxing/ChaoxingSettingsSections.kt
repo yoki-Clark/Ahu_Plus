@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -43,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.model.AiPlatform
@@ -71,7 +73,10 @@ internal fun SignConfigSetting(viewModel: ChaoxingViewModel) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { expanded = !expanded }
+            .clickable(
+                onClickLabel = if (expanded) "收起" else "展开",
+                role = Role.Button,
+            ) { expanded = !expanded }
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -386,13 +391,17 @@ internal fun HiddenCoursesDialog(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { checkedState[key] = !isVisible }
+                                .toggleable(
+                                    value = isVisible,
+                                    role = Role.Checkbox,
+                                    onValueChange = { checkedState[key] = it },
+                                )
                                 .padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Checkbox(
                                 checked = isVisible,
-                                onCheckedChange = { checkedState[key] = it },
+                                onCheckedChange = null,
                             )
                             Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) {

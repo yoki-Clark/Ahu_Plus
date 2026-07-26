@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -187,8 +187,9 @@ fun DashboardScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-            // 2026-07-06 P0: LazyListState.Saver 让 SaveableStateHolder 跨分支剔除时恢复滚动位置。
-            val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+            // 2026-07-06 P0: 需要 LazyListState.Saver 让 SaveableStateHolder 跨分支剔除时恢复滚动位置;
+            // rememberLazyListState() 内部就是 rememberSaveable(saver = LazyListState.Saver),直接用官方版本。
+            val listState = rememberLazyListState()
             LazyColumn(
                 state = listState,
                 modifier = Modifier

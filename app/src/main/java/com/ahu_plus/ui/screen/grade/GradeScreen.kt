@@ -63,13 +63,15 @@ import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.AhuToneColor
 
 // ── 语义色 ──
-private val Score90 = Color(0xFFE53935)
-private val Score80 = Color(0xFFFB8C00)
-private val Score70 = Color(0xFF43A047)
-private val Score60 = Color(0xFF1E88E5)
-private val ScoreNa = Color(0xFF8A8A8A)
+// 分档色是成绩表唯一的颜色编码，不能映射到 colorScheme 角色，因此按深浅两档声明。
+internal val Score90 = AhuToneColor(Color(0xFFE53935), Color(0xFFEF9A9A))
+internal val Score80 = AhuToneColor(Color(0xFFFB8C00), Color(0xFFFFCC80))
+internal val Score70 = AhuToneColor(Color(0xFF43A047), Color(0xFFA5D6A7))
+internal val Score60 = AhuToneColor(Color(0xFF1E88E5), Color(0xFF90CAF9))
+internal val ScoreNa = AhuToneColor(Color(0xFF8A8A8A), Color(0xFFBDBDBD))
 private val BarColor = AhuStatusColors.ActionBlue
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -702,7 +704,8 @@ private fun MetaPill(text: String) {
 
 // ═══════════════════════ Utilities ═══════════════════════
 
-private fun scoreColor(score: Double?): Color = when {
+/** 分档映射(纯函数,便于单测边界)。 */
+internal fun scoreTone(score: Double?): AhuToneColor = when {
     score == null -> ScoreNa
     score >= 90 -> Score90
     score >= 80 -> Score80
@@ -710,3 +713,6 @@ private fun scoreColor(score: Double?): Color = when {
     score >= 60 -> Score60
     else -> ScoreNa
 }
+
+@Composable
+private fun scoreColor(score: Double?): Color = scoreTone(score).current

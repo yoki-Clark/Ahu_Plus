@@ -89,6 +89,19 @@ import com.ahu_plus.data.model.XzxxSubmitRequest
 import com.ahu_plus.data.repository.XzxxRepository
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuToneColor
+
+// ── 办件状态色 ─────────────────────────────────────────────────────
+// 原本是固定的 Google 浅底/深字配色，深色主题下浅底会直接盖住深色 surface。
+// 深色档换成「深底 + 浅字」，保持同色相语义不变。
+private val XzxxBlueBg = AhuToneColor(Color(0xFFE8F0FE), Color(0xFF1E3A5F))
+private val XzxxBlueFg = AhuToneColor(Color(0xFF1967D2), Color(0xFFA8C7FA))
+private val XzxxGreyBg = AhuToneColor(Color(0xFFF1F3F4), Color(0xFF2E3134))
+private val XzxxGreyFg = AhuToneColor(Color(0xFF5F6368), Color(0xFFC4C7C5))
+private val XzxxGreenBg = AhuToneColor(Color(0xFFE6F4EA), Color(0xFF1B3A26))
+private val XzxxGreenFg = AhuToneColor(Color(0xFF137333), Color(0xFF9CD8AE))
+private val XzxxAmberBg = AhuToneColor(Color(0xFFFEF7E0), Color(0xFF3E2E00))
+private val XzxxAmberFg = AhuToneColor(Color(0xFFB06000), Color(0xFFF5C46B))
 
 @Composable
 fun XzxxScreen(
@@ -333,7 +346,7 @@ private fun XzxxLetterCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
-                        BadgeChip("待回复", Color(0xFFFEF7E0), Color(0xFFB06000))
+                        BadgeChip("待回复", XzxxAmberBg.current, XzxxAmberFg.current)
                     }
                     Spacer(Modifier.weight(1f))
                     Icon(
@@ -379,27 +392,27 @@ private fun XzxxDetailBody(detail: XzxxLetterDetail) {
         if (detail.title.isNotBlank()) DetailBox(
             label = "主　题",
             content = detail.title,
-            labelBg = Color(0xFFE8F0FE),
-            labelFg = Color(0xFF1967D2),
+            labelBg = XzxxBlueBg.current,
+            labelFg = XzxxBlueFg.current,
         )
         if (detail.content.isNotBlank()) DetailBox(
             label = "写信内容",
             content = detail.content,
-            labelBg = Color(0xFFF1F3F4),
-            labelFg = Color(0xFF5F6368),
+            labelBg = XzxxGreyBg.current,
+            labelFg = XzxxGreyFg.current,
         )
         if (detail.replyContent.isNotBlank()) DetailBox(
             label = detail.replyLabel.ifBlank { "回复" },
             content = detail.replyContent,
-            labelBg = Color(0xFFE6F4EA),
-            labelFg = Color(0xFF137333),
+            labelBg = XzxxGreenBg.current,
+            labelFg = XzxxGreenFg.current,
         ) else if (detail.replyLabel.isNotBlank()) {
-            Surface(color = Color(0xFFFEF7E0), shape = AhuShapes.Card) {
+            Surface(color = XzxxAmberBg.current, shape = AhuShapes.Card) {
                 Text(
                     detail.replyLabel,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFB06000),
+                    color = XzxxAmberFg.current,
                 )
             }
         }

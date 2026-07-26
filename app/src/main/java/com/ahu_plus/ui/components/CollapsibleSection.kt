@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -71,7 +72,10 @@ fun CollapsibleSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { toggle() }
+                .clickable(
+                    onClickLabel = if (isExpanded) "收起" else "展开",
+                    role = Role.Button,
+                ) { toggle() }
                 .padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

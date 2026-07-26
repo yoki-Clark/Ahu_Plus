@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.market
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -53,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.AiCommentModel
 import com.ahu_plus.data.model.AiCommentTemplate
@@ -413,13 +416,17 @@ fun MarketSettingsScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onToggleFilterNode(node.id) }
+                                    .toggleable(
+                                        value = node.id in uiState.filterNodeIds,
+                                        role = Role.Checkbox,
+                                        onValueChange = { onToggleFilterNode(node.id) },
+                                    )
                                     .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Checkbox(
                                     checked = node.id in uiState.filterNodeIds,
-                                    onCheckedChange = { onToggleFilterNode(node.id) }
+                                    onCheckedChange = null
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
@@ -701,7 +708,8 @@ private fun KeywordChip(keyword: String, onRemove: () -> Unit) {
             )
             IconButton(
                 onClick = onRemove,
-                modifier = Modifier.size(20.dp)
+                // 视觉保持 20dp 贴合 chip,minimumInteractiveComponentSize 把可点区域撑到 48dp
+                modifier = Modifier.minimumInteractiveComponentSize().size(20.dp)
             ) {
                 Icon(
                     Icons.Filled.DeleteOutline,

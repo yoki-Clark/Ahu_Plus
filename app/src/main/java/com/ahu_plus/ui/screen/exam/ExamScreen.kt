@@ -32,6 +32,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -269,7 +270,7 @@ private fun ExamRow(exam: Exam, isFinished: Boolean = false) {
             // 添加到日历按钮
             IconButton(
                 onClick = { showCalendarDialog = true },
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.minimumInteractiveComponentSize().size(32.dp)
             ) {
                 Icon(
                     Icons.Filled.CalendarMonth,
