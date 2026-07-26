@@ -40,6 +40,13 @@ import com.ahu_plus.data.model.KqAttendanceRecord
 import com.ahu_plus.ui.components.CollapsibleSection
 import com.ahu_plus.ui.theme.AhuShapes
 
+/** 考勤正常 — 绿色 */
+private val AttendanceNormalGreen = Color(0xFF27AE60)
+/** 考勤迟到 — 橙色 */
+private val AttendanceLateOrange = Color(0xFFE67E22)
+/** 考勤状态未知兜底灰 */
+private val AttendanceUnknownGray = Color(0xFF888888)
+
 /**
  * 课程考勤记录 section (教务考勤联动)。
  *
@@ -112,8 +119,8 @@ private fun AttendanceSummaryRow(
     val absent = records.count { it.classWaterBean?.status == 3 }
     val rate = if (total > 0) (normal + late) * 100 / total else 0
 
-    val green = Color(0xFF27AE60)
-    val orange = Color(0xFFE67E22)
+    val green = AttendanceNormalGreen
+    val orange = AttendanceLateOrange
     val red = MaterialTheme.colorScheme.error
 
     Surface(
@@ -227,9 +234,9 @@ fun AttendanceCourseRow(
     val isLate = status == 2
     val typeColor = when {
         isAbsent -> MaterialTheme.colorScheme.error
-        isLate -> Color(0xFFE67E22)
-        isNormal -> Color(0xFF27AE60)
-        else -> Color(0xFF888888)
+        isLate -> AttendanceLateOrange
+        isNormal -> AttendanceNormalGreen
+        else -> AttendanceUnknownGray
     }
     val badgeText = when { isAbsent -> "缺"; isLate -> "迟"; isNormal -> "到"; else -> "?" }
     val statusLabel = when {
@@ -413,8 +420,8 @@ private fun AttendanceSummaryRowStatic(records: List<KqAttendanceRecord>) {
     val absent = records.count { it.classWaterBean?.status == 3 }
     val rate = if (total > 0) (normal + late) * 100 / total else 0
 
-    val green = Color(0xFF27AE60)
-    val orange = Color(0xFFE67E22)
+    val green = AttendanceNormalGreen
+    val orange = AttendanceLateOrange
     val red = MaterialTheme.colorScheme.error
 
     Surface(

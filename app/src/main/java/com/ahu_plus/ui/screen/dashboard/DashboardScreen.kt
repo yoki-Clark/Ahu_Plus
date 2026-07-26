@@ -118,6 +118,9 @@ import com.ahu_plus.ui.theme.AhuViolet
 import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.screen.home.FavoritesPickerSheet
 
+/** 课程即将开始/已开始的倒计时徽标 — 粉红警示色 */
+private val CountdownUrgentPink = Color(0xFFFFCDD2)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
@@ -505,8 +508,8 @@ private fun CountdownChip(
     val now = remember(tick) { DebugClock.nowTime() }
     val diff = minutes - (now.hour * 60 + now.minute)
     val (label, color) = when {
-        diff < 0 -> "已开始" to Color(0xFFFFCDD2)
-        diff < 60 -> "${diff} 分钟后" to Color(0xFFFFCDD2)
+        diff < 0 -> "已开始" to CountdownUrgentPink
+        diff < 60 -> "${diff} 分钟后" to CountdownUrgentPink
         diff < 180 -> "${diff / 60} 小时后" to Color(0xFFFFE0B2)
         else -> "${diff / 60}h${diff % 60}m" to Color.White.copy(alpha = 0.78f)
     }

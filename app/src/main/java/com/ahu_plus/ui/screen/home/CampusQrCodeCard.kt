@@ -51,6 +51,9 @@ import java.text.DecimalFormat
  * 新版主流程已迁移到「我的」页,这里保留为独立页面以便后续复用或调试。
  */
 
+/** 支付码可能已失效 — 琥珀警示色 */
+private val QrStaleAmber = Color(0xFFFFE082)
+
 @Composable
 fun CampusQrCodeCard(
     qrCode: AdwmhQrCode?,
@@ -62,7 +65,8 @@ fun CampusQrCodeCard(
     isStale: Boolean = false,
     ageSeconds: Int = 0,
     onRefresh: () -> Unit,
-    onQrClick: () -> Unit
+    onQrClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
 
     // 脉冲动画（仅在有 QR 码时生效）
@@ -79,7 +83,7 @@ fun CampusQrCodeCard(
 
     AhuHeroCard(
         gradient = AhuGradient.Teal.brush,
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
     ) {
         Column {
             // 顶部标签行
@@ -195,14 +199,14 @@ fun CampusQrCodeCard(
                                 Icon(
                                     Icons.Filled.Refresh,
                                     contentDescription = null,
-                                    tint = Color(0xFFFFE082),
+                                    tint = QrStaleAmber,
                                     modifier = Modifier.size(15.dp)
                                 )
                                 Text(
                                     text = "${formatQrAge(ageSeconds)}的码，可能已失效，请刷新",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFFFE082)
+                                    color = QrStaleAmber
                                 )
                             }
                         } else {
