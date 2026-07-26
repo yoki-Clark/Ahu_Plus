@@ -57,6 +57,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.model.CxCourse
 import com.ahu_plus.data.model.CxCourseProgress
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.ChaoxingColors
 import kotlinx.coroutines.launch
 
 @Composable
@@ -480,7 +481,7 @@ private fun CourseCard(
 private fun CourseProgressBar(progress: CxCourseProgress) {
     val progressFraction = progress.progress
     val isComplete = progress.completedJobs >= progress.totalJobs
-    val fillColor = if (isComplete) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+    val fillColor = if (isComplete) ChaoxingColors.Signin else MaterialTheme.colorScheme.primary
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -507,7 +508,7 @@ private fun CourseProgressBar(progress: CxCourseProgress) {
         Text(
             text = progress.text,
             style = MaterialTheme.typography.labelSmall,
-            color = if (isComplete) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (isComplete) ChaoxingColors.Signin else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
