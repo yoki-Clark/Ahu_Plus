@@ -219,6 +219,7 @@ dependencies {
     implementation(libs.coil.svg)
     implementation(libs.navigation.compose)
     implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.lifecycle.runtime.compose)
     implementation(libs.jsoup)
     implementation(libs.zxing.core)
     implementation(libs.androidx.camera.core)
