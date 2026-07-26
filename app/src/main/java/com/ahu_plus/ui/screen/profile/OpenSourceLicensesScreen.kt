@@ -78,7 +78,7 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            items(OPEN_SOURCE_LICENSES) { entry ->
+            items(OPEN_SOURCE_LICENSES, key = { it.artifactId }) { entry ->
                 LicenseCard(entry)
             }
             item {

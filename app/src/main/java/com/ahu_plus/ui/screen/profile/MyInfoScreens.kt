@@ -44,6 +44,7 @@ import com.ahu_plus.data.model.StudentInfoCodeLookup
 import com.ahu_plus.data.model.StudentInfoField
 import com.ahu_plus.ui.components.AhuInfoRow
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuStatusColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -220,7 +221,7 @@ fun MyInfoHubScreen(
                             title = "学生基本信息",
                             summary = if (basicCount > 0) "$basicCount 项" else "暂无数据",
                             icon = Icons.Filled.Person,
-                            iconColor = Color(0xFF2F80ED),
+                            iconColor = AhuStatusColors.ActionBlue,
                             onClick = onOpenBasicInfo
                         )
                         HorizontalDivider()
@@ -228,7 +229,7 @@ fun MyInfoHubScreen(
                             title = "住宿数据",
                             summary = if (housingCount > 0) "$housingCount 项" else "暂无数据",
                             icon = Icons.Filled.Info,
-                            iconColor = Color(0xFF27AE60),
+                            iconColor = AhuStatusColors.NormalGreen,
                             onClick = onOpenHousing
                         )
                         HorizontalDivider()
@@ -236,7 +237,7 @@ fun MyInfoHubScreen(
                             title = "学业预警信息",
                             summary = if (warningCount > 0) "$warningCount 项" else "无记录",
                             icon = Icons.Filled.Info,
-                            iconColor = Color(0xFFE67E22),
+                            iconColor = AhuStatusColors.WarningOrange,
                             onClick = onOpenAcademicWarning
                         )
                         HorizontalDivider()

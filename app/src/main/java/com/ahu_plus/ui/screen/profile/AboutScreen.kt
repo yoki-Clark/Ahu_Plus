@@ -72,6 +72,7 @@ import com.ahu_plus.data.developer.DeveloperTapUnlocker
 import com.ahu_plus.data.developer.DeveloperTimePasswordValidator
 import com.ahu_plus.data.model.CheckResult
 import com.ahu_plus.data.legal.LegalDocumentKind
+import com.ahu_plus.ui.theme.AhuStatusColors
 import com.ahu_plus.ui.screen.developer.DeveloperCenterScreen
 import com.ahu_plus.ui.screen.legal.LegalDataManagementScreen
 import com.ahu_plus.ui.screen.legal.LegalDocumentScreen
@@ -261,7 +262,7 @@ fun AboutScreen(
                         SettingsRow(
                             title = "通知公告",
                             description = "查看开发者发布的历史公告",
-                            iconColor = Color(0xFFE67E22),
+                            iconColor = AhuStatusColors.WarningOrange,
                             icon = { Icon(Icons.Filled.Campaign, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.ANNOUNCEMENTS }
                         )
@@ -269,7 +270,7 @@ fun AboutScreen(
                         SettingsRow(
                             title = "使用帮助",
                             description = "功能说明、操作指引与已知边界",
-                            iconColor = Color(0xFF2F80ED),
+                            iconColor = AhuStatusColors.ActionBlue,
                             icon = { Icon(Icons.AutoMirrored.Filled.Help, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.GUIDE }
                         )
@@ -285,7 +286,7 @@ fun AboutScreen(
                         SettingsRow(
                             title = "隐私政策",
                             description = "了解个人信息处理、存储与用户权利",
-                            iconColor = Color(0xFF2F80ED),
+                            iconColor = AhuStatusColors.ActionBlue,
                             icon = { Icon(Icons.Filled.Policy, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.PRIVACY_POLICY },
                         )
@@ -325,7 +326,7 @@ fun AboutScreen(
                         SettingsRow(
                             title = "检查更新",
                             description = "当前版本 ${com.ahu_plus.BuildConfig.VERSION_NAME}",
-                            iconColor = Color(0xFF6C63FF),
+                            iconColor = AhuStatusColors.AppIndigo,
                             icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
                             onClick = {
                                 scope.launch {
@@ -467,8 +468,8 @@ private fun DeveloperPasswordDialog(
     onDismiss: () -> Unit,
     onVerified: () -> Unit,
 ) {
-    var password by remember { mutableStateOf("") }
-    var isError by remember { mutableStateOf(false) }
+    var password by rememberSaveable { mutableStateOf("") }
+    var isError by rememberSaveable { mutableStateOf(false) }
 
     fun verify() {
         if (validator.isValid(password)) {
