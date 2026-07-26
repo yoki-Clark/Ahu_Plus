@@ -95,6 +95,7 @@ fun CountdownArc(
     secondsRemaining: Int,
     totalSeconds: Int,
     size: Dp,
+    modifier: Modifier = Modifier,
     strokeWidth: Dp = 3.dp,
     trackColor: Color = Color.White.copy(alpha = 0.25f),
     progressColor: Color = Color.White,
@@ -103,7 +104,7 @@ fun CountdownArc(
     CountdownArc(
         secondsRemaining = secondsRemaining,
         totalSeconds = totalSeconds,
-        modifier = Modifier.size(size),
+        modifier = modifier.size(size),
         strokeWidth = strokeWidth,
         trackColor = trackColor,
         progressColor = progressColor,
