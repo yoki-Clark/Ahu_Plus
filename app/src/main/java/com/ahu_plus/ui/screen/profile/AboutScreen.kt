@@ -276,7 +276,6 @@ fun AboutScreen(
                             icon = { Icon(Icons.Filled.Campaign, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.ANNOUNCEMENTS }
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "使用帮助",
                             description = "功能说明、操作指引与已知边界",
@@ -284,7 +283,6 @@ fun AboutScreen(
                             icon = { Icon(Icons.AutoMirrored.Filled.Help, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.GUIDE }
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "常见问题",
                             description = "数据安全、平台接入、性能等 ${faqCategories.sumOf { it.items.size }} 题分类整理",
@@ -292,7 +290,6 @@ fun AboutScreen(
                             icon = { Icon(Icons.Filled.QuestionAnswer, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.FAQ }
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "隐私政策",
                             description = "了解个人信息处理、存储与用户权利",
@@ -300,7 +297,6 @@ fun AboutScreen(
                             icon = { Icon(Icons.Filled.Policy, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.PRIVACY_POLICY },
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "免责声明与使用须知",
                             description = "非官方性质、数据和高风险功能边界",
@@ -308,7 +304,6 @@ fun AboutScreen(
                             icon = { Icon(Icons.Filled.Gavel, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.DISCLAIMER },
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "第三方服务清单",
                             description = "查看数据接收方、用途和信息类型",
@@ -316,7 +311,6 @@ fun AboutScreen(
                             icon = { Icon(Icons.Filled.Hub, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.THIRD_PARTY_SERVICES },
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "权限使用说明",
                             description = "相机、位置、日历、通知等权限用途",
@@ -324,7 +318,6 @@ fun AboutScreen(
                             icon = { Icon(Icons.Filled.Security, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.PERMISSIONS },
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "个人数据管理",
                             description = "撤回同意或清除全部本地数据",
@@ -332,7 +325,6 @@ fun AboutScreen(
                             icon = { Icon(Icons.Filled.Security, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.DATA_MANAGEMENT },
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "检查更新",
                             description = "当前版本 ${com.ahu_plus.BuildConfig.VERSION_NAME}",
@@ -363,7 +355,6 @@ fun AboutScreen(
                                 }
                             }
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "开源协议",
                             description = "本应用使用的所有开源项目与 License",
@@ -371,7 +362,6 @@ fun AboutScreen(
                             icon = { Icon(Icons.Filled.Code, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.OPEN_SOURCE_LICENSES }
                         )
-                        HorizontalDivider()
                         SettingsSwitchRow(
                             title = "内测计划",
                             description = if (betaEnabled) "已加入,正在接收内测版本" else "加入内测计划,体验未发布功能",

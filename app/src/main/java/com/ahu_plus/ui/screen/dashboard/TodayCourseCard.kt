@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.dashboard
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +46,7 @@ import com.ahu_plus.data.weather.WeatherManager
 import com.ahu_plus.ui.components.AhuHeroCard
 import com.ahu_plus.ui.components.WeatherPanel
 import com.ahu_plus.ui.theme.AhuGradient
+import com.ahu_plus.ui.theme.AhuMotion
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuStatusColors
 import com.ahu_plus.ui.theme.tabularFigures
@@ -83,7 +85,7 @@ fun TodayCourseCard(
     // 比 @Suppress("UNUSED_EXPRESSION") 更可靠 — 不依赖编译器保留无意义读取。
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
-        while (true) { delay(30_000); tick++ }
+        while (true) { delay(1_000); tick++ }
     }
 
     val now = remember(tick) { DebugClock.nowTime() }
@@ -139,9 +141,11 @@ fun TodayCourseCard(
                         val start = courseStartMinutes(currentCourse, uiState.unitTimes) ?: 0
                         val end = start + total
                         val nowMin = now.hour * 60 + now.minute
-                        val elapsed = (nowMin - start).coerceAtLeast(0)
+                        // 秒级分数,让进度条两 tick 间连续推进而非每分钟跳一档
+                        val nowMinF = nowMin + now.second / 60f
+                        val elapsedF = (nowMinF - start).coerceAtLeast(0f)
                         val remaining = (end - nowMin).coerceAtLeast(0)
-                        val progress = if (total > 0) (elapsed.toFloat() / total).coerceIn(0f, 1f) else 0f
+                        val progress = if (total > 0) (elapsedF / total).coerceIn(0f, 1f) else 0f
 
                         CourseSummary(currentCourse, uiState.unitTimes)
                         // 考勤状态 badge (从教务考勤系统匹配)
@@ -159,7 +163,7 @@ fun TodayCourseCard(
                             trackColor = Color.White.copy(alpha = 0.24f),
                         )
                         Text(
-                            text = "已上 ${elapsed} 分钟 · 还剩 ${remaining} 分钟",
+                            text = "已上 ${elapsedF.toInt()} 分钟 · 还剩 ${remaining} 分钟",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.86f),
                         )
@@ -168,12 +172,23 @@ fun TodayCourseCard(
                         val startMin = courseStartMinutes(nextCourse, uiState.unitTimes) ?: 0
                         val nowMin = now.hour * 60 + now.minute
                         val diff = (startMin - nowMin).coerceAtLeast(0)
-                        val (label, color) = when {
-                            diff <= 0 -> "马上开始" to MaterialTheme.colorScheme.error
-                            diff < 60 -> "${diff} 分钟后开始" to MaterialTheme.colorScheme.error
-                            diff < 180 -> "${diff / 60} 小时 ${diff % 60} 分后" to MaterialTheme.colorScheme.tertiary
-                            else -> "${diff / 60} 小时后" to Color.White.copy(alpha = 0.78f)
+                        val label = when {
+                            diff <= 0 -> "马上开始"
+                            diff < 60 -> "${diff} 分钟后开始"
+                            diff < 180 -> "${diff / 60} 小时 ${diff % 60} 分后"
+                            else -> "${diff / 60} 小时后"
                         }
+                        // 颜色随紧急度分档,用 animateColorAsState 平滑过渡(批次二项30)
+                        val targetColor = when {
+                            diff < 60 -> MaterialTheme.colorScheme.error
+                            diff < 180 -> MaterialTheme.colorScheme.tertiary
+                            else -> Color.White.copy(alpha = 0.78f)
+                        }
+                        val color by animateColorAsState(
+                            targetValue = targetColor,
+                            animationSpec = AhuMotion.ColorSpring,
+                            label = "countdown-color",
+                        )
                         Text(label, style = MaterialTheme.typography.bodySmall, color = color)
                         CourseSummary(nextCourse, uiState.unitTimes)
                     }

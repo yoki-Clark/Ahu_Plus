@@ -2,8 +2,10 @@ package com.ahu_plus.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Refresh
@@ -26,11 +28,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,6 +49,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 import com.ahu_plus.ui.theme.AhuPlusTheme
+import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuSpacing
 import com.ahu_plus.ui.theme.AhuElevation
@@ -111,6 +116,40 @@ fun AhuCard(
         modifier = modifier
             .fillMaxWidth()
             .ahuShadow(AhuElevation.Low, AhuShapes.Card)
+    ) {
+        content()
+    }
+}
+
+/**
+ * 可点击的 [AhuCard] - 内置按压缩放反馈(批次二项17)。整卡 clickable + [pressableScale]。
+ *
+ * 替代之前"卡片无 onClick、调用方在 content 内自行包 clickable"的写法,统一全 App
+ * 可点击卡片的手感(轻微缩 0.98 + spring 回弹)。
+ */
+@Composable
+fun AhuCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+    content: @Composable () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Card(
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .ahuShadow(AhuElevation.Low, AhuShapes.Card)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                enabled = enabled,
+                onClick = onClick,
+            )
+            .pressableScale(interactionSource)
     ) {
         content()
     }
@@ -314,6 +353,7 @@ fun AhuListRow(
     onClick: (() -> Unit)? = null,
     trailing: @Composable (RowScope.() -> Unit)? = null,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Card(
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -321,7 +361,16 @@ fun AhuListRow(
         modifier = modifier
             .fillMaxWidth()
             .ahuShadow(AhuElevation.Low, AhuShapes.Card)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = ripple(),
+                        onClick = onClick,
+                    )
+                } else Modifier
+            )
+            .pressableScale(interactionSource)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -443,6 +492,48 @@ fun AhuHeroCard(
  *
  * @param centered 是否居中铺满父容器(占位屏状态)。true 时外层套 fillMaxSize Box。
  */
+/**
+ * 状态图标 blob - 外柔光圆 + 内品牌渐变圆 + 放大图标(批次二项43/52 增强型图标态)。
+ *
+ * 替代之前"56dp 灰底 + 28dp 暗图标"的单调样式,用品牌渐变柔光圆 + 放大图标让空/错状态
+ * 有插画感而无插画资产成本。渐变取自 [AhuGradient.forTint](跟随 tint),tint 传 primary
+ * 即跟随用户主题色。
+ */
+@Composable
+private fun AhuStateIconBlob(
+    icon: ImageVector,
+    tint: Color,
+    iconTint: Color,
+) {
+    Box(
+        modifier = Modifier.size(96.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        // 外柔光圆
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(tint.copy(alpha = 0.10f)),
+        )
+        // 内品牌渐变 blob
+        Box(
+            modifier = Modifier
+                .size(60.dp)
+                .clip(CircleShape)
+                .background(AhuGradient.forTint(tint)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+                tint = iconTint,
+            )
+        }
+    }
+}
+
 @Composable
 fun AhuEmptyState(
     icon: ImageVector,
@@ -461,20 +552,11 @@ fun AhuEmptyState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(AhuShapes.IconBox)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
+            AhuStateIconBlob(
+                icon = icon,
+                tint = MaterialTheme.colorScheme.primary,
+                iconTint = MaterialTheme.colorScheme.onPrimary,
+            )
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
@@ -514,6 +596,7 @@ fun AhuEmptyState(
 fun AhuErrorState(
     message: String,
     modifier: Modifier = Modifier,
+    icon: ImageVector = Icons.Filled.Refresh,
     onRetry: (() -> Unit)? = null,
     actionLabel: String = "重试",
     centered: Boolean = false,
@@ -526,20 +609,11 @@ fun AhuErrorState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(AhuShapes.IconBox)
-                    .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Refresh,
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
-                )
-            }
+            AhuStateIconBlob(
+                icon = icon,
+                tint = MaterialTheme.colorScheme.error,
+                iconTint = MaterialTheme.colorScheme.onError,
+            )
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,

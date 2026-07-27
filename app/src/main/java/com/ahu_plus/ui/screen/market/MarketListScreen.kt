@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -47,7 +48,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.ahu_plus.ui.components.AhuEmptyState
 import com.ahu_plus.ui.components.AhuPullToRefreshBox
+import com.ahu_plus.ui.components.AhuSkeletonList
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -253,9 +256,9 @@ internal fun MarketListScreen(
                             }
                         }
 
-                        if (uiState.isLoading) {
+                        if (uiState.isLoading && uiState.topics.isEmpty()) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
-                                LoadingRow("正在加载集市...")
+                                AhuSkeletonList(itemCount = 4)
                             }
                         }
 
@@ -277,9 +280,10 @@ internal fun MarketListScreen(
                             uiState.topics.isEmpty()
                         ) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
-                                StatusCard(
-                                    text = "暂时没有加载到集市内容",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                AhuEmptyState(
+                                    icon = Icons.Filled.Storefront,
+                                    title = "暂时没有内容",
+                                    subtitle = "换个学校或稍后再来看看",
                                 )
                             }
                         }
@@ -341,8 +345,8 @@ internal fun MarketListScreen(
                             }
                         }
 
-                        if (uiState.isLoading) {
-                            item { LoadingRow("正在加载集市...") }
+                        if (uiState.isLoading && uiState.topics.isEmpty()) {
+                            item { AhuSkeletonList(itemCount = 4) }
                         }
 
                         uiState.error?.let { error ->
@@ -361,9 +365,10 @@ internal fun MarketListScreen(
                             uiState.topics.isEmpty()
                         ) {
                             item {
-                                StatusCard(
-                                    text = "暂时没有加载到集市内容",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                AhuEmptyState(
+                                    icon = Icons.Filled.Storefront,
+                                    title = "暂时没有内容",
+                                    subtitle = "换个学校或稍后再来看看",
                                 )
                             }
                         }
@@ -374,7 +379,8 @@ internal fun MarketListScreen(
                                 onClick = { onOpenTopic(topic) },
                                 // 单校模式不显示学校标签(避免重复),多校模式显示
                                 school = if (isSingleSchool) null
-                                else uiState.topicSchoolMap[topic.id]
+                                else uiState.topicSchoolMap[topic.id],
+                                modifier = Modifier.animateItem(),
                             )
                         }
 
@@ -466,7 +472,8 @@ private fun SearchResultList(
                 topic = topic,
                 onClick = { onOpenTopic(topic) },
                 school = uiState.topicSchoolMap[topic.id],
-                highlightQuery = uiState.searchQuery
+                highlightQuery = uiState.searchQuery,
+                modifier = Modifier.animateItem(),
             )
         }
 
