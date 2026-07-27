@@ -20,8 +20,6 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -44,9 +42,12 @@ import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.weather.WeatherFeed
 import com.ahu_plus.data.weather.WeatherManager
+import com.ahu_plus.ui.components.AhuHeroCard
 import com.ahu_plus.ui.components.WeatherPanel
+import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.tabularFigures
 import com.ahu_plus.data.model.jw.CourseUnit
 import com.ahu_plus.data.model.jw.parseTimeMinutes
 import kotlinx.coroutines.delay
@@ -98,12 +99,9 @@ fun TodayCourseCard(
         !isInClass(it, now, uiState.unitTimes) && isFuture(it, now, uiState.unitTimes)
     }
 
-    Card(
+    AhuHeroCard(
+        gradient = AhuGradient.Blue.brush,
         modifier = Modifier.fillMaxWidth(),
-        shape = AhuShapes.LargeCard,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -117,7 +115,7 @@ fun TodayCourseCard(
                 // 顶部状态行
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color.White.copy(alpha = 0.18f),
                         shape = RoundedCornerShape(6.dp),
                     ) {
                         Text(
@@ -128,7 +126,7 @@ fun TodayCourseCard(
                                 else -> "今日课程"
                             },
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = Color.White,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                             fontWeight = FontWeight.Medium,
                         )
@@ -157,11 +155,13 @@ fun TodayCourseCard(
                                 .fillMaxWidth()
                                 .height(6.dp)
                                 .clip(RoundedCornerShape(3.dp)),
+                            color = Color.White,
+                            trackColor = Color.White.copy(alpha = 0.24f),
                         )
                         Text(
                             text = "已上 ${elapsed} 分钟 · 还剩 ${remaining} 分钟",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.86f),
+                            color = Color.White.copy(alpha = 0.86f),
                         )
                     }
                     nextCourse != null -> {
@@ -172,7 +172,7 @@ fun TodayCourseCard(
                             diff <= 0 -> "马上开始" to MaterialTheme.colorScheme.error
                             diff < 60 -> "${diff} 分钟后开始" to MaterialTheme.colorScheme.error
                             diff < 180 -> "${diff / 60} 小时 ${diff % 60} 分后" to MaterialTheme.colorScheme.tertiary
-                            else -> "${diff / 60} 小时后" to MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                            else -> "${diff / 60} 小时后" to Color.White.copy(alpha = 0.78f)
                         }
                         Text(label, style = MaterialTheme.typography.bodySmall, color = color)
                         CourseSummary(nextCourse, uiState.unitTimes)
@@ -181,14 +181,14 @@ fun TodayCourseCard(
                         Text(
                             text = "今天课程已结束,明天继续加油 💪",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                            color = Color.White.copy(alpha = 0.78f),
                         )
                     }
                     else -> {
                         Text(
                             text = "今天没课,好好休息 ✨",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                            color = Color.White.copy(alpha = 0.7f),
                         )
                     }
                 }
@@ -226,7 +226,7 @@ fun TodayCourseCard(
                     Text(
                         text = "查看完整课表",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color.White,
                         fontWeight = FontWeight.Medium,
                     )
                 }
@@ -240,6 +240,7 @@ fun TodayCourseCard(
                 unitTimes = uiState.unitTimes,
                 manager = weatherManager,
                 onClick = onOpenWeather,
+                contentColor = Color.White,
             )
         }
     }
@@ -257,32 +258,32 @@ private fun CourseSummary(course: CourseDisplayItem, unitTimes: List<CourseUnit>
         Text(
             text = course.courseName,
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            color = Color.White,
             fontWeight = FontWeight.SemiBold,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Filled.AccessTime, contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                tint = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.size(14.dp),
             )
             Text(
                 text = " $timeText",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                style = MaterialTheme.typography.bodySmall.tabularFigures(),
+                color = Color.White.copy(alpha = 0.78f),
             )
         }
         if (!course.room.isNullOrBlank()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Filled.LocationOn, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                    tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier.size(14.dp),
                 )
                 Text(
                     text = " ${course.room}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                    color = Color.White.copy(alpha = 0.78f),
                 )
             }
         }
@@ -290,13 +291,13 @@ private fun CourseSummary(course: CourseDisplayItem, unitTimes: List<CourseUnit>
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Filled.Person, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                    tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier.size(14.dp),
                 )
                 Text(
                     text = " ${course.teacherNames}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                    color = Color.White.copy(alpha = 0.78f),
                 )
             }
         }

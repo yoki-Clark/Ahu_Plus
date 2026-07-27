@@ -84,7 +84,7 @@ internal fun TopLevelNavigationBar(
     onSelect: (Int) -> Unit,
 ) {
     NavigationBar(
-        tonalElevation = 0.dp,
+        tonalElevation = 3.dp,
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         destinations.forEach { destination ->

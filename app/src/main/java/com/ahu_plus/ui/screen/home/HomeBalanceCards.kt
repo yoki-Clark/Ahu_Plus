@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.FeeItemOption
 import com.ahu_plus.data.model.InternetBalanceData
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.tabularFigures
 import java.text.DecimalFormat
 
 /**
@@ -144,7 +145,7 @@ fun BathroomBalanceCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = DecimalFormat("¥#,##0.00").format(data.cashYuan),
-                            style = MaterialTheme.typography.headlineLarge,
+                            style = MaterialTheme.typography.headlineLarge.tabularFigures(),
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
@@ -626,7 +627,7 @@ fun InternetBalanceCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "${DecimalFormat("#,##0.00").format(data.balanceYuan)} 元",
-                            style = MaterialTheme.typography.headlineLarge,
+                            style = MaterialTheme.typography.headlineLarge.tabularFigures(),
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )

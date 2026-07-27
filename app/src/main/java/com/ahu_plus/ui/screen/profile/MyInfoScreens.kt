@@ -45,6 +45,7 @@ import com.ahu_plus.data.model.StudentInfoField
 import com.ahu_plus.ui.components.AhuInfoRow
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.AhuToneColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -245,7 +246,7 @@ fun MyInfoHubScreen(
                             title = "我的财务",
                             summary = if (financeCount > 0) "$financeCount 项" else "暂无数据",
                             icon = Icons.Filled.AccountBalanceWallet,
-                            iconColor = Color(0xFFB7791F),
+                            iconColor = AhuToneColors.MyInfoAmber.current,
                             onClick = onOpenFinance
                         )
 

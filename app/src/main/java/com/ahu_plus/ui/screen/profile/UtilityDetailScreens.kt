@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import com.ahu_plus.ui.components.AhuStatusCard
 import com.ahu_plus.ui.theme.AhuGreen
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuToneColors
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.ElectricityRoomConfig
 import com.ahu_plus.data.model.ElectricityDailyRecord
@@ -603,10 +604,10 @@ private fun ElectricityBillRow(record: ElectricityDailyRecord) {
             modifier = Modifier
                 .size(38.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF00A6A6).copy(alpha = 0.14f)),
+                .background(AhuToneColors.UtilityTeal.current.copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Filled.Lightbulb, contentDescription = null, tint = Color(0xFF00A6A6))
+            Icon(Icons.Filled.Lightbulb, contentDescription = null, tint = AhuToneColors.UtilityTeal.current)
         }
         Column(
             modifier = Modifier
@@ -806,7 +807,7 @@ private fun UsageMetricCard(label: String, value: String, sub: String, modifier:
 /** 复用一卡通分析里 SmoothTrendChart 的 Canvas 平滑曲线绘制方式(同款贝塞尔)。 */
 @Composable
 private fun ElectricityUsageSmoothChart(points: List<DailyKwhPoint>) {
-    val primary = Color(0xFF00A6A6)
+    val primary = AhuToneColors.UtilityTeal.current
     val grid = MaterialTheme.colorScheme.outlineVariant
     val chartDescription = remember(points) {
         val first = points.first()

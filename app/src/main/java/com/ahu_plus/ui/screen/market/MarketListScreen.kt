@@ -66,6 +66,7 @@ import com.ahu_plus.data.model.MarketIdentity
 import com.ahu_plus.data.model.MarketTopic
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuSpacing
 import com.ahu_plus.ui.theme.MarketColors
 import kotlinx.coroutines.launch
 
@@ -312,7 +313,7 @@ internal fun MarketListScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap)
                     ) {
                         if (!uiState.hasSavedIdentity) {
                             item {

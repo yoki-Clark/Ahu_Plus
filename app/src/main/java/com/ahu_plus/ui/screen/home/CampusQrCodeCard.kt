@@ -43,6 +43,7 @@ import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.CountdownArc
 import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.tabularFigures
 import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 
@@ -179,7 +180,7 @@ fun CampusQrCodeCard(
                         if (balance != null) {
                             Text(
                                 text = "余额 ${DecimalFormat("¥#,##0.00").format(balance)}",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleMedium.tabularFigures(),
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color.White
                             )

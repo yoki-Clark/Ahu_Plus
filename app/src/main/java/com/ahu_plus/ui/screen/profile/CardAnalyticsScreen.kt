@@ -68,6 +68,8 @@ import com.ahu_plus.data.model.toAnalyticsReport
 import com.ahu_plus.data.model.jw.SemesterInfo
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuToneColors
+import com.ahu_plus.ui.theme.tabularFigures
 import java.text.DecimalFormat
 
 private val MoneyFormat = DecimalFormat("¥#,##0.00")
@@ -402,7 +404,7 @@ private fun MetricCard(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text(value, style = MaterialTheme.typography.titleLarge.tabularFigures(), fontWeight = FontWeight.ExtraBold)
             Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         }
     }
@@ -427,7 +429,7 @@ private fun SmoothTrendChart(points: List<DailyPoint>) {
         EmptyBlock("该范围内暂无趋势数据")
         return
     }
-    val primary = Color(0xFF4F73C8)
+    val primary = AhuToneColors.TrendPrimary.current
     val grid = MaterialTheme.colorScheme.outlineVariant
     val chartDescription = remember(points) {
         val first = points.first()
@@ -728,7 +730,7 @@ private fun ProgressRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(6.dp),
-            color = Color(0xFF4F73C8),
+            color = AhuToneColors.TrendPrimary.current,
             trackColor = MaterialTheme.colorScheme.surfaceVariant
         )
         Text(

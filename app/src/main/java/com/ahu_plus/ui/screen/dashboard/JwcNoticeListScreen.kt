@@ -67,8 +67,10 @@ import androidx.core.content.FileProvider
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.JwcNoticeAttachment
 import com.ahu_plus.data.model.JwcNoticeDetail
+import com.ahu_plus.ui.components.AhuListRow
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuSpacing
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
@@ -214,7 +216,7 @@ private fun NoticeListBody(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap),
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
         when {
@@ -261,49 +263,13 @@ private fun NoticeRow(
     notice: JwcNotice,
     onClick: () -> Unit
 ) {
-    Card(
-        shape = AhuShapes.Card,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .padding(end = 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Filled.Campaign,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = notice.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (notice.date.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = notice.date,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
+    AhuListRow(
+        title = notice.title,
+        subtitle = notice.date.takeIf { it.isNotBlank() },
+        icon = Icons.Filled.Campaign,
+        iconTint = MaterialTheme.colorScheme.primary,
+        onClick = onClick,
+    )
 }
 
 @Composable

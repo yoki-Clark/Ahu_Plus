@@ -10,6 +10,15 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import com.ahu_plus.data.local.AppAccentColor
+import com.ahu_plus.data.local.darkOnPrimaryContainer
+import com.ahu_plus.data.local.darkPrimary
+import com.ahu_plus.data.local.darkPrimaryContainer
+import com.ahu_plus.data.local.darkSecondary
+import com.ahu_plus.data.local.lightOnPrimaryContainer
+import com.ahu_plus.data.local.lightPrimary
+import com.ahu_plus.data.local.lightPrimaryContainer
+import com.ahu_plus.data.local.lightSecondary
 
 private val DarkColorScheme = darkColorScheme(
     primary = AhuBlueDark,
@@ -62,9 +71,10 @@ fun AhuPlusTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = false,
+    accentColor: AppAccentColor = AppAccentColor.BLUE,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
+    val baseScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -73,7 +83,18 @@ fun AhuPlusTheme(
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
+    // accent 覆盖 primary 系（dynamicColor 时也覆盖，保证用户选的主题色生效）。
+    // Hero 渐变不走 colorScheme，保持语义固定不受影响。
+    val colorScheme = baseScheme.copy(
+        primary = if (darkTheme) accentColor.darkPrimary else accentColor.lightPrimary,
+        primaryContainer = if (darkTheme) accentColor.darkPrimaryContainer else accentColor.lightPrimaryContainer,
+        onPrimaryContainer = if (darkTheme) accentColor.darkOnPrimaryContainer else accentColor.lightOnPrimaryContainer,
+        secondary = if (darkTheme) accentColor.darkSecondary else accentColor.lightSecondary,
+    )
 
+    // 注：MaterialExpressiveTheme / MotionScheme 在当前 material3(BOM 2026.02.01)中仍为
+    // internal,无法外部访问。暂用标准 MaterialTheme;Expressive 动效改为在关键组件手写
+    // spring/tween 实现(见 Dashboard 列表动画、Tab Crossfade)。待 API 公开后可一行切换。
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,

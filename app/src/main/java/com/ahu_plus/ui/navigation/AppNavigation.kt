@@ -28,6 +28,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.local.AppAccentColor
+import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.repository.AdwmhCardRepository
@@ -70,6 +72,10 @@ fun AppNavigation(
     adwmhCardRepository: AdwmhCardRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    accentColor: AppAccentColor = AppAccentColor.BLUE,
+    onAccentColorChange: (AppAccentColor) -> Unit = {},
+    fontScale: AppFontScale = AppFontScale.NORMAL,
+    onFontScaleChange: (AppFontScale) -> Unit = {},
     /** 首次登录初始化协调器 (2026-06-22 新增) */
     initCoordinator: InitCoordinator? = null,
     /** 首次登录初始化消息流 (LoginViewModel emit → MainScreen 订阅 → 底部 Snackbar) */
@@ -240,6 +246,10 @@ fun AppNavigation(
                 adwmhCardRepository = adwmhCardRepository,
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
+                accentColor = accentColor,
+                onAccentColorChange = onAccentColorChange,
+                fontScale = fontScale,
+                onFontScaleChange = onFontScaleChange,
                 navigationRequest = navigationRequest,
                 navigationRequestId = navigationRequestId,
                 onNavigationRequestConsumed = onNavigationRequestConsumed,

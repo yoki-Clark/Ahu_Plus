@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Air
@@ -52,6 +51,9 @@ import com.ahu_plus.data.weather.WeatherCode
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.CenteredError
 import com.ahu_plus.ui.components.CenteredLoader
+import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuSpacing
+import com.ahu_plus.ui.theme.AhuToneColors
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,7 +101,7 @@ private fun WeatherContent(feed: WeatherFeed) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap),
     ) {
         item { CurrentWeatherCard(feed = feed) }
         item { AirQualityCard(feed = feed) }
@@ -122,7 +124,7 @@ private fun CurrentWeatherCard(feed: WeatherFeed) {
     val code = current.weatherCode
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = AhuShapes.LargeCard,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer
         ),
@@ -202,7 +204,7 @@ private fun AirQualityCard(feed: WeatherFeed) {
     val a = feed.airQuality?.current
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = AhuShapes.LargeCard,
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -240,8 +242,8 @@ private fun AirQualityCard(feed: WeatherFeed) {
             }
             val (status, color) = when {
                 a.pm25 > 75 -> "污染较高,建议戴口罩" to MaterialTheme.colorScheme.error
-                a.pm25 > 35 -> "轻度污染" to Color(0xFFFFA726)
-                else -> "空气良好" to Color(0xFF66BB6A)
+                a.pm25 > 35 -> "轻度污染" to AhuToneColors.AqOrange.current
+                else -> "空气良好" to AhuToneColors.AqGood.current
             }
             Text(
                 text = status,
@@ -259,7 +261,7 @@ private fun HourlyForecastCard(feed: WeatherFeed) {
     var showPopInfo by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = AhuShapes.LargeCard,
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -309,7 +311,7 @@ private fun HourlyForecastCard(feed: WeatherFeed) {
                             Text(
                                 text = "$pop%",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF1E88E5),
+                                color = AhuToneColors.RainBlue.current,
                                 modifier = Modifier.clickable { showPopInfo = true },
                             )
                         }
@@ -346,7 +348,7 @@ private fun HourlyForecastCard(feed: WeatherFeed) {
 private fun DailyForecastCard(feed: WeatherFeed) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = AhuShapes.LargeCard,
     ) {
         Column(
             modifier = Modifier.padding(16.dp),

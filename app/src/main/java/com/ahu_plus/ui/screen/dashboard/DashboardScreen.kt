@@ -120,7 +120,9 @@ import com.ahu_plus.ui.theme.AhuRed
 import com.ahu_plus.ui.theme.AhuTeal
 import com.ahu_plus.ui.theme.AhuViolet
 import com.ahu_plus.ui.theme.AhuGradient
+import com.ahu_plus.ui.theme.AhuSpacing
 import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.AhuToneColors
 import com.ahu_plus.ui.screen.home.FavoritesPickerSheet
 
 private val CountdownUrgentPink = AhuStatusColors.UrgentPink
@@ -196,7 +198,7 @@ fun DashboardScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
                     .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap)
             ) {
                 if (uiState.needsLogin) {
                     item {
@@ -515,7 +517,7 @@ private fun CountdownChip(
     val (label, color) = when {
         diff < 0 -> "已开始" to CountdownUrgentPink
         diff < 60 -> "${diff} 分钟后" to CountdownUrgentPink
-        diff < 180 -> "${diff / 60} 小时后" to Color(0xFFFFE0B2)
+        diff < 180 -> "${diff / 60} 小时后" to AhuToneColors.CountdownAmber.current
         else -> "${diff / 60}h${diff % 60}m" to Color.White.copy(alpha = 0.78f)
     }
     Surface(
@@ -719,11 +721,11 @@ private fun AppDockItem(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(AhuShapes.IconBox)
-                    .background(iconColor.copy(alpha = 0.12f)),
+                    .background(AhuGradient.forTint(iconColor)),
                 contentAlignment = Alignment.Center
             ) {
                 androidx.compose.runtime.CompositionLocalProvider(
-                    androidx.compose.material3.LocalContentColor provides iconColor
+                    androidx.compose.material3.LocalContentColor provides Color.White
                 ) {
                     icon()
                 }
