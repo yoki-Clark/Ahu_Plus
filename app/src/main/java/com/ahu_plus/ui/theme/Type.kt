@@ -92,3 +92,11 @@ val Typography = Typography(
         letterSpacing = 0.sp
     )
 )
+
+/**
+ * 等宽数字(tnum) - 套到金额/GPA/成绩/时间等数字密集文本，避免比例宽度数字抖动。
+ * 仅设置 OpenType feature,不引入字体文件,零体积成本。
+ *
+ * 用法: `style = MaterialTheme.typography.titleLarge.tabularFigures()`
+ */
+fun TextStyle.tabularFigures(): TextStyle = copy(fontFeatureSettings = "tnum")

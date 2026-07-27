@@ -54,6 +54,7 @@ import com.ahu_plus.ui.components.CountdownArc
 import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.AhuToneColors
 import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 
@@ -311,7 +312,7 @@ private fun ProgressView(
         if (qrError != null) {
             Text(
                 text = "⚠ 加载失败",
-                color = Color(0xFFEF5350),
+                color = AhuToneColors.QrErrorRed.current,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )

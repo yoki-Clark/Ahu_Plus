@@ -64,6 +64,7 @@ import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuStatusColors
 import com.ahu_plus.ui.theme.AhuToneColor
+import com.ahu_plus.ui.theme.tabularFigures
 
 // ── 语义色 ──
 // 分档色是成绩表唯一的颜色编码，不能映射到 colorScheme 角色，因此按深浅两档声明。
@@ -272,7 +273,7 @@ private fun GpaStat(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = value,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleLarge.tabularFigures(),
             fontWeight = FontWeight.ExtraBold,
             color = Color.White
         )
@@ -357,7 +358,7 @@ private fun SemesterBar(
     ) {
         Text(
             text = gpa?.let { "%.2f".format(it) } ?: "—",
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelLarge.tabularFigures(),
             fontWeight = FontWeight.Bold,
             color = barColor
         )
@@ -432,14 +433,14 @@ private fun GradeDetailSheet(grade: Grade, onDismiss: () -> Unit) {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
                         text = grade.displayScore,
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.headlineMedium.tabularFigures(),
                         fontWeight = FontWeight.ExtraBold,
                         color = scoreColor(grade.scoreAsDouble())
                     )
                     if (grade.gp != null) {
                         Text(
                             text = "绩点 %.2f".format(grade.gp),
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall.tabularFigures(),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -619,7 +620,7 @@ private fun Stat(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = value,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleLarge.tabularFigures(),
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onPrimaryContainer
         )

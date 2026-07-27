@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
@@ -23,6 +24,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import com.ahu_plus.ui.theme.AhuPlusTheme
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuSpacing
+import com.ahu_plus.ui.theme.AhuElevation
+import com.ahu_plus.ui.theme.ahuShadow
 
 @Composable
 fun AhuTopAppBar(
@@ -103,8 +107,10 @@ fun AhuCard(
     Card(
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = modifier.fillMaxWidth()
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .ahuShadow(AhuElevation.Low, AhuShapes.Card)
     ) {
         content()
     }
@@ -286,6 +292,84 @@ fun AhuInfoRow(
     }
 }
 
+/**
+ * 统一横向列表行 - 图标盒 + 主副标题 + 尾部槽，收口之前 GradeRow/NoticeRow/SettingsRow
+ * 各自实现的"图标+文字+尾部"卡片行（批次一项73）。
+ *
+ * - [icon] + [iconTint]：可选前置图标盒（40dp，AhuShapes.IconBox，tint 0.14 底），统一之前
+ *   34dp 裸图标 / 38dp / 42dp 三种写法。
+ * - [title] / [subtitle]：主副标题，副标题空则不占位。
+ * - [trailing]：尾部槽（箭头/数值/Switch 等）。
+ * - [accentColor]：可选左侧 4dp 色条（分类标识，批次一项21 复用）。
+ * - [onClick]：非 null 则整行 clickable。
+ */
+@Composable
+fun AhuListRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
+    subtitle: String? = null,
+    accentColor: Color? = null,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable (RowScope.() -> Unit)? = null,
+) {
+    Card(
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .ahuShadow(AhuElevation.Low, AhuShapes.Card)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (accentColor != null) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 4.dp, height = 28.dp)
+                        .clip(AhuShapes.Pill)
+                        .background(accentColor)
+                        .padding(end = 10.dp),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+            }
+            if (icon != null) {
+                AhuIconBox(
+                    imageVector = icon,
+                    tint = iconTint,
+                    size = 40.dp,
+                    modifier = Modifier.padding(end = 12.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!subtitle.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (trailing != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                trailing()
+            }
+        }
+    }
+}
+
 @Composable
 fun AhuMetricStrip(
     metrics: List<Pair<String, String>>,
@@ -333,17 +417,23 @@ fun AhuHeroCard(
     content: @Composable () -> Unit
 ) {
     Card(
-        shape = AhuShapes.LargeCard,
+        shape = AhuShapes.HeroCard,
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        modifier = modifier.fillMaxWidth()
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .ahuShadow(AhuElevation.High, AhuShapes.HeroCard)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(gradient)
         ) {
-            content()
+            // 渐变底色较深,统一提供白色内容色:内部 Text/Icon 未显式指定 color 时自动取白,
+            // 避免浅色主题下默认 onSurface 深色字在渐变上不可见。
+            CompositionLocalProvider(LocalContentColor provides Color.White) {
+                content()
+            }
         }
     }
 }

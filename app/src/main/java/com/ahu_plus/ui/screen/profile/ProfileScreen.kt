@@ -103,6 +103,8 @@ import com.ahu_plus.data.repository.CacheCleanupRepository
 import com.ahu_plus.data.home.AppHubLayoutConfig
 import com.ahu_plus.ui.screen.apps.AppHubSettingsScreen
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.local.AppAccentColor
+import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.data.model.BillRecord
 
 import com.ahu_plus.data.model.FinanceSummary
@@ -118,6 +120,7 @@ import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.ui.components.AhuSectionHeader
 import com.ahu_plus.ui.components.LoginRequiredCard
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuStatusColors
 
 import com.ahu_plus.data.local.ElectricityRoomConfig
@@ -162,6 +165,10 @@ fun ProfileScreen(
     onLoadAcademicSemesters: () -> Unit = {},
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    accentColor: AppAccentColor = AppAccentColor.BLUE,
+    onAccentColorChange: (AppAccentColor) -> Unit = {},
+    fontScale: AppFontScale = AppFontScale.NORMAL,
+    onFontScaleChange: (AppFontScale) -> Unit = {},
     scrollTarget: String? = null,
     onScrollTargetConsumed: () -> Unit = {},
     profileTarget: ProfileTarget? = null,
@@ -403,6 +410,10 @@ fun ProfileScreen(
         AppSettingsScreen(
             themeMode = themeMode,
             onThemeModeChange = onThemeModeChange,
+            accentColor = accentColor,
+            onAccentColorChange = onAccentColorChange,
+            fontScale = fontScale,
+            onFontScaleChange = onFontScaleChange,
             qrBrightnessBoost = cardViewModel.getQrBrightnessBoost(),
             onQrBrightnessBoostChanged = cardViewModel::setQrBrightnessBoost,
             cardBalanceAlertEnabled = cardViewModel.getCardBalanceAlertEnabled(),
@@ -622,13 +633,13 @@ internal fun SettingsRow(
         leadingContent = {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(40.dp)
                     .clip(AhuShapes.IconBox)
-                    .background(iconColor.copy(alpha = 0.14f)),
+                    .background(AhuGradient.forTint(iconColor)),
                 contentAlignment = Alignment.Center
             ) {
                 androidx.compose.runtime.CompositionLocalProvider(
-                    androidx.compose.material3.LocalContentColor provides iconColor
+                    androidx.compose.material3.LocalContentColor provides Color.White
                 ) {
                     icon()
                 }

@@ -50,6 +50,8 @@ import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.local.AppAccentColor
+import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.data.home.AppHubLayoutConfig
 import com.ahu_plus.data.local.BottomNavService
 import com.ahu_plus.data.local.reconcileBottomNavServices
@@ -134,6 +136,10 @@ fun MainScreen(
     adwmhCardRepository: AdwmhCardRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    accentColor: AppAccentColor = AppAccentColor.BLUE,
+    onAccentColorChange: (AppAccentColor) -> Unit = {},
+    fontScale: AppFontScale = AppFontScale.NORMAL,
+    onFontScaleChange: (AppFontScale) -> Unit = {},
     /** 是否保存了统一身份认证凭据，用于匿名态与账户态 UI 切换。 */
     hasCredentials: Boolean,
     /** 每次后台或手动认证成功后递增，驱动当前可见数据静默刷新。 */
@@ -741,6 +747,10 @@ fun MainScreen(
                     onLoadAcademicSemesters = gradeViewModel::activate,
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
+                    accentColor = accentColor,
+                    onAccentColorChange = onAccentColorChange,
+                    fontScale = fontScale,
+                    onFontScaleChange = onFontScaleChange,
                     scrollTarget = profileScrollTarget,
                     onScrollTargetConsumed = { profileScrollTarget = null },
                     profileTarget = currentProfileTarget,

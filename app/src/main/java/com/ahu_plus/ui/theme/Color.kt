@@ -28,7 +28,7 @@ val AhuDarkOutline = Color(0xFF3A4253)
 
 // ── 渐变色 token ──
 val AhuGradientBlueStart = Color(0xFF2962FF)
-val AhuGradientBlueEnd = Color(0xFF448AFF)
+val AhuGradientBlueEnd = Color(0xFF3D5AFE)
 val AhuGradientTealStart = Color(0xFF00897B)
 val AhuGradientTealEnd = Color(0xFF26A69A)
 val AhuGradientOrangeStart = Color(0xFFEF6C00)

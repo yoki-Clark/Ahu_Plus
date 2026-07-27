@@ -60,6 +60,7 @@ import com.ahu_plus.ui.components.CenteredMessage
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuToneColors
 import com.ahu_plus.ui.components.CollapsibleSection
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -360,8 +361,8 @@ private fun InfoLine(icon: androidx.compose.ui.graphics.vector.ImageVector, text
 @Composable
 private fun examTypeColor(type: String?): Color = when {
     type == null -> MaterialTheme.colorScheme.onSurfaceVariant
-    type.contains("补") -> Color(0xFFE53935)
-    type.contains("缓") -> Color(0xFFFB8C00)
+    type.contains("补") -> AhuToneColors.ExamRetakeRed.current
+    type.contains("缓") -> AhuToneColors.ExamDeferredOrange.current
     else -> MaterialTheme.colorScheme.primary
 }
 

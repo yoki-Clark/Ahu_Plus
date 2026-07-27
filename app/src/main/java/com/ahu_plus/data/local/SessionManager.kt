@@ -105,6 +105,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     @Volatile private var cachedThemeMode: AppThemeMode = AppThemeMode.SYSTEM
 
+    @Volatile private var cachedAccentColor: AppAccentColor = AppAccentColor.BLUE
+
+    @Volatile private var cachedFontScale: AppFontScale = AppFontScale.NORMAL
+
     @Volatile private var cachedStudentInfoJson: String? = null
 
     @Volatile private var cachedStudentInfoUpdatedAt: Long = 0L
@@ -497,6 +501,18 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    val accentColorFlow = appDataStore.dataStore.data.map { preferences ->
+
+        AppAccentColor.fromStorageValue(preferences[ACCENT_COLOR_KEY])
+
+    }
+
+    val fontScaleFlow = appDataStore.dataStore.data.map { preferences ->
+
+        AppFontScale.fromStorageValue(preferences[FONT_SCALE_KEY])
+
+    }
+
     /**
 
      * \u4ECE DataStore \u6062\u590D\u6240\u6709\u6570\u636E\u5230\u5185\u5B58\u7F13\u5B58\u3002
@@ -547,6 +563,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedJwAppToken = credentialStore.getString(EncryptedCredentialStore.JWAPP_TOKEN)
 
         cachedThemeMode = AppThemeMode.fromStorageValue(prefs[THEME_MODE_KEY])
+
+        cachedAccentColor = AppAccentColor.fromStorageValue(prefs[ACCENT_COLOR_KEY])
+
+        cachedFontScale = AppFontScale.fromStorageValue(prefs[FONT_SCALE_KEY])
 
         cachedStudentInfoJson = prefs[STUDENT_INFO_KEY]
 
@@ -1088,7 +1108,35 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
-    // \u2500\u2500 \u4E00\u5361\u901A session (JSESSIONID) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    fun getAccentColor(): AppAccentColor = cachedAccentColor
+
+    suspend fun saveAccentColor(accentColor: AppAccentColor) {
+
+        cachedAccentColor = accentColor
+
+        appDataStore.dataStore.edit { preferences ->
+
+            preferences[ACCENT_COLOR_KEY] = accentColor.storageValue
+
+        }
+
+    }
+
+    fun getFontScale(): AppFontScale = cachedFontScale
+
+    suspend fun saveFontScale(fontScale: AppFontScale) {
+
+        cachedFontScale = fontScale
+
+        appDataStore.dataStore.edit { preferences ->
+
+            preferences[FONT_SCALE_KEY] = fontScale.storageValue
+
+        }
+
+    }
+
+    // \u2500\u2500 \u4E00\u5361\u901A session (JSESSIONID) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     fun getSessionId(): String? = cachedSessionId
 
@@ -3688,6 +3736,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         val MARKET_API_IDENTITY_KEY = stringPreferencesKey("market_api_identity")
 
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
+
+        val ACCENT_COLOR_KEY = stringPreferencesKey("accent_color")
+
+        val FONT_SCALE_KEY = stringPreferencesKey("font_scale")
 
         val STUDENT_INFO_KEY = stringPreferencesKey("student_info_json")
 

@@ -2,6 +2,7 @@ package com.ahu_plus.ui.theme
 
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 
 /**
  * 5 组品牌渐变 + 3 组玻璃态补色，统一封装为 Brush 字段。
@@ -66,6 +67,41 @@ object AhuGradient {
     object GlassViolet {
         val brush: Brush = Brush.linearGradient(
             listOf(Color(0xD97567C8), Color(0x8C1C2048)),
+        )
+    }
+
+    /**
+     * 由任意 tint 色派生「实心双色渐变」底 - 用于入口图标盒（AppHub、收藏坞、设置入口）。
+     *
+     * 规则：tint 向白提亮 12% 作起始色、向黑加深 8% 作结束色，营造立体光泽。
+     * 统一收口之前 AppHubIcon 即时 lerp 的写法（批次一项42）。
+     */
+    fun forTint(color: Color): Brush = Brush.linearGradient(
+        listOf(
+            lerp(color, Color.White, 0.12f),
+            lerp(color, Color.Black, 0.08f),
+        ),
+    )
+
+    /**
+     * 主色按钮渐变 - 用于主要按钮/强调操作，与 Hero 渐变呼应（批次一项13）。
+     * 次要按钮仍用纯色以保持克制。
+     */
+    object Button {
+        val blue: Brush = Brush.linearGradient(
+            listOf(AhuGradientBlueStart, AhuGradientBlueEnd),
+        )
+        val teal: Brush = Brush.linearGradient(
+            listOf(AhuGradientTealStart, AhuGradientTealEnd),
+        )
+        val orange: Brush = Brush.linearGradient(
+            listOf(AhuGradientOrangeStart, AhuGradientOrangeEnd),
+        )
+        val violet: Brush = Brush.linearGradient(
+            listOf(AhuGradientVioletStart, AhuGradientVioletEnd),
+        )
+        val green: Brush = Brush.linearGradient(
+            listOf(AhuGradientGreenStart, AhuGradientGreenEnd),
         )
     }
 }

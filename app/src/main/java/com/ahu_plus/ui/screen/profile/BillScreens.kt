@@ -51,6 +51,7 @@ import com.ahu_plus.data.model.BillRecord
 import com.ahu_plus.ui.components.LoginRequiredCard
 import com.ahu_plus.ui.theme.AhuGreen
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.tabularFigures
 import java.text.DecimalFormat
 import kotlin.math.abs
 
@@ -197,7 +198,7 @@ private fun BillDetailSheet(bill: BillRecord) {
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
                     text = if (isPayment) "-${formatter.format(amount)}" else "+${formatter.format(amount)}",
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.headlineMedium.tabularFigures(),
                     fontWeight = FontWeight.Bold,
                     color = if (isPayment) MaterialTheme.colorScheme.error else AhuGreen
                 )
@@ -324,7 +325,7 @@ fun BillRow(bill: BillRecord, onClick: () -> Unit = {}) {
         }
         Text(
             text = if (isPayment) "-${formatter.format(amount)}" else "+${formatter.format(amount)}",
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyLarge.tabularFigures(),
             fontWeight = FontWeight.Bold,
             color = if (isPayment) MaterialTheme.colorScheme.error else AhuGreen
         )

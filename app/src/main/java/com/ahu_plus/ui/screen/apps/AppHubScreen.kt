@@ -63,12 +63,12 @@ import com.ahu_plus.ui.navigation.AppsTarget
 import kotlinx.coroutines.launch
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuBlue
+import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuOrange
 import com.ahu_plus.ui.theme.AhuViolet
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.lerp
 import com.ahu_plus.ui.components.AhuSectionTitle
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.CenteredMessage
@@ -993,12 +993,7 @@ private fun AppHubIcon(
     background: Brush? = null,
     boxSize: androidx.compose.ui.unit.Dp = 42.dp,
 ) {
-    val resolvedBackground = background ?: Brush.linearGradient(
-        colors = listOf(
-            lerp(iconColor, Color.White, 0.12f),
-            lerp(iconColor, Color.Black, 0.08f),
-        ),
-    )
+    val resolvedBackground = background ?: AhuGradient.forTint(iconColor)
 
     Box(
         modifier = Modifier

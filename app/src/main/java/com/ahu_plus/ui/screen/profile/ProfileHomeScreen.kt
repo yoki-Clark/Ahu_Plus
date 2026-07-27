@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +74,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -89,6 +91,7 @@ import com.ahu_plus.data.model.StudentInfo
 import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.notification.CardBalanceAlertMode
 import com.ahu_plus.notification.recentCanteenDailyAverage
+import com.ahu_plus.ui.components.AhuHeroCard
 import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import com.ahu_plus.ui.components.AhuSectionHeader
 import com.ahu_plus.ui.components.LoginRequiredCard
@@ -102,9 +105,12 @@ import com.ahu_plus.ui.screen.home.HomeViewModel
 import com.ahu_plus.ui.screen.home.InternetBalanceCard
 import com.ahu_plus.ui.screen.home.QrCodeFullScreenDialog
 import com.ahu_plus.ui.screen.market.MarketViewModel
-import com.ahu_plus.ui.theme.AhuGreen
+import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuSpacing
 import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.AhuToneColors
+import com.ahu_plus.ui.theme.tabularFigures
 import com.ahu_plus.util.BrowserOpener
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
@@ -315,7 +321,7 @@ internal fun ProfileHomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap)
         ) {
             item {
                 ProfileHeader(
@@ -412,15 +418,15 @@ internal fun ProfileHomeScreen(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
+                                    .size(40.dp)
                                     .clip(AhuShapes.IconBox)
-                                    .background(Color(0xFF9B59B6).copy(alpha = 0.14f)),
+                                    .background(AhuGradient.forTint(AhuToneColors.ThirdPartyPurple.current)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.Group,
                                     contentDescription = null,
-                                    tint = Color(0xFF9B59B6)
+                                    tint = Color.White
                                 )
                             }
                             Column(
@@ -560,7 +566,7 @@ internal fun ProfileHomeScreen(
                     SettingsRow(
                         title = "关于",
                         description = "软件信息、公告、帮助与协议",
-                        iconColor = Color(0xFF607D8B),
+                        iconColor = AhuToneColors.AboutSlate.current,
                         icon = { Icon(Icons.Filled.Info, contentDescription = null) },
                         onClick = onOpenAbout
                     )
@@ -682,43 +688,52 @@ private fun ProfileHeader(
     subtitle: String,
     onClick: () -> Unit = {}
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp)
-            .clickable(onClick = onClick),
-        verticalAlignment = Alignment.CenterVertically
+    AhuHeroCard(
+        gradient = AhuGradient.Blue.brush,
+        modifier = Modifier.clickable(
+            onClick = onClick,
+            role = Role.Button,
+        ),
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(68.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Filled.Person,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(34.dp)
-            )
-        }
-        Column(
-            modifier = Modifier.padding(start = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = displayName,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Box(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.22f))
+                    .border(2.dp, Color.White, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Person,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+            Column(
+                modifier = Modifier.padding(start = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.78f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
@@ -738,10 +753,8 @@ private fun BalanceCard(
     val displayBalance = qrBalance ?: balance
     val formatter = DecimalFormat("¥#,##0.00")
 
-    Card(
-        shape = AhuShapes.Card,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    AhuHeroCard(
+        gradient = AhuGradient.Green.brush,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -758,13 +771,13 @@ private fun BalanceCard(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(AhuShapes.IconBox)
-                        .background(AhuGreen.copy(alpha = 0.14f)),
+                        .background(Color.White.copy(alpha = 0.22f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Filled.AccountBalanceWallet,
                         contentDescription = null,
-                        tint = AhuGreen
+                        tint = Color.White
                     )
                 }
                 Column(
@@ -776,7 +789,8 @@ private fun BalanceCard(
                     Text(
                         text = "校园卡",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
                     val hasBalance = displayBalance > 0.0
                     val subText = when {
@@ -789,7 +803,7 @@ private fun BalanceCard(
                         Text(
                             text = subText,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = Color.White.copy(alpha = 0.78f)
                         )
                     }
                 }
@@ -797,21 +811,23 @@ private fun BalanceCard(
                     isLoading && displayBalance == 0.0 -> {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp
+                            strokeWidth = 2.dp,
+                            color = Color.White
                         )
                     }
                     displayBalance > 0.0 -> {
                         Text(
                             text = formatter.format(displayBalance),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
+                            style = MaterialTheme.typography.titleLarge.tabularFigures(),
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
                         )
                     }
                 }
                 Icon(
                     Icons.Filled.ChevronRight,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier.padding(start = 4.dp)
                 )
             }
@@ -823,7 +839,7 @@ private fun BalanceCard(
                 Icon(
                     Icons.Filled.QrCode2,
                     contentDescription = "智慧安大支付码",
-                    tint = if (qrCode != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = Color.White
                 )
             }
         }

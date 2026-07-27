@@ -6,10 +6,12 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,7 +19,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
@@ -47,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
@@ -54,8 +59,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.local.AppAccentColor
+import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.data.local.BottomNavService
+import com.ahu_plus.data.local.lightPrimary
+import com.ahu_plus.ui.components.AhuListRow
 import androidx.core.content.ContextCompat
 import com.ahu_plus.notification.CardBalanceAlertMode
 
@@ -64,6 +74,10 @@ import com.ahu_plus.notification.CardBalanceAlertMode
 internal fun AppSettingsScreen(
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    accentColor: AppAccentColor = AppAccentColor.BLUE,
+    onAccentColorChange: (AppAccentColor) -> Unit = {},
+    fontScale: AppFontScale = AppFontScale.NORMAL,
+    onFontScaleChange: (AppFontScale) -> Unit = {},
     qrBrightnessBoost: Boolean = true,
     onQrBrightnessBoostChanged: (Boolean) -> Unit = {},
     cardBalanceAlertEnabled: Boolean = false,
@@ -248,6 +262,38 @@ internal fun AppSettingsScreen(
                                 onClick = { onThemeModeChange(option) }
                             )
                         }
+                        HorizontalDivider()
+                        Text(
+                            text = "主题色",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        AppAccentColor.entries.forEachIndexed { index, option ->
+                            if (index > 0) HorizontalDivider()
+                            AccentColorRow(
+                                accentColor = option,
+                                selected = accentColor == option,
+                                onClick = { onAccentColorChange(option) }
+                            )
+                        }
+                        HorizontalDivider()
+                        Text(
+                            text = "字体大小",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        AppFontScale.entries.forEachIndexed { index, option ->
+                            if (index > 0) HorizontalDivider()
+                            FontScaleRow(
+                                fontScale = option,
+                                selected = fontScale == option,
+                                onClick = { onFontScaleChange(option) }
+                            )
+                        }
                     }
                 }
             }
@@ -414,16 +460,19 @@ private fun SettingsRouteRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
 ) {
-    ListItem(
-        headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
-        supportingContent = { Text(description) },
-        leadingContent = {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+    AhuListRow(
+        title = title,
+        subtitle = description.takeIf { it.isNotBlank() },
+        icon = icon,
+        iconTint = MaterialTheme.colorScheme.primary,
+        onClick = onClick,
+        trailing = {
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         },
-        trailingContent = {
-            Icon(Icons.Filled.ChevronRight, contentDescription = null)
-        },
-        modifier = Modifier.clickable(onClick = onClick),
     )
 }
 
@@ -486,6 +535,92 @@ private fun ThemeModeRow(
             onClick = onClick,
         ),
     )
+}
+
+@Composable
+private fun AccentColorRow(
+    accentColor: AppAccentColor,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    ListItem(
+        headlineContent = {
+            Text(
+                text = accentColor.titleText(),
+                fontWeight = FontWeight.Medium
+            )
+        },
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.lightPrimary)
+                    .then(
+                        if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                        else Modifier
+                    ),
+            )
+        },
+        trailingContent = {
+            RadioButton(selected = selected, onClick = null)
+        },
+        modifier = Modifier.selectable(
+            selected = selected,
+            role = Role.RadioButton,
+            onClick = onClick,
+        ),
+    )
+}
+
+internal fun AppAccentColor.titleText(): String = when (this) {
+    AppAccentColor.BLUE -> "安大蓝"
+    AppAccentColor.TEAL -> "青绿"
+    AppAccentColor.VIOLET -> "紫"
+    AppAccentColor.ORANGE -> "橙"
+    AppAccentColor.PINK -> "粉"
+}
+
+@Composable
+private fun FontScaleRow(
+    fontScale: AppFontScale,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    ListItem(
+        headlineContent = {
+            Text(
+                text = fontScale.titleText(),
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp * fontScale.factor,
+            )
+        },
+        supportingContent = {
+            Text(text = fontScale.descriptionText())
+        },
+        leadingContent = {
+            RadioButton(selected = selected, onClick = null)
+        },
+        modifier = Modifier.selectable(
+            selected = selected,
+            role = Role.RadioButton,
+            onClick = onClick,
+        ),
+    )
+}
+
+internal fun AppFontScale.titleText(): String = when (this) {
+    AppFontScale.SMALL -> "小"
+    AppFontScale.NORMAL -> "标准"
+    AppFontScale.LARGE -> "大"
+    AppFontScale.EXTRA_LARGE -> "超大"
+}
+
+private fun AppFontScale.descriptionText(): String = when (this) {
+    AppFontScale.SMALL -> "0.85x，信息更密集"
+    AppFontScale.NORMAL -> "1.0x，默认大小"
+    AppFontScale.LARGE -> "1.15x，更易阅读"
+    AppFontScale.EXTRA_LARGE -> "1.3x，无障碍"
 }
 
 internal fun AppThemeMode.titleText(): String = when (this) {
