@@ -72,6 +72,7 @@ import com.ahu_plus.data.model.FeeItemOption
 import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.data.model.InternetBalanceData
 import com.ahu_plus.ui.components.AhuHeroCard
+import com.ahu_plus.ui.components.AhuStatusCard
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.CountdownArc
@@ -206,14 +207,13 @@ fun HomeScreen(
                 )
                 val billsError = uiState.billsError
                 if (billsError != null) {
-                    Text(
+                    AhuStatusCard(
                         text = billsError,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(top = 8.dp)
+                        tone = MaterialTheme.colorScheme.error,
+                        actionText = "重试",
+                        onAction = viewModel::loadBills,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
-                    TextButton(onClick = viewModel::loadBills) {
-                        Text("重试")
-                    }
                 }
             }
         }

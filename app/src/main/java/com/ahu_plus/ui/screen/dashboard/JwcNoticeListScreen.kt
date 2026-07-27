@@ -10,6 +10,10 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,8 +71,12 @@ import androidx.core.content.FileProvider
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.JwcNoticeAttachment
 import com.ahu_plus.data.model.JwcNoticeDetail
+import com.ahu_plus.ui.components.AhuEmptyState
+import com.ahu_plus.ui.components.AhuErrorState
 import com.ahu_plus.ui.components.AhuListRow
+import com.ahu_plus.ui.components.AhuSkeletonList
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.theme.AhuMotion
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuSpacing
 import java.io.File
@@ -211,30 +219,50 @@ private fun NoticeListBody(
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap),
-        contentPadding = PaddingValues(vertical = 16.dp)
-    ) {
-        when {
-            uiState.isLoading && uiState.notices.isEmpty() -> {
-                item {
-                    LoadingRow(text = "正在加载通知公告...")
-                }
-            }
-
-            uiState.error != null && uiState.notices.isEmpty() -> {
-                item {
-                    ErrorBlock(message = uiState.error, onRetry = onRetry)
-                }
-            }
-
-            else -> {
+    val screenState = when {
+        uiState.isLoading && uiState.notices.isEmpty() -> NoticeListState.Loading
+        uiState.error != null && uiState.notices.isEmpty() -> NoticeListState.Error
+        uiState.notices.isEmpty() -> NoticeListState.Empty
+        else -> NoticeListState.Content
+    }
+    AnimatedContent(
+        targetState = screenState,
+        transitionSpec = { fadeIn(AhuMotion.MediumTween) togetherWith fadeOut(AhuMotion.ShortTween) },
+        contentAlignment = Alignment.TopCenter,
+        label = "notice-list-state",
+    ) { state ->
+        when (state) {
+            NoticeListState.Loading -> AhuSkeletonList(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                itemCount = 5,
+            )
+            NoticeListState.Error -> AhuErrorState(
+                message = uiState.error ?: "加载失败",
+                onRetry = onRetry,
+                centered = true,
+            )
+            NoticeListState.Empty -> AhuEmptyState(
+                icon = Icons.Filled.Campaign,
+                title = "暂无通知",
+                subtitle = "下拉刷新或稍后再来",
+                centered = true,
+            )
+            NoticeListState.Content -> LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap),
+                contentPadding = PaddingValues(vertical = 16.dp)
+            ) {
                 items(items = uiState.notices, key = { it.url }) { notice ->
-                    NoticeRow(notice = notice, onClick = { onOpen(notice) })
+                    NoticeRow(
+                        notice = notice,
+                        onClick = { onOpen(notice) },
+                        modifier = Modifier.animateItem(),
+                    )
                 }
                 if (uiState.isLoadingMore || (uiState.hasMore && uiState.notices.isNotEmpty() && !uiState.isLoading)) {
                     item {
@@ -258,10 +286,14 @@ private fun NoticeListBody(
     }
 }
 
+/** 通知列表顶层状态机 - 驱动 [AnimatedContent] 平滑过渡(批次二项35)。 */
+private enum class NoticeListState { Loading, Error, Empty, Content }
+
 @Composable
 private fun NoticeRow(
     notice: JwcNotice,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     AhuListRow(
         title = notice.title,
@@ -269,6 +301,7 @@ private fun NoticeRow(
         icon = Icons.Filled.Campaign,
         iconTint = MaterialTheme.colorScheme.primary,
         onClick = onClick,
+        modifier = modifier,
     )
 }
 

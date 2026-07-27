@@ -1,5 +1,9 @@
 package com.ahu_plus.ui.screen.weather
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -48,13 +52,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.model.weather.WeatherFeed
 import com.ahu_plus.data.repository.WeatherRepository
 import com.ahu_plus.data.weather.WeatherCode
+import com.ahu_plus.ui.components.AhuSkeletonList
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.CenteredError
-import com.ahu_plus.ui.components.CenteredLoader
+import com.ahu_plus.ui.theme.AhuMotion
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuSpacing
 import com.ahu_plus.ui.theme.AhuToneColors
 import java.time.format.DateTimeFormatter
+
+/** 天气页顶层状态机 - 驱动 [AnimatedContent] 平滑过渡(批次二项35)。 */
+private enum class WeatherScreenState { Loading, Error, Content }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,13 +92,28 @@ fun WeatherScreen(
         containerColor = MaterialTheme.colorScheme.background,
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            when {
-                uiState.isLoading && feed == null -> CenteredLoader()
-                uiState.error != null && feed == null ->
-                    CenteredError(message = uiState.error!!, onRetry = viewModel::refresh)
-                feed == null ->
-                    CenteredError(message = "暂无天气数据", onRetry = viewModel::refresh)
-                else -> WeatherContent(feed = feed!!)
+            val screenState = when {
+                uiState.isLoading && feed == null -> WeatherScreenState.Loading
+                feed == null -> WeatherScreenState.Error
+                else -> WeatherScreenState.Content
+            }
+            AnimatedContent(
+                targetState = screenState,
+                transitionSpec = { fadeIn(AhuMotion.MediumTween) togetherWith fadeOut(AhuMotion.ShortTween) },
+                contentAlignment = Alignment.TopCenter,
+                label = "weather-state",
+            ) { state ->
+                when (state) {
+                    WeatherScreenState.Loading -> AhuSkeletonList(
+                        modifier = Modifier.fillMaxSize().padding(16.dp),
+                        itemCount = 4,
+                    )
+                    WeatherScreenState.Error -> CenteredError(
+                        message = uiState.error ?: "暂无天气数据",
+                        onRetry = viewModel::refresh,
+                    )
+                    WeatherScreenState.Content -> feed?.let { WeatherContent(feed = it) }
+                }
             }
         }
     }

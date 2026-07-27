@@ -107,6 +107,8 @@ import com.ahu_plus.data.home.AppSpec
 import com.ahu_plus.ui.components.AhuCard
 import com.ahu_plus.ui.components.AhuIconBox
 import com.ahu_plus.ui.components.AhuSectionTitle
+import com.ahu_plus.ui.components.AhuSkeletonLine
+import com.ahu_plus.ui.components.AhuStatusCard
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.LoginRequiredCard
@@ -346,36 +348,24 @@ private fun JwcNoticeSection(
 
             when {
                 uiState.isLoading && uiState.notices.isEmpty() -> {
-                    Row(
+                    Column(
                         modifier = Modifier.padding(top = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp
-                        )
-                        Text(
-                            text = "正在加载通告...",
-                            modifier = Modifier.padding(start = 10.dp),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                        AhuSkeletonLine(modifier = Modifier.fillMaxWidth(), height = 14.dp)
+                        AhuSkeletonLine(modifier = Modifier.fillMaxWidth(0.7f), height = 14.dp)
+                        AhuSkeletonLine(modifier = Modifier.fillMaxWidth(0.85f), height = 14.dp)
                     }
                 }
 
                 uiState.error != null && uiState.notices.isEmpty() -> {
-                    Column(
+                    AhuStatusCard(
+                        text = uiState.error,
+                        tone = MaterialTheme.colorScheme.error,
+                        actionText = "重新加载",
+                        onAction = onRefresh,
                         modifier = Modifier.padding(top = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = uiState.error,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        FilledTonalButton(onClick = onRefresh) {
-                            Text("重新加载")
-                        }
-                    }
+                    )
                 }
 
                 uiState.notices.isEmpty() -> {
