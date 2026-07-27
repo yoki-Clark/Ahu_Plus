@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.ahu_plus.data.legal.LegalGateState
@@ -66,11 +67,25 @@ class MainActivity : ComponentActivity() {
     private var navigationRequestId by mutableStateOf(0L)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 项34:安装闪屏(必须在 super.onCreate 之前)。闪屏主题见 AndroidManifest 的
+        // Theme.Ahu_Plus.Splash,退出后由 postSplashScreenTheme 切回 Theme.Ahu_Plus。
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         NavigationIntentCodec.decode(intent)?.let(::publishNavigationRequest)
         setIntent(intent)
         val app = application as AhuPlusApplication
+        // 项34:闪屏退出动画 -- logo 缩放 + 淡出过渡到首页(280ms < 500ms,见 D7,不阻塞冷启动)。
+        splashScreen.setOnExitAnimationListener { provider ->
+            provider.view.animate()
+                .scaleX(1.08f)
+                .scaleY(1.08f)
+                .alpha(0f)
+                .setDuration(280L)
+                .setInterpolator(android.view.animation.AccelerateInterpolator())
+                .withEndAction { provider.remove() }
+                .start()
+        }
         setContent {
             val themeMode by app.sessionManager.themeModeFlow.collectAsStateWithLifecycle(
                 initialValue = app.sessionManager.getThemeMode()
