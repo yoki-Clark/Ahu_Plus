@@ -14,6 +14,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,14 +52,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -75,6 +79,7 @@ import com.ahu_plus.ui.components.AhuEmptyState
 import com.ahu_plus.ui.components.AhuErrorState
 import com.ahu_plus.ui.components.AhuListRow
 import com.ahu_plus.ui.components.AhuSkeletonList
+import com.ahu_plus.ui.components.AhuStickyHeader
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuMotion
 import com.ahu_plus.ui.theme.AhuShapes
@@ -87,6 +92,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.comparisons.reverseOrder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -196,6 +202,7 @@ fun JwcNoticeListScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun NoticeListBody(
     uiState: JwcNoticeListUiState,
@@ -205,7 +212,6 @@ private fun NoticeListBody(
 ) {
     // 2026-07-06 P0: LazyListState.Saver 让 SaveableStateHolder 跨分支剔除时恢复滚动位置。
     val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
-
     val shouldLoadMore by remember {
         derivedStateOf {
             val total = listState.layoutInfo.totalItemsCount
@@ -249,29 +255,46 @@ private fun NoticeListBody(
                 subtitle = "下拉刷新或稍后再来",
                 centered = true,
             )
-            NoticeListState.Content -> LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap),
-                contentPadding = PaddingValues(vertical = 16.dp)
-            ) {
-                items(items = uiState.notices, key = { it.url }) { notice ->
-                    NoticeRow(
-                        notice = notice,
-                        onClick = { onOpen(notice) },
-                        modifier = Modifier.animateItem(),
-                    )
+            NoticeListState.Content -> {
+                // 按月份分组(项48):date 为 YYYY-MM-DD(见 JwcNoticeRepository dateRegex),
+                // 取 "YYYY-MM" 作 key,最新月份在前;非该格式的 date 用原值作 key 兜底。
+                val grouped = remember(uiState.notices) {
+                    uiState.notices.groupBy { notice ->
+                        if (notice.date.length >= 7 && notice.date.getOrNull(4) == '-') {
+                            notice.date.substring(0, 7)
+                        } else {
+                            notice.date
+                        }
+                    }.toSortedMap(reverseOrder<String>())
                 }
-                if (uiState.isLoadingMore || (uiState.hasMore && uiState.notices.isNotEmpty() && !uiState.isLoading)) {
-                    item {
-                        LoadingRow(text = "加载下一页...", compact = true)
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap),
+                    contentPadding = PaddingValues(vertical = 16.dp)
+                ) {
+                    grouped.forEach { (monthKey, notices) ->
+                        stickyHeader(key = "header-$monthKey") {
+                            AhuStickyHeader(monthLabel(monthKey))
+                        }
+                        items(items = notices, key = { it.url }) { notice ->
+                            NoticeRow(
+                                notice = notice,
+                                onClick = { onOpen(notice) },
+                                modifier = Modifier.animateItem(),
+                            )
+                        }
                     }
-                } else if (!uiState.hasMore && uiState.notices.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "已经到底了",
+                    if (uiState.isLoadingMore || (uiState.hasMore && uiState.notices.isNotEmpty() && !uiState.isLoading)) {
+                        item {
+                            LoadingRow(text = "加载下一页...", compact = true)
+                        }
+                    } else if (!uiState.hasMore && uiState.notices.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "已经到底了",
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 12.dp),
@@ -281,6 +304,7 @@ private fun NoticeListBody(
                         )
                     }
                 }
+                }
             }
         }
     }
@@ -288,6 +312,18 @@ private fun NoticeListBody(
 
 /** 通知列表顶层状态机 - 驱动 [AnimatedContent] 平滑过渡(批次二项35)。 */
 private enum class NoticeListState { Loading, Error, Empty, Content }
+
+/**
+ * 月份分组标题文案(项48)。key 形如 "2026-07" -> "2026年7月";非该格式原样返回。
+ */
+private fun monthLabel(key: String): String {
+    if (key.length >= 7 && key.getOrNull(4) == '-') {
+        val year = key.substring(0, 4)
+        val month = key.substring(5, 7).trimStart('0').ifEmpty { "1" }
+        return "${year}年${month}月"
+    }
+    return key
+}
 
 @Composable
 private fun NoticeRow(
@@ -388,20 +424,36 @@ private fun NoticeDetailHeader(notice: JwcNotice) {
 
 @Composable
 private fun NoticeDetailContent(detail: JwcNoticeDetail) {
+    // 长正文默认折叠(项18):超 200 字按 8 行截断,显示"展开全文";展开后可"收起"。
+    // url 作 key 让切换通知时折叠态重置。
+    val isLong = detail.content.length > 200
+    var expanded by rememberSaveable(detail.url) { mutableStateOf(false) }
     Card(
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        SelectionContainer {
-            Text(
-                text = detail.content.ifBlank { "未读取到正文内容" },
-                modifier = Modifier.padding(16.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
-            )
+        Column {
+            SelectionContainer {
+                Text(
+                    text = detail.content.ifBlank { "未读取到正文内容" },
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
+                    maxLines = if (isLong && !expanded) 8 else Int.MAX_VALUE,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (isLong) {
+                TextButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                ) {
+                    Text(if (expanded) "收起" else "展开全文")
+                }
+            }
         }
     }
 }

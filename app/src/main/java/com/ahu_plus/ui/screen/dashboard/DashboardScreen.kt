@@ -12,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,8 +22,13 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,6 +43,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.EventNote
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Grade
@@ -48,6 +55,7 @@ import androidx.compose.material.icons.filled.Room
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -64,6 +72,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -78,6 +87,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -97,13 +107,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.JwcNotice
+import com.ahu_plus.data.model.agenda.AgendaEvent
 import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.jw.CourseUnit
 import com.ahu_plus.data.model.jw.formatTime
 import com.ahu_plus.data.model.jw.parseTimeMinutes
+import com.ahu_plus.data.model.weather.WeatherFeed
 import com.ahu_plus.data.repository.CourseRepository
 import com.ahu_plus.data.home.AppRegistry
 import com.ahu_plus.data.home.AppSpec
+import com.ahu_plus.data.weather.WeatherCode
 import com.ahu_plus.ui.components.AhuCard
 import com.ahu_plus.ui.components.AhuIconBox
 import com.ahu_plus.ui.components.AhuSectionTitle
@@ -111,7 +124,9 @@ import com.ahu_plus.ui.components.AhuSkeletonLine
 import com.ahu_plus.ui.components.AhuStatusCard
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.AhuTopAppBarHeight
 import com.ahu_plus.ui.components.LoginRequiredCard
+import com.ahu_plus.ui.components.applyImmersiveStatusBarAppearance
 import com.ahu_plus.ui.screen.schedule.ScheduleUiState
 import com.ahu_plus.ui.screen.schedule.ScheduleViewModel
 import com.ahu_plus.ui.theme.AhuBlue
@@ -172,6 +187,18 @@ fun DashboardScreen(
         androidx.compose.runtime.mutableStateOf(false)
     }
 
+    // 项56/58: 沉浸式 Hero - listState 上提以便顶栏滚动渐变与状态栏图标色共享;
+    // 顶栏静止透明叠在 Hero 上,滚动渐变实色。fraction 与 AhuTopAppBar 内同公式。
+    val listState = rememberLazyListState()
+    val barHeightPx = with(LocalDensity.current) { AhuTopAppBarHeight.toPx() }
+    val topBarFraction by remember {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex > 0) 1f
+            else (listState.firstVisibleItemScrollOffset / barHeightPx).coerceIn(0f, 1f)
+        }
+    }
+    applyImmersiveStatusBarAppearance(immersive = true, fraction = topBarFraction)
+
     Scaffold(
         topBar = {
             AhuTopAppBar(
@@ -185,20 +212,24 @@ fun DashboardScreen(
                     ) {
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
-                }
+                },
+                scrollState = listState,
+                immersive = true,
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        // 项56: 顶层 MainScreen 已处理底栏 inset,这里归零避免双重底部 padding;
+        // 顶部 inset 由 AhuTopAppBar 自带 statusBarsPadding 处理,内容顶满状态栏(项58)。
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-            // 2026-07-06 P0: 需要 LazyListState.Saver 让 SaveableStateHolder 跨分支剔除时恢复滚动位置;
-            // rememberLazyListState() 内部就是 rememberSaveable(saver = LazyListState.Saver),直接用官方版本。
-            val listState = rememberLazyListState()
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
+                    // 顶满状态栏:不应用 innerPadding 顶部(让 Hero 渐变延伸到状态栏后方),
+                    // 仅保留底部 + 水平边距。
+                    .padding(bottom = innerPadding.calculateBottomPadding())
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap)
             ) {
@@ -236,6 +267,43 @@ fun DashboardScreen(
                             onRecordApp(AppRegistry.KEY_WEATHER)
                             onOpenWeather()
                         },
+                        immersive = true,
+                    )
+                }
+
+                item {
+                    // 项46:最近使用横滑卡片轨(无最近使用时 AppDock 自身不渲染)
+                    AppDock(
+                        onOpenSchedule = { onRecordApp("schedule"); onOpenSchedule() },
+                        onOpenCard = { onRecordApp("card"); onOpenCard() },
+                        onOpenGrade = { onRecordApp("grade"); onOpenGrade() },
+                        onOpenExam = { onRecordApp("exam"); onOpenExam() },
+                        onOpenNoticeList = { onRecordApp("noticeList"); onOpenNoticeList() },
+                        onOpenBathroom = { onRecordApp("bathroom"); onOpenBathroom() },
+                        onOpenAc = { onRecordApp("ac"); onOpenAc() },
+                        onOpenLighting = { onRecordApp("lighting"); onOpenLighting() },
+                        onOpenInternet = { onRecordApp("internet"); onOpenInternet() },
+                        onOpenCardAnalytics = { onRecordApp("cardAnalytics"); onOpenCardAnalytics() },
+                        onOpenTrainingPlan = { onRecordApp("trainingPlan"); onOpenTrainingPlan() },
+                        onOpenEmptyClassroom = { onRecordApp("emptyClassroom"); onOpenEmptyClassroom() },
+                        onOpenAppHub = onOpenAppHub,
+                        recentApps = recentApps,
+                        onRecordApp = onRecordApp,
+                    )
+                }
+
+                item {
+                    // 项19:焦点轮播(今日日程 / 天气 / 最新通知)
+                    FocusPager(
+                        agendaEventsByDate = agendaEventsByDate,
+                        weatherFeed = weatherFeed,
+                        latestNotice = noticeUiState.notices.firstOrNull(),
+                        onOpenAgenda = { onRecordApp("agenda"); onOpenAgenda() },
+                        onOpenWeather = {
+                            onRecordApp(AppRegistry.KEY_WEATHER)
+                            onOpenWeather()
+                        },
+                        onOpenNoticeList = { onRecordApp("noticeList"); onOpenNoticeList() },
                     )
                 }
 
@@ -624,7 +692,8 @@ private fun AppDock(
     onOpenTrainingPlan: () -> Unit = {},
     onOpenEmptyClassroom: () -> Unit = {},
     onOpenAppHub: () -> Unit = {},
-    recentApps: List<String> = emptyList()
+    recentApps: List<String> = emptyList(),
+    onRecordApp: (String) -> Unit = {},
 ) {
     // 回调表：app key → onClick。AppRegistry 只管元数据(无回调),
     // 回调在 Composable 内组装以便注入 onRecordApp / onOpenSchedule 等。
@@ -645,13 +714,16 @@ private fun AppDock(
     // 拼接最近使用的 AppEntry(由 AppRegistry 提供元数据,clickMap 提供回调)
     val displayApps = remember(recentApps) {
         com.ahu_plus.data.home.AppRegistry
-            .pickRecent(recentApps, maxCount = 3)
+            .pickRecent(recentApps, maxCount = 6)
             .mapNotNull { spec ->
                 val onClick = clickMap[spec.key] ?: return@mapNotNull null
                 AppEntry(spec.key, spec.title, spec.icon, spec.tint, onClick)
             }
     }
+    // 无最近使用时不渲染整段(新用户等场景),避免空标题占位
+    if (displayApps.isEmpty()) return
 
+    // 项46:横向滑动卡片轨(最近使用),替代原 3 列等分 Row,可容纳更多入口、左右滑浏览。
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -667,16 +739,19 @@ private fun AppDock(
                 )
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(horizontal = 2.dp),
         ) {
-            displayApps.forEach { app ->
+            items(items = displayApps, key = { it.key }) { app ->
                 AppDockItem(
                     title = app.title,
                     iconColor = app.color,
-                    onClick = app.onClick,
-                    modifier = Modifier.weight(1f)
+                    onClick = {
+                        onRecordApp(app.key)
+                        app.onClick()
+                    },
+                    modifier = Modifier.width(76.dp),
                 ) {
                     Icon(app.icon, contentDescription = null)
                 }
@@ -725,6 +800,145 @@ private fun AppDockItem(
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
+            )
+        }
+    }
+}
+
+/**
+ * 焦点轮播(项19):首页 Hero 下方的横向焦点卡,手动横滑 + 圆点指示器,不自动轮播(D4)。
+ * 每页紧凑 AhuCard,点击进详情;数据未就绪页降级为占位文案。
+ *
+ * 三页为 今日日程 / 天气 / 最新通知 -- Dashboard 无余额数据链路(余额在账单子页),
+ * 故不列余额页,避免空壳卡。
+ */
+@Composable
+private fun FocusPager(
+    agendaEventsByDate: Map<java.time.LocalDate, List<AgendaEvent>>,
+    weatherFeed: WeatherFeed?,
+    latestNotice: JwcNotice?,
+    onOpenAgenda: () -> Unit,
+    onOpenWeather: () -> Unit,
+    onOpenNoticeList: () -> Unit,
+) {
+    val pagerState = rememberPagerState(pageCount = { 3 })
+    Column {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxWidth(),
+        ) { page ->
+            when (page) {
+                0 -> {
+                    val today = DebugClock.todayDate()
+                    val todayEvents = agendaEventsByDate[today].orEmpty()
+                    val first = todayEvents.firstOrNull()
+                    FocusPageCard(
+                        label = "今日日程",
+                        title = first?.title ?: "今日暂无日程",
+                        subtitle = when {
+                            first == null -> "点击查看本周日程"
+                            todayEvents.size > 1 -> "${first.startClock() ?: "全天"} · 共 ${todayEvents.size} 项"
+                            else -> first.startClock() ?: "全天"
+                        },
+                        icon = Icons.AutoMirrored.Filled.EventNote,
+                        tint = MaterialTheme.colorScheme.primary,
+                        onClick = onOpenAgenda,
+                    )
+                }
+                1 -> {
+                    val current = weatherFeed?.current
+                    FocusPageCard(
+                        label = "天气",
+                        title = current?.let { "${it.temperature.toInt()}°" } ?: "--°",
+                        subtitle = weatherFeed?.let {
+                            "${it.city.ifBlank { "当前位置" }} · ${WeatherCode.describe(it.current.weatherCode)}"
+                        } ?: "正在获取天气",
+                        icon = weatherFeed?.let { WeatherCode.icon(it.current.weatherCode) }
+                            ?: Icons.Filled.WbSunny,
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        onClick = onOpenWeather,
+                    )
+                }
+                2 -> FocusPageCard(
+                    label = "最新通知",
+                    title = latestNotice?.title ?: "暂无通知",
+                    subtitle = latestNotice?.date ?: "下拉刷新或点击查看",
+                    icon = Icons.Filled.Campaign,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    onClick = onOpenNoticeList,
+                )
+            }
+        }
+        // 圆点指示器:当前页加宽胶囊,其余小圆点
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = AhuSpacing.sm),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            repeat(3) { index ->
+                val active = index == pagerState.currentPage
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 3.dp)
+                        .size(width = if (active) 18.dp else 6.dp, height = 6.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (active) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant
+                        ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FocusPageCard(
+    label: String,
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    tint: Color,
+    onClick: () -> Unit,
+) {
+    AhuCard(onClick = onClick) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AhuIconBox(
+                imageVector = icon,
+                tint = tint,
+                size = 40.dp,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp),
             )
         }
     }
