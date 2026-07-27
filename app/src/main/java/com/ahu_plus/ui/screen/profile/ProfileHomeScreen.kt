@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -60,10 +62,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +75,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -92,6 +94,9 @@ import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.notification.CardBalanceAlertMode
 import com.ahu_plus.notification.recentCanteenDailyAverage
 import com.ahu_plus.ui.components.AhuHeroCard
+import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.AhuTopAppBarHeight
+import com.ahu_plus.ui.components.applyImmersiveStatusBarAppearance
 import com.ahu_plus.ui.components.AhuPullToRefreshBox
 import com.ahu_plus.ui.components.AhuSectionHeader
 import com.ahu_plus.ui.components.LoginRequiredCard
@@ -272,9 +277,19 @@ internal fun ProfileHomeScreen(
         )
     }
 
+    // 项56/58: 沉浸式 Hero - banner 渐变顶满状态栏,顶栏静止透明叠加、滚动渐变实色。
+    val barHeightPx = with(LocalDensity.current) { AhuTopAppBarHeight.toPx() }
+    val topBarFraction by remember {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex > 0) 1f
+            else (listState.firstVisibleItemScrollOffset / barHeightPx).coerceIn(0f, 1f)
+        }
+    }
+    applyImmersiveStatusBarAppearance(immersive = true, fraction = topBarFraction)
+
     Scaffold(
         topBar = {
-            TopAppBar(
+            AhuTopAppBar(
                 title = { Text("我的") },
                 actions = {
                     if (isLoggedIn) {
@@ -295,12 +310,14 @@ internal fun ProfileHomeScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                scrollState = listState,
+                immersive = true,
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        // 项56: 顶层 MainScreen 已处理底栏 inset,这里归零避免双重底部 padding;
+        // 顶部由 AhuTopAppBar 自带 statusBarsPadding 处理,内容顶满状态栏(项58)。
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         var isRefreshing by remember { mutableStateOf(false) }
         LaunchedEffect(balanceLoading) {
@@ -314,7 +331,9 @@ internal fun ProfileHomeScreen(
             },
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                // 顶满状态栏:不应用 innerPadding 顶部(让 banner 渐变延伸到状态栏后方),
+                // 仅保留底部 + 由 LazyColumn 自身加水平边距。
+                .padding(bottom = innerPadding.calculateBottomPadding())
         ) {
         LazyColumn(
             state = listState,
@@ -328,6 +347,7 @@ internal fun ProfileHomeScreen(
                     displayName = displayName,
                     subtitle = subtitle,
                     onClick = if (isLoggedIn) onOpenMyInfoHub else onLogin,
+                    immersive = true,
                 )
             }
 
@@ -686,7 +706,9 @@ private fun ContactMethodRow(
 private fun ProfileHeader(
     displayName: String,
     subtitle: String,
-    onClick: () -> Unit = {}
+    onClick: () -> Unit = {},
+    // 项58:沉浸式顶满状态栏时,内容让出状态栏 + 顶栏高度,渐变本身仍顶满。
+    immersive: Boolean = false,
 ) {
     AhuHeroCard(
         gradient = AhuGradient.Blue.brush,
@@ -698,6 +720,10 @@ private fun ProfileHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    if (immersive) Modifier.statusBarsPadding().padding(top = AhuTopAppBarHeight)
+                    else Modifier
+                )
                 .padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

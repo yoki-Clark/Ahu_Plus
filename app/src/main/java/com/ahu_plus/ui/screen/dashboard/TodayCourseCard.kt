@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -44,6 +45,7 @@ import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.weather.WeatherFeed
 import com.ahu_plus.data.weather.WeatherManager
 import com.ahu_plus.ui.components.AhuHeroCard
+import com.ahu_plus.ui.components.AhuTopAppBarHeight
 import com.ahu_plus.ui.components.WeatherPanel
 import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuMotion
@@ -80,6 +82,8 @@ fun TodayCourseCard(
     weather: WeatherFeed? = null,
     weatherManager: WeatherManager? = null,
     onOpenWeather: () -> Unit = {},
+    // 项58:沉浸式 Hero 顶满状态栏时,内容让出状态栏 + 顶栏高度,渐变本身仍顶满。
+    immersive: Boolean = false,
 ) {
     // 每 30s tick 一次驱动倒计时/进度条重算；用 tick 当 remember 的 key,
     // 比 @Suppress("UNUSED_EXPRESSION") 更可靠 — 不依赖编译器保留无意义读取。
@@ -106,7 +110,12 @@ fun TodayCourseCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (immersive) Modifier.statusBarsPadding().padding(top = AhuTopAppBarHeight)
+                    else Modifier
+                ),
         ) {
             Column(
                 modifier = Modifier

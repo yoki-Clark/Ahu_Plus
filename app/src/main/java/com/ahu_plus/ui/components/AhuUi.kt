@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
@@ -34,6 +35,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,24 +59,53 @@ import com.ahu_plus.ui.theme.AhuSpacing
 import com.ahu_plus.ui.theme.AhuElevation
 import com.ahu_plus.ui.theme.ahuShadow
 
+/** `AhuTopAppBar` 内容区固定高度(不含状态栏 inset),供沉浸式 Hero 计算顶部让位复用。 */
+val AhuTopAppBarHeight: Dp = 56.dp
+
+/**
+ * 顶部应用栏。
+ *
+ * - 默认(`scrollState = null`):实色背景 + 1dp 阴影,静态。约 25 处调用方零改动。
+ * - 传 [scrollState]:**滚动渐变** -- 静止时透明(内容透出)、滚动时渐变为实色 + 细边阴影,
+ *   类 iOS 收起效果。`fraction` 由首屏可见项偏移量推导(0=顶静止,1=已滚出一屏)。
+ * - [immersive]:沉浸式 Hero 配套。叠在渐变 Hero 上时(`fraction < 0.5f`)内容色强制白色;
+ *   滚出到实色后回到 `onSurface`。阈值硬切避免中间态字色脏。仅影响未显式指定 color/tint
+ *   的内容(标题 Text、未着色 Icon);带语义 tint 的 action(如 error/primary)保持原色。
+ */
 @Composable
 fun AhuTopAppBar(
     title: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     navigationIcon: (@Composable () -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {}
+    actions: @Composable RowScope.() -> Unit = {},
+    scrollState: LazyListState? = null,
+    immersive: Boolean = false,
 ) {
+    // 滚动渐变 fraction:首屏内按偏移量/栏高插值,翻页后直接 1f。
+    val density = LocalDensity.current
+    val barHeightPx = with(density) { AhuTopAppBarHeight.toPx() }
+    val fraction by remember(scrollState) {
+        derivedStateOf {
+            if (scrollState == null) 0f
+            else if (scrollState.firstVisibleItemIndex > 0) 1f
+            else (scrollState.firstVisibleItemScrollOffset / barHeightPx).coerceIn(0f, 1f)
+        }
+    }
+    val isImmersiveTop = immersive && fraction < 0.5f
+    val containerColor = MaterialTheme.colorScheme.background.copy(alpha = fraction)
+    val contentColor = if (isImmersiveTop) Color.White else MaterialTheme.colorScheme.onSurface
+
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.background,
-        shadowElevation = 1.dp
+        color = containerColor,
+        shadowElevation = (1.dp * fraction),
     ) {
-        Column {
+        CompositionLocalProvider(LocalContentColor provides contentColor) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .height(56.dp)
+                    .height(AhuTopAppBarHeight)
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -228,6 +261,30 @@ fun AhuSectionHeader(
             }
         }
         trailing?.invoke()
+    }
+}
+
+/**
+ * 分组吸顶标题(批次三项48)。`LazyColumn` 的 `stickyHeader` 槽用 -- 滚动时标题钉在顶部,
+ * 实色背景遮挡下方滚动内容,直到下一组顶上来。与 `AhuSectionHeader` 区别:后者是普通
+ * 内联分组标题(不吸顶、无强背景),本组件专供 `stickyHeader` 槽。
+ */
+@Composable
+fun AhuStickyHeader(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 

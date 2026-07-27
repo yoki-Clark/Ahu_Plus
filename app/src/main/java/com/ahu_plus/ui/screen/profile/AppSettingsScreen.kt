@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,8 +44,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -66,10 +65,12 @@ import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.data.local.BottomNavService
 import com.ahu_plus.data.local.lightPrimary
 import com.ahu_plus.ui.components.AhuListRow
+import com.ahu_plus.ui.components.AhuStickyHeader
+import com.ahu_plus.ui.components.AhuTopAppBar
 import androidx.core.content.ContextCompat
 import com.ahu_plus.notification.CardBalanceAlertMode
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 internal fun AppSettingsScreen(
     themeMode: AppThemeMode,
@@ -129,16 +130,13 @@ internal fun AppSettingsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            AhuTopAppBar(
                 title = { Text("设置") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -150,15 +148,10 @@ internal fun AppSettingsScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            stickyHeader { AhuStickyHeader("底部导航") }
             item {
                 ProfileSection {
                     Column {
-                        Text(
-                            text = "底部导航",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
                         Text(
                             text = "首页、应用、我的固定显示；可再固定最多 2 个服务（已选 ${bottomNavServices.size}/2）",
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -202,15 +195,10 @@ internal fun AppSettingsScreen(
                     }
                 }
             }
+            stickyHeader { AhuStickyHeader("页面设置") }
             item {
                 ProfileSection {
                     Column {
-                        Text(
-                            text = "页面设置",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
                         SettingsRouteRow(
                             title = "课表设置",
                             description = "列宽、行高、字体和显示内容",
@@ -245,15 +233,10 @@ internal fun AppSettingsScreen(
                     }
                 }
             }
+            stickyHeader { AhuStickyHeader("外观") }
             item {
                 ProfileSection {
                     Column {
-                        Text(
-                            text = "外观",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
                         AppThemeMode.entries.forEachIndexed { index, option ->
                             if (index > 0) HorizontalDivider()
                             ThemeModeRow(
@@ -297,15 +280,10 @@ internal fun AppSettingsScreen(
                     }
                 }
             }
+            stickyHeader { AhuStickyHeader("功能") }
             item {
                 ProfileSection {
                     Column {
-                        Text(
-                            text = "功能",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
                         SettingsSwitchRow(
                             title = "支付码调高亮度",
                             description = if (localQrBrightness) {
