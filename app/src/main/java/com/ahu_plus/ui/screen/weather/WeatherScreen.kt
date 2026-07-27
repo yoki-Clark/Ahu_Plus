@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.model.weather.WeatherFeed
 import com.ahu_plus.data.repository.WeatherRepository
+import com.ahu_plus.data.weather.DynamicWeatherIcon
 import com.ahu_plus.data.weather.WeatherCode
 import com.ahu_plus.ui.components.AhuSkeletonList
 import com.ahu_plus.ui.components.AhuTopAppBar
@@ -161,11 +162,10 @@ private fun CurrentWeatherCard(feed: WeatherFeed) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Icon(
-                    imageVector = WeatherCode.icon(code),
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
+                DynamicWeatherIcon(
+                    code = code,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(64.dp),
                 )
                 Column {
                     Text(

@@ -223,6 +223,7 @@ fun DashboardScreen(
         contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
+            val seasonalMood = remember { SeasonalTheme.currentMood() }
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -269,6 +270,13 @@ fun DashboardScreen(
                         },
                         immersive = true,
                     )
+                }
+
+                if (seasonalMood != null) {
+                    item {
+                        // 项10:季节/节日彩蛋 banner(仅在命中窗口内渲染)
+                        SeasonalBanner(mood = seasonalMood)
+                    }
                 }
 
                 item {

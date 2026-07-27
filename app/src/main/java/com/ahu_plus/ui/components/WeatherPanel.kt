@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.jw.CourseUnit
 import com.ahu_plus.data.model.weather.WeatherFeed
+import com.ahu_plus.data.weather.DynamicWeatherIcon
 import com.ahu_plus.data.weather.WeatherCode
 import com.ahu_plus.data.weather.WeatherManager
 
@@ -104,9 +105,8 @@ fun WeatherPanel(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Icon(
-                imageVector = WeatherCode.icon(currentCode),
-                contentDescription = WeatherCode.describe(currentCode),
+            DynamicWeatherIcon(
+                code = currentCode,
                 tint = contentColor,
                 modifier = Modifier.size(28.dp),
             )

@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -26,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -301,8 +304,14 @@ fun ChaoxingTabScreen(
         }
 
         // ── Tab 栏 ─────────────────────────────────────────
-        PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
-            ChaoxingSubTab.entries.forEachIndexed { index, tab ->
+        // 指示器跟随 HorizontalPager 滑动比例平滑滑到目标 tab,而非在 currentPage 提交(滑动
+        // 过半)时才动。仅动指示器,内容仍随 pager 硬切(严守"只动 indicator"约束)。
+        Box {
+            PrimaryTabRow(
+                selectedTabIndex = pagerState.currentPage,
+                indicator = {}, // 用下方覆盖层指示器替代默认指示器,以跟踪滑动比例
+            ) {
+                ChaoxingSubTab.entries.forEachIndexed { index, tab ->
                     Tab(
                         selected = pagerState.currentPage == index,
                         onClick = {
@@ -314,6 +323,12 @@ fun ChaoxingTabScreen(
                     )
                 }
             }
+            PagerTabIndicator(
+                pagerState = pagerState,
+                tabCount = ChaoxingSubTab.entries.size,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
 
             // ── Pager ──────────────────────────────────────────
             HorizontalPager(
@@ -359,6 +374,38 @@ fun ChaoxingTabScreen(
             }
         }
     }
+
+// ══════════════════════════════════════════════════════════════
+//  Tab 指示器(批次四·27)
+// ══════════════════════════════════════════════════════════════
+// 跟随 HorizontalPager 滑动比例平滑移动的覆盖层指示器。Material3 1.4 默认指示器虽会滑动,
+// 但仅在 currentPage 提交(滑动过半)时才动;本指示器用 currentPage + currentPageOffsetFraction
+// 连续定位,实现 1:1 跟手。等宽 tab 假设成立(PrimaryTabRow 固定 tab 等分)。
+// 配色/尺寸对齐 M3 token:PrimaryNavigationTabTokens(activeIndicatorColor=Primary, height=3dp)。
+private val PagerIndicatorWidth = 28.dp
+private val PagerIndicatorHeight = 3.dp
+
+@Composable
+private fun PagerTabIndicator(
+    pagerState: PagerState,
+    tabCount: Int,
+    modifier: Modifier = Modifier,
+) {
+    if (tabCount <= 0) return
+    BoxWithConstraints(modifier = modifier) {
+        val tabWidth = maxWidth * (1f / tabCount)
+        val fractional = pagerState.currentPage + pagerState.currentPageOffsetFraction
+        val indicatorOffset = tabWidth * fractional + (tabWidth - PagerIndicatorWidth) * 0.5f
+        Box(
+            Modifier
+                .align(Alignment.BottomStart)
+                .offset(x = indicatorOffset)
+                .width(PagerIndicatorWidth)
+                .height(PagerIndicatorHeight)
+                .background(MaterialTheme.colorScheme.primary, AhuShapes.Pill),
+        )
+    }
+}
 
 // ══════════════════════════════════════════════════════════════
 //  消息 Tab (2026-06-21)
