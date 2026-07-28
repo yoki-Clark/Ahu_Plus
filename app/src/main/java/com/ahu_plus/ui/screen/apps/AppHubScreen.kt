@@ -993,7 +993,8 @@ private fun AppHubIcon(
     background: Brush? = null,
     boxSize: androidx.compose.ui.unit.Dp = 42.dp,
 ) {
-    val resolvedBackground = background ?: AhuGradient.forTint(iconColor)
+    // background 缺省时按 iconColor 生成渐变;brush 记忆化避免网格高频重组时反复分配。
+    val resolvedBackground = background ?: remember(iconColor) { AhuGradient.forTint(iconColor) }
 
     Box(
         modifier = Modifier

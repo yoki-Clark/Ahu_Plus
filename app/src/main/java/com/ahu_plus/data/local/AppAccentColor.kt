@@ -42,10 +42,21 @@ enum class AppAccentColor(val storageValue: String) {
 val AppAccentColor.lightPrimary: Color
     get() = when (this) {
         AppAccentColor.BLUE -> Color(0xFF1F5AA6)
-        AppAccentColor.TEAL -> Color(0xFF168C80)
+        AppAccentColor.TEAL -> Color(0xFF0E7268)   // 调深:原 0xFF168C80 白字对比度~3.9 不达 WCAG AA
         AppAccentColor.VIOLET -> Color(0xFF7567C8)
-        AppAccentColor.ORANGE -> Color(0xFFE07A1F)
+        AppAccentColor.ORANGE -> Color(0xFFE07A1F) // 保持橙色识别度,onPrimary 用深色保证对比度
         AppAccentColor.PINK -> Color(0xFFD81B60)
+    }
+
+/** accent 对应的 onPrimary(浅色档) - 保证 primary 上文字对比度达 WCAG AA(4.5:1)。
+ *  primary 足够深(BLUE/TEAL/VIOLET/PINK)用白字;ORANGE 偏亮,用近黑保证对比度。 */
+val AppAccentColor.lightOnPrimary: Color
+    get() = when (this) {
+        AppAccentColor.BLUE -> Color.White
+        AppAccentColor.TEAL -> Color.White
+        AppAccentColor.VIOLET -> Color.White
+        AppAccentColor.ORANGE -> Color(0xFF321200) // 深棕近黑:0xFFE07A1F 上对比度~7:1
+        AppAccentColor.PINK -> Color.White
     }
 
 val AppAccentColor.lightPrimaryContainer: Color
@@ -75,7 +86,8 @@ val AppAccentColor.lightSecondary: Color
         AppAccentColor.PINK -> Color(0xFF168C80)
     }
 
-/** accent 对应的 colorScheme 角色取值（深色档）。primary 提亮到 200-300 档。 */
+/** accent 对应的 colorScheme 角色取值（深色档）。primary 提亮到 200-300 档。
+ *  onPrimary 统一近黑:深色档 primary 是浅色,需深色文字保证对比度。 */
 val AppAccentColor.darkPrimary: Color
     get() = when (this) {
         AppAccentColor.BLUE -> Color(0xFF9BBEFF)
@@ -84,6 +96,10 @@ val AppAccentColor.darkPrimary: Color
         AppAccentColor.ORANGE -> Color(0xFFFFB877)
         AppAccentColor.PINK -> Color(0xFFFF8FAF)
     }
+
+/** accent 对应的 onPrimary(深色档) - primary 为浅色,用近黑文字。 */
+val AppAccentColor.darkOnPrimary: Color
+    get() = Color(0xFF08111F)
 
 val AppAccentColor.darkPrimaryContainer: Color
     get() = when (this) {

@@ -43,7 +43,7 @@ fun Modifier.ahuShadow(
     shape: Shape,
     clip: Boolean = true,
 ): Modifier {
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val effective = if (isDark) (elevation.value * 0.3f).dp else elevation
     return this
         .shadow(elevation = effective, shape = shape, clip = false)

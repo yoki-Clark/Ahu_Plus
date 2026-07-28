@@ -197,7 +197,10 @@ fun DashboardScreen(
             else (listState.firstVisibleItemScrollOffset / barHeightPx).coerceIn(0f, 1f)
         }
     }
-    applyImmersiveStatusBarAppearance(immersive = true, fraction = topBarFraction)
+    // needsLogin 时首项是浅色 LoginRequiredCard 而非 Hero,沉浸式白字会叠在浅色卡上不可读、
+    // 且卡片被状态栏遮挡;此时关闭沉浸式 - 顶栏走实色静态、状态栏图标交回 enableEdgeToEdge 默认。
+    val immersive = !uiState.needsLogin
+    applyImmersiveStatusBarAppearance(immersive = immersive, fraction = topBarFraction)
 
     Scaffold(
         topBar = {
@@ -213,8 +216,9 @@ fun DashboardScreen(
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
                 },
-                scrollState = listState,
-                immersive = true,
+                // needsLogin 时无 Hero 可叠,传 null 让顶栏走实色+1dp阴影静态分支。
+                scrollState = if (immersive) listState else null,
+                immersive = immersive,
             )
         },
         containerColor = MaterialTheme.colorScheme.background,

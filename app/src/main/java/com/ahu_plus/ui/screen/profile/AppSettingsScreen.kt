@@ -45,6 +45,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -52,6 +53,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -565,13 +568,18 @@ private fun FontScaleRow(
     selected: Boolean,
     onClick: () -> Unit
 ) {
+    // 预览该档位的实际字号:用独立 LocalDensity(仅 fontScale.factor,脱离全局叠加),
+    // 使预览 Text 仅按本档 factor 缩放,避免被全局密度二次放大导致预览失真。
+    val previewDensity = LocalDensity.current.run { Density(density, fontScale = fontScale.factor) }
     ListItem(
         headlineContent = {
-            Text(
-                text = fontScale.titleText(),
-                fontWeight = FontWeight.Medium,
-                fontSize = 14.sp * fontScale.factor,
-            )
+            CompositionLocalProvider(LocalDensity provides previewDensity) {
+                Text(
+                    text = fontScale.titleText(),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp,
+                )
+            }
         },
         supportingContent = {
             Text(text = fontScale.descriptionText())

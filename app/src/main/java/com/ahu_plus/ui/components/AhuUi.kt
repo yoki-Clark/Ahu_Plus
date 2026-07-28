@@ -81,12 +81,13 @@ fun AhuTopAppBar(
     scrollState: LazyListState? = null,
     immersive: Boolean = false,
 ) {
-    // 滚动渐变 fraction:首屏内按偏移量/栏高插值,翻页后直接 1f。
+    // 滚动渐变 fraction:无 scrollState 时 1f(实色+阴影,与 KDoc "默认实色+1dp阴影" 一致);
+    // 有 scrollState 时首屏内按偏移量/栏高插值,翻页后直接 1f(透明->实色渐变)。
     val density = LocalDensity.current
     val barHeightPx = with(density) { AhuTopAppBarHeight.toPx() }
     val fraction by remember(scrollState) {
         derivedStateOf {
-            if (scrollState == null) 0f
+            if (scrollState == null) 1f
             else if (scrollState.firstVisibleItemIndex > 0) 1f
             else (scrollState.firstVisibleItemScrollOffset / barHeightPx).coerceIn(0f, 1f)
         }
@@ -424,10 +425,9 @@ fun AhuListRow(
                         interactionSource = interactionSource,
                         indication = ripple(),
                         onClick = onClick,
-                    )
+                    ).pressableScale(interactionSource)
                 } else Modifier
             )
-            .pressableScale(interactionSource)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -438,8 +438,7 @@ fun AhuListRow(
                     modifier = Modifier
                         .size(width = 4.dp, height = 28.dp)
                         .clip(AhuShapes.Pill)
-                        .background(accentColor)
-                        .padding(end = 10.dp),
+                        .background(accentColor),
                 )
                 Spacer(modifier = Modifier.width(10.dp))
             }
@@ -573,12 +572,13 @@ private fun AhuStateIconBlob(
                 .clip(CircleShape)
                 .background(tint.copy(alpha = 0.10f)),
         )
-        // 内品牌渐变 blob
+        // 内品牌渐变 blob(brush 按 tint 记忆,避免每次重组分配新 Brush)
+        val blobBrush = remember(tint) { AhuGradient.forTint(tint) }
         Box(
             modifier = Modifier
                 .size(60.dp)
                 .clip(CircleShape)
-                .background(AhuGradient.forTint(tint)),
+                .background(blobBrush),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

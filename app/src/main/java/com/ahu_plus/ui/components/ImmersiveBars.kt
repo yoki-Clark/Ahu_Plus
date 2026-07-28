@@ -34,7 +34,9 @@ fun applyImmersiveStatusBarAppearance(
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     // Hero 可见(顶部)始终浅色图标;滚到实色后按主题。
     val lightStatusBars = if (fraction < 0.5f) true else isDark
-    DisposableEffect(lightStatusBars) {
+    // key 含 isDark:Hero 可见时切主题,fraction 不变但 isDark 变,需重跑 effect 同步图标色,
+    // 否则 onDispose 会用旧 isDark 恢复,导致下一屏图标色短暂错乱。
+    DisposableEffect(lightStatusBars, isDark) {
         val window = (context as? Activity)?.window
         if (window != null) {
             WindowInsetsControllerCompat(window, view).isAppearanceLightStatusBars = lightStatusBars

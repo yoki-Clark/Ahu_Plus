@@ -107,12 +107,13 @@ class MainActivity : ComponentActivity() {
                 darkTheme = themeMode.shouldUseDarkTheme(systemDarkTheme),
                 accentColor = accentColor,
             ) {
-                // 全局字号缩放：复用系统 density，仅覆盖 fontScale（批次一项40）
+                // 全局字号缩放：复用系统 density，fontScale 在系统字号基础上叠加 App 倍率
+                // (批次一项40)。直接替换会忽略系统无障碍大字号，故用乘法：系统 × App。
                 val baseDensity = LocalDensity.current
                 CompositionLocalProvider(
                     LocalDensity provides Density(
                         density = baseDensity.density,
-                        fontScale = fontScale.factor,
+                        fontScale = (baseDensity.fontScale * fontScale.factor),
                     ),
                 ) {
                     when (legalGateState) {
