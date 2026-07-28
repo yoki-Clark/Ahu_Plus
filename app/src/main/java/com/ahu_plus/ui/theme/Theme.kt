@@ -11,10 +11,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.ahu_plus.data.local.AppAccentColor
+import com.ahu_plus.data.local.darkOnPrimary
 import com.ahu_plus.data.local.darkOnPrimaryContainer
 import com.ahu_plus.data.local.darkPrimary
 import com.ahu_plus.data.local.darkPrimaryContainer
 import com.ahu_plus.data.local.darkSecondary
+import com.ahu_plus.data.local.lightOnPrimary
 import com.ahu_plus.data.local.lightOnPrimaryContainer
 import com.ahu_plus.data.local.lightPrimary
 import com.ahu_plus.data.local.lightPrimaryContainer
@@ -84,9 +86,11 @@ fun AhuPlusTheme(
         else -> LightColorScheme
     }
     // accent 覆盖 primary 系（dynamicColor 时也覆盖，保证用户选的主题色生效）。
+    // onPrimary 一并覆盖:ORANGE 等偏亮 primary 需深色文字才达 WCAG AA 对比度。
     // Hero 渐变不走 colorScheme，保持语义固定不受影响。
     val colorScheme = baseScheme.copy(
         primary = if (darkTheme) accentColor.darkPrimary else accentColor.lightPrimary,
+        onPrimary = if (darkTheme) accentColor.darkOnPrimary else accentColor.lightOnPrimary,
         primaryContainer = if (darkTheme) accentColor.darkPrimaryContainer else accentColor.lightPrimaryContainer,
         onPrimaryContainer = if (darkTheme) accentColor.darkOnPrimaryContainer else accentColor.lightOnPrimaryContainer,
         secondary = if (darkTheme) accentColor.darkSecondary else accentColor.lightSecondary,

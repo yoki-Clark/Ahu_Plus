@@ -262,10 +262,14 @@ internal fun MarketListScreen(
                             }
                         }
 
-                        uiState.error?.let { error ->
-                            item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
-                                StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
-                                    TextButton(onClick = onRefresh) { Text("重试") }
+                        // 有缓存(topics 非空)刷新失败不插全宽错误卡,避免打断已加载内容(项55);
+                        // 无缓存时才全屏错误+重试。
+                        if (uiState.error != null && uiState.topics.isEmpty()) {
+                            uiState.error?.let { error ->
+                                item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                    StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
+                                        TextButton(onClick = onRefresh) { Text("重试") }
+                                    }
                                 }
                             }
                         }
@@ -349,10 +353,13 @@ internal fun MarketListScreen(
                             item { AhuSkeletonList(itemCount = 4) }
                         }
 
-                        uiState.error?.let { error ->
-                            item {
-                                StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
-                                    TextButton(onClick = onRefresh) { Text("重试") }
+                        // 有缓存(topics 非空)刷新失败不插全宽错误卡(项55)。
+                        if (uiState.error != null && uiState.topics.isEmpty()) {
+                            uiState.error?.let { error ->
+                                item {
+                                    StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
+                                        TextButton(onClick = onRefresh) { Text("重试") }
+                                    }
                                 }
                             }
                         }

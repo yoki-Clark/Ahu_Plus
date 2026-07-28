@@ -10,7 +10,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -55,48 +54,53 @@ fun DynamicWeatherIcon(
         return
     }
 
+    // 动画以 State<Float> 形式持有(不用 by 委托),在 Canvas DrawScope 内读 .value,
+    // 使动画推进只触发 Canvas 重绘而非整个 Composable 重组。
+    // 注:animateFloat 必须无条件调用(Compose 规则),6 个子动画共享一个 transition;
+    // 当前 kind 未使用的动画值虽仍在推进,但仅是浮点写入,不产生重组开销。
     val transition = rememberInfiniteTransition(label = "weather-icon")
     // 晴:太阳缓慢自转 + 光晕呼吸
-    val rotation by transition.animateFloat(
+    val rotation = transition.animateFloat(
         initialValue = 0f, targetValue = 360f,
         animationSpec = infiniteRepeatable(tween(24_000, easing = LinearEasing)),
         label = "sun-rotation",
     )
-    val pulse by transition.animateFloat(
+    val pulse = transition.animateFloat(
         initialValue = 0f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(1_400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "sun-pulse",
     )
     // 多云:云朵水平飘动
-    val drift by transition.animateFloat(
+    val drift = transition.animateFloat(
         initialValue = 0f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(4_500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "cloud-drift",
     )
     // 雨:雨线下落(0->1 重启循环)
-    val rainPhase by transition.animateFloat(
+    val rainPhase = transition.animateFloat(
         initialValue = 0f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing)),
         label = "rain-phase",
     )
     // 雪:雪花下落 + 自旋
-    val snowPhase by transition.animateFloat(
+    val snowPhase = transition.animateFloat(
         initialValue = 0f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(3_000, easing = LinearEasing)),
         label = "snow-phase",
     )
-    val spin by transition.animateFloat(
+    val spin = transition.animateFloat(
         initialValue = 0f, targetValue = 360f,
         animationSpec = infiniteRepeatable(tween(8_000, easing = LinearEasing)),
         label = "snow-spin",
     )
 
     Canvas(modifier = modifier) {
+        // 在 DrawScope 内读 .value:动画推进只触发本块重绘,不重组 Composable。
         when (kind) {
-            WeatherKind.SUNNY -> drawSunny(rotation, pulse)
-            WeatherKind.CLOUDY -> drawCloudy(drift, color)
-            WeatherKind.RAIN -> drawRain(rainPhase, color)
-            WeatherKind.SNOW -> drawSnow(snowPhase, spin, color)
+            WeatherKind.SUNNY -> drawSunny(rotation.value, pulse.value)
+            WeatherKind.CLOUDY -> drawCloudy(drift.value, color)
+            WeatherKind.RAIN -> drawRain(rainPhase.value, color)
+            WeatherKind.SNOW -> drawSnow(snowPhase.value, spin.value, color)
             WeatherKind.OTHER -> Unit
         }
     }

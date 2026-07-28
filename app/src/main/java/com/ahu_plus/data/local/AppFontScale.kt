@@ -1,8 +1,9 @@
 package com.ahu_plus.data.local
 
 /**
- * 全局字号缩放档位（批次一项40）- App 内独立于系统字号的"字体大小"调节，
- * 用于无障碍。通过 [androidx.compose.ui.platform.LocalDensity] 的 fontScale 注入。
+ * 全局字号缩放档位（批次一项40）- App 内"字体大小"调节，用于无障碍。
+ * 通过 [androidx.compose.ui.platform.LocalDensity] 的 fontScale 注入；App 倍率在系统字号
+ * 基础上**叠加**（系统 × App 倍率），既尊重系统无障碍大字号，又允许用户在 App 内微调。
  *
  * 与 [AppThemeMode] / [AppAccentColor] 同构：枚举 + [storageValue] + [fromStorageValue]，
  * 走 SessionManager 持久化（退登保留，属用户偏好）。

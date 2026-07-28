@@ -17,11 +17,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -105,12 +104,16 @@ fun AhuSkeletonList(
  * Shimmer 微光扫动修饰符 - 在底色上叠一道从左向右移动的高光渐变。
  *
  * 底色取 surfaceVariant,高光取 surface(深浅主题下都更亮),宽度为控件 1.5 倍循环扫过。
+ *
+ * 性能:progress 以 [State] 形式持有,在 [drawBehind] 的 DrawScope 内读 `.value`,
+ * 使动画只触发重绘而非 composed 块重组;brush 在 DrawScope 内按当前 progress 构建。
  */
 fun Modifier.ahuShimmer(
     durationMillis: Int = 1300,
 ): Modifier = composed {
     val transition = rememberInfiniteTransition(label = "shimmer")
-    val progress by transition.animateFloat(
+    // 持有 State 而非用 by 委托:避免在组合作用域读取,把动画限制在重绘层。
+    val progress = transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -121,19 +124,18 @@ fun Modifier.ahuShimmer(
     )
     val base = MaterialTheme.colorScheme.surfaceVariant
     val highlight = MaterialTheme.colorScheme.surface
-    drawWithCache {
+    drawBehind {
+        // 在 DrawScope 内读 progress.value:动画推进只触发本块重绘,不重组 Composable。
+        val p = progress.value
         val width = size.width
-        // 高光带宽度 = 控件宽,从左外 1 倍宽扫到右外 1 倍宽
         val sweep = width * 1f
-        val start = -sweep + progress * (width + 2 * sweep)
+        val start = -sweep + p * (width + 2 * sweep)
         val brush = Brush.linearGradient(
             colors = listOf(Color.Transparent, highlight, Color.Transparent),
             start = Offset(start, 0f),
             end = Offset(start + sweep, size.height),
         )
-        onDrawBehind {
-            drawRect(color = base)
-            drawRect(brush = brush)
-        }
+        drawRect(color = base)
+        drawRect(brush = brush)
     }
 }

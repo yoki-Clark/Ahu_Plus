@@ -29,10 +29,10 @@ val AhuMaterialShapes = Shapes(
  * ```
  */
 object AhuShapes {
-    /** 标准卡片/输入框/对话框次要容器 — 12dp */
+    /** 标准卡片/输入框/对话框次要容器 — 14dp */
     val Card        = RoundedCornerShape(14.dp)
 
-    /** Hero/账单等强调卡片 — 16dp */
+    /** Hero/账单等强调卡片 — 18dp */
     val LargeCard   = RoundedCornerShape(18.dp)
 
     /** 渐变 Hero 卡 - 24dp,比 LargeCard 更圆润的强调容器(承接 Expressive largeIncreased 意图) */

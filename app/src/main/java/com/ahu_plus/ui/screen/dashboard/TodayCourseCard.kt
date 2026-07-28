@@ -85,15 +85,15 @@ fun TodayCourseCard(
     // 项58:沉浸式 Hero 顶满状态栏时,内容让出状态栏 + 顶栏高度,渐变本身仍顶满。
     immersive: Boolean = false,
 ) {
-    // 每 30s tick 一次驱动倒计时/进度条重算；用 tick 当 remember 的 key,
-    // 比 @Suppress("UNUSED_EXPRESSION") 更可靠 — 不依赖编译器保留无意义读取。
+    // 秒级 tick 驱动倒计时/进度条重算(now 需秒级);today/todayItems 不以 tick 为 key,
+    // 避免每秒重做日期计算与列表 filter+sort(日期跨天才变、列表随数据变)。
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) { delay(1_000); tick++ }
     }
 
     val now = remember(tick) { DebugClock.nowTime() }
-    val today = remember(tick) { DebugClock.todayDate() }
+    val today = remember { DebugClock.todayDate() }
     val todayItems = remember(uiState.todayItems, today) {
         uiState.todayItems.filter { it.weekday == today.dayOfWeek.value }
             .sortedBy { it.startUnit }
