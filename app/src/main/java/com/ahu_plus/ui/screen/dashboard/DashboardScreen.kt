@@ -72,7 +72,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -124,9 +123,7 @@ import com.ahu_plus.ui.components.AhuSkeletonLine
 import com.ahu_plus.ui.components.AhuStatusCard
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.AhuTopAppBar
-import com.ahu_plus.ui.components.AhuTopAppBarHeight
 import com.ahu_plus.ui.components.LoginRequiredCard
-import com.ahu_plus.ui.components.applyImmersiveStatusBarAppearance
 import com.ahu_plus.ui.screen.schedule.ScheduleUiState
 import com.ahu_plus.ui.screen.schedule.ScheduleViewModel
 import com.ahu_plus.ui.theme.AhuBlue
@@ -187,20 +184,8 @@ fun DashboardScreen(
         androidx.compose.runtime.mutableStateOf(false)
     }
 
-    // 项56/58: 沉浸式 Hero - listState 上提以便顶栏滚动渐变与状态栏图标色共享;
-    // 顶栏静止透明叠在 Hero 上,滚动渐变实色。fraction 与 AhuTopAppBar 内同公式。
+    // Hero 卡片置于实色顶栏下方(取消沉浸式顶满状态栏),listState 供列表滚动。
     val listState = rememberLazyListState()
-    val barHeightPx = with(LocalDensity.current) { AhuTopAppBarHeight.toPx() }
-    val topBarFraction by remember {
-        derivedStateOf {
-            if (listState.firstVisibleItemIndex > 0) 1f
-            else (listState.firstVisibleItemScrollOffset / barHeightPx).coerceIn(0f, 1f)
-        }
-    }
-    // needsLogin 时首项是浅色 LoginRequiredCard 而非 Hero,沉浸式白字会叠在浅色卡上不可读、
-    // 且卡片被状态栏遮挡;此时关闭沉浸式 - 顶栏走实色静态、状态栏图标交回 enableEdgeToEdge 默认。
-    val immersive = !uiState.needsLogin
-    applyImmersiveStatusBarAppearance(immersive = immersive, fraction = topBarFraction)
 
     Scaffold(
         topBar = {
@@ -216,14 +201,12 @@ fun DashboardScreen(
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
                 },
-                // needsLogin 时无 Hero 可叠,传 null 让顶栏走实色+1dp阴影静态分支。
-                scrollState = if (immersive) listState else null,
-                immersive = immersive,
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
-        // 项56: 顶层 MainScreen 已处理底栏 inset,这里归零避免双重底部 padding;
-        // 顶部 inset 由 AhuTopAppBar 自带 statusBarsPadding 处理,内容顶满状态栏(项58)。
+        // 顶层 MainScreen 已处理底栏 inset,这里归零避免双重底部 padding;
+        // 顶部 inset 由 AhuTopAppBar 自带 statusBarsPadding 计入 innerPadding.top,
+        // 内容应用 innerPadding 后位于顶栏下方(取消沉浸式顶满)。
         contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
@@ -232,10 +215,11 @@ fun DashboardScreen(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    // 顶满状态栏:不应用 innerPadding 顶部(让 Hero 渐变延伸到状态栏后方),
-                    // 仅保留底部 + 水平边距。
-                    .padding(bottom = innerPadding.calculateBottomPadding())
-                    .padding(horizontal = 16.dp),
+                    // 应用完整 innerPadding(顶部让出状态栏+顶栏),水平 16dp 边距,
+                    // 顶部 8dp 呼吸空间让 Hero 卡阴影可见。
+                    .padding(innerPadding)
+                    .padding(horizontal = 16.dp)
+                    .padding(top = AhuSpacing.sm),
                 verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap)
             ) {
                 if (uiState.needsLogin) {
@@ -272,7 +256,6 @@ fun DashboardScreen(
                             onRecordApp(AppRegistry.KEY_WEATHER)
                             onOpenWeather()
                         },
-                        immersive = true,
                     )
                 }
 
