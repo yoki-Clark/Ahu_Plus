@@ -80,8 +80,11 @@ docker compose restart web
 docker compose ps
 ```
 
-## ICP 备案号
+## 网站备案号
 
-网站底部已展示 ICP 备案号 `皖ICP备2026023445号-1`，并链接至工信部备案管理系统。备案号变更时需同步更新 `public/index.html` 中的 `data-icp` 链接文字。
+网站底部展示两类备案号，链接至对应官方查询系统：
 
-公安联网备案如适用，应在网站开通后按属地要求办理，并在完成后添加对应链接。
+- **ICP 备案**：`皖ICP备2026023445号-1`，链接 `https://beian.miit.gov.cn/`。
+- **公安联网备案**：`皖公网安备34020302000359号`，前置备案图标 `/assets/beian.png`，链接 `https://beian.mps.gov.cn/#/query/webSearch?code=34020302000359`。
+
+备案号或图标变更时，需同步更新 `public/index.html` 中 `.footer-filings` 内的链接文字与图标，图标文件位于 `public/assets/beian.png`。
