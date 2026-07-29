@@ -92,6 +92,7 @@ class HomeViewModel(
 
     init {
         val savedBathroomPhone = sessionManager.getBathroomPhone().orEmpty()
+        val savedAvatarUrl = sessionManager.getAvatarUrl()
         // 空调 (408) + 照明 (428) 配置独立加载,避免互相覆盖
         val acConfig = sessionManager.getAcConfig()
         val lightingConfig = sessionManager.getLightingConfig()
@@ -100,6 +101,7 @@ class HomeViewModel(
         _uiState.update {
             it.copy(
                 bathroomPhone = savedBathroomPhone,
+                avatarUrl = savedAvatarUrl,
                 ac = it.ac.copy(
                     config = acConfig,
                     cascade = it.ac.cascade.copy(
@@ -1585,6 +1587,34 @@ class HomeViewModel(
         loadBalanceAndBills(forceBills = true)
     }
 
+    /**
+     * 加载用户头像 URL (本地优先: 先用缓存 URL 显示, 后台刷新)。
+     *
+     * 复用 [ycardRepository] 的 synjones JWT 调 /berserker-base/user 取 data.avatar。
+     * 头像非关键功能: 未登录校园账号不发请求; 刷新失败不清空本地缓存 URL。
+     */
+    fun loadAvatarUrl() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                val username = sessionManager.getUsername() ?: return@withContext
+                val password = sessionManager.getPassword()
+                if (password.isNullOrBlank()) return@withContext
+                // 确保 ycard 已登录 (loginMutex + 5s 复用窗口, 与余额/账单加载并发安全)
+                if (!ycardRepository.hasSession()) {
+                    ycardRepository.login(username, password)
+                }
+                withYcardRelogin { ycardRepository.getUserAvatarUrl() }
+                    .onSuccess { url ->
+                        if (!url.isNullOrBlank()) {
+                            _uiState.update { it.copy(avatarUrl = url) }
+                            sessionManager.saveAvatarUrl(url)
+                        }
+                    }
+                // 失败不清空: 保留本地缓存的 avatarUrl (本地优先策略)
+            }
+        }
+    }
+
     // ─── 水电费充值 (2026-06-29 接入) ────────────────────────────────
 
     /**
@@ -1948,6 +1978,8 @@ data class HomeUiState(
     val timestamp: Long = 0,
     val isLoading: Boolean = true,
     val error: String? = null,
+    // 用户头像 URL (ycard /berserker-base/user data.avatar)
+    val avatarUrl: String? = null,
     // 账单
     val bills: List<BillRecord> = emptyList(),
     val billsLoading: Boolean = false,

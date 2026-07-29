@@ -526,6 +526,8 @@ fun ProfileScreen(
             qrCountdownSeconds = cardUiState.qrCountdownSeconds,
             onQrRefresh = cardViewModel::loadCampusQrCode,
             onQrEnsure = cardViewModel::ensureCampusQrCode,
+            avatarUrl = cardUiState.avatarUrl,
+            onEnsureAvatar = cardViewModel::loadAvatarUrl,
             onQrClick = {
                 if (isLoggedIn) {
                     showFullQrCode = true

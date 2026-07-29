@@ -80,6 +80,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.layout.ContentScale
 import com.ahu_plus.data.home.AppHubLayoutConfig
 import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.local.BottomNavService
@@ -142,6 +145,8 @@ internal fun ProfileHomeScreen(
     qrCountdownSeconds: Int,
     onQrRefresh: () -> Unit,
     onQrEnsure: () -> Unit,
+    avatarUrl: String? = null,
+    onEnsureAvatar: () -> Unit = {},
     onQrClick: () -> Unit,
     identityCount: Int,
     hasMarketIdentity: Boolean,
@@ -205,7 +210,10 @@ internal fun ProfileHomeScreen(
     // 大概率命中 45s 内的缓存瞬间出码。ensureCampusQrCode 内部有新鲜度决策，
     // 重复调用无副作用；未登录不发请求。
     LaunchedEffect(Unit) {
-        if (isLoggedIn) onQrEnsure()
+        if (isLoggedIn) {
+            onQrEnsure()
+            onEnsureAvatar()
+        }
     }
 
     LaunchedEffect(showQrCard) {
@@ -339,6 +347,7 @@ internal fun ProfileHomeScreen(
                 ProfileHeader(
                     displayName = displayName,
                     subtitle = subtitle,
+                    avatarUrl = if (isLoggedIn) avatarUrl else null,
                     onClick = if (isLoggedIn) onOpenMyInfoHub else onLogin,
                 )
             }
@@ -698,6 +707,7 @@ private fun ContactMethodRow(
 private fun ProfileHeader(
     displayName: String,
     subtitle: String,
+    avatarUrl: String? = null,
     onClick: () -> Unit = {},
 ) {
     // 取消蓝色渐变 Hero 填充,改用 surface 卡片;保留头像 + 姓名 + 院系,点击进个人信息。
@@ -726,12 +736,24 @@ private fun ProfileHeader(
                     .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
+                // 底层 Person 图标兜底: 头像加载中/失败/未上传时均露出。
                 Icon(
                     Icons.Filled.Person,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(34.dp)
                 )
+                if (!avatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(avatarUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "头像",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
             Column(
                 modifier = Modifier.padding(start = 14.dp),
