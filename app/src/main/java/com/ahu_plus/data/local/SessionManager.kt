@@ -165,6 +165,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
     // 首页"我的收藏"应用列表 (JSON 数组 List<String>, 最多 6 个;退登保留)
     @Volatile private var cachedFavoriteIds: List<String> = emptyList()
 
+    // 首页快捷栏展示模式 (最近使用 / 收藏应用;默认收藏;退登保留)
+    @Volatile private var cachedHomeDockMode: HomeDockMode = HomeDockMode.DEFAULT
+
+    // 首页焦点轮播(日程/天气/通知)是否显示 (默认 false 隐藏;退登保留)
+    @Volatile private var cachedHomeFocusPagerEnabled: Boolean = false
+
     // 应用页排版配置 (JSON 序列化的 AppHubLayoutConfig;退登保留)
     @Volatile private var cachedAppHubLayout: AppHubLayoutConfig = AppHubLayoutConfig()
 
@@ -513,6 +519,18 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    val homeDockModeFlow = appDataStore.dataStore.data.map { preferences ->
+
+        HomeDockMode.fromStorageValue(preferences[HOME_DOCK_MODE_KEY])
+
+    }
+
+    val homeFocusPagerEnabledFlow = appDataStore.dataStore.data.map { preferences ->
+
+        preferences[HOME_FOCUS_PAGER_KEY] ?: false
+
+    }
+
     /**
 
      * \u4ECE DataStore \u6062\u590D\u6240\u6709\u6570\u636E\u5230\u5185\u5B58\u7F13\u5B58\u3002
@@ -653,6 +671,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedFavoriteIds = parseStringList(prefs[FAVORITE_APP_IDS_KEY])
 
         cachedAppHubLayout = parseAppHubLayout(prefs[APP_HUB_LAYOUT_KEY])
+
+        cachedHomeDockMode = HomeDockMode.fromStorageValue(prefs[HOME_DOCK_MODE_KEY])
+
+        cachedHomeFocusPagerEnabled = prefs[HOME_FOCUS_PAGER_KEY] ?: false
 
         cachedAppUsageCounts = parseAppUsageCounts(prefs[APP_USAGE_COUNTS_KEY])
 
@@ -1657,6 +1679,30 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedFavoriteIds = ids
 
         appDataStore.dataStore.edit { it[FAVORITE_APP_IDS_KEY] = gson.toJson(ids) }
+
+    }
+
+    // ── 首页快捷栏 / 焦点轮播设置 (退登保留) ────────────────────
+
+    /** 首页快捷栏展示模式(最近使用 / 收藏应用),默认收藏。 */
+    fun getHomeDockMode(): HomeDockMode = cachedHomeDockMode
+
+    suspend fun saveHomeDockMode(mode: HomeDockMode) {
+
+        cachedHomeDockMode = mode
+
+        appDataStore.dataStore.edit { it[HOME_DOCK_MODE_KEY] = mode.storageValue }
+
+    }
+
+    /** 首页焦点轮播(日程/天气/通知)是否显示,默认隐藏。 */
+    fun getHomeFocusPagerEnabled(): Boolean = cachedHomeFocusPagerEnabled
+
+    suspend fun saveHomeFocusPagerEnabled(enabled: Boolean) {
+
+        cachedHomeFocusPagerEnabled = enabled
+
+        appDataStore.dataStore.edit { it[HOME_FOCUS_PAGER_KEY] = enabled }
 
     }
 
@@ -2934,6 +2980,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedAppUsageCounts = emptyMap()
 
+        cachedHomeDockMode = HomeDockMode.DEFAULT
+
+        cachedHomeFocusPagerEnabled = false
+
         cachedScheduleColWidth = 64f
 
         cachedScheduleRowHeight = 56f
@@ -3791,6 +3841,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         val APP_HUB_LAYOUT_KEY = stringPreferencesKey("app_hub_layout_json")
 
+        val HOME_DOCK_MODE_KEY = stringPreferencesKey("home_dock_mode")
+
+        val HOME_FOCUS_PAGER_KEY = booleanPreferencesKey("home_focus_pager_enabled")
+
         val APP_USAGE_COUNTS_KEY = stringPreferencesKey("app_usage_counts_json")
 
         val SCHEDULE_COL_WIDTH_KEY = stringPreferencesKey("schedule_col_width")
@@ -4163,6 +4217,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             AI_COMMENT_TEMPLATES_KEY, AI_COMMENT_SELECTED_TEMPLATE_KEY,
 
             RECENT_APPS_KEY, APP_HUB_LAYOUT_KEY, APP_USAGE_COUNTS_KEY,
+            HOME_DOCK_MODE_KEY, HOME_FOCUS_PAGER_KEY,
 
             SCHEDULE_COL_WIDTH_KEY, SCHEDULE_ROW_HEIGHT_KEY, SCHEDULE_FONT_SCALE_KEY,
 

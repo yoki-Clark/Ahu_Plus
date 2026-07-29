@@ -62,6 +62,7 @@ fun CProgListScreen(
                 },
             )
         },
+        contentWindowInsets = WindowInsets(0),
     ) { inner ->
         Column(modifier = Modifier.fillMaxSize().padding(inner)) {
             // 科目下拉

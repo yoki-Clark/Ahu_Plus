@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
@@ -128,6 +129,7 @@ private fun CengKeLogin(
                 },
             )
         },
+        contentWindowInsets = WindowInsets(0),
     ) { padding ->
         Column(
             modifier = Modifier
@@ -208,6 +210,7 @@ private fun CengKeContent(
                 },
             )
         },
+        contentWindowInsets = WindowInsets(0),
     ) { padding ->
         if (state.metaLoading && state.campuses.isEmpty()) {
             Box(

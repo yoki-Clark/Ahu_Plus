@@ -51,6 +51,7 @@ fun CProgLoginScreen(
                 },
             )
         },
+        contentWindowInsets = WindowInsets(0),
     ) { inner ->
         Column(
             modifier = Modifier

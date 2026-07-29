@@ -104,6 +104,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.runtime.rememberCoroutineScope
+import com.ahu_plus.data.local.HomeDockMode
+import kotlinx.coroutines.launch
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.agenda.AgendaEvent
@@ -179,6 +183,31 @@ fun DashboardScreen(
     val app = LocalContext.current.applicationContext as com.ahu_plus.AhuPlusApplication
     val weatherFeed by app.weatherManager.feed.collectAsStateWithLifecycle()
 
+    // 首页快捷栏模式 / 焦点轮播开关:由"首页设置"页写入,Flow 回流即时生效。
+    val dockMode by app.sessionManager.homeDockModeFlow.collectAsStateWithLifecycle(
+        initialValue = app.sessionManager.getHomeDockMode()
+    )
+    val focusPagerEnabled by app.sessionManager.homeFocusPagerEnabledFlow.collectAsStateWithLifecycle(
+        initialValue = app.sessionManager.getHomeFocusPagerEnabled()
+    )
+    val scope = rememberCoroutineScope()
+    var showHomeSettings by rememberSaveable { mutableStateOf(false) }
+
+    if (showHomeSettings) {
+        HomeSettingsScreen(
+            dockMode = dockMode,
+            onDockModeChange = { mode ->
+                scope.launch { app.sessionManager.saveHomeDockMode(mode) }
+            },
+            focusPagerEnabled = focusPagerEnabled,
+            onFocusPagerEnabledChange = { enabled ->
+                scope.launch { app.sessionManager.saveHomeFocusPagerEnabled(enabled) }
+            },
+            onBack = { showHomeSettings = false },
+        )
+        return
+    }
+
     // 2026-06-17 Bug4 修复: 首页添加作业对话框
     var showTodayHomeworkDialog by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf(false)
@@ -190,8 +219,11 @@ fun DashboardScreen(
     Scaffold(
         topBar = {
             AhuTopAppBar(
-                title = { Text("安大 Plus") },
+                title = { Text("安大加") },
                 actions = {
+                    IconButton(onClick = { showHomeSettings = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "首页设置")
+                    }
                     IconButton(
                         onClick = {
                             viewModel.onRefresh()
@@ -266,7 +298,7 @@ fun DashboardScreen(
                     }
                 }
 
-                item {
+                if (dockMode == HomeDockMode.RECENT) item {
                     // 项46:最近使用横滑卡片轨(无最近使用时 AppDock 自身不渲染)
                     AppDock(
                         onOpenSchedule = { onRecordApp("schedule"); onOpenSchedule() },
@@ -287,7 +319,7 @@ fun DashboardScreen(
                     )
                 }
 
-                item {
+                if (focusPagerEnabled) item {
                     // 项19:焦点轮播(今日日程 / 天气 / 最新通知)
                     FocusPager(
                         agendaEventsByDate = agendaEventsByDate,
@@ -310,7 +342,7 @@ fun DashboardScreen(
                     )
                 }
 
-                item {
+                if (dockMode == HomeDockMode.FAVORITE) item {
                     FavoritesDock(
                         favoriteIds = favoriteIds,
                         onFavoriteIdsChange = onFavoriteIdsChange,

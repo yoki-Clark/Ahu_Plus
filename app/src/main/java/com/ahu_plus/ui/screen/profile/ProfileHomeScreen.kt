@@ -700,12 +700,17 @@ private fun ProfileHeader(
     subtitle: String,
     onClick: () -> Unit = {},
 ) {
-    AhuHeroCard(
-        gradient = AhuGradient.Blue.brush,
-        modifier = Modifier.clickable(
-            onClick = onClick,
-            role = Role.Button,
-        ),
+    // 取消蓝色渐变 Hero 填充,改用 surface 卡片;保留头像 + 姓名 + 院系,点击进个人信息。
+    Card(
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                onClick = onClick,
+                role = Role.Button,
+            ),
     ) {
         Row(
             modifier = Modifier
@@ -717,14 +722,14 @@ private fun ProfileHeader(
                 modifier = Modifier
                     .size(68.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.22f))
-                    .border(2.dp, Color.White, CircleShape),
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                    .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Filled.Person,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(34.dp)
                 )
             }
@@ -736,12 +741,12 @@ private fun ProfileHeader(
                     text = displayName,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.78f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -765,8 +770,10 @@ private fun BalanceCard(
     val displayBalance = qrBalance ?: balance
     val formatter = DecimalFormat("¥#,##0.00")
 
-    AhuHeroCard(
-        gradient = AhuGradient.Green.brush,
+    Card(
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -783,13 +790,13 @@ private fun BalanceCard(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(AhuShapes.IconBox)
-                        .background(Color.White.copy(alpha = 0.22f)),
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Filled.AccountBalanceWallet,
                         contentDescription = null,
-                        tint = Color.White
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
                 Column(
@@ -802,7 +809,7 @@ private fun BalanceCard(
                         text = "校园卡",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     val hasBalance = displayBalance > 0.0
                     val subText = when {
@@ -815,7 +822,7 @@ private fun BalanceCard(
                         Text(
                             text = subText,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.78f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -824,7 +831,7 @@ private fun BalanceCard(
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             strokeWidth = 2.dp,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                     displayBalance > 0.0 -> {
@@ -832,14 +839,14 @@ private fun BalanceCard(
                             text = formatter.format(displayBalance),
                             style = MaterialTheme.typography.titleLarge.tabularFigures(),
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
                 Icon(
                     Icons.Filled.ChevronRight,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.7f),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp)
                 )
             }
@@ -851,7 +858,7 @@ private fun BalanceCard(
                 Icon(
                     Icons.Filled.QrCode2,
                     contentDescription = "智慧安大支付码",
-                    tint = Color.White
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
         }

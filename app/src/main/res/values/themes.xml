@@ -2,11 +2,4 @@
 <resources>
 
     <style name="Theme.Ahu_Plus" parent="android:Theme.Material.Light.NoActionBar" />
-
-    <!-- 项34:启动闪屏主题。展示 logo(ic_launcher_foreground) 于白底,退出后切回 Theme.Ahu_Plus。 -->
-    <style name="Theme.Ahu_Plus.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/white</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
-        <item name="postSplashScreenTheme">@style/Theme.Ahu_Plus</item>
-    </style>
 </resources>
