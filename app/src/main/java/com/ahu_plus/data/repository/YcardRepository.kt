@@ -17,6 +17,7 @@ import com.ahu_plus.data.model.InternetBalanceResponse
 import com.ahu_plus.data.model.InternetBillResponse
 import com.ahu_plus.data.network.SecureHttpClientFactory
 import com.ahu_plus.util.DES
+import com.google.gson.JsonParser
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.currentCoroutineContext
@@ -206,6 +207,52 @@ class YcardRepository(
             Log.e(TAG, "账单查询错误", e)
             Result.failure(e)
         }
+    }
+
+    /**
+     * 获取当前登录用户的头像 URL。
+     *
+     * 调用 plat 应用 (ycard.ahu.edu.cn) 的 `/berserker-base/user`，响应 `data.avatar`
+     * 即头像图片 URL (minio 公开图，下载无需鉴权)。该接口响应包含大量个人信息
+     * (姓名/学号/身份证等)，此处只取 avatar 字段，不解析也不持久化其它字段。
+     *
+     * 认证: 复用 [cachedJwt] (synjones-auth bearer)。401/403 抛
+     * [YcardAuthExpiredException]，由调用方 withYcardRelogin 自动重试。
+     *
+     * @return 头像 URL；用户未上传照片或字段为空时返回 null。
+     */
+    suspend fun getUserAvatarUrl(): Result<String?> = try {
+        val jwt = cachedJwt ?: return Result.failure(Exception("未登录 ycard"))
+
+        val request = Request.Builder()
+            .url("$YCARD_BASE/berserker-base/user")
+            .header("User-Agent", UA)
+            .header("synjones-auth", "bearer $jwt")
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Referer", "$YCARD_BASE/plat/wode?index=3")
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string() ?: ""
+            val code = response.code
+            Log.d(TAG, "头像 API HTTP $code")
+
+            if (code != 200) {
+                return Result.failure(ycardExceptionFor(code, "头像获取失败"))
+            }
+
+            // JsonNull 守卫: data/avatar 可能为 JSON null，直接 getAsJsonObject 会抛 ClassCast。
+            val root = JsonParser.parseString(body).takeIf { it.isJsonObject }?.asJsonObject
+            val data = root?.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
+            val avatar = data?.get("avatar")
+                ?.takeIf { !it.isJsonNull }
+                ?.asString
+                ?.takeIf { it.isNotBlank() }
+            Result.success(avatar)
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "头像获取错误", e)
+        Result.failure(e)
     }
 
     /**
