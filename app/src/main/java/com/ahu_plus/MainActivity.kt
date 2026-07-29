@@ -23,6 +23,7 @@ import androidx.lifecycle.lifecycleScope
 import com.ahu_plus.data.legal.LegalGateState
 import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.ui.components.AnnouncementDialog
+import com.ahu_plus.ui.components.LocalRefreshIndicatorStyle
 import com.ahu_plus.ui.components.UpdateDialog
 import com.ahu_plus.ui.navigation.AppNavigation
 import com.ahu_plus.ui.navigation.NavigationIntentCodec
@@ -81,6 +82,9 @@ class MainActivity : ComponentActivity() {
             val fontScale by app.sessionManager.fontScaleFlow.collectAsStateWithLifecycle(
                 initialValue = app.sessionManager.getFontScale()
             )
+            val refreshIndicatorStyle by app.sessionManager.refreshIndicatorStyleFlow.collectAsStateWithLifecycle(
+                initialValue = app.sessionManager.getRefreshIndicatorStyle()
+            )
             val systemDarkTheme = isSystemInDarkTheme()
             val updateState by app.updateManager.uiState.collectAsStateWithLifecycle()
             val announcement by app.announcementManager.uiState.collectAsStateWithLifecycle()
@@ -100,6 +104,7 @@ class MainActivity : ComponentActivity() {
                         density = baseDensity.density,
                         fontScale = (baseDensity.fontScale * fontScale.factor),
                     ),
+                    LocalRefreshIndicatorStyle provides refreshIndicatorStyle,
                 ) {
                     when (legalGateState) {
                     LegalGateState.Loading -> Box(

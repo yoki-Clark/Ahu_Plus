@@ -413,6 +413,9 @@ fun ProfileScreen(
             onAccentColorChange = onAccentColorChange,
             fontScale = fontScale,
             onFontScaleChange = onFontScaleChange,
+            onRefreshStyleChange = { style ->
+                scope.launch { sessionManager.saveRefreshIndicatorStyle(style) }
+            },
             qrBrightnessBoost = cardViewModel.getQrBrightnessBoost(),
             onQrBrightnessBoostChanged = cardViewModel::setQrBrightnessBoost,
             cardBalanceAlertEnabled = cardViewModel.getCardBalanceAlertEnabled(),
