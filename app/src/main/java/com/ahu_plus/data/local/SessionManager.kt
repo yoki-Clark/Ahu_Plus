@@ -281,6 +281,9 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
     /** 用户头像 URL (ycard /berserker-base/user data.avatar); 退登清理。 */
     @Volatile private var cachedAvatarUrl: String? = null
 
+    /** 头像显示来源; 退登清理(默认 DEFAULT)。 */
+    @Volatile private var cachedAvatarMode: AvatarMode = AvatarMode.DEFAULT
+
     @Volatile private var cachedBillsJson: String? = null
 
     @Volatile private var cachedBillsUpdatedAt: Long = 0L
@@ -873,6 +876,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedBathroomPhone = prefs[BATHROOM_PHONE_KEY]
 
         cachedAvatarUrl = prefs[AVATAR_URL_KEY]
+
+        cachedAvatarMode = AvatarMode.fromStored(prefs[AVATAR_MODE_KEY])
 
         cachedBillsJson = prefs[BILLS_JSON_KEY]
 
@@ -2434,6 +2439,18 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    // ── 头像来源模式 ─────────────────────────────────────────────
+
+    fun getAvatarMode(): AvatarMode = cachedAvatarMode
+
+    suspend fun saveAvatarMode(mode: AvatarMode) {
+
+        cachedAvatarMode = mode
+
+        appDataStore.dataStore.edit { it[AVATAR_MODE_KEY] = mode.name }
+
+    }
+
     // \u2500\u2500 \u4E00\u5361\u901A\u8D26\u5355\u7F13\u5B58 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     fun getBillsJson(): String? = cachedBillsJson
@@ -3145,6 +3162,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedBathroomPhone = null
 
         cachedAvatarUrl = null
+        cachedAvatarMode = AvatarMode.DEFAULT
 
         cachedBillsJson = null
         cachedBillsUpdatedAt = 0L
@@ -3979,6 +3997,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         val AVATAR_URL_KEY = stringPreferencesKey("avatar_url")
 
+        val AVATAR_MODE_KEY = stringPreferencesKey("avatar_mode")
+
         val BILLS_JSON_KEY = stringPreferencesKey("bills_json")
 
         val BILLS_UPDATED_AT_KEY = longPreferencesKey("bills_updated_at")
@@ -4219,7 +4239,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             RECORD_INDEX_JSON_KEY, RECORD_INDEX_UPDATED_AT_KEY,
 
             BATHROOM_PHONE_KEY,
-            AVATAR_URL_KEY,
+            AVATAR_URL_KEY, AVATAR_MODE_KEY,
 
             BILLS_JSON_KEY, BILLS_UPDATED_AT_KEY,
 

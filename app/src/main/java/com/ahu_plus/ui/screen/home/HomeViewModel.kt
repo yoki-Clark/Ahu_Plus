@@ -1,12 +1,15 @@
 package com.ahu_plus.ui.screen.home
 
 import android.app.Application
+import android.graphics.Bitmap
 import com.ahu_plus.data.diagnostic.SafeLog as Log
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.ElectricityRoomConfig
+import com.ahu_plus.data.local.AvatarMode
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.local.module.CacheModule
 import com.ahu_plus.data.local.module.AccountStateModule
@@ -32,6 +35,7 @@ import com.ahu_plus.data.repository.ErrorKind
 import com.ahu_plus.data.repository.SessionExpiredException
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.YcardAuthExpiredException
+import com.ahu_plus.data.repository.AvatarStore
 import com.ahu_plus.data.repository.YcardRepository
 import com.ahu_plus.data.repository.shouldRequestManualAdwmhCaptcha
 import com.ahu_plus.notification.CampusCardAlertNotifier
@@ -65,6 +69,9 @@ class HomeViewModel(
     private val accountStateModule: AccountStateModule? = null,
 ) : ViewModel() {
 
+    private val avatarStore: AvatarStore
+        get() = (application as AhuPlusApplication).avatarStore
+
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -93,6 +100,8 @@ class HomeViewModel(
     init {
         val savedBathroomPhone = sessionManager.getBathroomPhone().orEmpty()
         val savedAvatarUrl = sessionManager.getAvatarUrl()
+        val savedAvatarMode = sessionManager.getAvatarMode()
+        val savedCustomReady = avatarStore.customAvatarFileOrNull()?.exists() == true
         // 空调 (408) + 照明 (428) 配置独立加载,避免互相覆盖
         val acConfig = sessionManager.getAcConfig()
         val lightingConfig = sessionManager.getLightingConfig()
@@ -102,6 +111,8 @@ class HomeViewModel(
             it.copy(
                 bathroomPhone = savedBathroomPhone,
                 avatarUrl = savedAvatarUrl,
+                avatarMode = savedAvatarMode,
+                customAvatarReady = savedCustomReady,
                 ac = it.ac.copy(
                     config = acConfig,
                     cascade = it.ac.cascade.copy(
@@ -1590,27 +1601,68 @@ class HomeViewModel(
     /**
      * 加载用户头像 URL (本地优先: 先用缓存 URL 显示, 后台刷新)。
      *
-     * 复用 [ycardRepository] 的 synjones JWT 调 /berserker-base/user 取 data.avatar。
-     * 头像非关键功能: 未登录校园账号不发请求; 刷新失败不清空本地缓存 URL。
+     * 复用 [ycardRepository] 的 synjones JWT 调 /berserker-base/user 取 data.avatar,
+     * 并把图片字节下载到本地缓存([AvatarStore.realAvatarFile])。本地文件已存在时跳过下载。
+     * 头像非关键功能: 未登录校园账号不发请求; 刷新失败不清空本地缓存。
      */
-    fun loadAvatarUrl() {
+    fun loadAvatarUrl() = refreshRealAvatar(force = false)
+
+    /**
+     * 刷新真实相片全链路 (ycard 登录 -> getUserAvatarUrl -> 下载覆盖本地文件)。
+     *
+     * @param force true 时无条件重新下载覆盖本地缓存(大图页刷新/初次加载);
+     *              false 时本地文件已存在则跳过下载(本地优先, 进"我的"页预载用)。
+     */
+    fun refreshRealAvatar(force: Boolean = true) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val username = sessionManager.getUsername() ?: return@withContext
-                val password = sessionManager.getPassword()
-                if (password.isNullOrBlank()) return@withContext
-                // 确保 ycard 已登录 (loginMutex + 5s 复用窗口, 与余额/账单加载并发安全)
-                if (!ycardRepository.hasSession()) {
-                    ycardRepository.login(username, password)
-                }
-                withYcardRelogin { ycardRepository.getUserAvatarUrl() }
-                    .onSuccess { url ->
-                        if (!url.isNullOrBlank()) {
-                            _uiState.update { it.copy(avatarUrl = url) }
-                            sessionManager.saveAvatarUrl(url)
-                        }
+            _uiState.update { it.copy(avatarRefreshing = true) }
+            try {
+                withContext(Dispatchers.IO) {
+                    val username = sessionManager.getUsername() ?: return@withContext
+                    val password = sessionManager.getPassword()
+                    if (password.isNullOrBlank()) return@withContext
+                    // 确保 ycard 已登录 (loginMutex + 5s 复用窗口, 与余额/账单加载并发安全)
+                    if (!ycardRepository.hasSession()) {
+                        ycardRepository.login(username, password)
                     }
-                // 失败不清空: 保留本地缓存的 avatarUrl (本地优先策略)
+                    withYcardRelogin { ycardRepository.getUserAvatarUrl() }
+                        .onSuccess { url ->
+                            if (!url.isNullOrBlank()) {
+                                _uiState.update { it.copy(avatarUrl = url) }
+                                sessionManager.saveAvatarUrl(url)
+                                // 下载图片字节到本地缓存(失败不影响显示,UI 可回退在线 URL)
+                                avatarStore.ensureRealAvatar(url, force = force)
+                            }
+                        }
+                    // 失败不清空: 保留本地缓存的 avatarUrl (本地优先策略)
+                }
+            } finally {
+                _uiState.update { it.copy(avatarRefreshing = false) }
+            }
+        }
+    }
+
+    /**
+     * 切换头像显示来源,持久化到 SessionManager。切换不清真实相片缓存文件(用户可能切回)。
+     */
+    fun setAvatarMode(mode: AvatarMode) {
+        viewModelScope.launch {
+            sessionManager.saveAvatarMode(mode)
+            _uiState.update { it.copy(avatarMode = mode) }
+        }
+    }
+
+    /**
+     * 保存裁剪后的自定头像 [bitmap] 并切换到 CUSTOM 模式。
+     */
+    fun saveCustomAvatar(bitmap: Bitmap) {
+        viewModelScope.launch {
+            val file = avatarStore.saveCustomAvatar(bitmap)
+            if (file != null) {
+                sessionManager.saveAvatarMode(AvatarMode.CUSTOM)
+                _uiState.update {
+                    it.copy(avatarMode = AvatarMode.CUSTOM, customAvatarReady = true)
+                }
             }
         }
     }
@@ -1980,6 +2032,12 @@ data class HomeUiState(
     val error: String? = null,
     // 用户头像 URL (ycard /berserker-base/user data.avatar)
     val avatarUrl: String? = null,
+    // 头像显示来源(默认图标/真实相片/自定头像)
+    val avatarMode: AvatarMode = AvatarMode.DEFAULT,
+    // 自定头像文件是否就绪(UI 据此决定能否切 CUSTOM)
+    val customAvatarReady: Boolean = false,
+    // 真实相片全链路刷新中(大图页 loading)
+    val avatarRefreshing: Boolean = false,
     // 账单
     val bills: List<BillRecord> = emptyList(),
     val billsLoading: Boolean = false,
