@@ -85,6 +85,7 @@ import coil.request.ImageRequest
 import androidx.compose.ui.layout.ContentScale
 import com.ahu_plus.data.home.AppHubLayoutConfig
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.local.AvatarMode
 import com.ahu_plus.data.local.BottomNavService
 import com.ahu_plus.data.developer.DeveloperRuntime
 import com.ahu_plus.data.model.BathroomBalanceData
@@ -117,6 +118,7 @@ import com.ahu_plus.ui.theme.tabularFigures
 import com.ahu_plus.util.BrowserOpener
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
+import java.io.File
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -146,6 +148,10 @@ internal fun ProfileHomeScreen(
     onQrRefresh: () -> Unit,
     onQrEnsure: () -> Unit,
     avatarUrl: String? = null,
+    avatarMode: AvatarMode = AvatarMode.DEFAULT,
+    realAvatarFile: File? = null,
+    customAvatarFile: File? = null,
+    onAvatarClick: () -> Unit = {},
     onEnsureAvatar: () -> Unit = {},
     onQrClick: () -> Unit,
     identityCount: Int,
@@ -176,7 +182,7 @@ internal fun ProfileHomeScreen(
     onOpenAc: () -> Unit,
     onOpenLighting: () -> Unit,
     onOpenInternet: () -> Unit,
-    onOpenMyInfoHub: () -> Unit,
+    onOpenStudentBasicInfo: () -> Unit,
     themeMode: AppThemeMode,
     onOpenSettings: () -> Unit,
     onOpenXzxx: () -> Unit,
@@ -347,8 +353,12 @@ internal fun ProfileHomeScreen(
                 ProfileHeader(
                     displayName = displayName,
                     subtitle = subtitle,
+                    avatarMode = if (isLoggedIn) avatarMode else AvatarMode.DEFAULT,
                     avatarUrl = if (isLoggedIn) avatarUrl else null,
-                    onClick = if (isLoggedIn) onOpenMyInfoHub else onLogin,
+                    realAvatarFile = if (isLoggedIn) realAvatarFile else null,
+                    customAvatarFile = if (isLoggedIn) customAvatarFile else null,
+                    onAvatarClick = if (isLoggedIn) onAvatarClick else onLogin,
+                    onClick = if (isLoggedIn) onOpenStudentBasicInfo else onLogin,
                 )
             }
 
@@ -707,10 +717,14 @@ private fun ContactMethodRow(
 private fun ProfileHeader(
     displayName: String,
     subtitle: String,
+    avatarMode: AvatarMode = AvatarMode.DEFAULT,
     avatarUrl: String? = null,
+    realAvatarFile: File? = null,
+    customAvatarFile: File? = null,
+    onAvatarClick: () -> Unit = {},
     onClick: () -> Unit = {},
 ) {
-    // 取消蓝色渐变 Hero 填充,改用 surface 卡片;保留头像 + 姓名 + 院系,点击进个人信息。
+    // surface 卡片:头像(可点更换)+ 姓名 + 院系。整卡点击进学生基本信息。
     Card(
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -728,25 +742,35 @@ private fun ProfileHeader(
                 .padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 头像区域:单独可点(更换头像),不触发整卡点击。
             Box(
                 modifier = Modifier
                     .size(68.dp)
                     .clip(CircleShape)
+                    .clickable(
+                        onClick = onAvatarClick,
+                        role = Role.Button,
+                    )
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                     .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                // 底层 Person 图标兜底: 头像加载中/失败/未上传时均露出。
+                // 底层 Person 图标兜底:加载中/失败/默认模式均露出。
                 Icon(
                     Icons.Filled.Person,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(34.dp)
                 )
-                if (!avatarUrl.isNullOrBlank()) {
+                val model: Any? = when (avatarMode) {
+                    AvatarMode.REAL -> realAvatarFile ?: avatarUrl?.takeIf { it.isNotBlank() }
+                    AvatarMode.CUSTOM -> customAvatarFile
+                    AvatarMode.DEFAULT -> null
+                }
+                if (model != null) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(avatarUrl)
+                            .data(model)
                             .crossfade(true)
                             .build(),
                         contentDescription = "头像",
@@ -768,6 +792,88 @@ private fun ProfileHeader(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 详情页顶部头像栏:头像(可点更换)+ 姓名 + 院系。用于「学生基本信息」等详情页。
+ */
+@Composable
+internal fun AvatarBar(
+    displayName: String,
+    subtitle: String,
+    avatarMode: AvatarMode = AvatarMode.DEFAULT,
+    avatarUrl: String? = null,
+    realAvatarFile: File? = null,
+    customAvatarFile: File? = null,
+    onAvatarClick: () -> Unit = {},
+) {
+    Card(
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .clickable(
+                        onClick = onAvatarClick,
+                        role = Role.Button,
+                    )
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                    .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Person,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+                val model: Any? = when (avatarMode) {
+                    AvatarMode.REAL -> realAvatarFile ?: avatarUrl?.takeIf { it.isNotBlank() }
+                    AvatarMode.CUSTOM -> customAvatarFile
+                    AvatarMode.DEFAULT -> null
+                }
+                if (model != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(model)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "头像",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.padding(start = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

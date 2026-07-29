@@ -102,6 +102,7 @@ import com.ahu_plus.data.repository.CacheCleanupRepository
 import com.ahu_plus.data.home.AppHubLayoutConfig
 import com.ahu_plus.ui.screen.apps.AppHubSettingsScreen
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.local.AvatarMode
 import com.ahu_plus.data.local.AppAccentColor
 import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.data.model.BillRecord
@@ -145,6 +146,7 @@ import com.ahu_plus.notification.CardBalanceAlertMode
 import com.ahu_plus.notification.recentCanteenDailyAverage
 import com.ahu_plus.ui.theme.AhuGreen
 import com.ahu_plus.util.BrowserOpener
+import com.ahu_plus.ui.components.rememberPhotoPicker
 import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
@@ -212,6 +214,18 @@ fun ProfileScreen(
     var showOpenSourceLicenses by rememberSaveable { mutableStateOf(false) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showFullQrCode by rememberSaveable { mutableStateOf(false) }
+    var showAvatarPicker by rememberSaveable { mutableStateOf(false) }
+    var showAvatarCrop by rememberSaveable { mutableStateOf(false) }
+    var showRealAvatarViewer by rememberSaveable { mutableStateOf(false) }
+    var pickedAvatarUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val photoPicker = rememberPhotoPicker()
+    photoPicker.uri?.let { uri ->
+        LaunchedEffect(uri) {
+            pickedAvatarUri = uri
+            showAvatarCrop = true
+            photoPicker.clear()
+        }
+    }
     val cardUiState by cardViewModel.uiState.collectAsStateWithLifecycle()
     val marketUiState by marketViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -328,20 +342,38 @@ fun ProfileScreen(
             initialUtility = utilityTarget
         )
     } else if (showStudentBasicInfo) {
-        BackHandler(enabled = true) { showStudentBasicInfo = false; showMyInfoHub = true }
+        BackHandler(enabled = true) { showStudentBasicInfo = false }
+        val info = studentInfoUiState.info
+        val barName = info?.displayName() ?: scheduleUiState.studentName ?: "未命名同学"
+        val barSub = listOfNotNull(
+            (info?.department() ?: scheduleUiState.department)?.takeIf { it.isNotBlank() },
+            (info?.classOrMajor() ?: scheduleUiState.className)?.takeIf { it.isNotBlank() }
+        ).joinToString(" · ").ifBlank { "学生信息加载中" }
         CategoryDetailScreen(
-            title = "瀛︾敓鍩烘湰淇℃伅",
+            title = "学生基本信息",
             fields = studentInfoUiState.info?.basicFields ?: emptyList(),
             isLoading = studentInfoUiState.isLoading,
             error = studentInfoUiState.error,
             lastUpdatedAt = studentInfoUiState.lastUpdatedAt,
-            onBack = { showStudentBasicInfo = false; showMyInfoHub = true },
+            onBack = { showStudentBasicInfo = false },
+            onOpenHub = { showMyInfoHub = true; showStudentBasicInfo = false },
+            headerContent = {
+                AvatarBar(
+                    displayName = barName,
+                    subtitle = barSub,
+                    avatarMode = cardUiState.avatarMode,
+                    avatarUrl = cardUiState.avatarUrl,
+                    realAvatarFile = app.avatarStore.realAvatarFileOrNull(),
+                    customAvatarFile = app.avatarStore.customAvatarFileOrNull(),
+                    onAvatarClick = { showAvatarPicker = true },
+                )
+            },
             onRefresh = studentInfoViewModel::refreshStudentInfo
         )
     } else if (showHousingInfo) {
         BackHandler(enabled = true) { showHousingInfo = false; showMyInfoHub = true }
         CategoryDetailScreen(
-            title = "浣忓鏁版嵁",
+            title = "住宿数据",
             fields = studentInfoUiState.info?.housingFields ?: emptyList(),
             isLoading = studentInfoUiState.isLoading,
             error = studentInfoUiState.error,
@@ -352,7 +384,7 @@ fun ProfileScreen(
     } else if (showAcademicWarning) {
         BackHandler(enabled = true) { showAcademicWarning = false; showMyInfoHub = true }
         CategoryDetailScreen(
-            title = "瀛︿笟棰勮淇℃伅",
+            title = "学业预警信息",
             fields = studentInfoUiState.info?.academicWarningFields ?: emptyList(),
             isLoading = studentInfoUiState.isLoading,
             error = studentInfoUiState.error,
@@ -527,6 +559,10 @@ fun ProfileScreen(
             onQrRefresh = cardViewModel::loadCampusQrCode,
             onQrEnsure = cardViewModel::ensureCampusQrCode,
             avatarUrl = cardUiState.avatarUrl,
+            avatarMode = cardUiState.avatarMode,
+            realAvatarFile = app.avatarStore.realAvatarFileOrNull(),
+            customAvatarFile = app.avatarStore.customAvatarFileOrNull(),
+            onAvatarClick = { if (isLoggedIn) showAvatarPicker = true else onLogin() },
             onEnsureAvatar = cardViewModel::loadAvatarUrl,
             onQrClick = {
                 if (isLoggedIn) {
@@ -571,7 +607,7 @@ fun ProfileScreen(
             onOpenAc = { if (isLoggedIn) openUtility("ac") else onLogin() },
             onOpenLighting = { if (isLoggedIn) openUtility("lighting") else onLogin() },
             onOpenInternet = { if (isLoggedIn) openUtility("internet") else onLogin() },
-            onOpenMyInfoHub = { showMyInfoHub = true },
+            onOpenStudentBasicInfo = { showStudentBasicInfo = true },
             themeMode = themeMode,
             onOpenSettings = { showSettings = true },
             onOpenXzxx = { showXzxx = true },
@@ -583,6 +619,44 @@ fun ProfileScreen(
     }
 
     // 鍏ㄥ睆鏀粯鐮佸脊绐?鈥?鏀惧湪 ProfileScreen 椤跺眰,纭繚鑳借闂?cardUiState/cardViewModel/showFullQrCode
+    if (showAvatarPicker) {
+        AvatarPickerSheet(
+            currentMode = cardUiState.avatarMode,
+            customAvatarReady = cardUiState.customAvatarReady,
+            onSelectDefault = { cardViewModel.setAvatarMode(AvatarMode.DEFAULT) },
+            onSelectReal = { cardViewModel.setAvatarMode(AvatarMode.REAL) },
+            onSelectCustom = { cardViewModel.setAvatarMode(AvatarMode.CUSTOM) },
+            onPickCustom = { photoPicker.launch() },
+            onOpenRealViewer = { showRealAvatarViewer = true },
+            onDismiss = { showAvatarPicker = false },
+        )
+    }
+    if (showAvatarCrop) {
+        val uri = pickedAvatarUri
+        if (uri != null) {
+            BackHandler(enabled = true) { showAvatarCrop = false }
+            AvatarCropScreen(
+                imageUri = uri,
+                onConfirm = { bitmap ->
+                    cardViewModel.saveCustomAvatar(bitmap)
+                    showAvatarCrop = false
+                    pickedAvatarUri = null
+                },
+                onBack = { showAvatarCrop = false },
+            )
+        }
+    }
+    if (showRealAvatarViewer) {
+        BackHandler(enabled = true) { showRealAvatarViewer = false }
+        RealAvatarViewerScreen(
+            avatarUrl = cardUiState.avatarUrl,
+            realAvatarFile = app.avatarStore.realAvatarFileOrNull(),
+            isLoading = cardUiState.avatarRefreshing,
+            error = null,
+            onRefresh = { cardViewModel.refreshRealAvatar() },
+            onBack = { showRealAvatarViewer = false },
+        )
+    }
     if (showFullQrCode) {
         QrCodeFullScreenDialog(
             qrCode = cardUiState.qrCode,

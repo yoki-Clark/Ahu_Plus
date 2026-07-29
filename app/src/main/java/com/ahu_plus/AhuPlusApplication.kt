@@ -69,6 +69,7 @@ import com.ahu_plus.data.repository.RecordRepository
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.UserTaskRepository
 import com.ahu_plus.data.repository.YcardRepository
+import com.ahu_plus.data.repository.AvatarStore
 import com.ahu_plus.data.repository.XzxxRepository
 import com.ahu_plus.notification.WidgetRefreshScheduler
 import com.ahu_plus.notification.CourseReminderScheduler
@@ -133,6 +134,8 @@ class AhuPlusApplication : Application() {
     lateinit var studentInfoRepository: StudentInfoRepository
         private set
     lateinit var ycardRepository: YcardRepository
+        private set
+    lateinit var avatarStore: AvatarStore
         private set
     lateinit var gradeRepository: GradeRepository
         private set
@@ -225,6 +228,7 @@ class AhuPlusApplication : Application() {
         com.ahu_plus.util.QrCodeBitmap.clear()
         accountStateModule.incrementGeneration()
         cacheModule.clearQrCodeCache()
+        avatarStore.clearAll()
         attendanceRepository.clearCookies()
         cProgAuthRepository.clearSession()
         gradeRepository.clearAccountState()
@@ -244,6 +248,7 @@ class AhuPlusApplication : Application() {
     suspend fun clearAllLocalData() {
         appDataStore.clearAllLocalData()
         encryptedCredentialStore.clearAll()
+        avatarStore.clearAll()
         CookieManager.getInstance().removeAllCookies(null)
         WebStorage.getInstance().deleteAllData()
     }
@@ -293,6 +298,7 @@ class AhuPlusApplication : Application() {
         courseRepository = CourseRepository(jwAuthRepository)
         // ycard 复用 CasAuthRepository 的 CASTGC,避免重复完整登录
         ycardRepository = YcardRepository(casAuthRepository)
+        avatarStore = AvatarStore(this, ycardRepository)
         cardRepository = CardRepository(
             portalJsessionIdProvider = { casAuthRepository.getJsessionid() }
         )

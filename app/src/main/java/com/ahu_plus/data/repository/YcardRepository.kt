@@ -256,6 +256,35 @@ class YcardRepository(
     }
 
     /**
+     * 下载头像图片字节 (minio 公开图,无需鉴权)。
+     *
+     * URL 来自 [getUserAvatarUrl] 返回的 data.avatar。响应是原始 JPEG 字节
+     * (虽 URL 后缀 .png 且 Content-Type 为 image/png,魔数 FFD8 是 JPEG)。
+     * 调用方负责线程切换 (IO)。
+     *
+     * @return 图片字节;HTTP 失败或空响应返回 failure。
+     */
+    suspend fun downloadAvatarBytes(url: String): Result<ByteArray> = try {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", UA)
+            .header("Referer", "$YCARD_BASE/plat/wode?index=3")
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                return Result.failure(Exception("头像下载失败 HTTP ${response.code}"))
+            }
+            val bytes = response.body?.bytes()
+                ?: return Result.failure(Exception("头像下载空响应"))
+            Result.success(bytes)
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "头像下载错误", e)
+        Result.failure(e)
+    }
+
+    /**
      * 查询全量一卡通账单（遍历所有分页）。
      *
      * @param pageSize 每页条数，默认 50

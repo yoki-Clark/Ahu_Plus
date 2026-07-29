@@ -35,4 +35,19 @@ class SessionManagerClearPolicyTest {
         assertFalse(accountCleanup.contains("cachedUserTasksJson = null"))
         assertTrue(clearAll.contains("clearCachedUserAssets()"))
     }
+
+    @Test
+    fun `avatar mode is account-scoped and cleared on logout`() {
+        // avatar_mode 与 avatar_url 一致:账号数据,退登清理(退登后头像相关数据全部清理)
+        assertTrue(SessionManager.AUTH_DATA_KEYS.contains(SessionManager.AVATAR_MODE_KEY))
+
+        val source = File("src/main/java/com/ahu_plus/data/local/SessionManager.kt").readText()
+        val accountCleanup = source
+            .substringAfter("private fun clearCachedAuthData()")
+            .substringBefore("private fun clearCachedUserAssets()")
+        assertTrue(
+            "clearCachedAuthData 应将 cachedAvatarMode 重置为 DEFAULT",
+            accountCleanup.contains("cachedAvatarMode = AvatarMode.DEFAULT")
+        )
+    }
 }

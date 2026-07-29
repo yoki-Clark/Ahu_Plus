@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
@@ -321,7 +322,9 @@ fun CategoryDetailScreen(
     error: String?,
     lastUpdatedAt: Long,
     onBack: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onOpenHub: (() -> Unit)? = null,
+    headerContent: @Composable (() -> Unit)? = null
 ) {
     Scaffold(
         topBar = {
@@ -333,6 +336,11 @@ fun CategoryDetailScreen(
                     }
                 },
                 actions = {
+                    if (onOpenHub != null) {
+                        IconButton(onClick = onOpenHub) {
+                            Icon(Icons.Filled.Apps, contentDescription = "我的信息")
+                        }
+                    }
                     IconButton(onClick = onRefresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                     }
@@ -351,6 +359,9 @@ fun CategoryDetailScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            headerContent?.let { content ->
+                item { content() }
+            }
             when {
                 isLoading && fields.isEmpty() -> {
                     item { LoadingBlock("正在加载...") }
