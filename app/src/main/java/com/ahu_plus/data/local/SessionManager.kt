@@ -171,6 +171,9 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
     // 首页焦点轮播(日程/天气/通知)是否显示 (默认 false 隐藏;退登保留)
     @Volatile private var cachedHomeFocusPagerEnabled: Boolean = false
 
+    // 下拉刷新指示器动画样式 (默认渐变弧;退登保留)
+    @Volatile private var cachedRefreshIndicatorStyle: RefreshIndicatorStyle = RefreshIndicatorStyle.DEFAULT
+
     // 应用页排版配置 (JSON 序列化的 AppHubLayoutConfig;退登保留)
     @Volatile private var cachedAppHubLayout: AppHubLayoutConfig = AppHubLayoutConfig()
 
@@ -531,6 +534,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    val refreshIndicatorStyleFlow = appDataStore.dataStore.data.map { preferences ->
+
+        RefreshIndicatorStyle.fromStorageValue(preferences[REFRESH_INDICATOR_STYLE_KEY])
+
+    }
+
     /**
 
      * \u4ECE DataStore \u6062\u590D\u6240\u6709\u6570\u636E\u5230\u5185\u5B58\u7F13\u5B58\u3002
@@ -675,6 +684,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedHomeDockMode = HomeDockMode.fromStorageValue(prefs[HOME_DOCK_MODE_KEY])
 
         cachedHomeFocusPagerEnabled = prefs[HOME_FOCUS_PAGER_KEY] ?: false
+
+        cachedRefreshIndicatorStyle = RefreshIndicatorStyle.fromStorageValue(prefs[REFRESH_INDICATOR_STYLE_KEY])
 
         cachedAppUsageCounts = parseAppUsageCounts(prefs[APP_USAGE_COUNTS_KEY])
 
@@ -1703,6 +1714,17 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedHomeFocusPagerEnabled = enabled
 
         appDataStore.dataStore.edit { it[HOME_FOCUS_PAGER_KEY] = enabled }
+
+    }
+
+    /** 下拉刷新指示器动画样式,默认渐变弧。退登保留。 */
+    fun getRefreshIndicatorStyle(): RefreshIndicatorStyle = cachedRefreshIndicatorStyle
+
+    suspend fun saveRefreshIndicatorStyle(style: RefreshIndicatorStyle) {
+
+        cachedRefreshIndicatorStyle = style
+
+        appDataStore.dataStore.edit { it[REFRESH_INDICATOR_STYLE_KEY] = style.storageValue }
 
     }
 
@@ -2984,6 +3006,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedHomeFocusPagerEnabled = false
 
+        cachedRefreshIndicatorStyle = RefreshIndicatorStyle.DEFAULT
+
         cachedScheduleColWidth = 64f
 
         cachedScheduleRowHeight = 56f
@@ -3845,6 +3869,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         val HOME_FOCUS_PAGER_KEY = booleanPreferencesKey("home_focus_pager_enabled")
 
+        val REFRESH_INDICATOR_STYLE_KEY = stringPreferencesKey("refresh_indicator_style")
+
         val APP_USAGE_COUNTS_KEY = stringPreferencesKey("app_usage_counts_json")
 
         val SCHEDULE_COL_WIDTH_KEY = stringPreferencesKey("schedule_col_width")
@@ -4217,7 +4243,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             AI_COMMENT_TEMPLATES_KEY, AI_COMMENT_SELECTED_TEMPLATE_KEY,
 
             RECENT_APPS_KEY, APP_HUB_LAYOUT_KEY, APP_USAGE_COUNTS_KEY,
-            HOME_DOCK_MODE_KEY, HOME_FOCUS_PAGER_KEY,
+            HOME_DOCK_MODE_KEY, HOME_FOCUS_PAGER_KEY, REFRESH_INDICATOR_STYLE_KEY,
 
             SCHEDULE_COL_WIDTH_KEY, SCHEDULE_ROW_HEIGHT_KEY, SCHEDULE_FONT_SCALE_KEY,
 

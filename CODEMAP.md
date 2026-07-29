@@ -158,7 +158,7 @@
 - `ui/theme/Color.kt`、`Theme.kt`、`Type.kt`
 - `ui/theme/Shape.kt`、`Spacing.kt`、`Gradient.kt`
 - `ui/theme/CourseColors.kt`、`MarketColors.kt`
-- `ui/components/`：刷新、状态页、折叠区、图片选择、公告/更新弹窗、天气面板
+- `ui/components/`：刷新（多样式可选，`LocalRefreshIndicatorStyle` 注入）、状态页、折叠区、图片选择、公告/更新弹窗、天气面板
 
 ## 体积热点
 

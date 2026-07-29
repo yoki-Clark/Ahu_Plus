@@ -67,10 +67,13 @@ import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.local.AppAccentColor
 import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.data.local.BottomNavService
+import com.ahu_plus.data.local.RefreshIndicatorStyle
 import com.ahu_plus.data.local.lightPrimary
 import com.ahu_plus.ui.components.AhuListRow
 import com.ahu_plus.ui.components.AhuStickyHeader
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.LocalRefreshIndicatorStyle
+import com.ahu_plus.ui.components.RefreshIndicatorPreview
 import androidx.core.content.ContextCompat
 import com.ahu_plus.notification.CardBalanceAlertMode
 
@@ -83,6 +86,7 @@ internal fun AppSettingsScreen(
     onAccentColorChange: (AppAccentColor) -> Unit = {},
     fontScale: AppFontScale = AppFontScale.NORMAL,
     onFontScaleChange: (AppFontScale) -> Unit = {},
+    onRefreshStyleChange: (RefreshIndicatorStyle) -> Unit = {},
     qrBrightnessBoost: Boolean = true,
     onQrBrightnessBoostChanged: (Boolean) -> Unit = {},
     cardBalanceAlertEnabled: Boolean = false,
@@ -280,6 +284,23 @@ internal fun AppSettingsScreen(
                                 fontScale = option,
                                 selected = fontScale == option,
                                 onClick = { onFontScaleChange(option) }
+                            )
+                        }
+                        HorizontalDivider()
+                        Text(
+                            text = "下拉刷新样式",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        val currentRefreshStyle = LocalRefreshIndicatorStyle.current
+                        RefreshIndicatorStyle.entries.forEachIndexed { index, option ->
+                            if (index > 0) HorizontalDivider()
+                            RefreshStyleRow(
+                                style = option,
+                                selected = currentRefreshStyle == option,
+                                onClick = { onRefreshStyleChange(option) },
                             )
                         }
                     }
@@ -621,6 +642,55 @@ private fun AppThemeMode.descriptionText(): String = when (this) {
     AppThemeMode.DAY -> "始终使用浅色界面"
     AppThemeMode.DARK -> "始终使用深色界面"
     AppThemeMode.SYSTEM -> "根据系统深色模式自动切换"
+}
+
+@Composable
+private fun RefreshStyleRow(
+    style: RefreshIndicatorStyle,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    ListItem(
+        headlineContent = {
+            Text(
+                text = style.titleText(),
+                fontWeight = FontWeight.Medium,
+            )
+        },
+        supportingContent = {
+            Text(text = style.descriptionText())
+        },
+        leadingContent = {
+            RefreshIndicatorPreview(style = style)
+        },
+        trailingContent = {
+            RadioButton(
+                selected = selected,
+                onClick = null,
+            )
+        },
+        modifier = Modifier.selectable(
+            selected = selected,
+            role = Role.RadioButton,
+            onClick = onClick,
+        ),
+    )
+}
+
+private fun RefreshIndicatorStyle.titleText(): String = when (this) {
+    RefreshIndicatorStyle.SYSTEM_DEFAULT -> "系统默认"
+    RefreshIndicatorStyle.GRADIENT_ARC -> "渐变弧"
+    RefreshIndicatorStyle.BOUNCING_DOTS -> "弹跳点"
+    RefreshIndicatorStyle.ORBIT -> "轨道行星"
+    RefreshIndicatorStyle.PULSE_RINGS -> "脉冲环"
+}
+
+private fun RefreshIndicatorStyle.descriptionText(): String = when (this) {
+    RefreshIndicatorStyle.SYSTEM_DEFAULT -> "Material 原生圆形转圈"
+    RefreshIndicatorStyle.GRADIENT_ARC -> "品牌色渐变弧旋转,经典加载圈"
+    RefreshIndicatorStyle.BOUNCING_DOTS -> "三点依次弹跳缩放,呼吸节奏"
+    RefreshIndicatorStyle.ORBIT -> "卫星绕中心椭圆公转"
+    RefreshIndicatorStyle.PULSE_RINGS -> "同心圆向外脉冲扩散,声呐感"
 }
 
 // ─── 我的信息二级入口 (Hub) ──────────────────────────────
