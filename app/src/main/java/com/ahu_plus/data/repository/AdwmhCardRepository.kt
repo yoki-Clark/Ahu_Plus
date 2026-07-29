@@ -85,8 +85,9 @@ class AdwmhCardRepository(
 
     private suspend fun <T> executeThrottled(
         priority: AdwmhRequestPriority = AdwmhRequestPriority.USER_ACTION,
+        enforceGap: Boolean = true,
         request: () -> T,
-    ): T = requestScheduler.execute(priority) { request() }
+    ): T = requestScheduler.execute(priority, enforceGap) { request() }
 
     // ── 登录 ─────────────────────────────────────────────
 
@@ -152,7 +153,7 @@ class AdwmhCardRepository(
                 .header("X-Requested-With", "XMLHttpRequest")
                 .get()
                 .build()
-            executeThrottled(priority) {
+            executeThrottled(priority, enforceGap = true) {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw AdwmhAuthException("验证码获取失败")
                     response.body?.bytes() ?: throw AdwmhAuthException("验证码为空")
@@ -197,7 +198,7 @@ class AdwmhCardRepository(
                 .header("Referer", "https://$HOST/www/index.html")
                 .post(formBody)
                 .build()
-            val (loginInfo, jsessionid) = executeThrottled(priority) {
+            val (loginInfo, jsessionid) = executeThrottled(priority, enforceGap = true) {
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string().orEmpty()
                     if (!response.isSuccessful) {
@@ -325,6 +326,7 @@ class AdwmhCardRepository(
         path: String,
         method: String = "GET",
         priority: AdwmhRequestPriority = AdwmhRequestPriority.USER_ACTION,
+        enforceGap: Boolean = false,
     ): JsonObject {
         val url = "https://$HOST$path"
         Log.d(TAG, "$method $url")
@@ -342,7 +344,7 @@ class AdwmhCardRepository(
         }
 
         try {
-            return executeThrottled(priority) {
+            return executeThrottled(priority, enforceGap = enforceGap) {
                 client.newCall(requestBuilder.build()).execute().use { response ->
                     val body = response.body?.string().orEmpty()
                     Log.d(TAG, "$method $path → ${response.code} (body len=${body.length})")

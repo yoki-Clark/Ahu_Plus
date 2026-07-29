@@ -146,8 +146,8 @@ fun CampusQrCodeCard(
                         )
                     }
 
-                    // 已加载 QR 码
-                    qrCode != null && !isStale -> {
+                    // 已加载 QR 码（含 stale-while-revalidate：过期旧码保留展示 + 标黄）
+                    qrCode != null -> {
                         val image = rememberQrCodeImage(qrCode.payload, 720)
                         Box(
                             modifier = Modifier

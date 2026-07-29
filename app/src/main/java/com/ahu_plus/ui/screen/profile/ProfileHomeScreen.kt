@@ -201,6 +201,13 @@ internal fun ProfileHomeScreen(
     var showQrCard by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
+    // 预加载支付码：进入「我的」页即开始取码（对齐首页），用户展开支付码卡片时
+    // 大概率命中 45s 内的缓存瞬间出码。ensureCampusQrCode 内部有新鲜度决策，
+    // 重复调用无副作用；未登录不发请求。
+    LaunchedEffect(Unit) {
+        if (isLoggedIn) onQrEnsure()
+    }
+
     LaunchedEffect(showQrCard) {
         if (shouldEnsureProfileQr(showQrCard)) onQrEnsure()
     }
@@ -889,7 +896,9 @@ private fun ProfileQrCard(
 
             when {
                 qrCode != null -> {
-                    val image = rememberQrCodeImage(qrCode.payload, 720)
+                    // 卡片态用 480px（显示 200dp 足够清晰），全屏态才用 720；
+                    // 配合 ViewModel 预生成，点开即命中缓存秒出。
+                    val image = rememberQrCodeImage(qrCode.payload, 480)
                     Box(
                         modifier = Modifier
                             .size(200.dp)

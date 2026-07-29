@@ -156,7 +156,7 @@ fun QrCodeFullScreenDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 when {
-                    qrCode != null && !isStale -> {
+                    qrCode != null -> {
                         // 已有 QR 码 → 显示大码
                         val image = rememberQrCodeImage(qrCode.payload, 720)
                         Box(

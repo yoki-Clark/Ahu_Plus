@@ -36,6 +36,7 @@ import com.ahu_plus.data.repository.YcardRepository
 import com.ahu_plus.data.repository.shouldRequestManualAdwmhCaptcha
 import com.ahu_plus.notification.CampusCardAlertNotifier
 import com.ahu_plus.data.repository.YcardPayRepository
+import com.ahu_plus.util.QrCodeBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -1194,7 +1195,10 @@ class HomeViewModel(
         if (payload.isNullOrBlank() || fetchedAt <= 0L) return
         val ageMs = System.currentTimeMillis() - fetchedAt
         if (ageMs > QR_CACHE_MAX_RESTORE_MS) return
-        if (ageMs > QR_STALE_THRESHOLD_MS) return
+        // 放宽冷启动恢复窗口到 2 分钟：超 60s 的旧码也先展示（标黄提示可能失效），
+        // 后台刷新拿到新码后替换。优于白屏转圈——payload 是不透明令牌，最坏只是被闸机拒一次。
+        if (ageMs > QR_CACHE_RESTORE_MS) return
+        val isStale = ageMs > QR_STALE_THRESHOLD_MS
         _uiState.update { state ->
             if (state.qrCode != null) return@update state
             state.copy(
@@ -1203,10 +1207,12 @@ class HomeViewModel(
                     statusMsg = serverText,
                     fetchedAt = fetchedAt
                 ),
-                qrStale = false,
+                qrStale = isStale,
                 qrAgeSeconds = (ageMs / 1000).toInt()
             )
         }
+        // 冷启动恢复的旧码也预生成位图，用户点开支付码卡片时秒出。
+        preheatQrBitmap(AdwmhQrCode(payload, serverText, fetchedAt))
     }
 
     /** 持久化最近一次成功的支付码,供下次冷启动兜底展示。 */
@@ -1221,6 +1227,22 @@ class HomeViewModel(
             )
         } else {
             sessionManager.saveAdwmhQrCache(qr.payload, qr.statusMsg, qr.fetchedAt)
+        }
+    }
+
+    /**
+     * 预生成支付码位图并塞入 [QrCodeBitmap] 缓存，使「我的」页展开支付码卡片时
+     * 直接命中缓存秒出，避免现场 ZXing 编码的 50~200ms 延迟（对标安大通秒开）。
+     * 折叠态 BalanceCard 不渲染位图，故须在 payload 到手时主动预生成。
+     * 覆盖卡片态(480)与全屏/首页态(720)两个尺寸。失败静默--缓存未命中时
+     * UI 会自行异步生成，不影响功能。
+     */
+    private fun preheatQrBitmap(qr: AdwmhQrCode) {
+        viewModelScope.launch(Dispatchers.Default) {
+            runCatching {
+                QrCodeBitmap.createAsync(qr.payload, 480)
+                QrCodeBitmap.createAsync(qr.payload, 720)
+            }
         }
     }
 
@@ -1260,6 +1282,7 @@ class HomeViewModel(
                         )
                     }
                     viewModelScope.launch(Dispatchers.IO) { persistQr(qr, cacheGeneration) }
+                    preheatQrBitmap(qr)
                     return@withContext
                 }
 
@@ -1306,6 +1329,7 @@ class HomeViewModel(
                                 viewModelScope.launch(Dispatchers.IO) {
                                     persistQr(qr, cacheGeneration)
                                 }
+                                preheatQrBitmap(qr)
                             }
                             return@withContext
                         } else if (loginResult.exceptionOrNull() is AdwmhCaptchaRequiredException) {
@@ -1825,7 +1849,9 @@ class HomeViewModel(
                                 qrCountdownSeconds = remaining,
                                 qrAgeSeconds = freshness.ageSeconds,
                                 qrStale = freshness.isStale,
-                                qrCode = if (freshness.isStale) null else state.qrCode,
+                                // stale-while-revalidate：过期不清空旧码，保留展示并标黄，
+                                // 由后台自动刷新拿到新码后替换。避免码消失->转圈的体感断点。
+                                qrCode = state.qrCode,
                                 qrError = freshness.errorMessage ?: state.qrError,
                             )
                         }
@@ -1844,6 +1870,8 @@ class HomeViewModel(
     private companion object {
         /** 展示码超过此时长视为可能已失效,UI 弹出醒目提示。 */
         const val QR_STALE_THRESHOLD_MS = 60_000L
+        /** 冷启动时,缓存码超过此时长仍可恢复展示(标黄),后台刷新替换。 */
+        const val QR_CACHE_RESTORE_MS = 2 * 60_000L
         /** 冷启动时,缓存码超过此时长则不再展示(太旧已无意义)。 */
         const val QR_CACHE_MAX_RESTORE_MS = 10 * 60_000L
     }
