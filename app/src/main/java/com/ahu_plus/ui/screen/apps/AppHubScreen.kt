@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -654,7 +655,8 @@ private fun AppHubPage(
                     }
                 }
             )
-        }
+        },
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         // COMPACT 卡片强制单列(normalize 已保证,预览态再兜底一次)
         val effectiveColumns =

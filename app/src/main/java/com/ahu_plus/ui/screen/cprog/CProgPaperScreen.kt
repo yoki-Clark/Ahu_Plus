@@ -52,6 +52,7 @@ fun CProgPaperScreen(
                 },
             )
         },
+        contentWindowInsets = WindowInsets(0),
     ) { inner ->
         Box(Modifier.fillMaxSize().padding(inner)) {
             when {
