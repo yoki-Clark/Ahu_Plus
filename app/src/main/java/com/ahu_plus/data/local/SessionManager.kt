@@ -3171,6 +3171,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedRefreshIndicatorStyle = RefreshIndicatorStyle.DEFAULT
 
+        cachedAccentColor = AppAccentColor.BLUE
+
+        cachedFontScale = AppFontScale.NORMAL
+
         cachedScheduleColWidth = 64f
 
         cachedScheduleRowHeight = 56f
@@ -4425,6 +4429,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
             RECENT_APPS_KEY, APP_HUB_LAYOUT_KEY, APP_USAGE_COUNTS_KEY,
             HOME_DOCK_MODE_KEY, HOME_FOCUS_PAGER_KEY, REFRESH_INDICATOR_STYLE_KEY,
+            ACCENT_COLOR_KEY, FONT_SCALE_KEY,
 
             SCHEDULE_COL_WIDTH_KEY, SCHEDULE_ROW_HEIGHT_KEY, SCHEDULE_FONT_SCALE_KEY,
 
