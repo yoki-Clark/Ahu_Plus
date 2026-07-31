@@ -19,6 +19,7 @@ import com.ahu_plus.data.repository.mail.MailAuthException
 import com.ahu_plus.data.repository.mail.MailHandshakeFailedException
 import com.ahu_plus.data.repository.mail.MailRateLimitedException
 import com.ahu_plus.data.repository.mail.MailSessionExpiredException
+import com.ahu_plus.data.repository.mail.XmlJs6Converter
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +66,13 @@ class AhuMailRepository(
     }
 
     private val gson = GsonProvider.instance
+
+    /**
+     * 网易 Sirius 会话 sid(握手时从 entry/door 的 meta refresh URL 提取)。
+     * js6/s 业务接口必须带此参数;仅在内存缓存,为空时强制重新握手。
+     */
+    @Volatile
+    private var cachedSid: String? = null
 
     /**
      * 私有 cookie 存储(按 host 分桶),仅存放 wvpn.ahu.edu.cn 与 mail.stu.ahu.edu.cn 域的 cookie。
@@ -186,8 +194,8 @@ class AhuMailRepository(
                 extra = mapOf("sid" to "", "needUnitNamePath" to "false"),
             )
             val data = json.getAsJsonObject("data") ?: throw MailApiException(
-                json.get("code")?.asInt ?: -1,
-                json.get("message")?.asString ?: "响应缺少 data",
+                codeInt(json.get("code")) ?: -1,
+                json.get("message")?.safeStr() ?: "响应缺少 data",
             )
             parseAccountInfo(data)
         }
@@ -206,17 +214,17 @@ class AhuMailRepository(
                 ),
             )
             val result = json.getAsJsonObject("result") ?: throw MailApiException(
-                json.get("code")?.asInt ?: -1,
-                json.get("desc")?.asString ?: "响应缺少 result",
+                codeInt(json.get("code")) ?: -1,
+                json.get("desc")?.safeStr() ?: "响应缺少 result",
             )
             val data = result.getAsJsonObject("data") ?: throw MailApiException(
-                json.get("code")?.asInt ?: -1,
+                codeInt(json.get("code")) ?: -1,
                 "响应缺少 data",
             )
             MailAccountBaseInfo(
-                email = data.get("email")?.asString ?: "",
-                nickName = data.get("nickName")?.asString ?: "",
-                orgName = data.get("orgName")?.asString ?: "",
+                email = data.get("email")?.safeStr() ?: "",
+                nickName = data.get("nickName")?.safeStr() ?: "",
+                orgName = data.get("orgName")?.safeStr() ?: "",
             )
         }
     }
@@ -230,9 +238,9 @@ class AhuMailRepository(
                 extra = mapOf("func" to "mbox:getAllFolders"),
                 bodyJson = """{"order":"custom_virtual"}""",
             )
-            val varObj = json.getAsJsonObject("var")
-                ?: throw MailApiException(json.get("code")?.asInt ?: -1, "响应缺少 var")
-            parseFolders(varObj)
+            val varEl = json.get("var")
+                ?: throw MailApiException(codeInt(json.get("code")) ?: -1, "响应缺少 var")
+            parseFolders(varEl)
         }
     }
 
@@ -268,9 +276,9 @@ class AhuMailRepository(
                 extra = mapOf("func" to "mbox:listMessages"),
                 bodyJson = body,
             )
-            val varObj = json.getAsJsonObject("var")
-                ?: throw MailApiException(json.get("code")?.asInt ?: -1, "响应缺少 var")
-            parseMessageList(varObj, fid)
+            val varEl = json.get("var")
+                ?: throw MailApiException(codeInt(json.get("code")) ?: -1, "响应缺少 var")
+            parseMessageList(varEl, fid)
         }
     }
 
@@ -300,9 +308,9 @@ class AhuMailRepository(
                 extra = mapOf("func" to "mbox:readMessage"),
                 bodyJson = body,
             )
-            val varObj = json.getAsJsonObject("var")
-                ?: throw MailApiException(json.get("code")?.asInt ?: -1, "响应缺少 var")
-            parseMessageDetail(varObj)
+            val varEl = json.get("var")
+                ?: throw MailApiException(codeInt(json.get("code")) ?: -1, "响应缺少 var")
+            parseMessageDetail(varEl)
         }
     }
 
@@ -338,9 +346,9 @@ class AhuMailRepository(
                 extra = mapOf("func" to "mbox:statMessages"),
                 bodyJson = body,
             )
-            val varObj = json.getAsJsonObject("var")
-                ?: throw MailApiException(json.get("code")?.asInt ?: -1, "响应缺少 var")
-            parseFolderStats(varObj)
+            val varEl = json.get("var")
+                ?: throw MailApiException(codeInt(json.get("code")) ?: -1, "响应缺少 var")
+            parseFolderStats(varEl)
         }
     }
 
@@ -364,15 +372,22 @@ class AhuMailRepository(
         casAuthRepository.ensureValidSession(generation).getOrThrow()
         Log.d(TAG, "handshake: CAS TGT 已就绪")
 
-        // Step 1: 调用 generateSsoUrl(若 wengine_vpn_ticket 未建立,会触发 wvpn 登录子链)
+        // Step 1: 把 CASTGC 同步到 wvpn 网关(cookie 中转桥)。
+        // 2026-07-31 实测关键:反代 CAS 按 wvpn 会话查 TGT,不经 bridge 同步会卡在登录页。
+        syncCastgcToWvpn(generation)
+        Log.d(TAG, "handshake: CASTGC 已同步到 wvpn 网关")
+
+        // Step 2: 访问 tp_up/view 建立 wvpn ticket + tp_up 会话,再调用 generateSsoUrl
         val ssourl = ensureWvpnLoginAndGenerateSsoUrl(generation)
         Log.d(TAG, "handshake: ssourl=${ssourl.take(80)}...")
 
-        // Step 2-7: 跟 302 跳转链,提取 sid/Coremail/JWT
+        // Step 3-8: 跟 302 跳转链(Entry → /login → CAS → token → entry/door),
+        // 提取 sid 并跟随 /redirect 设置 Coremail cookie
         val doorParams = followSsoRedirectChain(ssourl)
         Log.d(TAG, "handshake: door params sid=${doorParams.sid?.take(20)}")
+        doorParams.sid?.let { cachedSid = it }
 
-        // Step 8: cookie 中转桥
+        // Step 9: cookie 中转桥
         val mailCookies = fetchCookieBridge()
         Log.d(TAG, "handshake: mail cookies keys=${mailCookies.keys}")
 
@@ -391,28 +406,51 @@ class AhuMailRepository(
     }
 
     /**
-     * 调用 generateSsoUrl;若 wengine_vpn_ticket 不存在,先走 wvpn 登录子链。
+     * 通过 wengine-vpn/cookie 中转桥把 one.ahu.edu.cn 的 CASTGC 同步到 wvpn 网关。
+     * 网关替客户端持有内部域 cookie,反代 CAS 才能识别 TGT。
+     */
+    private suspend fun syncCastgcToWvpn(generation: Long) {
+        val castgc = casAuthRepository.cookieStore["one.ahu.edu.cn"]
+            ?.firstOrNull { it.name == "CASTGC" }
+            ?.value
+            ?: run {
+                Log.w(TAG, "syncCastgc: 未找到 CASTGC,跳过同步")
+                return
+            }
+        val setUrl = "https://${MailApi.HOST}/wengine-vpn/cookie" +
+            "?method=set&host=one.ahu.edu.cn&scheme=https&path=/&ck_data=CASTGC=$castgc"
+        val request = Request.Builder()
+            .url(setUrl)
+            .header("User-Agent", MailApi.USER_AGENT)
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful || !body.contains("success")) {
+                throw MailHandshakeFailedException(1, response.code, "CASTGC 同步失败: $body")
+            }
+        }
+    }
+
+    /**
+     * 确保 wvpn ticket + tp_up 会话就绪,再调用 generateSsoUrl。
+     *
+     * 2026-07-31 实测:generateSsoUrl 404 的直接原因是 tp_up 会话未建立。
+     * 总是先走 tp_up/view?m=up 链(幂等,已登录直接通过),同时建立 wvpn ticket。
      */
     private suspend fun ensureWvpnLoginAndGenerateSsoUrl(generation: Long): String {
-        // 检查 wengine_vpn_ticket 是否已建立
-        val hasWvpnTicket = synchronized(cookieLock) {
-            cookieStore[MailApi.HOST]?.any { it.name == "wengine_vpn_ticketwvpn_ahu_edu_cn" } == true
-        } || !sessionManager.getMailWvpnTicket().isNullOrBlank()
+        // 总是先走 tp_up/view 链:302 链自动完成 wvpn 登录,并建立 tp_up 会话
+        performWvpnLogin(generation)
+        // 从 SessionManager 恢复持久化的 wengine_vpn_ticket(可能复用旧 ticket)
+        seedPersistedCookiesInternal()
 
-        if (!hasWvpnTicket) {
-            Log.d(TAG, "ensureWvpn: ticket 缺失,触发 wvpn 登录子链")
-            performWvpnLogin(generation)
-        } else {
-            // 从 SessionManager 恢复 wengine_vpn_ticket 到 cookie store
-            seedPersistedCookiesInternal()
-        }
-
-        // 调用 generateSsoUrl
+        // 调用 generateSsoUrl(需要 tp_up 已登录会话)
         val request = Request.Builder()
             .url(MailApi.generateSsoUrlUrl())
             .header("User-Agent", MailApi.USER_AGENT)
-            .header("Accept", "application/json, text/plain, */*")
+            .header("Accept", "application/json, text/javascript, */*; q=0.01")
             .header("Content-Type", "application/json;charset=UTF-8")
+            .header("X-Requested-With", "XMLHttpRequest")
             .header("Referer", "https://${MailApi.HOST}/https/${MailApi.HEX_ONE}/tp_up/view?m=up")
             .post("{}".toRequestBody("application/json;charset=UTF-8".toMediaType()))
             .build()
@@ -428,86 +466,81 @@ class AhuMailRepository(
             }
             val body = it.body?.string().orEmpty()
             val json = JsonParser.parseString(body).asJsonObject
-            val ssourl = json.get("ssourl")?.asString
+            val ssourl = json.get("ssourl")?.safeStr()
                 ?: throw MailHandshakeFailedException(1, it.code, "ssourl 为空")
             ssourl
         }
     }
 
     /**
-     * wvpn 登录子链(当 wengine_vpn_ticket 不存在时触发)。
+     * wvpn 登录子链 + tp_up 会话建立(幂等,每次握手都执行)。
      *
-     * 流程:GET 任意 wvpn 保护 URL → 302 /login → 302 /cas/login?service=...
-     *      → CAS 检查 TGT(已通过 casAuthRepository.ensureValidSession 建立)→ 302 /login?ticket=ST-
+     * 流程:GET tp_up/view?m=up → 302 /login → 302 /cas/login?service=...
+     *      → CAS 检查 TGT(bridge 同步后可见)→ 302 /login?ticket=ST-
      *      → 302 /wengine-vpn-token-login?token=... → 302 /token-login?token=...
      *      → 302 原始 URL + Set wengine_vpn_ticketwvpn_ahu_edu_cn cookie
+     *
+     * 触发点必须是 tp_up/view:generateSsoUrl 需要 tp_up 会话,且该链同时建立 wvpn ticket。
      */
     private suspend fun performWvpnLogin(generation: Long) {
-        // 触发点:GET /domain/oa/Entry(不带参数,仅用于触发登录)
-        val triggerUrl = MailApi.ssoEntryUrl()
+        val triggerUrl = "https://${MailApi.HOST}/https/${MailApi.HEX_ONE}/tp_up/view?m=up"
         Log.d(TAG, "wvpnLogin: trigger=$triggerUrl")
 
-        // Step A: GET trigger → 302 /login
-        val loginUrl = followRedirect(triggerUrl, step = 1, expectedHost = MailApi.HOST)
-        Log.d(TAG, "wvpnLogin: → /login")
-
-        // Step B: GET /login → 302 /cas/login?service=...
-        val casLoginUrl = followRedirect(loginUrl, step = 2, expectedHost = MailApi.HOST)
-        Log.d(TAG, "wvpnLogin: → /cas/login?service=...")
-
-        // Step C: GET /cas/login?service=... → 302 /login?cas_login=true&ticket=ST-
-        // CAS 检查 TGT(已通过 casAuthRepository 共享),有 TGT 直接给 ticket
-        val ticketedUrl = followRedirect(casLoginUrl, step = 3, expectedHost = MailApi.HOST)
-        if (!ticketedUrl.contains("ticket=")) {
-            throw MailHandshakeFailedException(3, 0, "CAS 未给 ticket(TGT 可能已失效)")
+        // 跟随完整 302 链(最多 8 跳),直到 200
+        var url = triggerUrl
+        for (step in 1..8) {
+            val next = followRedirect(url, step = step, expectedHost = MailApi.HOST)
+            if (next == url) break // 200,链结束
+            url = next
+            Log.d(TAG, "wvpnLogin[$step]: → ${url.take(70)}")
         }
-        Log.d(TAG, "wvpnLogin: → /login?ticket=ST-...")
-
-        // Step D: GET /login?cas_login=true&ticket=ST-... → 302 /wengine-vpn-token-login?token=...
-        val tokenLoginUrl = followRedirect(ticketedUrl, step = 4, expectedHost = MailApi.HOST)
-        if (!tokenLoginUrl.contains("token=")) {
-            throw MailHandshakeFailedException(4, 0, "未拿到 WebVPN token")
-        }
-        Log.d(TAG, "wvpnLogin: → /wengine-vpn-token-login?token=...")
-
-        // Step E: GET /wengine-vpn-token-login?token=... → 302 /token-login?token=...
-        val tokenLoginPath = followRedirect(tokenLoginUrl, step = 5, expectedHost = MailApi.HOST)
-        Log.d(TAG, "wvpnLogin: → /token-login?token=...")
-
-        // Step F: GET /token-login?token=... → 302 原始 URL + Set wengine_vpn_ticketwvpn_ahu_edu_cn
-        // 注意:此步会写入 wengine_vpn_ticketwvpn_ahu_edu_cn cookie(由 CookieJar.saveFromResponse 自动捕获)
-        followRedirect(tokenLoginPath, step = 6, expectedHost = MailApi.HOST)
-        Log.d(TAG, "wvpnLogin: wengine_vpn_ticket 已建立")
+        Log.d(TAG, "wvpnLogin: 链结束,url=${url.take(70)}")
     }
 
     /**
-     * 跟随 SSO 跳转链(从 ssourl 到 /entry/door 响应)。
-     * 提取 sid/c/mc/s/tk 等 door 参数。
+     * 跟随 SSO 跳转链:ssourl → wvpn 反代 → /entry/door → meta refresh → /redirect。
+     *
+     * 2026-07-31 实测链:
+     *   wvpn/https/{entryhz hex}/domain/oa/Entry?domain&account_name&time&enc
+     *   → 302 /login → 302 cas/login → 302 login?ticket=ST- → 302 wengine-vpn-token-login
+     *   → 302 /token-login → 302 回 Entry → 302 /entry/door?hl=zh_CN&... → 200(meta refresh)
+     *   meta refresh → wvpn/http/{hex_mail}/redirect?l=...&sid=...&tk=...
+     *   GET /redirect 会把 Coremail cookie 写入网关(供 cookie 桥拉取)。
      */
     private suspend fun followSsoRedirectChain(ssourl: String): DoorParams {
-        // Step 2: GET ssourl → 302 /login(若无 wvpn ticket)或 302 /entry/door(若有)
-        val firstRedirect = followRedirect(ssourl, step = 2, expectedHost = MailApi.HOST)
+        // ssourl 是 entryhz.qiye.163.com 外部域名,必须转为 wvpn 反代 URL
+        var url = MailApi.wvpnSsoUrl(ssourl)
+        Log.d(TAG, "ssoChain: 起点=${url.take(90)}")
 
-        // 如果直接跳到 /entry/door,说明 wvpn ticket 已建立,继续
-        val doorUrl = if (firstRedirect.contains("/entry/door")) {
-            firstRedirect
-        } else {
-            // 否则需要走 wvpn 登录子链(wengine_vpn_ticket 可能在 SSO 链中失效)
-            Log.w(TAG, "ssoChain: ssourl 未直接跳到 /entry/door,触发 wvpn 重新登录")
-            performWvpnLogin(sessionManager.currentAccountGeneration())
-            // 重放 ssourl
-            val retryRedirect = followRedirect(ssourl, step = 2, expectedHost = MailApi.HOST)
-            if (!retryRedirect.contains("/entry/door")) {
-                throw MailHandshakeFailedException(2, 0, "重放 ssourl 仍未跳到 /entry/door")
+        var doorUrl: String? = null
+        for (step in 2..12) {
+            val next = followRedirect(url, step = step, expectedHost = MailApi.HOST)
+            if (next == url) {
+                doorUrl = url // 200,链结束
+                break
             }
-            retryRedirect
+            url = next
+            Log.d(TAG, "ssoChain[$step]: → ${url.take(80)}")
+            if (url.contains("/entry/door")) {
+                doorUrl = url
+                break
+            }
         }
-        Log.d(TAG, "ssoChain: → /entry/door")
+        doorUrl ?: throw MailHandshakeFailedException(2, 0, "SSO 链未到达 /entry/door")
 
-        // Step 7: GET /entry/door → 200,解析 meta refresh 提取参数
+        // GET /entry/door → 200,解析 meta refresh 提取参数
         val doorResponse = executeGet(doorUrl)
         val params = parseDoorMetaRefresh(doorResponse)
         Log.d(TAG, "ssoChain: door params sid=${params.sid?.take(20)}")
+
+        // 跟随 meta refresh 的 /redirect 链接:此步把 Coremail 等 cookie 写入 wvpn 网关
+        var redirectUrl = params.redirectUrl
+        for (step in 13..18) {
+            val next = followRedirect(redirectUrl, step = step, expectedHost = MailApi.HOST)
+            if (next == redirectUrl) break // 200,完成
+            redirectUrl = next
+        }
+        Log.d(TAG, "ssoChain: /redirect 跟随完成")
         return params
     }
 
@@ -746,7 +779,8 @@ class AhuMailRepository(
 
     private suspend fun ensureSessionInternal() {
         val cached = !sessionManager.getMailCoremail().isNullOrBlank()
-        if (cached && runCatching { validateSessionInternal() }.isSuccess) return
+        // cachedSid 为空(如冷启动)也必须重新握手,js6 接口依赖 sid
+        if (cached && cachedSid != null && runCatching { validateSessionInternal() }.isSuccess) return
         handshakeAndSeedCookies()
     }
 
@@ -768,7 +802,7 @@ class AhuMailRepository(
                 }
                 val body = response.body?.string().orEmpty()
                 val json = JsonParser.parseString(body).asJsonObject
-                val code = json.get("code")?.asInt
+                val code = codeInt(json.get("code"))
                 if (code != null && code != 0 && code != 200) {
                     throw MailSessionExpiredException("邮箱 session 校验业务 code=$code")
                 }
@@ -783,12 +817,12 @@ class AhuMailRepository(
         path: String,
         extra: Map<String, String> = emptyMap(),
     ): JsonObject {
-        val url = MailApi.businessGetUrl(path, DEVICE_ID, extra)
+        val url = MailApi.businessGetUrl(path, DEVICE_ID, extra.withSid())
         Log.d(TAG, "GET $path")
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", MailApi.USER_AGENT)
-            .header("Accept", "application/json, text/plain, */*")
+            .header("Accept", "application/json")
             .header("Referer", MailApi.businessUrl("/static/sirius-web/"))
             .get()
             .build()
@@ -802,7 +836,7 @@ class AhuMailRepository(
         bodyJson: String,
     ): JsonObject {
         val base = MailApi.businessUrl(path)
-        val params = MailApi.commonQuery(DEVICE_ID) + extra
+        val params = MailApi.commonQuery(DEVICE_ID) + extra.withSid()
         val query = params.entries.joinToString("&") { (k, v) ->
             "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
         }
@@ -811,12 +845,20 @@ class AhuMailRepository(
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", MailApi.USER_AGENT)
-            .header("Accept", "application/json, text/plain, */*")
+            // js6/s 按 Accept 协商格式:application/json 返回 JSON,其他返回 XML
+            .header("Accept", "application/json")
             .header("Content-Type", "application/json;charset=UTF-8")
             .header("Referer", MailApi.businessUrl("/static/sirius-web/"))
             .post(bodyJson.toRequestBody("application/json;charset=UTF-8".toMediaType()))
             .build()
         return executeBusinessRequest(request, path)
+    }
+
+    /** js6 接口需要 sid 参数;accountInfo 等 JSON 接口不需要(sid 为空时也不附加)。 */
+    private fun Map<String, String>.withSid(): Map<String, String> {
+        if (this.containsKey("sid")) return this
+        val sid = cachedSid ?: return this
+        return this + ("sid" to sid)
     }
 
     private fun executeBusinessRequest(request: Request, path: String): JsonObject {
@@ -833,18 +875,36 @@ class AhuMailRepository(
                 if (!response.isSuccessful) {
                     throw MailAuthException("邮箱 HTTP ${response.code}")
                 }
+                // js6/s 的 mbox:* 接口返回 XML,转换为 JSON 后统一解析
+                if (XmlJs6Converter.isJs6Xml(body)) {
+                    val xmlJson = XmlJs6Converter.toJson(body)
+                    val xmlCode = xmlJson.get("code")?.safeStr()
+                    if (xmlCode != null && xmlCode != "S_OK") {
+                        throw MailApiException(-1, "js6 XML code=$xmlCode")
+                    }
+                    return@use xmlJson
+                }
+                // 其他 < 开头(HTML 登录页)视为会话过期
                 if (body.trimStart().startsWith("<")) {
                     throw MailSessionExpiredException("邮箱返回 HTML,session 可能已过期")
                 }
                 val json = JsonParser.parseString(body).asJsonObject
-                // 格式 A: success/code; 格式 B: code/result
-                val code = json.get("code")?.asInt
-                val success = json.get("success")?.asBoolean
-                if (code != null && code != 0 && code != 200 && success != true) {
-                    val msg = json.get("message")?.asString
-                        ?: json.get("desc")?.asString
-                        ?: "邮箱请求失败"
-                    throw MailApiException(code, msg)
+                // code 可能是数字(0/200,格式 A/B)或字符串 "S_OK"(js6 JSON)
+                val codeEl = json.get("code")
+                val codeNum = codeEl?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.safeInt()
+                if (codeEl != null && codeEl.isJsonPrimitive && codeEl.asJsonPrimitive.isString) {
+                    val codeStr = codeEl.safeStr()
+                    if (codeStr != "S_OK") {
+                        throw MailApiException(-1, "js6 code=$codeStr")
+                    }
+                } else if (codeNum != null && codeNum != 0 && codeNum != 200) {
+                    val success = json.get("success")?.safeBool()
+                    if (success != true) {
+                        val msg = json.get("message")?.safeStr()
+                            ?: json.get("desc")?.safeStr()
+                            ?: "邮箱请求失败"
+                        throw MailApiException(codeNum, msg)
+                    }
                 }
                 json
             }
@@ -863,77 +923,96 @@ class AhuMailRepository(
     // 内部:响应解析
     // ══════════════════════════════════════════════════════
 
+
+    /** code 可能是数字(0/200)或字符串 "S_OK";asInt 对 "S_OK" 抛异常,统一走安全解析。 */
+    private fun codeInt(el: com.google.gson.JsonElement?): Int? =
+        el?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.safeInt()
+
+    // JsonNull.getAsX() 会抛 UnsupportedOperationException("JsonNull"),统一走安全访问
+    private fun com.google.gson.JsonElement.safeStr(): String? =
+        if (isJsonPrimitive) runCatching { asString }.getOrNull() else null
+
+    private fun com.google.gson.JsonElement.safeInt(): Int? =
+        if (isJsonPrimitive) runCatching { asInt }.getOrNull() else null
+
+    private fun com.google.gson.JsonElement.safeLong(): Long? =
+        if (isJsonPrimitive) runCatching { asLong }.getOrNull() else null
+
+    private fun com.google.gson.JsonElement.safeBool(): Boolean? =
+        if (isJsonPrimitive) runCatching { asBoolean }.getOrNull() else null
+
     private fun parseAccountInfo(data: JsonObject): MailAccountInfo {
         val defaultSenderObj = data.getAsJsonObject("defaultSender")
         val defaultSender = defaultSenderObj?.let {
             MailSender(
-                email = it.get("email")?.asString ?: "",
-                nickName = it.get("nickName")?.asString ?: "",
-                senderName = it.get("senderName")?.asString ?: "",
+                email = it.get("email")?.safeStr() ?: "",
+                nickName = it.get("nickName")?.safeStr() ?: "",
+                senderName = it.get("senderName")?.safeStr() ?: "",
             )
         }
         return MailAccountInfo(
-            qiyeAccountId = data.get("qiyeAccountId")?.asString ?: "",
-            accountName = data.get("accountName")?.asString ?: "",
-            email = data.get("email")?.asString ?: "",
-            nickName = data.get("nickName")?.asString ?: "",
-            senderName = data.get("senderName")?.asString ?: "",
-            yunxinAccountId = data.get("yunxinAccountId")?.asString,
-            yunxinToken = data.get("yunxinToken")?.asString,
-            yunxinTokenExpire = data.get("yunxinTokenExpire")?.asString?.toLongOrNull(),
-            authMobile = data.get("authMobile")?.asString,
-            orgName = data.get("orgName")?.asString ?: "",
-            displayEmail = data.get("displayEmail")?.asString ?: "",
+            qiyeAccountId = data.get("qiyeAccountId")?.safeStr() ?: "",
+            accountName = data.get("accountName")?.safeStr() ?: "",
+            email = data.get("email")?.safeStr() ?: "",
+            nickName = data.get("nickName")?.safeStr() ?: "",
+            senderName = data.get("senderName")?.safeStr() ?: "",
+            yunxinAccountId = data.get("yunxinAccountId")?.safeStr(),
+            yunxinToken = data.get("yunxinToken")?.safeStr(),
+            yunxinTokenExpire = data.get("yunxinTokenExpire")?.safeStr()?.toLongOrNull(),
+            authMobile = data.get("authMobile")?.safeStr(),
+            orgName = data.get("orgName")?.safeStr() ?: "",
+            displayEmail = data.get("displayEmail")?.safeStr() ?: "",
             defaultSender = defaultSender,
-            domainLogo = data.get("domainLogo")?.asString,
+            domainLogo = data.get("domainLogo")?.safeStr(),
         )
     }
 
-    private fun parseFolders(varObj: JsonObject): List<MailFolder> {
+    private fun parseFolders(varEl: com.google.gson.JsonElement): List<MailFolder> {
         val folders = mutableListOf<MailFolder>()
-        varObj.entrySet().forEach { (key, value) ->
-            if (value.isJsonObject) {
-                val folderObj = value.asJsonObject
-                folders.add(
-                    MailFolder(
-                        fid = folderObj.get("fid")?.asInt ?: key.toIntOrNull() ?: 0,
-                        name = folderObj.get("name")?.asString ?: key,
-                        unreadCount = folderObj.get("stats")?.asJsonObject
-                            ?.get("unread")?.asInt ?: 0,
-                        totalCount = folderObj.get("stats")?.asJsonObject
-                            ?.get("total")?.asInt ?: 0,
-                        children = null,
-                        isSystem = folderObj.get("system")?.asBoolean ?: false,
-                    )
+        // getAllFolders XML → var 是数组:{"var": [{"id":1,"name":"收件箱","stats":{...},"flags":{...}}]}
+        val items = if (varEl.isJsonArray) varEl.asJsonArray else return emptyList()
+        items.forEach { element ->
+            if (!element.isJsonObject) return@forEach
+            val folderObj = element.asJsonObject
+            val stats = folderObj.getAsJsonObject("stats")
+            folders.add(
+                MailFolder(
+                    fid = folderObj.get("id")?.safeInt() ?: folderObj.get("fid")?.safeInt() ?: 0,
+                    name = folderObj.get("name")?.safeStr() ?: "",
+                    unreadCount = stats?.get("unreadMessageCount")?.safeInt() ?: 0,
+                    totalCount = stats?.get("messageCount")?.safeInt() ?: 0,
+                    children = null,
+                    isSystem = folderObj.getAsJsonObject("flags")?.get("system")?.safeBool() ?: false,
                 )
-            }
+            )
         }
         return folders
     }
 
-    private fun parseMessageList(varObj: JsonObject, fid: Int): List<MailMessageSummary> {
+    private fun parseMessageList(varEl: com.google.gson.JsonElement, fid: Int): List<MailMessageSummary> {
         val messages = mutableListOf<MailMessageSummary>()
-        // mbox:listMessages 响应格式:{"var": {"...": [...], "list": [...]}}
-        val list = varObj.getAsJsonArray("list") ?: varObj.getAsJsonArray("messages")
-            ?: return emptyList()
-        list.forEach { element ->
+        // listMessages XML → var 是数组:{"var": [{"id":..,"subject":..,"from":"GitHub <..>","receivedDate":"2026-07-28 08:16:46",...}]}
+        val items = if (varEl.isJsonArray) varEl.asJsonArray else return emptyList()
+        items.forEach { element ->
             if (!element.isJsonObject) return@forEach
             val msg = element.asJsonObject
+            val flags = msg.getAsJsonObject("flags")
             messages.add(
                 MailMessageSummary(
-                    id = msg.get("id")?.asString ?: "",
-                    subject = msg.get("subject")?.asString ?: "(无主题)",
-                    from = parseAddress(msg.get("from")),
-                    to = parseAddressList(msg.get("to")),
-                    cc = msg.get("cc")?.takeIf { it.isJsonArray }?.let { parseAddressList(it) },
-                    date = msg.get("date")?.asString?.toLongOrNull() ?: 0L,
-                    size = msg.get("size")?.asLong ?: 0L,
-                    hasAttachment = msg.get("attachCount")?.asInt?.let { it > 0 } ?: false,
-                    isRead = msg.get("flags")?.asJsonObject?.get("flag")?.asInt?.let { it and 1 != 0 } ?: false,
-                    isStarred = msg.get("flags")?.asJsonObject?.get("flag")?.asInt?.let { it and 4 != 0 } ?: false,
-                    isReplied = msg.get("flags")?.asJsonObject?.get("flag")?.asInt?.let { it and 2 != 0 } ?: false,
-                    isForwarded = msg.get("flags")?.asJsonObject?.get("flag")?.asInt?.let { it and 8 != 0 } ?: false,
-                    tid = msg.get("tid")?.asString,
+                    id = msg.get("id")?.safeStr() ?: "",
+                    subject = msg.get("subject")?.safeStr() ?: "(无主题)",
+                    from = parseAddressString(msg.get("from")?.safeStr()),
+                    to = msg.get("to")?.safeStr()?.let { parseAddressString(it) }?.let { listOf(it) }
+                        ?: emptyList(),
+                    cc = null,
+                    date = parseJs6Date(msg.get("receivedDate")?.safeStr() ?: msg.get("sentDate")?.safeStr()),
+                    size = msg.get("size")?.safeLong() ?: 0L,
+                    hasAttachment = msg.get("attachCount")?.safeInt()?.let { it > 0 } ?: false,
+                    isRead = flags?.get("read")?.safeBool() ?: flags?.get("flag")?.safeInt()?.let { it and 1 != 0 } ?: false,
+                    isStarred = flags?.get("star")?.safeBool() ?: false,
+                    isReplied = flags?.get("reply")?.safeBool() ?: false,
+                    isForwarded = flags?.get("forward")?.safeBool() ?: false,
+                    tid = msg.get("tid")?.safeStr(),
                     fid = fid,
                 )
             )
@@ -941,69 +1020,99 @@ class AhuMailRepository(
         return messages
     }
 
-    private fun parseMessageDetail(varObj: JsonObject): MailMessageDetail {
-        val msg = varObj.getAsJsonObject("message") ?: varObj
-        val attachments = msg.getAsJsonArray("attachments")?.map { elem ->
+    private fun parseMessageDetail(varEl: com.google.gson.JsonElement): MailMessageDetail {
+        val msg = if (varEl.isJsonObject) varEl.asJsonObject.getAsJsonObject("message") ?: varEl.asJsonObject
+        else return MailMessageDetail(
+            "", "", MailAddress("", null), emptyList(), null, null, 0L, "", null,
+            emptyList(), emptyMap(), false, false, 0L
+        )
+        val attachments = msg.getAsJsonArray("attachments")?.mapNotNull { elem ->
+            if (!elem.isJsonObject) return@mapNotNull null
             val att = elem.asJsonObject
             MailAttachment(
-                id = att.get("id")?.asString ?: "",
-                name = att.get("name")?.asString ?: "",
-                size = att.get("size")?.asLong ?: 0L,
-                contentType = att.get("contentType")?.asString ?: "application/octet-stream",
-                needAuth = att.get("needAuth")?.asBoolean ?: false,
+                id = att.get("id")?.safeStr() ?: "",
+                name = att.get("name")?.safeStr() ?: "",
+                size = att.get("size")?.safeLong() ?: 0L,
+                contentType = att.get("contentType")?.safeStr() ?: "application/octet-stream",
+                needAuth = att.get("needAuth")?.safeBool() ?: false,
             )
         }
         val headers = mutableMapOf<String, String>()
         msg.getAsJsonObject("headers")?.entrySet()?.forEach { (k, v) ->
-            headers[k] = v.asString
+            if (v.isJsonArray) {
+                headers[k] = v.asJsonArray.firstOrNull()?.safeStr() ?: ""
+            } else {
+                headers[k] = v.safeStr() ?: ""
+            }
         }
+        // readMessage 响应:from/to 是字符串数组;text/html 是对象(content 字段)
+        // HTML 邮件体在 html.content,纯文本在 text.content(HTML 邮件的 text 可能为空)
+        // 注意:字段可能为 JsonNull(如 "html": null),getAsJsonObject 会抛异常,须先判 isJsonObject
+        val fromArr = msg.get("from")?.takeIf { it.isJsonArray }?.asJsonArray
+        val toArr = msg.get("to")?.takeIf { it.isJsonArray }?.asJsonArray
+        val textObj = msg.get("text")?.takeIf { it.isJsonObject }?.asJsonObject
+        val htmlObj = msg.get("html")?.takeIf { it.isJsonObject }?.asJsonObject
         return MailMessageDetail(
-            id = msg.get("id")?.asString ?: "",
-            subject = msg.get("subject")?.asString ?: "(无主题)",
-            from = parseAddress(msg.get("from")),
-            to = parseAddressList(msg.get("to")),
-            cc = msg.get("cc")?.takeIf { it.isJsonArray }?.let { parseAddressList(it) },
-            bcc = msg.get("bcc")?.takeIf { it.isJsonArray }?.let { parseAddressList(it) },
-            date = msg.get("date")?.asString?.toLongOrNull() ?: 0L,
-            htmlBody = msg.get("html")?.asString ?: msg.get("body")?.asString ?: "",
-            textBody = msg.get("text")?.asString,
+            id = msg.get("id")?.safeStr() ?: "",
+            subject = msg.get("subject")?.safeStr() ?: "(无主题)",
+            from = fromArr?.firstOrNull()?.takeIf { it.isJsonPrimitive }?.let { parseAddressString(it.safeStr()) }
+                ?: MailAddress("", null),
+            to = toArr?.mapNotNull { it.takeIf { p -> p.isJsonPrimitive }?.safeStr() }
+                ?.map { parseAddressString(it) } ?: emptyList(),
+            cc = null,
+            bcc = null,
+            date = parseJs6Date(msg.get("sentDate")?.safeStr() ?: msg.get("receivedDate")?.safeStr()),
+            // content 可能为 JsonNull,须先判 isJsonPrimitive(JsonNull.safeStr() 返回 "null")
+            htmlBody = htmlObj?.get("content")?.takeIf { it.isJsonPrimitive }?.safeStr() ?: "",
+            textBody = textObj?.get("content")?.takeIf { it.isJsonPrimitive }?.safeStr(),
             attachments = attachments,
             headers = headers,
-            isRead = msg.get("flags")?.asJsonObject?.get("flag")?.asInt?.let { it and 1 != 0 } ?: false,
-            isStarred = msg.get("flags")?.asJsonObject?.get("flag")?.asInt?.let { it and 4 != 0 } ?: false,
-            size = msg.get("size")?.asLong ?: 0L,
+            isRead = msg.getAsJsonObject("flags")?.get("read")?.safeBool() ?: false,
+            isStarred = false,
+            size = msg.get("size")?.safeLong()
+                ?: htmlObj?.get("contentLength")?.safeLong() ?: textObj?.get("contentLength")?.safeLong() ?: 0L,
         )
     }
 
-    private fun parseFolderStats(varObj: JsonObject): List<MailFolderStat> {
+    private fun parseFolderStats(varEl: com.google.gson.JsonElement): List<MailFolderStat> {
         val stats = mutableListOf<MailFolderStat>()
-        varObj.entrySet().forEach { (fid, value) ->
-            if (value.isJsonObject) {
-                val statObj = value.asJsonObject
-                stats.add(
-                    MailFolderStat(
-                        fid = fid.toIntOrNull() ?: 0,
-                        name = statObj.get("name")?.asString ?: fid,
-                        unreadCount = statObj.get("unread")?.asInt ?: 0,
-                        totalCount = statObj.get("total")?.asInt ?: 0,
-                    )
+        val items = if (varEl.isJsonArray) varEl.asJsonArray else return emptyList()
+        items.forEach { element ->
+            if (!element.isJsonObject) return@forEach
+            val statObj = element.asJsonObject
+            val s = statObj.getAsJsonObject("stats")
+            stats.add(
+                MailFolderStat(
+                    fid = statObj.get("id")?.safeInt() ?: statObj.get("fid")?.safeInt() ?: 0,
+                    name = statObj.get("name")?.safeStr() ?: "",
+                    unreadCount = s?.get("unreadMessageCount")?.safeInt() ?: 0,
+                    totalCount = s?.get("messageCount")?.safeInt() ?: 0,
                 )
-            }
+            )
         }
         return stats
     }
 
-    private fun parseAddress(element: com.google.gson.JsonElement?): MailAddress {
-        if (element == null || !element.isJsonObject) return MailAddress("", null)
-        val obj = element.asJsonObject
-        return MailAddress(
-            address = obj.get("address")?.asString ?: obj.get("email")?.asString ?: "",
-            name = obj.get("name")?.asString?.takeIf { it.isNotBlank() },
-        )
+    /** 解析网易地址字符串("Name <email@x.com>")。 */
+    private fun parseAddressString(raw: String?): MailAddress {
+        if (raw.isNullOrBlank()) return MailAddress("", null)
+        val m = Regex("""(.*?)\s*<([^>]+)>""").find(raw)
+        return if (m != null) {
+            val name = m.groupValues[1].trim().trim('"')
+            MailAddress(m.groupValues[2], name.takeIf { it.isNotBlank() })
+        } else {
+            MailAddress(raw.trim(), null)
+        }
     }
 
-    private fun parseAddressList(element: com.google.gson.JsonElement?): List<MailAddress> {
-        if (element == null || !element.isJsonArray) return emptyList()
-        return element.asJsonArray.map { parseAddress(it) }
+    /** 解析 js6 日期("2026-07-28 08:16:46")→ epoch 毫秒。 */
+    private fun parseJs6Date(raw: String?): Long {
+        if (raw.isNullOrBlank()) return 0L
+        return try {
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT)
+                .parse(raw)?.time ?: 0L
+        } catch (_: Exception) {
+            0L
+        }
     }
 }

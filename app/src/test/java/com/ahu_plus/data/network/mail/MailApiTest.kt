@@ -44,11 +44,24 @@ class MailApiTest {
     }
 
     @Test
-    fun `ssoEntryUrl 构造 SSO 入口 URL`() {
-        val url = MailApi.ssoEntryUrl()
+    fun `wvpnSsoUrl 把网易 ssourl 转为 wvpn 反代 URL`() {
+        val ssourl = "https://entryhz.qiye.163.com/domain/oa/Entry?" +
+            "domain=stu.ahu.edu.cn&account_name=student_id&time=1785463870171&enc=abc123"
+        val url = MailApi.wvpnSsoUrl(ssourl)
         assertTrue("URL 应以 wvpn.ahu.edu.cn 开头", url.startsWith("https://wvpn.ahu.edu.cn/"))
         assertTrue("URL 应包含 hex_one_entry", url.contains(MailApi.HEX_ONE_ENTRY))
         assertTrue("URL 应包含 /domain/oa/Entry", url.contains(MailApi.PATH_DOMAIN_OA_ENTRY))
+        assertTrue("URL 应保留 query 参数", url.contains("domain=stu.ahu.edu.cn"))
+        assertTrue("URL 应保留 enc 参数", url.contains("enc=abc123"))
+    }
+
+    @Test
+    fun `wvpnSsoUrl 无 query 时保持路径`() {
+        val url = MailApi.wvpnSsoUrl("https://entryhz.qiye.163.com/domain/oa/Entry")
+        assertEquals(
+            "https://wvpn.ahu.edu.cn/https/${MailApi.HEX_ONE_ENTRY}/domain/oa/Entry",
+            url,
+        )
     }
 
     @Test
