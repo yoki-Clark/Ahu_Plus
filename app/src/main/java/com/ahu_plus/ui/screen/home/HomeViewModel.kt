@@ -1204,8 +1204,11 @@ class HomeViewModel(
         }
     }
 
-    private fun applyCachedQr(payload: String?, serverText: String, fetchedAt: Long) {
+    private fun applyCachedQr(payload: String?, serverText: String?, fetchedAt: Long) {
         if (payload.isNullOrBlank() || fetchedAt <= 0L) return
+        // isNullOrBlank 不做智能转换,这里显式收窄;serverText 兜底空串(仅展示文案)
+        val p = payload ?: return
+        val text = serverText ?: ""
         val ageMs = System.currentTimeMillis() - fetchedAt
         if (ageMs > QR_CACHE_MAX_RESTORE_MS) return
         // 放宽冷启动恢复窗口到 2 分钟：超 60s 的旧码也先展示（标黄提示可能失效），
@@ -1216,8 +1219,8 @@ class HomeViewModel(
             if (state.qrCode != null) return@update state
             state.copy(
                 qrCode = AdwmhQrCode(
-                    payload = payload,
-                    statusMsg = serverText,
+                    payload = p,
+                    statusMsg = text,
                     fetchedAt = fetchedAt
                 ),
                 qrStale = isStale,
@@ -1225,7 +1228,7 @@ class HomeViewModel(
             )
         }
         // 冷启动恢复的旧码也预生成位图，用户点开支付码卡片时秒出。
-        preheatQrBitmap(AdwmhQrCode(payload, serverText, fetchedAt))
+        preheatQrBitmap(AdwmhQrCode(p, text, fetchedAt))
     }
 
     /** 持久化最近一次成功的支付码,供下次冷启动兜底展示。 */

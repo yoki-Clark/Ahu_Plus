@@ -82,8 +82,10 @@ interface CacheModule {
     // ── 支付码缓存 ──────────────────────────────────────
     data class QrCodeCache(
         /** Only populated in memory. Persisted metadata keeps this empty. */
-        val payload: String,
-        val serverText: String,
+        // payload/serverText 必须可空:Gson 绕过 Kotlin 构造器(Unsafe)反序列化旧缓存 JSON,
+        // 字段缺失/为 null 时运行时就是 null;声明非空会被 R8 按类型删掉空检查,release 下闪退。
+        val payload: String?,
+        val serverText: String?,
         val fetchedAt: Long,
         val generation: Long
     )
