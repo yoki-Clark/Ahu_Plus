@@ -12,6 +12,7 @@ import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.jw.CourseUnit
 import com.ahu_plus.data.model.jw.ScheduleData
+import com.ahu_plus.data.model.jw.SemesterScheduleResolver
 import com.ahu_plus.data.repository.CourseRepository
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -185,6 +186,12 @@ object CourseReminderScheduler {
         data: ScheduleData,
         leadMinutes: Int = CourseReminderReceiver.REMINDER_LEAD_MINUTES,
     ): List<LessonHint> {
+        // 假期(缓存周次为 0 或 >= 20):还没有正式教学周,不排课程提醒
+        if (data.currentWeek < 1 ||
+            SemesterScheduleResolver.isVacationWeek(data.currentWeek)
+        ) {
+            return emptyList()
+        }
         val week = data.currentWeek.coerceAtLeast(1)
         val unitTimes = data.unitTimes
         val now = DebugClock.now()

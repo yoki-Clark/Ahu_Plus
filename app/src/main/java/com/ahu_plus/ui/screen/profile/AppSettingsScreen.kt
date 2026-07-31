@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,6 +15,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +29,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.GridView
@@ -51,6 +55,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -246,62 +252,49 @@ internal fun AppSettingsScreen(
             item {
                 ProfileSection {
                     Column {
-                        AppThemeMode.entries.forEachIndexed { index, option ->
-                            if (index > 0) HorizontalDivider()
-                            ThemeModeRow(
-                                themeMode = option,
-                                selected = themeMode == option,
-                                onClick = { onThemeModeChange(option) }
-                            )
+                        AppearanceCollapsibleGroup(title = "深色模式") {
+                            AppThemeMode.entries.forEachIndexed { index, option ->
+                                if (index > 0) HorizontalDivider()
+                                ThemeModeRow(
+                                    themeMode = option,
+                                    selected = themeMode == option,
+                                    onClick = { onThemeModeChange(option) }
+                                )
+                            }
                         }
                         HorizontalDivider()
-                        Text(
-                            text = "主题色",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        AppAccentColor.entries.forEachIndexed { index, option ->
-                            if (index > 0) HorizontalDivider()
-                            AccentColorRow(
-                                accentColor = option,
-                                selected = accentColor == option,
-                                onClick = { onAccentColorChange(option) }
-                            )
+                        AppearanceCollapsibleGroup(title = "主题色") {
+                            AppAccentColor.entries.forEachIndexed { index, option ->
+                                if (index > 0) HorizontalDivider()
+                                AccentColorRow(
+                                    accentColor = option,
+                                    selected = accentColor == option,
+                                    onClick = { onAccentColorChange(option) }
+                                )
+                            }
                         }
                         HorizontalDivider()
-                        Text(
-                            text = "字体大小",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        AppFontScale.entries.forEachIndexed { index, option ->
-                            if (index > 0) HorizontalDivider()
-                            FontScaleRow(
-                                fontScale = option,
-                                selected = fontScale == option,
-                                onClick = { onFontScaleChange(option) }
-                            )
+                        AppearanceCollapsibleGroup(title = "字体大小") {
+                            AppFontScale.entries.forEachIndexed { index, option ->
+                                if (index > 0) HorizontalDivider()
+                                FontScaleRow(
+                                    fontScale = option,
+                                    selected = fontScale == option,
+                                    onClick = { onFontScaleChange(option) }
+                                )
+                            }
                         }
                         HorizontalDivider()
-                        Text(
-                            text = "下拉刷新样式",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        val currentRefreshStyle = LocalRefreshIndicatorStyle.current
-                        RefreshIndicatorStyle.entries.forEachIndexed { index, option ->
-                            if (index > 0) HorizontalDivider()
-                            RefreshStyleRow(
-                                style = option,
-                                selected = currentRefreshStyle == option,
-                                onClick = { onRefreshStyleChange(option) },
-                            )
+                        AppearanceCollapsibleGroup(title = "下拉刷新样式") {
+                            val currentRefreshStyle = LocalRefreshIndicatorStyle.current
+                            RefreshIndicatorStyle.entries.forEachIndexed { index, option ->
+                                if (index > 0) HorizontalDivider()
+                                RefreshStyleRow(
+                                    style = option,
+                                    selected = currentRefreshStyle == option,
+                                    onClick = { onRefreshStyleChange(option) },
+                                )
+                            }
                         }
                     }
                 }
@@ -478,6 +471,46 @@ private fun SettingsRouteRow(
             )
         },
     )
+}
+
+/**
+ * 外观设置折叠分组(2026-07-31):默认收起,需要修改时点击标题展开。
+ * 深色模式 / 主题色 / 字体大小 / 下拉刷新样式 四个低频修改项统一折叠,减少设置页高度。
+ */
+@Composable
+private fun AppearanceCollapsibleGroup(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    onClickLabel = if (expanded) "收起$title" else "展开$title",
+                    role = Role.Button,
+                ) { expanded = !expanded }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Icon(
+                imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (expanded) "收起$title" else "展开$title",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column { content() }
+        }
+    }
 }
 
 @Composable

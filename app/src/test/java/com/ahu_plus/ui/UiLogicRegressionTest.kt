@@ -114,7 +114,7 @@ class UiLogicRegressionTest {
             }
         }
         assertEquals(
-            listOf("学习", "通知", "校园卡", "生活", "个人信息", "通讯"),
+            listOf("课程", "教务", "学习", "通知", "校园卡", "生活", "个人信息"),
             AppRegistry.grouped().keys.toList(),
         )
     }

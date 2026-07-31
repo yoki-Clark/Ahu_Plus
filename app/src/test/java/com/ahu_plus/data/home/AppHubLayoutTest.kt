@@ -14,8 +14,10 @@ import org.junit.Test
 class AppHubLayoutTest {
 
     @Test
-    fun `default layout uses one column`() {
-        assertEquals(AppHubColumns.ONE, AppHubLayoutConfig.Default.columns)
+    fun `default layout uses three columns horizontal compact`() {
+        assertEquals(AppHubColumns.THREE, AppHubLayoutConfig.Default.columns)
+        assertEquals(AppHubCardStyle.HORIZONTAL, AppHubLayoutConfig.Default.cardStyle)
+        assertEquals(AppHubDensity.COMPACT, AppHubLayoutConfig.Default.density)
     }
 
     private val allKeys = AppRegistry.allKeys().toList()
@@ -200,7 +202,21 @@ class AppHubLayoutTest {
     fun defaultDiffersFromCustomized() {
         assertNotEquals(
             AppHubLayoutConfig.Default,
-            AppHubLayoutConfig.Default.copy(columns = AppHubColumns.THREE),
+            AppHubLayoutConfig.Default.copy(columns = AppHubColumns.ONE),
         )
+    }
+
+    @Test
+    fun fromStoredJsonMigratesLegacyDefaultToNewDefault() {
+        // 旧默认(单列 + 宽松)存进 JSON 后,应视为"未配置"并升级到新默认(三列 + 紧凑)
+        val legacy = AppHubLayoutConfig(
+            columns = AppHubColumns.ONE,
+            cardStyle = AppHubCardStyle.HORIZONTAL,
+            density = AppHubDensity.COMFORTABLE,
+        )
+        val restored = AppHubLayoutConfig.fromStoredJson(gson.toJson(legacy))
+        assertEquals(AppHubLayoutConfig.Default, restored)
+        assertEquals(AppHubColumns.THREE, restored.columns)
+        assertEquals(AppHubDensity.COMPACT, restored.density)
     }
 }
