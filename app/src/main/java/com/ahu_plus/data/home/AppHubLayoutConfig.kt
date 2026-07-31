@@ -6,7 +6,7 @@ import com.google.gson.JsonParser
 /**
  * 应用页(AppHubScreen)排版配置。
  *
- * 设计动机:应用页原本写死 2 列横向卡片 + 按分类分组。本配置让用户自定义
+ * 设计动机:应用页原本写死横向卡片 + 按分类分组。本配置让用户自定义
  * 列数 / 卡片样式 / 密度 / 分组 / 排序 / 可见性 / 自定义顺序,统一由
  * [AppRegistry.arrange] 消费,应用页渲染与设置页实时预览共用同一套逻辑。
  *
@@ -14,12 +14,13 @@ import com.google.gson.JsonParser
  * `app_hub_layout_json` key(退登保留,只在 clearAll 重置)。Gson 反序列化枚举
  * 用名字匹配,未知值回退默认——因此不能随意重命名枚举常量。
  *
- * 所有默认值 == 改动前的应用页现状,保证老用户视觉零变化。
+ * 2026-07-31 起默认排版 = 三列、横向卡片、紧凑密度(见 [Default]);
+ * 旧默认(单列 + 宽松)在 [fromStoredJson] 中视为"未配置"自动升级。
  */
 data class AppHubLayoutConfig(
-    val columns: AppHubColumns = AppHubColumns.ONE,
+    val columns: AppHubColumns = AppHubColumns.THREE,
     val cardStyle: AppHubCardStyle = AppHubCardStyle.HORIZONTAL,
-    val density: AppHubDensity = AppHubDensity.COMFORTABLE,
+    val density: AppHubDensity = AppHubDensity.COMPACT,
     val groupMode: AppHubGroupMode = AppHubGroupMode.BY_CATEGORY,
     val sortMode: AppHubSortMode = AppHubSortMode.DEFAULT,
     /** 分组标题是否显示(仅 BY_CATEGORY 生效)。 */
@@ -68,6 +69,15 @@ data class AppHubLayoutConfig(
         val Default = AppHubLayoutConfig()
 
         /**
+         * 2026-07-31 之前的旧默认排版(单列、横向、宽松)。
+         * 存储值恰好等于它时视为「用户从未主动改过排版」,自动迁移到新默认。
+         */
+        private val LegacyDefault = AppHubLayoutConfig(
+            columns = AppHubColumns.ONE,
+            density = AppHubDensity.COMFORTABLE,
+        )
+
+        /**
          * 从持久化 JSON 恢复配置,对「后加字段的旧 JSON」向后兼容。
          *
          * Gson 反序列化 data class 走 Unsafe、不执行 Kotlin 构造函数默认值,所以旧 JSON
@@ -86,7 +96,9 @@ data class AppHubLayoutConfig(
                 val stored = JsonParser.parseString(json).asJsonObject
                 // 存储键覆盖底板键;底板补齐缺失键
                 stored.entrySet().forEach { (key, value) -> base.add(key, value) }
-                gson.fromJson(base, AppHubLayoutConfig::class.java)
+                val restored = gson.fromJson(base, AppHubLayoutConfig::class.java)
+                // 旧默认排版 → 新默认排版(三列横向紧凑)
+                if (restored == LegacyDefault) Default else restored
             }.getOrDefault(Default)
         }
     }

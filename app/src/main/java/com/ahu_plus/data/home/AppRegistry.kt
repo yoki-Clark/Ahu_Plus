@@ -44,7 +44,7 @@ import com.ahu_plus.ui.theme.AhuStatusColors
  *
  *  - **app key**:稳定字符串,用于 SessionManager.recordRecentApp() 追踪
  *  - **title/icon/color**:UI 显示元数据(无回调,便于在 widget/通知等非 Composable 上下文使用)
- *  - **group**:所属分类(学习/通知/校园卡/生活/个人信息),便于 AppHubScreen 分组渲染
+ *  - **group**:所属分类(课程/教务/学习/通知/校园卡/生活/个人信息),便于 AppHubScreen 分组渲染
  *
  * 真正的点击回调在消费方(Composable)处组装,与静态元数据解耦 —— 这样 widget /
  * 测试代码也可以查询 app 列表而无需构造 OkHttp client。
@@ -87,24 +87,81 @@ object AppRegistry {
     /** 默认显示顺序(用于 AppDock 未配置最近使用时的回退顺序) */
     private val DEFAULT_RECENT_KEYS = listOf(KEY_SCHEDULE, KEY_GRADE, KEY_EXAM)
 
+    const val COURSE = "课程"
+    const val ACADEMIC_AFFAIRS = "教务"
     const val LEARNING = "学习"
     const val NOTIFICATIONS = "通知"
     const val CAMPUS_CARD = "校园卡"
     const val LIFE = "生活"
     const val PERSONAL = "个人信息"
-    /** 通讯分组(教育邮箱专属)。 */
-    const val COMMUNICATION = "通讯"
 
     private val specs: List<AppSpec> = listOf(
-        // 学习
+        // 课程:课表 / 成绩 / 考试
         AppSpec(
             key = KEY_SCHEDULE,
             title = "课表",
             icon = Icons.Filled.CalendarMonth,
             tint = AhuBlue,
-            group = LEARNING,
+            group = COURSE,
             gradient = AhuGradient.Blue.brush,
         ),
+        AppSpec(
+            key = KEY_GRADE,
+            title = "成绩",
+            icon = Icons.Filled.Grade,
+            tint = AhuRed,
+            group = COURSE,
+            gradient = AhuGradient.Violet.brush,
+        ),
+        AppSpec(
+            key = KEY_EXAM,
+            title = "考试",
+            icon = Icons.AutoMirrored.Filled.EventNote,
+            tint = AhuOrange,
+            group = COURSE,
+            gradient = AhuGradient.Orange.brush,
+        ),
+
+        // 教务:空教室 / 培养方案 / 开课查询 / 教室课表 / 评教
+        AppSpec(
+            key = KEY_EMPTY_CLASSROOM,
+            title = "空教室",
+            icon = Icons.Filled.Room,
+            tint = AhuGreen,
+            group = ACADEMIC_AFFAIRS,
+        ),
+        AppSpec(
+            key = KEY_TRAINING_PLAN,
+            title = "培养方案",
+            icon = Icons.Filled.School,
+            tint = AhuStatusColors.AppIndigo,
+            group = ACADEMIC_AFFAIRS,
+            gradient = AhuGradient.Violet.brush,
+        ),
+        AppSpec(
+            key = KEY_LESSON_SEARCH,
+            title = "开课查询",
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            tint = AhuIndigo,
+            group = ACADEMIC_AFFAIRS,
+        ),
+        AppSpec(
+            key = KEY_ROOM_COURSE_TABLE,
+            title = "教室课表",
+            icon = Icons.Filled.Room,
+            tint = AhuBlue,
+            group = ACADEMIC_AFFAIRS,
+        ),
+        AppSpec(
+            key = KEY_EVALUATION,
+            title = "评教",
+            icon = Icons.Filled.RateReview,
+            tint = AhuIndigo,
+            group = ACADEMIC_AFFAIRS,
+            gradient = AhuGradient.Blue.brush,
+        ),
+
+        // 学习:日程 / 大机平台 / 蹭课
         AppSpec(
             key = KEY_AGENDA,
             title = "日程",
@@ -114,48 +171,10 @@ object AppRegistry {
             gradient = AhuGradient.Blue.brush,
         ),
         AppSpec(
-            key = KEY_GRADE,
-            title = "成绩",
-            icon = Icons.Filled.Grade,
-            tint = AhuRed,
-            group = LEARNING,
-            gradient = AhuGradient.Violet.brush,
-        ),
-        AppSpec(
-            key = KEY_EXAM,
-            title = "考试",
-            icon = Icons.AutoMirrored.Filled.EventNote,
-            tint = AhuOrange,
-            group = LEARNING,
-            gradient = AhuGradient.Orange.brush,
-        ),
-        AppSpec(
-            key = KEY_TRAINING_PLAN,
-            title = "培养方案",
-            icon = Icons.Filled.School,
-            tint = AhuStatusColors.AppIndigo,
-            group = LEARNING,
-            gradient = AhuGradient.Violet.brush,
-        ),
-        AppSpec(
-            key = KEY_EMPTY_CLASSROOM,
-            title = "空教室",
-            icon = Icons.Filled.Room,
-            tint = AhuGreen,
-            group = LEARNING,
-        ),
-        AppSpec(
-            key = KEY_LESSON_SEARCH,
-            title = "开课查询",
-            icon = Icons.AutoMirrored.Filled.MenuBook,
-            tint = AhuIndigo,
-            group = LEARNING,
-        ),
-        AppSpec(
-            key = KEY_ROOM_COURSE_TABLE,
-            title = "教室课表",
-            icon = Icons.Filled.Room,
-            tint = AhuBlue,
+            key = KEY_CPROG,
+            title = "大机平台",
+            icon = Icons.Filled.Computer,
+            tint = AhuTeal,
             group = LEARNING,
         ),
         AppSpec(
@@ -165,23 +184,8 @@ object AppRegistry {
             tint = AhuOrange,
             group = LEARNING,
         ),
-        AppSpec(
-            key = KEY_CPROG,
-            title = "大学计算机平台",
-            icon = Icons.Filled.Computer,
-            tint = AhuTeal,
-            group = LEARNING,
-        ),
-        AppSpec(
-            key = KEY_EVALUATION,
-            title = "评教",
-            icon = Icons.Filled.RateReview,
-            tint = AhuIndigo,
-            group = LEARNING,
-            gradient = AhuGradient.Blue.brush,
-        ),
 
-        // 通知
+        // 通知:教务通知 / 消息中心 / 教育邮箱
         AppSpec(
             key = KEY_NOTICE_LIST,
             title = "教务通知",
@@ -194,6 +198,14 @@ object AppRegistry {
             title = "消息中心",
             icon = Icons.Filled.Notifications,
             tint = AhuOrange,
+            group = NOTIFICATIONS,
+        ),
+        // 教育邮箱(Sirius 教育版,通过 WebVPN 反代),2026-07-31 起并入「通知」
+        AppSpec(
+            key = KEY_EMAIL,
+            title = "教育邮箱",
+            icon = Icons.Filled.Email,
+            tint = AhuBlue,
             group = NOTIFICATIONS,
         ),
 
@@ -270,14 +282,6 @@ object AppRegistry {
             icon = Icons.Filled.EventBusy,
             tint = AhuRed,
             group = PERSONAL,
-        ),
-        // 教育邮箱(Sirius 教育版,通过 WebVPN 反代)
-        AppSpec(
-            key = KEY_EMAIL,
-            title = "教育邮箱",
-            icon = Icons.Filled.Email,
-            tint = AhuBlue,
-            group = COMMUNICATION,
         ),
     )
 

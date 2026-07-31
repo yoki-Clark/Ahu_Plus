@@ -730,6 +730,7 @@ fun MainScreen(
                     chaoxingInAppHub = chaoxingVisible && !chaoxingPinned,
                     welearnInAppHub = welearnVisible && !welearnPinned,
                     layout = appHubLayout,
+                    onAppHubLayoutChange = onAppHubLayoutChange,
                     onOpenMarket = {
                         mainNavigationViewModel.navigate(NavigationRequest(MarketTarget()))
                     },

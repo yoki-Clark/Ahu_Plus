@@ -8,6 +8,7 @@ import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.jw.CourseUnit
 import com.ahu_plus.data.model.jw.ScheduleData
+import com.ahu_plus.data.model.jw.SemesterScheduleResolver
 import com.ahu_plus.data.model.jw.UserScheduleItem
 import com.ahu_plus.data.model.jw.parseTimeMinutes
 import com.ahu_plus.data.repository.CourseRepository
@@ -78,6 +79,20 @@ internal object TodayScheduleWidgetData {
 
         return runCatching {
             val data = GsonProvider.instance.fromJson(scheduleJson, ScheduleData::class.java)
+            // 假期(缓存周次为 0 或 >= 20):今天不上课,直接显示"没课"
+            if (data.currentWeek < 1 ||
+                SemesterScheduleResolver.isVacationWeek(data.currentWeek)
+            ) {
+                return@runCatching TodayScheduleWidgetState(
+                    status = TodayScheduleStatus.Empty,
+                    title = "今天没课",
+                    subtitle = "假期中,好好休息",
+                    detail = "打开应用查看完整周课表",
+                    todayCount = 0,
+                    updatedText = "",
+                    upcoming = emptyList(),
+                )
+            }
             val week = data.currentWeek.coerceAtLeast(1)
             val systemItems = CourseRepository.toDisplayItems(
                 activities = data.activities,

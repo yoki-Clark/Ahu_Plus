@@ -387,7 +387,8 @@ fun ScheduleScreen(
     // ── 悬浮"今"按钮 (非当前周时显示) ───────────
     // 跨学期场景:selectedSemesterId != DEFAULT → jumpToCurrentWeek() 会先切回本学期再 setSelectedWeek
     com.ahu_plus.ui.screen.schedule.components.TodayFloatingButton(
-        visible = uiState.selectedWeek != uiState.currentWeek,
+        // 假期(currentWeek == 0)时没有"本周",隐藏"今"按钮
+        visible = uiState.currentWeek >= 1 && uiState.selectedWeek != uiState.currentWeek,
         onClick = { viewModel.jumpToCurrentWeek() },
     )
 

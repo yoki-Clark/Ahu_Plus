@@ -34,8 +34,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.local.RefreshIndicatorStyle
-import com.ahu_plus.ui.theme.AhuElevation
-import com.ahu_plus.ui.theme.ahuShadow
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -161,7 +159,8 @@ fun RefreshIndicatorPreview(
 
 /**
  * 系统默认样式预览:圆形 surface 容器 + 品牌色 indeterminate 进度环。
- * 实际下拉刷新用 [PullToRefreshDefaults.Indicator](自管位移),此处仅复现其刷新态外观供设置页对比。
+ * 实际下拉刷新用 [PullToRefreshDefaults.Indicator](自管位移),此处仅复现其刷新态外观供设置页对比
+ * (2026-07-31:预览容器同样去掉阴影,与自定义样式一致)。
  */
 @Composable
 private fun SystemDefaultPreview() {
@@ -170,8 +169,7 @@ private fun SystemDefaultPreview() {
         modifier = Modifier
             .size(ChipSize)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surface)
-            .ahuShadow(AhuElevation.Medium, CircleShape),
+            .background(MaterialTheme.colorScheme.surface),
         contentAlignment = Alignment.Center,
     ) {
         CircularProgressIndicator(
@@ -185,7 +183,7 @@ private fun SystemDefaultPreview() {
 // ── 样式一:渐变弧(= 历史自定义实现) ──────────────────────────
 
 /**
- * 圆形 surface 容器 + 品牌色 sweep 渐变弧。
+ * 圆形 surface 容器 + 品牌色 sweep 渐变弧(2026-07-31:移除容器阴影,避免多边形光斑)。
  * - 拉动:弧随 fraction 缩放显现,弧长随 fraction 增长。
  * - 刷新:固定 300° 弧持续旋转。
  */
@@ -217,8 +215,7 @@ private fun GradientArcIndicator(fraction: Float, isRefreshing: Boolean) {
             .size(ChipSize)
             .scale(scale)
             .clip(CircleShape)
-            .background(surface)
-            .ahuShadow(AhuElevation.Medium, CircleShape),
+            .background(surface),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.size(ChipSize)) {
@@ -245,7 +242,7 @@ private fun GradientArcIndicator(fraction: Float, isRefreshing: Boolean) {
 // ── 样式二:弹跳点 ─────────────────────────────────────────────
 
 /**
- * 圆形 surface 容器 + 三点依次弹跳缩放。
+ * 圆形 surface 容器 + 三点依次弹跳缩放(2026-07-31:移除容器阴影)。
  * - 拉动:三点以 fraction 静态淡入缩放。
  * - 刷新:三点按相位错开依次上跳,呼吸节奏。
  */
@@ -276,8 +273,7 @@ private fun BouncingDotsIndicator(fraction: Float, isRefreshing: Boolean) {
             .size(ChipSize)
             .scale(scale)
             .clip(CircleShape)
-            .background(surface)
-            .ahuShadow(AhuElevation.Medium, CircleShape),
+            .background(surface),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.size(ChipSize)) {
@@ -311,7 +307,7 @@ private fun BouncingDotsIndicator(fraction: Float, isRefreshing: Boolean) {
 // ── 样式三:轨道行星 ───────────────────────────────────────────
 
 /**
- * 圆形 surface 容器 + 中心点 + 卫星椭圆公转。
+ * 圆形 surface 容器 + 中心点 + 卫星椭圆公转(2026-07-31:移除容器阴影)。
  * - 拉动:轨道半径随 fraction 展开,卫星停在右侧、轨道淡入。
  * - 刷新:卫星沿椭圆持续公转。
  */
@@ -340,8 +336,7 @@ private fun OrbitIndicator(fraction: Float, isRefreshing: Boolean) {
             .size(ChipSize)
             .scale(reveal)
             .clip(CircleShape)
-            .background(surface)
-            .ahuShadow(AhuElevation.Medium, CircleShape),
+            .background(surface),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.size(ChipSize)) {
