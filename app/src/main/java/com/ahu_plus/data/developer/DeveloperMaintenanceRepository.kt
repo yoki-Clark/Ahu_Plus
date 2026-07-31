@@ -99,6 +99,7 @@ object DeveloperMaintenanceActionIds {
     const val CLEAR_CHAOXING_SESSION = "session.clear_chaoxing"
     const val CLEAR_WELEARN_SESSION = "session.clear_welearn"
     const val CLEAR_CPROG_SESSION = "session.clear_cprog"
+    const val CLEAR_EMAIL_SESSION = "session.clear_email"
     const val CLEAR_ALL_SESSIONS = "session.clear_all"
     const val REQUEST_GC = "runtime.request_gc"
     const val READ_RUNTIME_INFO = "runtime.read_info"
@@ -292,6 +293,12 @@ class DeveloperMaintenanceRepository(
             "清除 C 语言平台会话",
             "清除 C 语言平台 JWT、JSESSIONID 和用户 ID，保留登录信息。",
             ::clearCProgSession,
+        ),
+        sessionDefinition(
+            DeveloperMaintenanceActionIds.CLEAR_EMAIL_SESSION,
+            "清除教育邮箱会话",
+            "清除教育邮箱内存 Cookie 和本地凭据(WebVPN ticket/Coremail/mCoremail/QIYE_SESS)。",
+            ::clearEmailSession,
         ),
         definition(
             id = DeveloperMaintenanceActionIds.CLEAR_ALL_SESSIONS,
@@ -525,6 +532,11 @@ class DeveloperMaintenanceRepository(
         application.cProgAuthRepository.clearSession()
     }
 
+    private suspend fun clearEmailSession() {
+        application.ahuMailRepository.clearCookies()
+        application.sessionManager.clearMailSession()
+    }
+
     private suspend fun clearAllSessions(): ActionOutput {
         val failures = mutableListOf<String>()
         val operations: List<Pair<String, suspend () -> Unit>> = listOf(
@@ -535,6 +547,7 @@ class DeveloperMaintenanceRepository(
             "超星" to ::clearChaoxingSession,
             "WeLearn" to ::clearWeLearnSession,
             "CProg" to ::clearCProgSession,
+            "邮箱" to ::clearEmailSession,
         )
         for ((name, clear) in operations) {
             try {
@@ -546,7 +559,7 @@ class DeveloperMaintenanceRepository(
             }
         }
         return if (failures.isEmpty()) {
-            ActionOutput(message = "7 类独立会话已全部清除，凭据和业务缓存已保留")
+            ActionOutput(message = "8 类独立会话已全部清除，凭据和业务缓存已保留")
         } else {
             ActionOutput(
                 status = DeveloperMaintenanceStatus.FAILED,

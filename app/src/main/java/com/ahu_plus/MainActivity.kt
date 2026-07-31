@@ -149,6 +149,7 @@ class MainActivity : ComponentActivity() {
                             financeRepository = app.financeRepository,
                             attendanceRepository = app.attendanceRepository,
                             adwmhCardRepository = app.adwmhCardRepository,
+                            ahuMailRepository = app.ahuMailRepository,
                             themeMode = themeMode,
                             onThemeModeChange = { newThemeMode ->
                                 lifecycleScope.launch {

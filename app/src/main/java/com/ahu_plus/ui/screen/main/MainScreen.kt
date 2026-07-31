@@ -53,6 +53,7 @@ import com.ahu_plus.data.local.AppThemeMode
 import com.ahu_plus.data.local.AppAccentColor
 import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.data.home.AppHubLayoutConfig
+import com.ahu_plus.data.home.AppRegistry
 import com.ahu_plus.data.local.BottomNavService
 import com.ahu_plus.data.local.reconcileBottomNavServices
 import com.ahu_plus.data.local.CourseNoteRepository
@@ -106,6 +107,7 @@ import com.ahu_plus.ui.screen.weather.WeatherViewModel
 import com.ahu_plus.ui.navigation.ChaoxingTarget
 import com.ahu_plus.ui.navigation.AppsRoute
 import com.ahu_plus.ui.navigation.AppsTarget
+import com.ahu_plus.ui.navigation.EmailTarget
 import com.ahu_plus.ui.navigation.HomeRoute
 import com.ahu_plus.ui.navigation.HomeTarget
 import com.ahu_plus.ui.navigation.MainNavigationViewModel
@@ -177,6 +179,16 @@ fun MainScreen(
         )
     }
     fun openApps(appKey: String? = null) {
+        // 教育邮箱直接切换到 EMAIL tab,不走 AppsTarget
+        if (appKey == AppRegistry.KEY_EMAIL) {
+            mainNavigationViewModel.navigate(
+                NavigationRequest(
+                    EmailTarget(),
+                    NavigationSource.RECENT_APP,
+                )
+            )
+            return
+        }
         mainNavigationViewModel.navigate(
             NavigationRequest(
                 if (appKey == null) AppsTarget() else AppsTarget(AppsRoute.APP, appKey),
@@ -735,6 +747,31 @@ fun MainScreen(
                     },
                     onNeedsLogin = onReauth
                 )
+                // 教育邮箱(隐藏 Tab,通过应用聚合页 KEY_EMAIL 入口进入)
+                selectedTab == TAB_EMAIL -> {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val mailViewModel = androidx.compose.runtime.remember {
+                        com.ahu_plus.ui.screen.mail.MailViewModel(
+                            context.applicationContext as com.ahu_plus.AhuPlusApplication,
+                        )
+                    }
+                    var selectedMailId by androidx.compose.runtime.remember {
+                        androidx.compose.runtime.mutableStateOf<String?>(null)
+                    }
+                    if (selectedMailId != null) {
+                        com.ahu_plus.ui.screen.mail.MailDetailScreen(
+                            messageId = selectedMailId!!,
+                            viewModel = mailViewModel,
+                            onBack = { selectedMailId = null },
+                        )
+                    } else {
+                        com.ahu_plus.ui.screen.mail.MailScreen(
+                            viewModel = mailViewModel,
+                            onBack = { mainNavigationViewModel.back() },
+                            onOpenDetail = { id -> selectedMailId = id },
+                        )
+                    }
+                }
                 selectedTab == TAB_PROFILE -> ProfileScreen(
                     cardViewModel = cardViewModel,
                     marketViewModel = marketViewModel,

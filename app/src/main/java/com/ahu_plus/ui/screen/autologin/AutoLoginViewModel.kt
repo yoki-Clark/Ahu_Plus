@@ -29,7 +29,8 @@ class AutoLoginViewModel(
     private val sessionManager: SessionManager,
     private val casAuthRepository: CasAuthRepository,
     private val ycardRepository: YcardRepository,
-    private val adwmhCardRepository: com.ahu_plus.data.repository.AdwmhCardRepository? = null
+    private val adwmhCardRepository: com.ahu_plus.data.repository.AdwmhCardRepository? = null,
+    private val ahuMailRepository: com.ahu_plus.data.repository.AhuMailRepository? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<AutoLoginState>(AutoLoginState.Loading)
@@ -77,6 +78,17 @@ class AutoLoginViewModel(
             adwmhDeferred?.invokeOnCompletion { cause ->
                 if (cause != null) {
                     com.ahu_plus.data.diagnostic.SafeLog.w("AutoLogin", "智慧安大登录失败: ${cause.message}")
+                } else if (ahuMailRepository != null) {
+                    // adwmh 成功后触发邮箱 autoLogin(失败静默,不阻塞导航)
+                    // 邮箱握手依赖 wengine_vpn_ticket,必须在 adwmh 建立后触发
+                    viewModelScope.launch(Dispatchers.IO) {
+                        ahuMailRepository.autoLogin(generation)
+                            .onFailure {
+                                com.ahu_plus.data.diagnostic.SafeLog.w(
+                                    "AutoLogin", "教育邮箱登录失败: ${it.message}"
+                                )
+                            }
+                    }
                 }
             }
 

@@ -70,6 +70,7 @@ fun AppNavigation(
     financeRepository: FinanceRepository,
     attendanceRepository: KqAttendanceRepository,
     adwmhCardRepository: AdwmhCardRepository,
+    ahuMailRepository: com.ahu_plus.data.repository.AhuMailRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
     accentColor: AppAccentColor = AppAccentColor.BLUE,
@@ -210,6 +211,7 @@ fun AppNavigation(
                     casAuthRepository,
                     ycardRepository,
                     adwmhCardRepository,
+                    ahuMailRepository,
                 )
             }
             val silentLoginState by silentLoginViewModel.uiState.collectAsStateWithLifecycle()
