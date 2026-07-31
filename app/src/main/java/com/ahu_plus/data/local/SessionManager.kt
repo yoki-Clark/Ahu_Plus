@@ -105,6 +105,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     @Volatile private var cachedThemeMode: AppThemeMode = AppThemeMode.SYSTEM
 
+    @Volatile private var cachedAccentColor: AppAccentColor = AppAccentColor.BLUE
+
+    @Volatile private var cachedFontScale: AppFontScale = AppFontScale.NORMAL
+
     @Volatile private var cachedStudentInfoJson: String? = null
 
     @Volatile private var cachedStudentInfoUpdatedAt: Long = 0L
@@ -160,6 +164,15 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     // 首页"我的收藏"应用列表 (JSON 数组 List<String>, 最多 6 个;退登保留)
     @Volatile private var cachedFavoriteIds: List<String> = emptyList()
+
+    // 首页快捷栏展示模式 (最近使用 / 收藏应用;默认收藏;退登保留)
+    @Volatile private var cachedHomeDockMode: HomeDockMode = HomeDockMode.DEFAULT
+
+    // 首页焦点轮播(日程/天气/通知)是否显示 (默认 false 隐藏;退登保留)
+    @Volatile private var cachedHomeFocusPagerEnabled: Boolean = false
+
+    // 下拉刷新指示器动画样式 (默认渐变弧;退登保留)
+    @Volatile private var cachedRefreshIndicatorStyle: RefreshIndicatorStyle = RefreshIndicatorStyle.DEFAULT
 
     // 应用页排版配置 (JSON 序列化的 AppHubLayoutConfig;退登保留)
     @Volatile private var cachedAppHubLayout: AppHubLayoutConfig = AppHubLayoutConfig()
@@ -265,6 +278,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     @Volatile private var cachedBathroomPhone: String? = null
 
+    /** 用户头像 URL (ycard /berserker-base/user data.avatar); 退登清理。 */
+    @Volatile private var cachedAvatarUrl: String? = null
+
+    /** 头像显示来源; 退登清理(默认 DEFAULT)。 */
+    @Volatile private var cachedAvatarMode: AvatarMode = AvatarMode.DEFAULT
+
     @Volatile private var cachedBillsJson: String? = null
 
     @Volatile private var cachedBillsUpdatedAt: Long = 0L
@@ -284,6 +303,21 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
     @Volatile private var cachedAdwmhQrPayload: String? = null
     @Volatile private var cachedAdwmhQrServerText: String = ""
     @Volatile private var cachedAdwmhQrFetchedAt: Long = 0L
+    /**
+     * 教育邮箱(WebVPN + Sirius)会话凭据缓存。
+     *
+     * 三层认证链:
+     * - [cachedMailWvpnTicket] WebVPN 会话 ticket(贯穿握手链)
+     * - [cachedMailCoremail] / [cachedMailMCoremail] Sirius 主/辅助会话 cookie
+     * - [cachedMailQiyeSess] 网易企业会话(部分 API 校验)
+     *
+     * 来源:握手成功后由 [com.ahu_plus.data.repository.AhuMailRepository] 写入。
+     * 持久化到 [EncryptedCredentialStore] 的 MAIL_* key,退登时一并清除。
+     */
+    @Volatile private var cachedMailWvpnTicket: String? = null
+    @Volatile private var cachedMailCoremail: String? = null
+    @Volatile private var cachedMailMCoremail: String? = null
+    @Volatile private var cachedMailQiyeSess: String? = null
     /**
      * 排考预测 Gitee JSON 缓存:
      * 由 [com.ahu_plus.data.repository.ExamDataRepository]
@@ -497,6 +531,36 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    val accentColorFlow = appDataStore.dataStore.data.map { preferences ->
+
+        AppAccentColor.fromStorageValue(preferences[ACCENT_COLOR_KEY])
+
+    }
+
+    val fontScaleFlow = appDataStore.dataStore.data.map { preferences ->
+
+        AppFontScale.fromStorageValue(preferences[FONT_SCALE_KEY])
+
+    }
+
+    val homeDockModeFlow = appDataStore.dataStore.data.map { preferences ->
+
+        HomeDockMode.fromStorageValue(preferences[HOME_DOCK_MODE_KEY])
+
+    }
+
+    val homeFocusPagerEnabledFlow = appDataStore.dataStore.data.map { preferences ->
+
+        preferences[HOME_FOCUS_PAGER_KEY] ?: false
+
+    }
+
+    val refreshIndicatorStyleFlow = appDataStore.dataStore.data.map { preferences ->
+
+        RefreshIndicatorStyle.fromStorageValue(preferences[REFRESH_INDICATOR_STYLE_KEY])
+
+    }
+
     /**
 
      * \u4ECE DataStore \u6062\u590D\u6240\u6709\u6570\u636E\u5230\u5185\u5B58\u7F13\u5B58\u3002
@@ -547,6 +611,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedJwAppToken = credentialStore.getString(EncryptedCredentialStore.JWAPP_TOKEN)
 
         cachedThemeMode = AppThemeMode.fromStorageValue(prefs[THEME_MODE_KEY])
+
+        cachedAccentColor = AppAccentColor.fromStorageValue(prefs[ACCENT_COLOR_KEY])
+
+        cachedFontScale = AppFontScale.fromStorageValue(prefs[FONT_SCALE_KEY])
 
         cachedStudentInfoJson = prefs[STUDENT_INFO_KEY]
 
@@ -633,6 +701,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedFavoriteIds = parseStringList(prefs[FAVORITE_APP_IDS_KEY])
 
         cachedAppHubLayout = parseAppHubLayout(prefs[APP_HUB_LAYOUT_KEY])
+
+        cachedHomeDockMode = HomeDockMode.fromStorageValue(prefs[HOME_DOCK_MODE_KEY])
+
+        cachedHomeFocusPagerEnabled = prefs[HOME_FOCUS_PAGER_KEY] ?: false
+
+        cachedRefreshIndicatorStyle = RefreshIndicatorStyle.fromStorageValue(prefs[REFRESH_INDICATOR_STYLE_KEY])
 
         cachedAppUsageCounts = parseAppUsageCounts(prefs[APP_USAGE_COUNTS_KEY])
 
@@ -816,6 +890,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedBathroomPhone = prefs[BATHROOM_PHONE_KEY]
 
+        cachedAvatarUrl = prefs[AVATAR_URL_KEY]
+
+        cachedAvatarMode = AvatarMode.fromStored(prefs[AVATAR_MODE_KEY])
+
         cachedBillsJson = prefs[BILLS_JSON_KEY]
 
         cachedBillsUpdatedAt = prefs[BILLS_UPDATED_AT_KEY] ?: 0L
@@ -833,6 +911,24 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedAdwmhQrPayload = prefs[ADWMH_QR_PAYLOAD_KEY]
         cachedAdwmhQrServerText = prefs[ADWMH_QR_SERVER_TEXT_KEY] ?: ""
         cachedAdwmhQrFetchedAt = prefs[ADWMH_QR_FETCHED_AT_KEY] ?: 0L
+
+        // 教育邮箱凭据(从 EncryptedCredentialStore 恢复)
+        cachedMailWvpnTicket = encryptedOrLegacy(
+            EncryptedCredentialStore.MAIL_WVPN_TICKET,
+            MAIL_WVPN_TICKET_KEY,
+        )
+        cachedMailCoremail = encryptedOrLegacy(
+            EncryptedCredentialStore.MAIL_COREMAIL,
+            MAIL_COREMAIL_KEY,
+        )
+        cachedMailMCoremail = encryptedOrLegacy(
+            EncryptedCredentialStore.MAIL_MCOREMAIL,
+            MAIL_MCOREMAIL_KEY,
+        )
+        cachedMailQiyeSess = encryptedOrLegacy(
+            EncryptedCredentialStore.MAIL_QIYE_SESS,
+            MAIL_QIYE_SESS_KEY,
+        )
 
         cachedExamPredictionsJson = prefs[EXAM_PREDICTIONS_JSON_KEY]
         cachedEvaluationJwt = encryptedOrLegacy(
@@ -1088,7 +1184,35 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
-    // \u2500\u2500 \u4E00\u5361\u901A session (JSESSIONID) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    fun getAccentColor(): AppAccentColor = cachedAccentColor
+
+    suspend fun saveAccentColor(accentColor: AppAccentColor) {
+
+        cachedAccentColor = accentColor
+
+        appDataStore.dataStore.edit { preferences ->
+
+            preferences[ACCENT_COLOR_KEY] = accentColor.storageValue
+
+        }
+
+    }
+
+    fun getFontScale(): AppFontScale = cachedFontScale
+
+    suspend fun saveFontScale(fontScale: AppFontScale) {
+
+        cachedFontScale = fontScale
+
+        appDataStore.dataStore.edit { preferences ->
+
+            preferences[FONT_SCALE_KEY] = fontScale.storageValue
+
+        }
+
+    }
+
+    // \u2500\u2500 \u4E00\u5361\u901A session (JSESSIONID) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     fun getSessionId(): String? = cachedSessionId
 
@@ -1609,6 +1733,41 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedFavoriteIds = ids
 
         appDataStore.dataStore.edit { it[FAVORITE_APP_IDS_KEY] = gson.toJson(ids) }
+
+    }
+
+    // ── 首页快捷栏 / 焦点轮播设置 (退登保留) ────────────────────
+
+    /** 首页快捷栏展示模式(最近使用 / 收藏应用),默认收藏。 */
+    fun getHomeDockMode(): HomeDockMode = cachedHomeDockMode
+
+    suspend fun saveHomeDockMode(mode: HomeDockMode) {
+
+        cachedHomeDockMode = mode
+
+        appDataStore.dataStore.edit { it[HOME_DOCK_MODE_KEY] = mode.storageValue }
+
+    }
+
+    /** 首页焦点轮播(日程/天气/通知)是否显示,默认隐藏。 */
+    fun getHomeFocusPagerEnabled(): Boolean = cachedHomeFocusPagerEnabled
+
+    suspend fun saveHomeFocusPagerEnabled(enabled: Boolean) {
+
+        cachedHomeFocusPagerEnabled = enabled
+
+        appDataStore.dataStore.edit { it[HOME_FOCUS_PAGER_KEY] = enabled }
+
+    }
+
+    /** 下拉刷新指示器动画样式,默认渐变弧。退登保留。 */
+    fun getRefreshIndicatorStyle(): RefreshIndicatorStyle = cachedRefreshIndicatorStyle
+
+    suspend fun saveRefreshIndicatorStyle(style: RefreshIndicatorStyle) {
+
+        cachedRefreshIndicatorStyle = style
+
+        appDataStore.dataStore.edit { it[REFRESH_INDICATOR_STYLE_KEY] = style.storageValue }
 
     }
 
@@ -2293,6 +2452,38 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    // ── 用户头像 URL ──────────────────────────────────────────────
+
+    fun getAvatarUrl(): String? = cachedAvatarUrl
+
+    suspend fun saveAvatarUrl(url: String) {
+
+        cachedAvatarUrl = url
+
+        appDataStore.dataStore.edit { it[AVATAR_URL_KEY] = url }
+
+    }
+
+    suspend fun clearAvatarUrl() {
+
+        cachedAvatarUrl = null
+
+        appDataStore.dataStore.edit { it.remove(AVATAR_URL_KEY) }
+
+    }
+
+    // ── 头像来源模式 ─────────────────────────────────────────────
+
+    fun getAvatarMode(): AvatarMode = cachedAvatarMode
+
+    suspend fun saveAvatarMode(mode: AvatarMode) {
+
+        cachedAvatarMode = mode
+
+        appDataStore.dataStore.edit { it[AVATAR_MODE_KEY] = mode.name }
+
+    }
+
     // \u2500\u2500 \u4E00\u5361\u901A\u8D26\u5355\u7F13\u5B58 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     fun getBillsJson(): String? = cachedBillsJson
@@ -2397,6 +2588,94 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         appDataStore.dataStore.edit { it.remove(ADWMH_SESSION_KEY) }
 
+    }
+
+    // ── 教育邮箱会话凭据(WebVPN ticket + Sirius Coremail/mCoremail/QIYE_SESS) ──
+
+    fun getMailWvpnTicket(): String? = cachedMailWvpnTicket
+    fun getMailCoremail(): String? = cachedMailCoremail
+    fun getMailMCoremail(): String? = cachedMailMCoremail
+    fun getMailQiyeSess(): String? = cachedMailQiyeSess
+
+    /** WebVPN ticket 与是否仍有效(供 AhuMailRepository 在内存中快速判断)。 */
+    fun hasMailWvpnTicket(): Boolean = !cachedMailWvpnTicket.isNullOrBlank()
+
+    suspend fun saveMailWvpnTicket(value: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
+        cachedMailWvpnTicket = value
+        saveEncrypted(EncryptedCredentialStore.MAIL_WVPN_TICKET, MAIL_WVPN_TICKET_KEY, value)
+    }
+
+    suspend fun saveMailCoremail(value: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
+        cachedMailCoremail = value
+        saveEncrypted(EncryptedCredentialStore.MAIL_COREMAIL, MAIL_COREMAIL_KEY, value)
+    }
+
+    suspend fun saveMailMCoremail(value: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
+        cachedMailMCoremail = value
+        saveEncrypted(EncryptedCredentialStore.MAIL_MCOREMAIL, MAIL_MCOREMAIL_KEY, value)
+    }
+
+    suspend fun saveMailQiyeSess(value: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
+        cachedMailQiyeSess = value
+        saveEncrypted(EncryptedCredentialStore.MAIL_QIYE_SESS, MAIL_QIYE_SESS_KEY, value)
+    }
+
+    /** 一次性写入全部邮箱凭据(握手成功后调用,避免 4 次加锁)。 */
+    suspend fun saveMailSession(
+        wvpnTicket: String?,
+        coremail: String?,
+        mCoremail: String?,
+        qiyeSess: String?,
+        generation: Long? = null,
+    ) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
+        cachedMailWvpnTicket = wvpnTicket
+        cachedMailCoremail = coremail
+        cachedMailMCoremail = mCoremail
+        cachedMailQiyeSess = qiyeSess
+        val keysToRemove = listOf(
+            EncryptedCredentialStore.MAIL_WVPN_TICKET,
+            EncryptedCredentialStore.MAIL_COREMAIL,
+            EncryptedCredentialStore.MAIL_MCOREMAIL,
+            EncryptedCredentialStore.MAIL_QIYE_SESS,
+        )
+        if (wvpnTicket != null) credentialStore.putString(EncryptedCredentialStore.MAIL_WVPN_TICKET, wvpnTicket)
+        if (coremail != null) credentialStore.putString(EncryptedCredentialStore.MAIL_COREMAIL, coremail)
+        if (mCoremail != null) credentialStore.putString(EncryptedCredentialStore.MAIL_MCOREMAIL, mCoremail)
+        if (qiyeSess != null) credentialStore.putString(EncryptedCredentialStore.MAIL_QIYE_SESS, qiyeSess)
+        // 清除未提供的字段(避免旧凭据残留)
+        val provided = mapOf(
+            EncryptedCredentialStore.MAIL_WVPN_TICKET to wvpnTicket,
+            EncryptedCredentialStore.MAIL_COREMAIL to coremail,
+            EncryptedCredentialStore.MAIL_MCOREMAIL to mCoremail,
+            EncryptedCredentialStore.MAIL_QIYE_SESS to qiyeSess,
+        )
+        keysToRemove.forEach { k -> if (provided[k] == null) credentialStore.remove(k) }
+    }
+
+    suspend fun clearMailSession() {
+        cachedMailWvpnTicket = null
+        cachedMailCoremail = null
+        cachedMailMCoremail = null
+        cachedMailQiyeSess = null
+        credentialStore.remove(
+            listOf(
+                EncryptedCredentialStore.MAIL_WVPN_TICKET,
+                EncryptedCredentialStore.MAIL_COREMAIL,
+                EncryptedCredentialStore.MAIL_MCOREMAIL,
+                EncryptedCredentialStore.MAIL_QIYE_SESS,
+            )
+        )
+        appDataStore.dataStore.edit {
+            it.remove(MAIL_WVPN_TICKET_KEY)
+            it.remove(MAIL_COREMAIL_KEY)
+            it.remove(MAIL_MCOREMAIL_KEY)
+            it.remove(MAIL_QIYE_SESS_KEY)
+        }
     }
 
     // \u2500\u2500 \u652F\u4ED8\u7801\u662F\u5426\u81EA\u52A8\u8C03\u9AD8\u5C4F\u5E55\u4EAE\u5EA6\uFF08\u9ED8\u8BA4\u5F00\u542F\uFF09 \u2500\u2500
@@ -2886,6 +3165,16 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedAppUsageCounts = emptyMap()
 
+        cachedHomeDockMode = HomeDockMode.DEFAULT
+
+        cachedHomeFocusPagerEnabled = false
+
+        cachedRefreshIndicatorStyle = RefreshIndicatorStyle.DEFAULT
+
+        cachedAccentColor = AppAccentColor.BLUE
+
+        cachedFontScale = AppFontScale.NORMAL
+
         cachedScheduleColWidth = 64f
 
         cachedScheduleRowHeight = 56f
@@ -2997,6 +3286,9 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         cachedBathroomPhone = null
 
+        cachedAvatarUrl = null
+        cachedAvatarMode = AvatarMode.DEFAULT
+
         cachedBillsJson = null
         cachedBillsUpdatedAt = 0L
 
@@ -3010,6 +3302,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedAdwmhQrPayload = null
         cachedAdwmhQrServerText = ""
         cachedAdwmhQrFetchedAt = 0L
+        cachedMailWvpnTicket = null
+        cachedMailCoremail = null
+        cachedMailMCoremail = null
+        cachedMailQiyeSess = null
         cachedExamPredictionsJson = null
 
         cachedTrainingPlanJson = null
@@ -3689,6 +3985,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
 
+        val ACCENT_COLOR_KEY = stringPreferencesKey("accent_color")
+
+        val FONT_SCALE_KEY = stringPreferencesKey("font_scale")
+
         val STUDENT_INFO_KEY = stringPreferencesKey("student_info_json")
 
         val STUDENT_INFO_UPDATED_AT_KEY = longPreferencesKey("student_info_updated_at")
@@ -3738,6 +4038,12 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         val FAVORITE_APP_IDS_KEY = stringPreferencesKey("favorite_app_ids")
 
         val APP_HUB_LAYOUT_KEY = stringPreferencesKey("app_hub_layout_json")
+
+        val HOME_DOCK_MODE_KEY = stringPreferencesKey("home_dock_mode")
+
+        val HOME_FOCUS_PAGER_KEY = booleanPreferencesKey("home_focus_pager_enabled")
+
+        val REFRESH_INDICATOR_STYLE_KEY = stringPreferencesKey("refresh_indicator_style")
 
         val APP_USAGE_COUNTS_KEY = stringPreferencesKey("app_usage_counts_json")
 
@@ -3818,6 +4124,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
         val BATHROOM_PHONE_KEY = stringPreferencesKey("bathroom_phone")
 
+        val AVATAR_URL_KEY = stringPreferencesKey("avatar_url")
+
+        val AVATAR_MODE_KEY = stringPreferencesKey("avatar_mode")
+
         val BILLS_JSON_KEY = stringPreferencesKey("bills_json")
 
         val BILLS_UPDATED_AT_KEY = longPreferencesKey("bills_updated_at")
@@ -3832,6 +4142,11 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         val ADWMH_QR_PAYLOAD_KEY = stringPreferencesKey("adwmh_qr_payload")
         val ADWMH_QR_SERVER_TEXT_KEY = stringPreferencesKey("adwmh_qr_server_text")
         val ADWMH_QR_FETCHED_AT_KEY = longPreferencesKey("adwmh_qr_fetched_at")
+        // 教育邮箱凭据(从 EncryptedCredentialStore 迁移前的旧明文 key 兼容,新写入走加密)
+        val MAIL_WVPN_TICKET_KEY = stringPreferencesKey("mail_wvpn_ticket")
+        val MAIL_COREMAIL_KEY = stringPreferencesKey("mail_coremail")
+        val MAIL_MCOREMAIL_KEY = stringPreferencesKey("mail_mcoremail")
+        val MAIL_QIYE_SESS_KEY = stringPreferencesKey("mail_qiye_sess")
         val EXAM_PREDICTIONS_JSON_KEY = stringPreferencesKey("exam_predictions_json")
         val EVALUATION_JWT_KEY = stringPreferencesKey("evaluation_jwt")
         /** 用户自定义评教一键填写评语选项(JSON 数组)。退登保留。 */
@@ -4058,6 +4373,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             RECORD_INDEX_JSON_KEY, RECORD_INDEX_UPDATED_AT_KEY,
 
             BATHROOM_PHONE_KEY,
+            AVATAR_URL_KEY, AVATAR_MODE_KEY,
 
             BILLS_JSON_KEY, BILLS_UPDATED_AT_KEY,
 
@@ -4065,6 +4381,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
             ADWMH_SESSION_KEY, EXAM_PREDICTIONS_JSON_KEY, EVALUATION_JWT_KEY,
             ADWMH_QR_PAYLOAD_KEY, ADWMH_QR_SERVER_TEXT_KEY, ADWMH_QR_FETCHED_AT_KEY,
+            MAIL_WVPN_TICKET_KEY, MAIL_COREMAIL_KEY, MAIL_MCOREMAIL_KEY, MAIL_QIYE_SESS_KEY,
 
             TRAINING_PLAN_JSON_KEY, TRAINING_PLAN_UPDATED_AT_KEY, TRAINING_PLAN_CACHE_VERSION_KEY,
 
@@ -4111,6 +4428,8 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
             AI_COMMENT_TEMPLATES_KEY, AI_COMMENT_SELECTED_TEMPLATE_KEY,
 
             RECENT_APPS_KEY, APP_HUB_LAYOUT_KEY, APP_USAGE_COUNTS_KEY,
+            HOME_DOCK_MODE_KEY, HOME_FOCUS_PAGER_KEY, REFRESH_INDICATOR_STYLE_KEY,
+            ACCENT_COLOR_KEY, FONT_SCALE_KEY,
 
             SCHEDULE_COL_WIDTH_KEY, SCHEDULE_ROW_HEIGHT_KEY, SCHEDULE_FONT_SCALE_KEY,
 

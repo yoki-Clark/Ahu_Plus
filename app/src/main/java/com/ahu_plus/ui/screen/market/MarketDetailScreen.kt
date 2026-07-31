@@ -51,6 +51,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -542,7 +543,7 @@ private fun CommentImageGrid(
     when (visible.size) {
         1 -> AsyncImage(
             model = visible.first(),
-            contentDescription = null,
+            contentDescription = "评论图片",
             modifier = Modifier
                 .fillMaxWidth()
                 .height(160.dp)
@@ -558,7 +559,7 @@ private fun CommentImageGrid(
             visible.take(2).forEachIndexed { index, url ->
                 AsyncImage(
                     model = url,
-                    contentDescription = null,
+                    contentDescription = "评论图片 ${index + 1}／${visible.size}",
                     modifier = Modifier
                         .weight(1f)
                         .aspectRatio(1f)
@@ -583,7 +584,7 @@ private fun CommentImageGrid(
                 ) {
                     AsyncImage(
                         model = url,
-                        contentDescription = null,
+                        contentDescription = "评论图片 ${index + 1}／${visible.size}",
                         modifier = Modifier
                             .fillMaxSize()
                             .background(MaterialTheme.colorScheme.surfaceVariant),
@@ -643,7 +644,7 @@ private fun CommentComposerBar(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(aiTemplates) { template ->
+                        items(aiTemplates, key = { it.id }) { template ->
                             FilterChip(
                                 selected = template.id == selectedAiTemplateId,
                                 onClick = {
@@ -720,7 +721,7 @@ private fun CommentComposerBar(
                     IconButton(
                         onClick = { showAiStyles = true },
                         enabled = !isGeneratingAi && !isPosting,
-                        modifier = Modifier.size(42.dp)
+                        modifier = Modifier.minimumInteractiveComponentSize().size(42.dp)
                     ) {
                         if (isGeneratingAi) {
                             M3CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -766,7 +767,7 @@ private fun CommentComposerBar(
                 FilledIconButton(
                     onClick = onSubmit,
                     enabled = !isPosting && draft.trim().isNotEmpty(),
-                    modifier = Modifier.size(42.dp)
+                    modifier = Modifier.minimumInteractiveComponentSize().size(42.dp)
                 ) {
                     if (isPosting) {
                         M3CircularProgressIndicator(

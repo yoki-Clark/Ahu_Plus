@@ -47,6 +47,7 @@ import com.ahu_plus.data.model.CxChapter
 import com.ahu_plus.data.model.CxCourse
 import com.ahu_plus.data.model.CxJob
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.ChaoxingColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -155,7 +156,7 @@ private fun ChapterRow(
                     .background(
                         when {
                             chapter.needUnlock -> MaterialTheme.colorScheme.outlineVariant
-                            chapter.hasFinished -> Color(0xFF4CAF50)
+                            chapter.hasFinished -> ChaoxingColors.Signin
                             else -> MaterialTheme.colorScheme.primary
                         }
                     )

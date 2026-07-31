@@ -1,10 +1,13 @@
 package com.ahu_plus.data.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * WeLearn 刷课 UI 状态 (供 WeLearnStudyRepository.studyState 暴露给 Compose)。
  *
  * 比超星 CxStudyUiState 简单:WeLearn 没有"任务点"概念,只到"章节完成"。
  */
+@Immutable
 data class WeLearnStudyUiState(
     val isRunning: Boolean = false,
     val currentUnitName: String = "",

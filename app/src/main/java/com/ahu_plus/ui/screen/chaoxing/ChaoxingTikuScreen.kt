@@ -23,6 +23,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -275,10 +276,10 @@ private fun ProviderRow(
             }
 
             // 排序按钮
-            IconButton(onClick = onMoveUp, enabled = index > 0, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = onMoveUp, enabled = index > 0, modifier = Modifier.minimumInteractiveComponentSize().size(36.dp)) {
                 Icon(Icons.Filled.ArrowUpward, contentDescription = "上移", modifier = Modifier.size(18.dp))
             }
-            IconButton(onClick = onMoveDown, enabled = index < total - 1, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = onMoveDown, enabled = index < total - 1, modifier = Modifier.minimumInteractiveComponentSize().size(36.dp)) {
                 Icon(Icons.Filled.ArrowDownward, contentDescription = "下移", modifier = Modifier.size(18.dp))
             }
         }

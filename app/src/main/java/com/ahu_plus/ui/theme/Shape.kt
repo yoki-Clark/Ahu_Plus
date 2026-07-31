@@ -11,9 +11,11 @@ import androidx.compose.ui.unit.dp
 val AhuMaterialShapes = Shapes(
     extraSmall = RoundedCornerShape(6.dp),
     small      = RoundedCornerShape(10.dp),
-    medium     = RoundedCornerShape(12.dp),
-    large      = RoundedCornerShape(16.dp),
+    medium     = RoundedCornerShape(14.dp),
+    large      = RoundedCornerShape(18.dp),
     extraLarge = RoundedCornerShape(20.dp),
+    // 注：Shapes 的 largeIncreased/extraLargeIncreased 槽位在当前 material3 中为 internal,
+    // 无法外部访问。Hero 容器的大圆角改用 AhuShapes.HeroCard 语义 token(见下)。
 )
 
 /**
@@ -27,11 +29,14 @@ val AhuMaterialShapes = Shapes(
  * ```
  */
 object AhuShapes {
-    /** 标准卡片/输入框/对话框次要容器 — 12dp */
-    val Card        = RoundedCornerShape(12.dp)
+    /** 标准卡片/输入框/对话框次要容器 — 14dp */
+    val Card        = RoundedCornerShape(14.dp)
 
-    /** Hero/账单等强调卡片 — 16dp */
-    val LargeCard   = RoundedCornerShape(16.dp)
+    /** Hero/账单等强调卡片 — 18dp */
+    val LargeCard   = RoundedCornerShape(18.dp)
+
+    /** 渐变 Hero 卡 - 24dp,比 LargeCard 更圆润的强调容器(承接 Expressive largeIncreased 意图) */
+    val HeroCard    = RoundedCornerShape(24.dp)
 
     /** 方形图标盒 — 14dp */
     val IconBox     = RoundedCornerShape(14.dp)

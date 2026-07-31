@@ -31,4 +31,14 @@ object ChaoxingColors {
     val FileSlide = Color(0xFFEF6C00)
     val FileArchive = Color(0xFF6A1B9A)
     val FileImage = Color(0xFF00838F)
+
+    // ── 作业状态色（HomeworkTabContent 列表卡 / 详情页共用） ──
+    /** 已完成 — 复用 Signin 同色系 */
+    val HomeworkDone = Signin
+    /** 批阅中 / 待批阅 — 复用 Notice 同色系 */
+    val HomeworkPending = Notice
+    /** 未交 / 待做（逾期） */
+    val HomeworkOverdue = Color(0xFFF44336)
+    /** 未识别状态兜底灰 */
+    val HomeworkUnknown = Color(0xFF9E9E9E)
 }

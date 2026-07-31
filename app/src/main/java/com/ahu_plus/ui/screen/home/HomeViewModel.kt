@@ -1,11 +1,15 @@
 package com.ahu_plus.ui.screen.home
 
 import android.app.Application
+import android.graphics.Bitmap
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.local.ElectricityRoomConfig
+import com.ahu_plus.data.local.AvatarMode
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.local.module.CacheModule
 import com.ahu_plus.data.local.module.AccountStateModule
@@ -31,10 +35,12 @@ import com.ahu_plus.data.repository.ErrorKind
 import com.ahu_plus.data.repository.SessionExpiredException
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.YcardAuthExpiredException
+import com.ahu_plus.data.repository.AvatarStore
 import com.ahu_plus.data.repository.YcardRepository
 import com.ahu_plus.data.repository.shouldRequestManualAdwmhCaptcha
 import com.ahu_plus.notification.CampusCardAlertNotifier
 import com.ahu_plus.data.repository.YcardPayRepository
+import com.ahu_plus.util.QrCodeBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -63,6 +69,9 @@ class HomeViewModel(
     private val accountStateModule: AccountStateModule? = null,
 ) : ViewModel() {
 
+    private val avatarStore: AvatarStore
+        get() = (application as AhuPlusApplication).avatarStore
+
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -90,6 +99,9 @@ class HomeViewModel(
 
     init {
         val savedBathroomPhone = sessionManager.getBathroomPhone().orEmpty()
+        val savedAvatarUrl = sessionManager.getAvatarUrl()
+        val savedAvatarMode = sessionManager.getAvatarMode()
+        val savedCustomReady = avatarStore.customAvatarFileOrNull()?.exists() == true
         // 空调 (408) + 照明 (428) 配置独立加载,避免互相覆盖
         val acConfig = sessionManager.getAcConfig()
         val lightingConfig = sessionManager.getLightingConfig()
@@ -98,6 +110,9 @@ class HomeViewModel(
         _uiState.update {
             it.copy(
                 bathroomPhone = savedBathroomPhone,
+                avatarUrl = savedAvatarUrl,
+                avatarMode = savedAvatarMode,
+                customAvatarReady = savedCustomReady,
                 ac = it.ac.copy(
                     config = acConfig,
                     cascade = it.ac.cascade.copy(
@@ -1189,23 +1204,31 @@ class HomeViewModel(
         }
     }
 
-    private fun applyCachedQr(payload: String?, serverText: String, fetchedAt: Long) {
+    private fun applyCachedQr(payload: String?, serverText: String?, fetchedAt: Long) {
         if (payload.isNullOrBlank() || fetchedAt <= 0L) return
+        // isNullOrBlank 不做智能转换,这里显式收窄;serverText 兜底空串(仅展示文案)
+        val p = payload ?: return
+        val text = serverText ?: ""
         val ageMs = System.currentTimeMillis() - fetchedAt
         if (ageMs > QR_CACHE_MAX_RESTORE_MS) return
-        if (ageMs > QR_STALE_THRESHOLD_MS) return
+        // 放宽冷启动恢复窗口到 2 分钟：超 60s 的旧码也先展示（标黄提示可能失效），
+        // 后台刷新拿到新码后替换。优于白屏转圈——payload 是不透明令牌，最坏只是被闸机拒一次。
+        if (ageMs > QR_CACHE_RESTORE_MS) return
+        val isStale = ageMs > QR_STALE_THRESHOLD_MS
         _uiState.update { state ->
             if (state.qrCode != null) return@update state
             state.copy(
                 qrCode = AdwmhQrCode(
-                    payload = payload,
-                    statusMsg = serverText,
+                    payload = p,
+                    statusMsg = text,
                     fetchedAt = fetchedAt
                 ),
-                qrStale = false,
+                qrStale = isStale,
                 qrAgeSeconds = (ageMs / 1000).toInt()
             )
         }
+        // 冷启动恢复的旧码也预生成位图，用户点开支付码卡片时秒出。
+        preheatQrBitmap(AdwmhQrCode(p, text, fetchedAt))
     }
 
     /** 持久化最近一次成功的支付码,供下次冷启动兜底展示。 */
@@ -1220,6 +1243,22 @@ class HomeViewModel(
             )
         } else {
             sessionManager.saveAdwmhQrCache(qr.payload, qr.statusMsg, qr.fetchedAt)
+        }
+    }
+
+    /**
+     * 预生成支付码位图并塞入 [QrCodeBitmap] 缓存，使「我的」页展开支付码卡片时
+     * 直接命中缓存秒出，避免现场 ZXing 编码的 50~200ms 延迟（对标安大通秒开）。
+     * 折叠态 BalanceCard 不渲染位图，故须在 payload 到手时主动预生成。
+     * 覆盖卡片态(480)与全屏/首页态(720)两个尺寸。失败静默--缓存未命中时
+     * UI 会自行异步生成，不影响功能。
+     */
+    private fun preheatQrBitmap(qr: AdwmhQrCode) {
+        viewModelScope.launch(Dispatchers.Default) {
+            runCatching {
+                QrCodeBitmap.createAsync(qr.payload, 480)
+                QrCodeBitmap.createAsync(qr.payload, 720)
+            }
         }
     }
 
@@ -1259,6 +1298,7 @@ class HomeViewModel(
                         )
                     }
                     viewModelScope.launch(Dispatchers.IO) { persistQr(qr, cacheGeneration) }
+                    preheatQrBitmap(qr)
                     return@withContext
                 }
 
@@ -1305,6 +1345,7 @@ class HomeViewModel(
                                 viewModelScope.launch(Dispatchers.IO) {
                                     persistQr(qr, cacheGeneration)
                                 }
+                                preheatQrBitmap(qr)
                             }
                             return@withContext
                         } else if (loginResult.exceptionOrNull() is AdwmhCaptchaRequiredException) {
@@ -1558,6 +1599,75 @@ class HomeViewModel(
     fun onRefresh() {
         if (qrRequested) loadCampusQrCode()
         loadBalanceAndBills(forceBills = true)
+    }
+
+    /**
+     * 加载用户头像 URL (本地优先: 先用缓存 URL 显示, 后台刷新)。
+     *
+     * 复用 [ycardRepository] 的 synjones JWT 调 /berserker-base/user 取 data.avatar,
+     * 并把图片字节下载到本地缓存([AvatarStore.realAvatarFile])。本地文件已存在时跳过下载。
+     * 头像非关键功能: 未登录校园账号不发请求; 刷新失败不清空本地缓存。
+     */
+    fun loadAvatarUrl() = refreshRealAvatar(force = false)
+
+    /**
+     * 刷新真实相片全链路 (ycard 登录 -> getUserAvatarUrl -> 下载覆盖本地文件)。
+     *
+     * @param force true 时无条件重新下载覆盖本地缓存(大图页刷新/初次加载);
+     *              false 时本地文件已存在则跳过下载(本地优先, 进"我的"页预载用)。
+     */
+    fun refreshRealAvatar(force: Boolean = true) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(avatarRefreshing = true) }
+            try {
+                withContext(Dispatchers.IO) {
+                    val username = sessionManager.getUsername() ?: return@withContext
+                    val password = sessionManager.getPassword()
+                    if (password.isNullOrBlank()) return@withContext
+                    // 确保 ycard 已登录 (loginMutex + 5s 复用窗口, 与余额/账单加载并发安全)
+                    if (!ycardRepository.hasSession()) {
+                        ycardRepository.login(username, password)
+                    }
+                    withYcardRelogin { ycardRepository.getUserAvatarUrl() }
+                        .onSuccess { url ->
+                            if (!url.isNullOrBlank()) {
+                                _uiState.update { it.copy(avatarUrl = url) }
+                                sessionManager.saveAvatarUrl(url)
+                                // 下载图片字节到本地缓存(失败不影响显示,UI 可回退在线 URL)
+                                avatarStore.ensureRealAvatar(url, force = force)
+                            }
+                        }
+                    // 失败不清空: 保留本地缓存的 avatarUrl (本地优先策略)
+                }
+            } finally {
+                _uiState.update { it.copy(avatarRefreshing = false) }
+            }
+        }
+    }
+
+    /**
+     * 切换头像显示来源,持久化到 SessionManager。切换不清真实相片缓存文件(用户可能切回)。
+     */
+    fun setAvatarMode(mode: AvatarMode) {
+        viewModelScope.launch {
+            sessionManager.saveAvatarMode(mode)
+            _uiState.update { it.copy(avatarMode = mode) }
+        }
+    }
+
+    /**
+     * 保存裁剪后的自定头像 [bitmap] 并切换到 CUSTOM 模式。
+     */
+    fun saveCustomAvatar(bitmap: Bitmap) {
+        viewModelScope.launch {
+            val file = avatarStore.saveCustomAvatar(bitmap)
+            if (file != null) {
+                sessionManager.saveAvatarMode(AvatarMode.CUSTOM)
+                _uiState.update {
+                    it.copy(avatarMode = AvatarMode.CUSTOM, customAvatarReady = true)
+                }
+            }
+        }
     }
 
     // ─── 水电费充值 (2026-06-29 接入) ────────────────────────────────
@@ -1824,7 +1934,9 @@ class HomeViewModel(
                                 qrCountdownSeconds = remaining,
                                 qrAgeSeconds = freshness.ageSeconds,
                                 qrStale = freshness.isStale,
-                                qrCode = if (freshness.isStale) null else state.qrCode,
+                                // stale-while-revalidate：过期不清空旧码，保留展示并标黄，
+                                // 由后台自动刷新拿到新码后替换。避免码消失->转圈的体感断点。
+                                qrCode = state.qrCode,
                                 qrError = freshness.errorMessage ?: state.qrError,
                             )
                         }
@@ -1843,6 +1955,8 @@ class HomeViewModel(
     private companion object {
         /** 展示码超过此时长视为可能已失效,UI 弹出醒目提示。 */
         const val QR_STALE_THRESHOLD_MS = 60_000L
+        /** 冷启动时,缓存码超过此时长仍可恢复展示(标黄),后台刷新替换。 */
+        const val QR_CACHE_RESTORE_MS = 2 * 60_000L
         /** 冷启动时,缓存码超过此时长则不再展示(太旧已无意义)。 */
         const val QR_CACHE_MAX_RESTORE_MS = 10 * 60_000L
     }
@@ -1913,11 +2027,20 @@ internal fun resolveQrFreshness(
 
 // ── UI State ──────────────────────────────────────────────
 
+@Immutable
 data class HomeUiState(
     val balance: Double = 0.0,
     val timestamp: Long = 0,
     val isLoading: Boolean = true,
     val error: String? = null,
+    // 用户头像 URL (ycard /berserker-base/user data.avatar)
+    val avatarUrl: String? = null,
+    // 头像显示来源(默认图标/真实相片/自定头像)
+    val avatarMode: AvatarMode = AvatarMode.DEFAULT,
+    // 自定头像文件是否就绪(UI 据此决定能否切 CUSTOM)
+    val customAvatarReady: Boolean = false,
+    // 真实相片全链路刷新中(大图页 loading)
+    val avatarRefreshing: Boolean = false,
     // 账单
     val bills: List<BillRecord> = emptyList(),
     val billsLoading: Boolean = false,

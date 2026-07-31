@@ -21,6 +21,7 @@ import com.ahu_plus.ui.screen.market.withSearchQuery
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -104,10 +105,16 @@ class UiLogicRegressionTest {
     @Test
     fun `every registered app has an AppHub route in declaration group order`() {
         AppRegistry.all().forEach { spec ->
-            assertNotNull("Missing route for ${spec.key}", appHubPageForAppKey(spec.key))
+            if (spec.key == AppRegistry.KEY_EMAIL) {
+                // 教育邮箱走 MainScreen 隐藏 Tab 特殊路径,不在 AppHub 内部渲染,
+                // AppHub 点击时由 onOpenRegisteredApp 委托给上层处理。
+                assertNull("Email 不走 AppHub 路由", appHubPageForAppKey(spec.key))
+            } else {
+                assertNotNull("Missing route for ${spec.key}", appHubPageForAppKey(spec.key))
+            }
         }
         assertEquals(
-            listOf("学习", "通知", "校园卡", "生活", "个人信息"),
+            listOf("课程", "教务", "学习", "通知", "校园卡", "生活", "个人信息"),
             AppRegistry.grouped().keys.toList(),
         )
     }

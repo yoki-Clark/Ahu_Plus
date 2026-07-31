@@ -52,6 +52,7 @@ fun CProgPaperScreen(
                 },
             )
         },
+        contentWindowInsets = WindowInsets(0),
     ) { inner ->
         Box(Modifier.fillMaxSize().padding(inner)) {
             when {
@@ -91,7 +92,7 @@ fun CProgPaperScreen(
                                     modifier = Modifier.padding(top = 8.dp),
                                 )
                             }
-                            itemsIndexed(type.items) { idx, q ->
+                            itemsIndexed(type.items, key = { _, q -> q.id }) { idx, q ->
                                 QuestionCard(index = idx + 1, item = q, isCorrection = type.baseQuestionType == "CL_E")
                             }
                         }

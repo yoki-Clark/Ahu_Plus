@@ -25,8 +25,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.AssignmentTurnedIn
-import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.filled.AssignmentTurnedIn
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -57,6 +57,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.model.CxCourse
 import com.ahu_plus.data.model.CxCourseProgress
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.ChaoxingColors
 import kotlinx.coroutines.launch
 
 @Composable
@@ -219,7 +220,7 @@ private fun SignNowButton(searching: Boolean, onClick: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("正在检索签到…")
         } else {
-            Icon(Icons.Outlined.AssignmentTurnedIn, contentDescription = null, modifier = Modifier.size(20.dp))
+            Icon(Icons.Filled.AssignmentTurnedIn, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
             Text("立即签到")
         }
@@ -238,7 +239,7 @@ internal fun NotLoggedInHint(onNavigateToSettings: () -> Unit) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
-                Icons.Outlined.School,
+                Icons.Filled.School,
                 contentDescription = null,
                 modifier = Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
@@ -480,7 +481,7 @@ private fun CourseCard(
 private fun CourseProgressBar(progress: CxCourseProgress) {
     val progressFraction = progress.progress
     val isComplete = progress.completedJobs >= progress.totalJobs
-    val fillColor = if (isComplete) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+    val fillColor = if (isComplete) ChaoxingColors.Signin else MaterialTheme.colorScheme.primary
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -507,7 +508,7 @@ private fun CourseProgressBar(progress: CxCourseProgress) {
         Text(
             text = progress.text,
             style = MaterialTheme.typography.labelSmall,
-            color = if (isComplete) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (isComplete) ChaoxingColors.Signin else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

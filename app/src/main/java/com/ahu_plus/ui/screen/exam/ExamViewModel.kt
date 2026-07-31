@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.exam
 
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.model.jw.Exam
@@ -174,6 +175,7 @@ class ExamViewModel(
     }
 }
 
+@Immutable
 data class ExamUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,

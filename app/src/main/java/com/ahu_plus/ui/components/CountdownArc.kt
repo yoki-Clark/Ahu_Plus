@@ -13,8 +13,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.ahu_plus.ui.theme.AhuPlusTheme
 import kotlin.math.roundToInt
 
 /**
@@ -95,6 +97,7 @@ fun CountdownArc(
     secondsRemaining: Int,
     totalSeconds: Int,
     size: Dp,
+    modifier: Modifier = Modifier,
     strokeWidth: Dp = 3.dp,
     trackColor: Color = Color.White.copy(alpha = 0.25f),
     progressColor: Color = Color.White,
@@ -103,10 +106,26 @@ fun CountdownArc(
     CountdownArc(
         secondsRemaining = secondsRemaining,
         totalSeconds = totalSeconds,
-        modifier = Modifier.size(size),
+        modifier = modifier.size(size),
         strokeWidth = strokeWidth,
         trackColor = trackColor,
         progressColor = progressColor,
         textColor = textColor
     )
+}
+
+@Preview(name = "Countdown Arc - 75% Remaining", showBackground = true)
+@Composable
+private fun PreviewCountdownArc() {
+    AhuPlusTheme {
+        CountdownArc(
+            secondsRemaining = 45,
+            totalSeconds = 60,
+            size = 72.dp,
+            strokeWidth = 4.dp,
+            trackColor = Color.Gray.copy(alpha = 0.3f),
+            progressColor = Color(0xFF2196F3),
+            textColor = Color.Black
+        )
+    }
 }

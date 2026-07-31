@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -23,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
@@ -63,12 +65,12 @@ import com.ahu_plus.ui.navigation.AppsTarget
 import kotlinx.coroutines.launch
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuBlue
+import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuOrange
 import com.ahu_plus.ui.theme.AhuViolet
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.lerp
 import com.ahu_plus.ui.components.AhuSectionTitle
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.CenteredMessage
@@ -205,11 +207,13 @@ fun AppHubScreen(
     chaoxingInAppHub: Boolean = chaoxingEnabled,
     welearnInAppHub: Boolean = welearnEnabled,
     layout: AppHubLayoutConfig = AppHubLayoutConfig(),
+    onAppHubLayoutChange: (AppHubLayoutConfig) -> Unit = {},
     onOpenMarket: () -> Unit = {},
     onOpenChaoxing: () -> Unit = {},
     onOpenWelearn: () -> Unit = {},
     onOpenMarketFromMessages: () -> Unit = {},
     onOpenChaoxingFromMessages: () -> Unit = {},
+    onOpenRegisteredApp: (String) -> Unit = {},
     onNeedsLogin: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as AhuPlusApplication
@@ -228,6 +232,11 @@ fun AppHubScreen(
     var currentPage by rememberSaveable { mutableStateOf<String?>(null) }
     var analyticsFromBills by rememberSaveable { mutableStateOf(false) }
     val hubGridState = rememberLazyGridState()
+    // 应用页右上角设置按钮 → 内嵌排版设置页(与「我的 → 设置 → 应用页设置」同一实现)
+    var showHubSettings by rememberSaveable { mutableStateOf(false) }
+    // 排序依赖的最近使用 / 使用次数,进入应用页时刷新一次快照
+    val recentKeys = remember(currentPage) { sessionManager.getRecentApps() }
+    val usageCounts = remember(currentPage) { sessionManager.getAppUsageCounts() }
 
     LaunchedEffect(appsTarget) {
         val target = appsTarget ?: return@LaunchedEffect
@@ -235,6 +244,7 @@ fun AppHubScreen(
         val appKey = target.appKey ?: return@LaunchedEffect
         currentPage = appHubPageForAppKey(appKey)
         analyticsFromBills = false
+        showHubSettings = false
         if (currentPage != null) onRecordApp(appKey)
         onNavigateBack()
     }
@@ -246,14 +256,18 @@ fun AppHubScreen(
 
     // 系统返回键：子页面 → hub
     // 注意: 我的信息二级入口(基本信息/住宿/预警) → MyInfoHub；财务/考勤 → 直接回应用页
-    BackHandler(enabled = currentPage != null) {
-        currentPage = when (currentPage) {
-            PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO, PAGE_ACADEMIC_WARNING -> PAGE_MY_INFO_HUB
-            PAGE_EVALUATION_DETAIL -> PAGE_EVALUATION
-            PAGE_ANALYTICS -> if (analyticsFromBills) PAGE_BILLS else null
-            else -> null
+    BackHandler(enabled = currentPage != null || showHubSettings) {
+        if (showHubSettings) {
+            showHubSettings = false
+        } else {
+            currentPage = when (currentPage) {
+                PAGE_STUDENT_BASIC_INFO, PAGE_HOUSING_INFO, PAGE_ACADEMIC_WARNING -> PAGE_MY_INFO_HUB
+                PAGE_EVALUATION_DETAIL -> PAGE_EVALUATION
+                PAGE_ANALYTICS -> if (analyticsFromBills) PAGE_BILLS else null
+                else -> null
+            }
+            if (currentPage != PAGE_ANALYTICS) analyticsFromBills = false
         }
-        if (currentPage != PAGE_ANALYTICS) analyticsFromBills = false
     }
 
     LaunchedEffect(currentPage, authRefreshVersion) {
@@ -540,28 +554,40 @@ fun AppHubScreen(
             onRefresh = attendanceViewModel::refreshAttendance
         )
         else -> {
-            // 排序依赖的最近使用 / 使用次数,进入应用页时刷新一次快照
-            val recentKeys = remember(currentPage) { sessionManager.getRecentApps() }
-            val usageCounts = remember(currentPage) { sessionManager.getAppUsageCounts() }
-            AppHubPage(
-                gridState = hubGridState,
-                layout = layout,
-                recentKeys = recentKeys,
-                usageCounts = usageCounts,
-                marketEnabled = marketInAppHub,
-                chaoxingEnabled = chaoxingInAppHub,
-                welearnEnabled = welearnInAppHub,
-                onOpenMarket = onOpenMarket,
-                onOpenChaoxing = onOpenChaoxing,
-                onOpenWelearn = onOpenWelearn,
-                onNavigate = { appKey ->
-                    appHubPageForAppKey(appKey)?.let { page ->
-                        analyticsFromBills = false
-                        currentPage = page
-                        onRecordApp(appKey)
+            if (showHubSettings) {
+                AppHubSettingsScreen(
+                    config = layout,
+                    recentKeys = recentKeys,
+                    usageCounts = usageCounts,
+                    onConfigChange = onAppHubLayoutChange,
+                    onBack = { showHubSettings = false },
+                )
+            } else {
+                AppHubPage(
+                    gridState = hubGridState,
+                    layout = layout,
+                    recentKeys = recentKeys,
+                    usageCounts = usageCounts,
+                    marketEnabled = marketInAppHub,
+                    chaoxingEnabled = chaoxingInAppHub,
+                    welearnEnabled = welearnInAppHub,
+                    onOpenMarket = onOpenMarket,
+                    onOpenChaoxing = onOpenChaoxing,
+                    onOpenWelearn = onOpenWelearn,
+                    onOpenSettings = { showHubSettings = true },
+                    onNavigate = { appKey ->
+                        val page = appHubPageForAppKey(appKey)
+                        if (page != null) {
+                            analyticsFromBills = false
+                            currentPage = page
+                            onRecordApp(appKey)
+                        } else {
+                            // 不在 AppHub 内部的应用(如 KEY_EMAIL),委托给上层处理
+                            onOpenRegisteredApp(appKey)
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }
@@ -580,6 +606,7 @@ private fun AppHubPage(
     onOpenMarket: () -> Unit,
     onOpenChaoxing: () -> Unit,
     onOpenWelearn: () -> Unit,
+    onOpenSettings: () -> Unit,
     onNavigate: (String) -> Unit
 ) {
     val searchEnabled = layout.showSearchBar
@@ -639,6 +666,12 @@ private fun AppHubPage(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            Icons.Filled.Settings,
+                            contentDescription = "应用页设置",
+                        )
+                    }
                     if (searchEnabled) {
                         IconButton(
                             onClick = {
@@ -654,7 +687,8 @@ private fun AppHubPage(
                     }
                 }
             )
-        }
+        },
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         // COMPACT 卡片强制单列(normalize 已保证,预览态再兜底一次)
         val effectiveColumns =
@@ -993,12 +1027,8 @@ private fun AppHubIcon(
     background: Brush? = null,
     boxSize: androidx.compose.ui.unit.Dp = 42.dp,
 ) {
-    val resolvedBackground = background ?: Brush.linearGradient(
-        colors = listOf(
-            lerp(iconColor, Color.White, 0.12f),
-            lerp(iconColor, Color.Black, 0.08f),
-        ),
-    )
+    // background 缺省时按 iconColor 生成渐变;brush 记忆化避免网格高频重组时反复分配。
+    val resolvedBackground = background ?: remember(iconColor) { AhuGradient.forTint(iconColor) }
 
     Box(
         modifier = Modifier

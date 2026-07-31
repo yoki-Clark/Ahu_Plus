@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -72,6 +73,7 @@ import com.ahu_plus.data.model.FeeItemOption
 import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.data.model.InternetBalanceData
 import com.ahu_plus.ui.components.AhuHeroCard
+import com.ahu_plus.ui.components.AhuStatusCard
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.CountdownArc
@@ -111,7 +113,8 @@ fun HomeScreen(
                 }
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
@@ -206,14 +209,13 @@ fun HomeScreen(
                 )
                 val billsError = uiState.billsError
                 if (billsError != null) {
-                    Text(
+                    AhuStatusCard(
                         text = billsError,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(top = 8.dp)
+                        tone = MaterialTheme.colorScheme.error,
+                        actionText = "重试",
+                        onAction = viewModel::loadBills,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
-                    TextButton(onClick = viewModel::loadBills) {
-                        Text("重试")
-                    }
                 }
             }
         }

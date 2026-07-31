@@ -21,7 +21,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,31 +67,35 @@ fun AddAgendaEventSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val zone: ZoneId = ZoneId.systemDefault()
 
-    // 预填(编辑)或默认(新增)
-    var title by remember { mutableStateOf(initial?.title ?: "") }
-    var location by remember { mutableStateOf(initial?.location ?: "") }
-    var note by remember { mutableStateOf(initial?.subtitle ?: "") }
-    var allDay by remember { mutableStateOf(initial?.allDay ?: false) }
+    // 预填(编辑)或默认(新增)。
+    // 全部走 rememberSaveable:MainActivity 未声明 configChanges,旋转 / 字体缩放 /
+    // 深色模式切换都会重建 Activity,用 remember 会把用户已填内容全部丢掉。
+    // key 取 initial?.id:同一次 composition 内换成另一条日程时强制重新预填。
+    val seed = initial?.id
+    var title by rememberSaveable(seed) { mutableStateOf(initial?.title ?: "") }
+    var location by rememberSaveable(seed) { mutableStateOf(initial?.location ?: "") }
+    var note by rememberSaveable(seed) { mutableStateOf(initial?.subtitle ?: "") }
+    var allDay by rememberSaveable(seed) { mutableStateOf(initial?.allDay ?: false) }
 
     val initStart = initial?.dueAt?.let { Calendar.getInstance().apply { timeInMillis = it } }
-    var dateMillis by remember {
+    var dateMillis by rememberSaveable(seed) {
         mutableStateOf(
             initial?.dueAt ?: defaultDate.atStartOfDay(zone).toInstant().toEpochMilli()
         )
     }
-    var startHour by remember { mutableStateOf(initStart?.get(Calendar.HOUR_OF_DAY) ?: 8) }
-    var startMinute by remember { mutableStateOf(initStart?.get(Calendar.MINUTE) ?: 0) }
+    var startHour by rememberSaveable(seed) { mutableStateOf(initStart?.get(Calendar.HOUR_OF_DAY) ?: 8) }
+    var startMinute by rememberSaveable(seed) { mutableStateOf(initStart?.get(Calendar.MINUTE) ?: 0) }
 
     val initEnd = initial?.endAt?.let { Calendar.getInstance().apply { timeInMillis = it } }
-    var endHour by remember { mutableStateOf(initEnd?.get(Calendar.HOUR_OF_DAY) ?: 9) }
-    var endMinute by remember { mutableStateOf(initEnd?.get(Calendar.MINUTE) ?: 0) }
-    var hasEnd by remember { mutableStateOf(initial?.endAt != null) }
+    var endHour by rememberSaveable(seed) { mutableStateOf(initEnd?.get(Calendar.HOUR_OF_DAY) ?: 9) }
+    var endMinute by rememberSaveable(seed) { mutableStateOf(initEnd?.get(Calendar.MINUTE) ?: 0) }
+    var hasEnd by rememberSaveable(seed) { mutableStateOf(initial?.endAt != null) }
 
-    var reminderMinutes by remember { mutableStateOf(initial?.reminderMinutes) }
+    var reminderMinutes by rememberSaveable(seed) { mutableStateOf(initial?.reminderMinutes) }
 
-    var showDatePicker by remember { mutableStateOf(false) }
-    var showStartTime by remember { mutableStateOf(false) }
-    var showEndTime by remember { mutableStateOf(false) }
+    var showDatePicker by rememberSaveable { mutableStateOf(false) }
+    var showStartTime by rememberSaveable { mutableStateOf(false) }
+    var showEndTime by rememberSaveable { mutableStateOf(false) }
 
     fun composeMillis(hour: Int, minute: Int): Long =
         Calendar.getInstance(TimeZone.getDefault()).apply {

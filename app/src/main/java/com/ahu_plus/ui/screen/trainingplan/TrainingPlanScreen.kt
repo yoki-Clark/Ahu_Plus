@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -67,19 +68,22 @@ import com.ahu_plus.data.model.jw.PlanModuleNode
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.AhuToneColor
 
 // ── 颜色常量 ──────────────────────────────────────────────────────────
-private val PropRequired = Color(0xFF1565C0)
-private val PropElective = Color(0xFF6A1B9A)
-private val ExamColor = Color(0xFFE65100)
-private val TypeTheory = Color(0xFF2E7D32)
-private val TypeExperiment = Color(0xFF0277BD)
-private val TypePractice = Color(0xFF6A1B9A)
-private val TypeOther = Color(0xFF616161)
-private val PassedGreen = Color(0xFF27AE60)
-private val NotTakenGray = Color(0xFFBDBDBD)
-private val InProgressOrange = Color(0xFFEF6C00)
-private val FailedRed = Color(0xFFD32F2F)
+// 课程性质 / 类别 / 修读状态是本页的颜色编码，深色主题下需要换到同色相浅档，否则读不出来。
+private val PropRequired = AhuToneColor(Color(0xFF1565C0), Color(0xFF90CAF9))
+private val PropElective = AhuToneColor(Color(0xFF6A1B9A), Color(0xFFCE93D8))
+private val ExamColor = AhuToneColor(Color(0xFFE65100), Color(0xFFFFB74D))
+private val TypeTheory = AhuToneColor(Color(0xFF2E7D32), Color(0xFFA5D6A7))
+private val TypeExperiment = AhuToneColor(Color(0xFF0277BD), Color(0xFF81D4FA))
+private val TypePractice = AhuToneColor(Color(0xFF6A1B9A), Color(0xFFCE93D8))
+private val TypeOther = AhuToneColor(Color(0xFF616161), Color(0xFFBDBDBD))
+private val PassedGreen = AhuStatusColors.NormalGreen
+private val NotTakenGray = AhuToneColor(Color(0xFFBDBDBD), Color(0xFF9E9E9E))
+private val InProgressOrange = AhuToneColor(Color(0xFFEF6C00), Color(0xFFFFB74D))
+private val FailedRed = AhuToneColor(Color(0xFFD32F2F), Color(0xFFEF9A9A))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,7 +105,8 @@ fun TrainingPlanScreen(
                 }
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         AhuPullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
@@ -261,9 +266,9 @@ private fun OverviewCard(
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     StatusBadge("已修 ${summary.passedCount}", PassedGreen)
-                    StatusBadge("在读 ${summary.takingCount}", InProgressOrange)
-                    if (summary.failedCount > 0) StatusBadge("挂科 ${summary.failedCount}", FailedRed)
-                    StatusBadge("未修 ${summary.unrepairedCount}", NotTakenGray)
+                    StatusBadge("在读 ${summary.takingCount}", InProgressOrange.current)
+                    if (summary.failedCount > 0) StatusBadge("挂科 ${summary.failedCount}", FailedRed.current)
+                    StatusBadge("未修 ${summary.unrepairedCount}", NotTakenGray.current)
                 }
             }
         }
@@ -630,9 +635,9 @@ private fun CourseCard(
     // 修读状态颜色和文字
     val (statusColor, statusText, statusIcon) = when (status) {
         CourseCompletion.PASSED -> Triple(PassedGreen, "已修", Icons.Filled.CheckCircle)
-        CourseCompletion.IN_PROGRESS -> Triple(InProgressOrange, "修读中", Icons.Filled.Schedule)
-        CourseCompletion.FAILED -> Triple(FailedRed, "挂科", Icons.Filled.Cancel)
-        CourseCompletion.NOT_TAKEN -> Triple(NotTakenGray, "未修", Icons.Filled.RemoveCircleOutline)
+        CourseCompletion.IN_PROGRESS -> Triple(InProgressOrange.current, "修读中", Icons.Filled.Schedule)
+        CourseCompletion.FAILED -> Triple(FailedRed.current, "挂科", Icons.Filled.Cancel)
+        CourseCompletion.NOT_TAKEN -> Triple(NotTakenGray.current, "未修", Icons.Filled.RemoveCircleOutline)
     }
 
     Card(
@@ -640,8 +645,8 @@ private fun CourseCard(
         colors = CardDefaults.cardColors(
             containerColor = when (status) {
                 CourseCompletion.PASSED -> PassedGreen.copy(alpha = 0.04f)
-                CourseCompletion.IN_PROGRESS -> InProgressOrange.copy(alpha = 0.04f)
-                CourseCompletion.FAILED -> FailedRed.copy(alpha = 0.06f)
+                CourseCompletion.IN_PROGRESS -> InProgressOrange.current.copy(alpha = 0.04f)
+                CourseCompletion.FAILED -> FailedRed.current.copy(alpha = 0.06f)
                 CourseCompletion.NOT_TAKEN -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             }
         ),
@@ -720,11 +725,11 @@ private fun CourseCard(
                 // 必修/选修
                 if (property.isNotBlank()) {
                     val pc = if (property.contains("必修")) PropRequired else if (property.contains("选修")) PropElective else TypeOther
-                    Chip(property, pc)
+                    Chip(property, pc.current)
                 }
                 // 考试/考查
                 if (examMode.isNotBlank()) {
-                    Chip(examMode, if (examMode.contains("考试")) ExamColor else TypeOther)
+                    Chip(examMode, if (examMode.contains("考试")) ExamColor.current else TypeOther.current)
                 }
                 // 课程类别
                 if (courseType.isNotBlank()) {
@@ -734,11 +739,11 @@ private fun CourseCard(
                         courseType.contains("实践") || courseType.contains("实习") -> TypePractice
                         else -> TypeOther
                     }
-                    Chip(courseType, tc)
+                    Chip(courseType, tc.current)
                 }
                 // 授课语言
                 if (langZh != null && langZh != "中文") {
-                    Chip(langZh, TypeOther)
+                    Chip(langZh, TypeOther.current)
                 }
             }
 

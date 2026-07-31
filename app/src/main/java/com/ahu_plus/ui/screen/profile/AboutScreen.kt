@@ -72,11 +72,22 @@ import com.ahu_plus.data.developer.DeveloperTapUnlocker
 import com.ahu_plus.data.developer.DeveloperTimePasswordValidator
 import com.ahu_plus.data.model.CheckResult
 import com.ahu_plus.data.legal.LegalDocumentKind
+import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.AhuToneColor
 import com.ahu_plus.ui.screen.developer.DeveloperCenterScreen
 import com.ahu_plus.ui.screen.legal.LegalDataManagementScreen
 import com.ahu_plus.ui.screen.legal.LegalDocumentScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+// ── 条目图标色 ─────────────────────────────────────────────────────
+// 固定的 600–800 档 tint 在深色 surface 上几乎看不见，按主题换到同色相浅档。
+private val AboutTeal = AhuToneColor(Color(0xFF00B894), Color(0xFF5FE0C0))
+private val AboutBrown = AhuToneColor(Color(0xFF6D4C41), Color(0xFFBCAAA4))
+private val AboutTealDeep = AhuToneColor(Color(0xFF00897B), Color(0xFF80CBC4))
+private val AboutViolet = AhuToneColor(Color(0xFF5E35B1), Color(0xFFB39DDB))
+private val AboutSlate = AhuToneColor(Color(0xFF455A64), Color(0xFFB0BEC5))
+private val AboutBlueGrey = AhuToneColor(Color(0xFF607D8B), Color(0xFFB0BEC5))
 
 /**
  * 关于页面 —— 收纳软件信息、通知公告、使用帮助、常见问题、检查更新、开源协议、内测计划。
@@ -261,71 +272,63 @@ fun AboutScreen(
                         SettingsRow(
                             title = "通知公告",
                             description = "查看开发者发布的历史公告",
-                            iconColor = Color(0xFFE67E22),
+                            iconColor = AhuStatusColors.WarningOrange,
                             icon = { Icon(Icons.Filled.Campaign, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.ANNOUNCEMENTS }
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "使用帮助",
                             description = "功能说明、操作指引与已知边界",
-                            iconColor = Color(0xFF2F80ED),
+                            iconColor = AhuStatusColors.ActionBlue,
                             icon = { Icon(Icons.AutoMirrored.Filled.Help, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.GUIDE }
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "常见问题",
                             description = "数据安全、平台接入、性能等 ${faqCategories.sumOf { it.items.size }} 题分类整理",
-                            iconColor = Color(0xFF00B894),
+                            iconColor = AboutTeal.current,
                             icon = { Icon(Icons.Filled.QuestionAnswer, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.FAQ }
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "隐私政策",
                             description = "了解个人信息处理、存储与用户权利",
-                            iconColor = Color(0xFF2F80ED),
+                            iconColor = AhuStatusColors.ActionBlue,
                             icon = { Icon(Icons.Filled.Policy, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.PRIVACY_POLICY },
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "免责声明与使用须知",
                             description = "非官方性质、数据和高风险功能边界",
-                            iconColor = Color(0xFF6D4C41),
+                            iconColor = AboutBrown.current,
                             icon = { Icon(Icons.Filled.Gavel, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.DISCLAIMER },
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "第三方服务清单",
                             description = "查看数据接收方、用途和信息类型",
-                            iconColor = Color(0xFF00897B),
+                            iconColor = AboutTealDeep.current,
                             icon = { Icon(Icons.Filled.Hub, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.THIRD_PARTY_SERVICES },
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "权限使用说明",
                             description = "相机、位置、日历、通知等权限用途",
-                            iconColor = Color(0xFF5E35B1),
+                            iconColor = AboutViolet.current,
                             icon = { Icon(Icons.Filled.Security, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.PERMISSIONS },
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "个人数据管理",
                             description = "撤回同意或清除全部本地数据",
-                            iconColor = Color(0xFF455A64),
+                            iconColor = AboutSlate.current,
                             icon = { Icon(Icons.Filled.Security, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.DATA_MANAGEMENT },
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "检查更新",
                             description = "当前版本 ${com.ahu_plus.BuildConfig.VERSION_NAME}",
-                            iconColor = Color(0xFF6C63FF),
+                            iconColor = AhuStatusColors.AppIndigo,
                             icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
                             onClick = {
                                 scope.launch {
@@ -352,15 +355,13 @@ fun AboutScreen(
                                 }
                             }
                         )
-                        HorizontalDivider()
                         SettingsRow(
                             title = "开源协议",
                             description = "本应用使用的所有开源项目与 License",
-                            iconColor = Color(0xFF607D8B),
+                            iconColor = AboutBlueGrey.current,
                             icon = { Icon(Icons.Filled.Code, contentDescription = null) },
                             onClick = { subPage = AboutSubPage.OPEN_SOURCE_LICENSES }
                         )
-                        HorizontalDivider()
                         SettingsSwitchRow(
                             title = "内测计划",
                             description = if (betaEnabled) "已加入,正在接收内测版本" else "加入内测计划,体验未发布功能",
@@ -397,7 +398,7 @@ fun AboutScreen(
                                 SettingsRow(
                                     title = "开发者中心",
                                     description = "诊断、测试、模拟、日志与数据工具",
-                                    iconColor = Color(0xFF455A64),
+                                    iconColor = AboutSlate.current,
                                     icon = { Icon(Icons.Filled.DeveloperMode, contentDescription = null) },
                                     onClick = { subPage = AboutSubPage.DEVELOPER_CENTER },
                                 )
@@ -467,8 +468,8 @@ private fun DeveloperPasswordDialog(
     onDismiss: () -> Unit,
     onVerified: () -> Unit,
 ) {
-    var password by remember { mutableStateOf("") }
-    var isError by remember { mutableStateOf(false) }
+    var password by rememberSaveable { mutableStateOf("") }
+    var isError by rememberSaveable { mutableStateOf(false) }
 
     fun verify() {
         if (validator.isValid(password)) {

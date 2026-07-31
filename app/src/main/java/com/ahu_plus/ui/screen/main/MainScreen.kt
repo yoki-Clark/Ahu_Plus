@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -17,8 +15,6 @@ import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Storefront
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
@@ -26,16 +22,8 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,20 +33,15 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import android.app.Activity
 import android.widget.Toast
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -66,9 +49,11 @@ import kotlinx.coroutines.launch
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.developer.DeveloperRuntime
-import com.ahu_plus.data.developer.DeveloperRuntimeState
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.local.AppAccentColor
+import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.data.home.AppHubLayoutConfig
+import com.ahu_plus.data.home.AppRegistry
 import com.ahu_plus.data.local.BottomNavService
 import com.ahu_plus.data.local.reconcileBottomNavServices
 import com.ahu_plus.data.local.CourseNoteRepository
@@ -122,6 +107,7 @@ import com.ahu_plus.ui.screen.weather.WeatherViewModel
 import com.ahu_plus.ui.navigation.ChaoxingTarget
 import com.ahu_plus.ui.navigation.AppsRoute
 import com.ahu_plus.ui.navigation.AppsTarget
+import com.ahu_plus.ui.navigation.EmailTarget
 import com.ahu_plus.ui.navigation.HomeRoute
 import com.ahu_plus.ui.navigation.HomeTarget
 import com.ahu_plus.ui.navigation.MainNavigationViewModel
@@ -132,113 +118,6 @@ import com.ahu_plus.ui.navigation.ProfileRoute
 import com.ahu_plus.ui.navigation.ProfileTarget
 import com.ahu_plus.ui.navigation.TopLevelDestination
 import com.ahu_plus.ui.navigation.WeLearnTarget
-
-private const val TAB_HOME = 0
-private const val TAB_MARKET = 1
-private const val TAB_CHAOXING = 2
-private const val TAB_WELEARN = 3
-private const val TAB_APPS = 4
-private const val TAB_PROFILE = 5
-
-private data class TopLevelNavItem(
-    val tab: Int,
-    val label: String,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector,
-)
-
-private const val HOME_DASHBOARD = 0
-private const val HOME_SCHEDULE = 1
-private const val HOME_NOTICE_LIST = 2
-private const val HOME_GRADE = 3
-private const val HOME_EXAM = 4
-private const val HOME_BILLS = 5
-private const val HOME_TRAINING_PLAN = 6
-private const val HOME_EMPTY_CLASSROOM = 7
-private const val HOME_WEATHER = 9
-private const val HOME_AGENDA = 10
-
-private fun TopLevelDestination.toLegacyTab(): Int = when (this) {
-    TopLevelDestination.HOME -> TAB_HOME
-    TopLevelDestination.MARKET -> TAB_MARKET
-    TopLevelDestination.CHAOXING -> TAB_CHAOXING
-    TopLevelDestination.WELEARN -> TAB_WELEARN
-    TopLevelDestination.APPS -> TAB_APPS
-    TopLevelDestination.PROFILE -> TAB_PROFILE
-}
-
-private fun Int.toTopLevelDestination(): TopLevelDestination = when (this) {
-    TAB_MARKET -> TopLevelDestination.MARKET
-    TAB_CHAOXING -> TopLevelDestination.CHAOXING
-    TAB_WELEARN -> TopLevelDestination.WELEARN
-    TAB_APPS -> TopLevelDestination.APPS
-    TAB_PROFILE -> TopLevelDestination.PROFILE
-    else -> TopLevelDestination.HOME
-}
-
-private fun HomeRoute.toLegacyPage(): Int = when (this) {
-    HomeRoute.DASHBOARD -> HOME_DASHBOARD
-    HomeRoute.SCHEDULE -> HOME_SCHEDULE
-    HomeRoute.NOTICES -> HOME_NOTICE_LIST
-    HomeRoute.GRADE -> HOME_GRADE
-    HomeRoute.EXAM -> HOME_EXAM
-    HomeRoute.BILLS -> HOME_BILLS
-    HomeRoute.TRAINING_PLAN -> HOME_TRAINING_PLAN
-    HomeRoute.EMPTY_CLASSROOM -> HOME_EMPTY_CLASSROOM
-    HomeRoute.WEATHER -> HOME_WEATHER
-    HomeRoute.AGENDA -> HOME_AGENDA
-}
-
-private fun Int.toHomeRoute(): HomeRoute = when (this) {
-    HOME_SCHEDULE -> HomeRoute.SCHEDULE
-    HOME_NOTICE_LIST -> HomeRoute.NOTICES
-    HOME_GRADE -> HomeRoute.GRADE
-    HOME_EXAM -> HomeRoute.EXAM
-    HOME_BILLS -> HomeRoute.BILLS
-    HOME_TRAINING_PLAN -> HomeRoute.TRAINING_PLAN
-    HOME_EMPTY_CLASSROOM -> HomeRoute.EMPTY_CLASSROOM
-    HOME_WEATHER -> HomeRoute.WEATHER
-    HOME_AGENDA -> HomeRoute.AGENDA
-    else -> HomeRoute.DASHBOARD
-}
-
-/** WeLearn 内部三段式导航 (2026-06-28 新增 CourseDetailScreen) */
-private sealed class WeLearnNav {
-    object Main : WeLearnNav()
-    data class Detail(val course: com.ahu_plus.data.model.WeLearnCourse) : WeLearnNav()
-    data class Study(val course: com.ahu_plus.data.model.WeLearnCourse, val unitFilter: IntArray? = null) : WeLearnNav()
-}
-
-/**
- * 2026-07-06 P0: WeLearnNav 的 Saver — 让 `welearnScreen` 跨 Tab/分支剔除恢复。
- *
- * 存 [typeInt, cid, unitFilterList?];Detail/Study 恢复时 course 字段只回填 cid,name/per
- * 暂时为空,等用户下拉或 vm.loadCourseTree 完成后续数据补全。这是进程死亡后的已知 trade-off,
- * P0 不做 VM 加 `getCourseByCid` 同步 course 元信息(改动 4 个文件,延后 P1)。
- */
-private val WeLearnNavSaver: Saver<WeLearnNav, List<Any?>> = Saver(
-    save = { nav ->
-        when (nav) {
-            WeLearnNav.Main -> listOf(0)
-            is WeLearnNav.Detail -> listOf(1, nav.course.cid)
-            is WeLearnNav.Study -> listOf(2, nav.course.cid, nav.unitFilter?.toList())
-        }
-    },
-    restore = { saved ->
-        val cid = saved.getOrNull(1) as? String ?: ""
-        when (saved.getOrNull(0) as? Int) {
-            0 -> WeLearnNav.Main
-            1 -> WeLearnNav.Detail(
-                com.ahu_plus.data.model.WeLearnCourse(cid = cid, name = "", per = 0)
-            )
-            2 -> WeLearnNav.Study(
-                com.ahu_plus.data.model.WeLearnCourse(cid = cid, name = "", per = 0),
-                (saved.getOrNull(2) as? List<*>)?.filterIsInstance<Int>()?.toIntArray()
-            )
-            else -> WeLearnNav.Main
-        }
-    }
-)
 
 @Composable
 fun MainScreen(
@@ -259,6 +138,10 @@ fun MainScreen(
     adwmhCardRepository: AdwmhCardRepository,
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    accentColor: AppAccentColor = AppAccentColor.BLUE,
+    onAccentColorChange: (AppAccentColor) -> Unit = {},
+    fontScale: AppFontScale = AppFontScale.NORMAL,
+    onFontScaleChange: (AppFontScale) -> Unit = {},
     /** 是否保存了统一身份认证凭据，用于匿名态与账户态 UI 切换。 */
     hasCredentials: Boolean,
     /** 每次后台或手动认证成功后递增，驱动当前可见数据静默刷新。 */
@@ -296,6 +179,17 @@ fun MainScreen(
         )
     }
     fun openApps(appKey: String? = null) {
+        // 教育邮箱直接切换到 EMAIL tab,不走 AppsTarget
+        if (appKey == AppRegistry.KEY_EMAIL) {
+            com.ahu_plus.data.diagnostic.SafeLog.d("MainScreen", "导航到 EMAIL tab")
+            mainNavigationViewModel.navigate(
+                NavigationRequest(
+                    EmailTarget(),
+                    NavigationSource.RECENT_APP,
+                )
+            )
+            return
+        }
         mainNavigationViewModel.navigate(
             NavigationRequest(
                 if (appKey == null) AppsTarget() else AppsTarget(AppsRoute.APP, appKey),
@@ -836,6 +730,7 @@ fun MainScreen(
                     chaoxingInAppHub = chaoxingVisible && !chaoxingPinned,
                     welearnInAppHub = welearnVisible && !welearnPinned,
                     layout = appHubLayout,
+                    onAppHubLayoutChange = onAppHubLayoutChange,
                     onOpenMarket = {
                         mainNavigationViewModel.navigate(NavigationRequest(MarketTarget()))
                     },
@@ -852,8 +747,41 @@ fun MainScreen(
                         requestedChaoxingSubTab = ChaoxingSubTab.MESSAGES
                         mainNavigationViewModel.navigate(NavigationRequest(ChaoxingTarget()))
                     },
+                    onOpenRegisteredApp = ::openApps,
                     onNeedsLogin = onReauth
                 )
+                // 教育邮箱(隐藏 Tab,通过应用聚合页 KEY_EMAIL 入口进入)
+                selectedTab == TAB_EMAIL -> {
+                    com.ahu_plus.data.diagnostic.SafeLog.d("MainScreen", "渲染 EMAIL tab 分支")
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val mailViewModel = androidx.compose.runtime.remember {
+                        com.ahu_plus.ui.screen.mail.MailViewModel(
+                            context.applicationContext as com.ahu_plus.AhuPlusApplication,
+                        )
+                    }
+                    var selectedMailId by androidx.compose.runtime.remember {
+                        androidx.compose.runtime.mutableStateOf<String?>(null)
+                    }
+                    // 系统返回键:详情页优先返回列表(详情不在导航栈中)
+                    androidx.activity.compose.BackHandler(
+                        enabled = selectedMailId != null,
+                    ) {
+                        selectedMailId = null
+                    }
+                    if (selectedMailId != null) {
+                        com.ahu_plus.ui.screen.mail.MailDetailScreen(
+                            messageId = selectedMailId!!,
+                            viewModel = mailViewModel,
+                            onBack = { selectedMailId = null },
+                        )
+                    } else {
+                        com.ahu_plus.ui.screen.mail.MailScreen(
+                            viewModel = mailViewModel,
+                            onBack = { mainNavigationViewModel.back() },
+                            onOpenDetail = { id -> selectedMailId = id },
+                        )
+                    }
+                }
                 selectedTab == TAB_PROFILE -> ProfileScreen(
                     cardViewModel = cardViewModel,
                     marketViewModel = marketViewModel,
@@ -866,6 +794,10 @@ fun MainScreen(
                     onLoadAcademicSemesters = gradeViewModel::activate,
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
+                    accentColor = accentColor,
+                    onAccentColorChange = onAccentColorChange,
+                    fontScale = fontScale,
+                    onFontScaleChange = onFontScaleChange,
                     scrollTarget = profileScrollTarget,
                     onScrollTargetConsumed = { profileScrollTarget = null },
                     profileTarget = currentProfileTarget,
@@ -926,126 +858,3 @@ fun MainScreen(
         }       // Row close
     }       // Scaffold trailing lambda close
 }       // MainScreen close
-
-@Composable
-private fun DeveloperFaultBanner(
-    state: DeveloperRuntimeState,
-    applyNavigationBarInset: Boolean,
-) {
-    Surface(color = MaterialTheme.colorScheme.errorContainer) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (applyNavigationBarInset) Modifier.navigationBarsPadding() else Modifier)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                Icons.Filled.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "开发者故障覆盖已启用",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "${state.networkFault.title} · ${state.targetHost.ifBlank { "全部主机" }}",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-            IconButton(onClick = DeveloperRuntime::resetOverrides) {
-                Icon(Icons.Filled.Restore, contentDescription = "恢复正常网络")
-            }
-        }
-    }
-}
-
-@Composable
-private fun TopLevelNavigationBar(
-    destinations: List<TopLevelNavItem>,
-    selectedTab: Int,
-    onSelect: (Int) -> Unit,
-) {
-    NavigationBar(
-        tonalElevation = 0.dp,
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) {
-        destinations.forEach { destination ->
-            val selected = selectedTab == destination.tab
-            NavigationBarItem(
-                selected = selected,
-                onClick = { onSelect(destination.tab) },
-                icon = {
-                    Icon(
-                        imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
-                        contentDescription = null,
-                    )
-                },
-                label = {
-                    Text(
-                        destination.label,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        maxLines = 1,
-                    )
-                },
-                alwaysShowLabel = true,
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            )
-        }
-    }
-}
-
-@Composable
-private fun TopLevelNavigationRail(
-    destinations: List<TopLevelNavItem>,
-    selectedTab: Int,
-    onSelect: (Int) -> Unit,
-) {
-    NavigationRail(
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) {
-        Column(
-            modifier = Modifier.fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-        ) {
-            destinations.forEach { destination ->
-                val selected = selectedTab == destination.tab
-                NavigationRailItem(
-                    selected = selected,
-                    onClick = { onSelect(destination.tab) },
-                    icon = {
-                        Icon(
-                            imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
-                            contentDescription = null,
-                        )
-                    },
-                    label = {
-                        Text(
-                            destination.label,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1,
-                        )
-                    },
-                    alwaysShowLabel = true,
-                    colors = NavigationRailItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                )
-            }
-        }
-    }
-}

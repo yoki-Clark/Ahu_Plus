@@ -10,15 +10,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.ahu_plus.data.legal.LegalGateState
+import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.ui.components.AnnouncementDialog
+import com.ahu_plus.ui.components.LocalRefreshIndicatorStyle
 import com.ahu_plus.ui.components.UpdateDialog
 import com.ahu_plus.ui.navigation.AppNavigation
 import com.ahu_plus.ui.navigation.NavigationIntentCodec
@@ -71,6 +76,15 @@ class MainActivity : ComponentActivity() {
             val themeMode by app.sessionManager.themeModeFlow.collectAsStateWithLifecycle(
                 initialValue = app.sessionManager.getThemeMode()
             )
+            val accentColor by app.sessionManager.accentColorFlow.collectAsStateWithLifecycle(
+                initialValue = app.sessionManager.getAccentColor()
+            )
+            val fontScale by app.sessionManager.fontScaleFlow.collectAsStateWithLifecycle(
+                initialValue = app.sessionManager.getFontScale()
+            )
+            val refreshIndicatorStyle by app.sessionManager.refreshIndicatorStyleFlow.collectAsStateWithLifecycle(
+                initialValue = app.sessionManager.getRefreshIndicatorStyle()
+            )
             val systemDarkTheme = isSystemInDarkTheme()
             val updateState by app.updateManager.uiState.collectAsStateWithLifecycle()
             val announcement by app.announcementManager.uiState.collectAsStateWithLifecycle()
@@ -79,9 +93,20 @@ class MainActivity : ComponentActivity() {
             )
 
             AhuPlusTheme(
-                darkTheme = themeMode.shouldUseDarkTheme(systemDarkTheme)
+                darkTheme = themeMode.shouldUseDarkTheme(systemDarkTheme),
+                accentColor = accentColor,
             ) {
-                when (legalGateState) {
+                // 全局字号缩放：复用系统 density，fontScale 在系统字号基础上叠加 App 倍率
+                // (批次一项40)。直接替换会忽略系统无障碍大字号，故用乘法：系统 × App。
+                val baseDensity = LocalDensity.current
+                CompositionLocalProvider(
+                    LocalDensity provides Density(
+                        density = baseDensity.density,
+                        fontScale = (baseDensity.fontScale * fontScale.factor),
+                    ),
+                    LocalRefreshIndicatorStyle provides refreshIndicatorStyle,
+                ) {
+                    when (legalGateState) {
                     LegalGateState.Loading -> Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
@@ -124,10 +149,23 @@ class MainActivity : ComponentActivity() {
                             financeRepository = app.financeRepository,
                             attendanceRepository = app.attendanceRepository,
                             adwmhCardRepository = app.adwmhCardRepository,
+                            ahuMailRepository = app.ahuMailRepository,
                             themeMode = themeMode,
                             onThemeModeChange = { newThemeMode ->
                                 lifecycleScope.launch {
                                     app.sessionManager.saveThemeMode(newThemeMode)
+                                }
+                            },
+                            accentColor = accentColor,
+                            onAccentColorChange = { newAccent ->
+                                lifecycleScope.launch {
+                                    app.sessionManager.saveAccentColor(newAccent)
+                                }
+                            },
+                            fontScale = fontScale,
+                            onFontScaleChange = { newScale ->
+                                lifecycleScope.launch {
+                                    app.sessionManager.saveFontScale(newScale)
                                 }
                             },
                             initCoordinator = app.initCoordinator,
@@ -164,6 +202,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                }
                 }
             }
         }

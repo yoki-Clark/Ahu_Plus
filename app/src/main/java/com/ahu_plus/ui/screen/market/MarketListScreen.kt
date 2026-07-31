@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -47,7 +49,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.ahu_plus.ui.components.AhuEmptyState
 import com.ahu_plus.ui.components.AhuPullToRefreshBox
+import com.ahu_plus.ui.components.AhuSkeletonList
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -66,6 +70,7 @@ import com.ahu_plus.data.model.MarketIdentity
 import com.ahu_plus.data.model.MarketTopic
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuSpacing
 import com.ahu_plus.ui.theme.MarketColors
 import kotlinx.coroutines.launch
 
@@ -195,7 +200,8 @@ internal fun MarketListScreen(
                 )
             }
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         if (uiState.isSearching) {
             SearchResultList(
@@ -252,16 +258,20 @@ internal fun MarketListScreen(
                             }
                         }
 
-                        if (uiState.isLoading) {
+                        if (uiState.isLoading && uiState.topics.isEmpty()) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
-                                LoadingRow("正在加载集市...")
+                                AhuSkeletonList(itemCount = 4)
                             }
                         }
 
-                        uiState.error?.let { error ->
-                            item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
-                                StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
-                                    TextButton(onClick = onRefresh) { Text("重试") }
+                        // 有缓存(topics 非空)刷新失败不插全宽错误卡,避免打断已加载内容(项55);
+                        // 无缓存时才全屏错误+重试。
+                        if (uiState.error != null && uiState.topics.isEmpty()) {
+                            uiState.error?.let { error ->
+                                item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                    StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
+                                        TextButton(onClick = onRefresh) { Text("重试") }
+                                    }
                                 }
                             }
                         }
@@ -276,9 +286,10 @@ internal fun MarketListScreen(
                             uiState.topics.isEmpty()
                         ) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
-                                StatusCard(
-                                    text = "暂时没有加载到集市内容",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                AhuEmptyState(
+                                    icon = Icons.Filled.Storefront,
+                                    title = "暂时没有内容",
+                                    subtitle = "换个学校或稍后再来看看",
                                 )
                             }
                         }
@@ -312,7 +323,7 @@ internal fun MarketListScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap)
                     ) {
                         if (!uiState.hasSavedIdentity) {
                             item {
@@ -340,14 +351,17 @@ internal fun MarketListScreen(
                             }
                         }
 
-                        if (uiState.isLoading) {
-                            item { LoadingRow("正在加载集市...") }
+                        if (uiState.isLoading && uiState.topics.isEmpty()) {
+                            item { AhuSkeletonList(itemCount = 4) }
                         }
 
-                        uiState.error?.let { error ->
-                            item {
-                                StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
-                                    TextButton(onClick = onRefresh) { Text("重试") }
+                        // 有缓存(topics 非空)刷新失败不插全宽错误卡(项55)。
+                        if (uiState.error != null && uiState.topics.isEmpty()) {
+                            uiState.error?.let { error ->
+                                item {
+                                    StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
+                                        TextButton(onClick = onRefresh) { Text("重试") }
+                                    }
                                 }
                             }
                         }
@@ -360,9 +374,10 @@ internal fun MarketListScreen(
                             uiState.topics.isEmpty()
                         ) {
                             item {
-                                StatusCard(
-                                    text = "暂时没有加载到集市内容",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                AhuEmptyState(
+                                    icon = Icons.Filled.Storefront,
+                                    title = "暂时没有内容",
+                                    subtitle = "换个学校或稍后再来看看",
                                 )
                             }
                         }
@@ -373,7 +388,8 @@ internal fun MarketListScreen(
                                 onClick = { onOpenTopic(topic) },
                                 // 单校模式不显示学校标签(避免重复),多校模式显示
                                 school = if (isSingleSchool) null
-                                else uiState.topicSchoolMap[topic.id]
+                                else uiState.topicSchoolMap[topic.id],
+                                modifier = Modifier.animateItem(),
                             )
                         }
 
@@ -465,7 +481,8 @@ private fun SearchResultList(
                 topic = topic,
                 onClick = { onOpenTopic(topic) },
                 school = uiState.topicSchoolMap[topic.id],
-                highlightQuery = uiState.searchQuery
+                highlightQuery = uiState.searchQuery,
+                modifier = Modifier.animateItem(),
             )
         }
 

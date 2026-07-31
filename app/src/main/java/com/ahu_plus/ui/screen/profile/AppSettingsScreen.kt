@@ -5,22 +5,32 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.GridView
@@ -39,31 +49,50 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ahu_plus.data.local.AppThemeMode
+import com.ahu_plus.data.local.AppAccentColor
+import com.ahu_plus.data.local.AppFontScale
 import com.ahu_plus.data.local.BottomNavService
+import com.ahu_plus.data.local.RefreshIndicatorStyle
+import com.ahu_plus.data.local.lightPrimary
+import com.ahu_plus.ui.components.AhuListRow
+import com.ahu_plus.ui.components.AhuStickyHeader
+import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.components.LocalRefreshIndicatorStyle
+import com.ahu_plus.ui.components.RefreshIndicatorPreview
 import androidx.core.content.ContextCompat
 import com.ahu_plus.notification.CardBalanceAlertMode
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 internal fun AppSettingsScreen(
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    accentColor: AppAccentColor = AppAccentColor.BLUE,
+    onAccentColorChange: (AppAccentColor) -> Unit = {},
+    fontScale: AppFontScale = AppFontScale.NORMAL,
+    onFontScaleChange: (AppFontScale) -> Unit = {},
+    onRefreshStyleChange: (RefreshIndicatorStyle) -> Unit = {},
     qrBrightnessBoost: Boolean = true,
     onQrBrightnessBoostChanged: (Boolean) -> Unit = {},
     cardBalanceAlertEnabled: Boolean = false,
@@ -115,19 +144,17 @@ internal fun AppSettingsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            AhuTopAppBar(
                 title = { Text("设置") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
@@ -136,15 +163,10 @@ internal fun AppSettingsScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            stickyHeader { AhuStickyHeader("底部导航") }
             item {
                 ProfileSection {
                     Column {
-                        Text(
-                            text = "底部导航",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
                         Text(
                             text = "首页、应用、我的固定显示；可再固定最多 2 个服务（已选 ${bottomNavServices.size}/2）",
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -188,15 +210,10 @@ internal fun AppSettingsScreen(
                     }
                 }
             }
+            stickyHeader { AhuStickyHeader("页面设置") }
             item {
                 ProfileSection {
                     Column {
-                        Text(
-                            text = "页面设置",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
                         SettingsRouteRow(
                             title = "课表设置",
                             description = "列宽、行高、字体和显示内容",
@@ -231,35 +248,61 @@ internal fun AppSettingsScreen(
                     }
                 }
             }
+            stickyHeader { AhuStickyHeader("外观") }
             item {
                 ProfileSection {
                     Column {
-                        Text(
-                            text = "外观",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        AppThemeMode.entries.forEachIndexed { index, option ->
-                            if (index > 0) HorizontalDivider()
-                            ThemeModeRow(
-                                themeMode = option,
-                                selected = themeMode == option,
-                                onClick = { onThemeModeChange(option) }
-                            )
+                        AppearanceCollapsibleGroup(title = "深色模式") {
+                            AppThemeMode.entries.forEachIndexed { index, option ->
+                                if (index > 0) HorizontalDivider()
+                                ThemeModeRow(
+                                    themeMode = option,
+                                    selected = themeMode == option,
+                                    onClick = { onThemeModeChange(option) }
+                                )
+                            }
+                        }
+                        HorizontalDivider()
+                        AppearanceCollapsibleGroup(title = "主题色") {
+                            AppAccentColor.entries.forEachIndexed { index, option ->
+                                if (index > 0) HorizontalDivider()
+                                AccentColorRow(
+                                    accentColor = option,
+                                    selected = accentColor == option,
+                                    onClick = { onAccentColorChange(option) }
+                                )
+                            }
+                        }
+                        HorizontalDivider()
+                        AppearanceCollapsibleGroup(title = "字体大小") {
+                            AppFontScale.entries.forEachIndexed { index, option ->
+                                if (index > 0) HorizontalDivider()
+                                FontScaleRow(
+                                    fontScale = option,
+                                    selected = fontScale == option,
+                                    onClick = { onFontScaleChange(option) }
+                                )
+                            }
+                        }
+                        HorizontalDivider()
+                        AppearanceCollapsibleGroup(title = "下拉刷新样式") {
+                            val currentRefreshStyle = LocalRefreshIndicatorStyle.current
+                            RefreshIndicatorStyle.entries.forEachIndexed { index, option ->
+                                if (index > 0) HorizontalDivider()
+                                RefreshStyleRow(
+                                    style = option,
+                                    selected = currentRefreshStyle == option,
+                                    onClick = { onRefreshStyleChange(option) },
+                                )
+                            }
                         }
                     }
                 }
             }
+            stickyHeader { AhuStickyHeader("功能") }
             item {
                 ProfileSection {
                     Column {
-                        Text(
-                            text = "功能",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
                         SettingsSwitchRow(
                             title = "支付码调高亮度",
                             description = if (localQrBrightness) {
@@ -414,17 +457,60 @@ private fun SettingsRouteRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
 ) {
-    ListItem(
-        headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
-        supportingContent = { Text(description) },
-        leadingContent = {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+    AhuListRow(
+        title = title,
+        subtitle = description.takeIf { it.isNotBlank() },
+        icon = icon,
+        iconTint = MaterialTheme.colorScheme.primary,
+        onClick = onClick,
+        trailing = {
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         },
-        trailingContent = {
-            Icon(Icons.Filled.ChevronRight, contentDescription = null)
-        },
-        modifier = Modifier.clickable(onClick = onClick),
     )
+}
+
+/**
+ * 外观设置折叠分组(2026-07-31):默认收起,需要修改时点击标题展开。
+ * 深色模式 / 主题色 / 字体大小 / 下拉刷新样式 四个低频修改项统一折叠,减少设置页高度。
+ */
+@Composable
+private fun AppearanceCollapsibleGroup(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    onClickLabel = if (expanded) "收起$title" else "展开$title",
+                    role = Role.Button,
+                ) { expanded = !expanded }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Icon(
+                imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (expanded) "收起$title" else "展开$title",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column { content() }
+        }
+    }
 }
 
 @Composable
@@ -488,6 +574,97 @@ private fun ThemeModeRow(
     )
 }
 
+@Composable
+private fun AccentColorRow(
+    accentColor: AppAccentColor,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    ListItem(
+        headlineContent = {
+            Text(
+                text = accentColor.titleText(),
+                fontWeight = FontWeight.Medium
+            )
+        },
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.lightPrimary)
+                    .then(
+                        if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                        else Modifier
+                    ),
+            )
+        },
+        trailingContent = {
+            RadioButton(selected = selected, onClick = null)
+        },
+        modifier = Modifier.selectable(
+            selected = selected,
+            role = Role.RadioButton,
+            onClick = onClick,
+        ),
+    )
+}
+
+internal fun AppAccentColor.titleText(): String = when (this) {
+    AppAccentColor.BLUE -> "安大蓝"
+    AppAccentColor.TEAL -> "青绿"
+    AppAccentColor.VIOLET -> "紫"
+    AppAccentColor.ORANGE -> "橙"
+    AppAccentColor.PINK -> "粉"
+}
+
+@Composable
+private fun FontScaleRow(
+    fontScale: AppFontScale,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    // 预览该档位的实际字号:用独立 LocalDensity(仅 fontScale.factor,脱离全局叠加),
+    // 使预览 Text 仅按本档 factor 缩放,避免被全局密度二次放大导致预览失真。
+    val previewDensity = LocalDensity.current.run { Density(density, fontScale = fontScale.factor) }
+    ListItem(
+        headlineContent = {
+            CompositionLocalProvider(LocalDensity provides previewDensity) {
+                Text(
+                    text = fontScale.titleText(),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp,
+                )
+            }
+        },
+        supportingContent = {
+            Text(text = fontScale.descriptionText())
+        },
+        leadingContent = {
+            RadioButton(selected = selected, onClick = null)
+        },
+        modifier = Modifier.selectable(
+            selected = selected,
+            role = Role.RadioButton,
+            onClick = onClick,
+        ),
+    )
+}
+
+internal fun AppFontScale.titleText(): String = when (this) {
+    AppFontScale.SMALL -> "小"
+    AppFontScale.NORMAL -> "标准"
+    AppFontScale.LARGE -> "大"
+    AppFontScale.EXTRA_LARGE -> "超大"
+}
+
+private fun AppFontScale.descriptionText(): String = when (this) {
+    AppFontScale.SMALL -> "0.85x，信息更密集"
+    AppFontScale.NORMAL -> "1.0x，默认大小"
+    AppFontScale.LARGE -> "1.15x，更易阅读"
+    AppFontScale.EXTRA_LARGE -> "1.3x，无障碍"
+}
+
 internal fun AppThemeMode.titleText(): String = when (this) {
     AppThemeMode.DAY -> "白天"
     AppThemeMode.DARK -> "深色"
@@ -498,6 +675,55 @@ private fun AppThemeMode.descriptionText(): String = when (this) {
     AppThemeMode.DAY -> "始终使用浅色界面"
     AppThemeMode.DARK -> "始终使用深色界面"
     AppThemeMode.SYSTEM -> "根据系统深色模式自动切换"
+}
+
+@Composable
+private fun RefreshStyleRow(
+    style: RefreshIndicatorStyle,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    ListItem(
+        headlineContent = {
+            Text(
+                text = style.titleText(),
+                fontWeight = FontWeight.Medium,
+            )
+        },
+        supportingContent = {
+            Text(text = style.descriptionText())
+        },
+        leadingContent = {
+            RefreshIndicatorPreview(style = style)
+        },
+        trailingContent = {
+            RadioButton(
+                selected = selected,
+                onClick = null,
+            )
+        },
+        modifier = Modifier.selectable(
+            selected = selected,
+            role = Role.RadioButton,
+            onClick = onClick,
+        ),
+    )
+}
+
+private fun RefreshIndicatorStyle.titleText(): String = when (this) {
+    RefreshIndicatorStyle.SYSTEM_DEFAULT -> "系统默认"
+    RefreshIndicatorStyle.GRADIENT_ARC -> "渐变弧"
+    RefreshIndicatorStyle.BOUNCING_DOTS -> "弹跳点"
+    RefreshIndicatorStyle.ORBIT -> "轨道行星"
+    RefreshIndicatorStyle.PULSE_RINGS -> "脉冲环"
+}
+
+private fun RefreshIndicatorStyle.descriptionText(): String = when (this) {
+    RefreshIndicatorStyle.SYSTEM_DEFAULT -> "Material 原生圆形转圈"
+    RefreshIndicatorStyle.GRADIENT_ARC -> "品牌色渐变弧旋转,经典加载圈"
+    RefreshIndicatorStyle.BOUNCING_DOTS -> "三点依次弹跳缩放,呼吸节奏"
+    RefreshIndicatorStyle.ORBIT -> "卫星绕中心椭圆公转"
+    RefreshIndicatorStyle.PULSE_RINGS -> "同心圆向外脉冲扩散,声呐感"
 }
 
 // ─── 我的信息二级入口 (Hub) ──────────────────────────────

@@ -1,10 +1,17 @@
 package com.ahu_plus.ui.screen.grade
 
-import com.ahu_plus.ui.components.CenteredLoader
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import com.ahu_plus.ui.components.AhuEmptyState
+import com.ahu_plus.ui.components.AhuLinearProgressIndicator
+import com.ahu_plus.ui.components.AhuSkeletonList
 import com.ahu_plus.ui.components.CenteredError
 import com.ahu_plus.ui.components.CenteredMessage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -35,13 +43,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import com.ahu_plus.ui.components.AhuPullToRefreshBox
+import com.ahu_plus.ui.components.pressableScale
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,14 +73,19 @@ import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuGradient
+import com.ahu_plus.ui.theme.AhuMotion
+import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.AhuToneColor
+import com.ahu_plus.ui.theme.tabularFigures
 
 // ── 语义色 ──
-private val Score90 = Color(0xFFE53935)
-private val Score80 = Color(0xFFFB8C00)
-private val Score70 = Color(0xFF43A047)
-private val Score60 = Color(0xFF1E88E5)
-private val ScoreNa = Color(0xFF8A8A8A)
-private val BarColor = Color(0xFF2F80ED)
+// 分档色是成绩表唯一的颜色编码，不能映射到 colorScheme 角色，因此按深浅两档声明。
+internal val Score90 = AhuToneColor(Color(0xFFE53935), Color(0xFFEF9A9A))
+internal val Score80 = AhuToneColor(Color(0xFFFB8C00), Color(0xFFFFCC80))
+internal val Score70 = AhuToneColor(Color(0xFF43A047), Color(0xFFA5D6A7))
+internal val Score60 = AhuToneColor(Color(0xFF1E88E5), Color(0xFF90CAF9))
+internal val ScoreNa = AhuToneColor(Color(0xFF8A8A8A), Color(0xFFBDBDBD))
+private val BarColor = AhuStatusColors.ActionBlue
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,7 +118,8 @@ fun GradeScreen(
                 },
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         // ── 成绩明细 BottomSheet ──
         uiState.selectedGrade?.let { grade ->
@@ -119,95 +136,135 @@ fun GradeScreen(
             threshold = 32.dp,
         ) {
             val allGradesEmpty = uiState.gradesBySemester.isEmpty()
-            when {
-            uiState.isLoading && allGradesEmpty -> {
-                CenteredLoader(modifier = Modifier.padding(innerPadding))
+            val screenState = when {
+                uiState.isLoading && allGradesEmpty -> GradeScreenState.Loading
+                uiState.error != null && allGradesEmpty -> GradeScreenState.Error
+                allGradesEmpty -> GradeScreenState.Empty
+                else -> GradeScreenState.Content
             }
-            uiState.error != null && allGradesEmpty -> {
-                val errMsg = uiState.error
-                CenteredError(
-                    message = errMsg!!,
-                    onRetry = if (uiState.needsLogin) onNeedsLogin else viewModel::onRefresh,
-                    actionLabel = if (uiState.needsLogin) "去登录" else "重试",
-                    modifier = Modifier.padding(innerPadding)
-                )
-            }
-            allGradesEmpty -> {
-                CenteredMessage(text = "暂无成绩记录", modifier = Modifier.padding(innerPadding))
-            }
-            else -> {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(vertical = 12.dp)
-                ) {
-                    // ── GPA 汇总卡 ──
-                    uiState.gpaMetadata?.let { gpa ->
-                        item {
-                            GpaSummaryCard(
-                                gpa = gpa,
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
-                        }
-                        // 学期 GPA 柱状图
-                        if (gpa.perSemesterGpa.isNotEmpty()) {
-                            item {
-                                GpaBarChart(
-                                    entries = gpa.perSemesterGpa,
-                                    selectedSemesterId = uiState.selectedSemesterId,
-                                    onSelect = viewModel::selectSemester,
-                                    modifier = Modifier.padding(horizontal = 16.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    // ── 学期选择器 ──
-                    item {
-                        SemesterChips(
-                            availableIds = uiState.availableSemesterIds,
-                            selectedId = uiState.selectedSemesterId,
-                            semesterName = { id ->
-                                uiState.gradesBySemester[id.toString()]
-                                    ?.firstOrNull()?.semesterName ?: "学期 $id"
-                            },
-                            onSelect = viewModel::selectSemester
-                        )
-                    }
-
-                    // ── 本学期汇总 ──
-                    item {
-                        GradeSummaryCard(
-                            grades = uiState.currentGrades,
-                            semesterName = uiState.semesterName
-                        )
-                    }
-
-                    // ── 成绩列表 ──
-                    val current = uiState.currentGrades
-                    if (current.isEmpty()) {
-                        item {
-                            CenteredMessage(text = "本学期暂无成绩")
-                        }
-                    } else {
-                        items(current, key = { it.id ?: "grade_${it.courseCode}" }) { g ->
-                            GradeRow(
-                                grade = g,
-                                onClick = { viewModel.onGradeClicked(g) }
-                            )
-                        }
-                    }
-                    uiState.dataStatus?.let { status ->
-                        item(key = "data_status") { DataStatusFooter(status) }
-                    }
-                    item { Spacer(modifier = Modifier.height(24.dp)) }
+            AnimatedContent(
+                targetState = screenState,
+                transitionSpec = { fadeIn(AhuMotion.MediumTween) togetherWith fadeOut(AhuMotion.ShortTween) },
+                contentAlignment = Alignment.TopCenter,
+                label = "grade-state",
+            ) { state ->
+                when (state) {
+                    GradeScreenState.Loading -> AhuSkeletonList(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        itemCount = 5,
+                    )
+                    GradeScreenState.Error -> CenteredError(
+                        message = uiState.error ?: "",
+                        onRetry = if (uiState.needsLogin) onNeedsLogin else viewModel::onRefresh,
+                        actionLabel = if (uiState.needsLogin) "去登录" else "重试",
+                        modifier = Modifier.padding(innerPadding),
+                    )
+                    GradeScreenState.Empty -> AhuEmptyState(
+                        icon = Icons.Filled.Grade,
+                        title = "暂无成绩记录",
+                        subtitle = "当前学期还没有成绩数据",
+                        centered = true,
+                        modifier = Modifier.padding(innerPadding),
+                    )
+                    GradeScreenState.Content -> GradeContentList(
+                        uiState = uiState,
+                        viewModel = viewModel,
+                        innerPadding = innerPadding,
+                    )
                 }
+            }
+            // 有缓存后台刷新时,顶部细品牌色进度条(批次二项53)
+            if (uiState.isRefreshing && !allGradesEmpty) {
+                AhuLinearProgressIndicator(modifier = Modifier.align(Alignment.TopCenter))
             }
         }
     }
 }
+
+
+
+/** 成绩页顶层状态机 - 驱动 [AnimatedContent] 平滑过渡(批次二项35)。 */
+private enum class GradeScreenState { Loading, Error, Empty, Content }
+
+/** 成绩内容列表 - 抽出供 [AnimatedContent] 的 Content 态调用,避免深嵌套。 */
+@Composable
+private fun GradeContentList(
+    uiState: GradeUiState,
+    viewModel: GradeViewModel,
+    innerPadding: PaddingValues,
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(vertical = 12.dp)
+    ) {
+        // ── GPA 汇总卡 ──
+        uiState.gpaMetadata?.let { gpa ->
+            item {
+                GpaSummaryCard(
+                    gpa = gpa,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+            // 学期 GPA 柱状图
+            if (gpa.perSemesterGpa.isNotEmpty()) {
+                item {
+                    GpaBarChart(
+                        entries = gpa.perSemesterGpa,
+                        selectedSemesterId = uiState.selectedSemesterId,
+                        onSelect = viewModel::selectSemester,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
+            }
+        }
+
+        // ── 学期选择器 ──
+        item {
+            SemesterChips(
+                availableIds = uiState.availableSemesterIds,
+                selectedId = uiState.selectedSemesterId,
+                semesterName = { id ->
+                    uiState.gradesBySemester[id.toString()]
+                        ?.firstOrNull()?.semesterName ?: "学期 $id"
+                },
+                onSelect = viewModel::selectSemester
+            )
+        }
+
+        // ── 本学期汇总 ──
+        item {
+            GradeSummaryCard(
+                grades = uiState.currentGrades,
+                semesterName = uiState.semesterName
+            )
+        }
+
+        // ── 成绩列表 ──
+        val current = uiState.currentGrades
+        if (current.isEmpty()) {
+            item {
+                CenteredMessage(text = "本学期暂无成绩")
+            }
+        } else {
+            items(current, key = { it.id ?: "grade_${it.courseCode}" }) { g ->
+                GradeRow(
+                    grade = g,
+                    onClick = { viewModel.onGradeClicked(g) },
+                    modifier = Modifier.animateItem(),
+                )
+            }
+        }
+        uiState.dataStatus?.let { status ->
+            item(key = "data_status") { DataStatusFooter(status) }
+        }
+        item { Spacer(modifier = Modifier.height(24.dp)) }
+    }
 }
 
 
@@ -269,7 +326,7 @@ private fun GpaStat(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = value,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleLarge.tabularFigures(),
             fontWeight = FontWeight.ExtraBold,
             color = Color.White
         )
@@ -354,7 +411,7 @@ private fun SemesterBar(
     ) {
         Text(
             text = gpa?.let { "%.2f".format(it) } ?: "—",
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelLarge.tabularFigures(),
             fontWeight = FontWeight.Bold,
             color = barColor
         )
@@ -429,14 +486,14 @@ private fun GradeDetailSheet(grade: Grade, onDismiss: () -> Unit) {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
                         text = grade.displayScore,
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.headlineMedium.tabularFigures(),
                         fontWeight = FontWeight.ExtraBold,
                         color = scoreColor(grade.scoreAsDouble())
                     )
                     if (grade.gp != null) {
                         Text(
                             text = "绩点 %.2f".format(grade.gp),
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall.tabularFigures(),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -616,7 +673,7 @@ private fun Stat(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = value,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleLarge.tabularFigures(),
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onPrimaryContainer
         )
@@ -632,16 +689,22 @@ private fun Stat(label: String, value: String) {
 // ═══════════════════════ Grade Row ═══════════════════════
 
 @Composable
-private fun GradeRow(grade: Grade, onClick: () -> Unit) {
+private fun GradeRow(grade: Grade, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val scoreColor = scoreColor(grade.scoreAsDouble())
+    val interactionSource = remember { MutableInteractionSource() }
     Card(
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                onClick = onClick,
+            )
+            .pressableScale(interactionSource)
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -701,7 +764,8 @@ private fun MetaPill(text: String) {
 
 // ═══════════════════════ Utilities ═══════════════════════
 
-private fun scoreColor(score: Double?): Color = when {
+/** 分档映射(纯函数,便于单测边界)。 */
+internal fun scoreTone(score: Double?): AhuToneColor = when {
     score == null -> ScoreNa
     score >= 90 -> Score90
     score >= 80 -> Score80
@@ -709,3 +773,6 @@ private fun scoreColor(score: Double?): Color = when {
     score >= 60 -> Score60
     else -> ScoreNa
 }
+
+@Composable
+private fun scoreColor(score: Double?): Color = scoreTone(score).current

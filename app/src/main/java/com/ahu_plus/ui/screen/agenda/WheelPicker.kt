@@ -26,8 +26,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ahu_plus.ui.theme.AhuPlusTheme
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -76,7 +78,7 @@ fun WheelColumn(
             flingBehavior = fling,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            items(pad) { SpacerRow() }
+            items(pad, key = { it }) { SpacerRow() }
             itemsIndexed(items) { index: Int, label: String ->
                 // 距中心越远:字号越小、颜色越淡
                 val dist = kotlin.math.abs(index - centered)
@@ -95,7 +97,7 @@ fun WheelColumn(
                     )
                 }
             }
-            items(pad) { SpacerRow() }
+            items(pad, key = { it }) { SpacerRow() }
         }
     }
 }
@@ -203,4 +205,18 @@ fun TimeWheelDialog(
 private fun nearestMinuteIndex(minute: Int, options: List<Int>): Int {
     val idx = options.indexOfFirst { it >= minute }
     return if (idx < 0) options.lastIndex else idx
+}
+
+@Preview(name = "Wheel Column - Hours", showBackground = true)
+@Composable
+private fun PreviewWheelColumn() {
+    AhuPlusTheme {
+        val hours = (0..23).map { "%02d".format(it) }
+        WheelColumn(
+            items = hours,
+            selectedIndex = 14,
+            onSelected = {},
+            modifier = Modifier.padding(16.dp)
+        )
+    }
 }

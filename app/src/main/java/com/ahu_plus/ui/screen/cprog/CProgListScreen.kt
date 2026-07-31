@@ -46,7 +46,7 @@ fun CProgListScreen(
     Scaffold(
         topBar = {
             AhuTopAppBar(
-                title = { Text("大学计算机平台", fontWeight = FontWeight.Bold) },
+                title = { Text("大机平台", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -62,6 +62,7 @@ fun CProgListScreen(
                 },
             )
         },
+        contentWindowInsets = WindowInsets(0),
     ) { inner ->
         Column(modifier = Modifier.fillMaxSize().padding(inner)) {
             // 科目下拉

@@ -24,6 +24,9 @@ class CacheModuleImpl(
     private val gson = GsonProvider.instance
     private val qrCacheMutex = Mutex()
 
+    /** Gson 反序列化产物读取处的唯一安全入口,参数显式可空防止 R8 删空检查(见 getQrCodeCache 注释)。 */
+    private fun String?.orNullIfBlank(): String? = if (isNullOrBlank()) null else this
+
     companion object {
         private const val TAG = "CacheModule"
 
@@ -282,10 +285,13 @@ class CacheModuleImpl(
         val currentGeneration = accountStateModule.currentGeneration()
         if (storedMetadata != null && storedMetadata.generation != currentGeneration) return@withLock null
         val encryptedPayload = credentialStore.getString(EncryptedCredentialStore.ADWMH_QR_PAYLOAD)
-        val legacyPlaintextPayload = storedMetadata?.payload?.takeIf { it.isNotBlank() }
-            ?: prefs[OLD_ADWMH_QR_PAYLOAD_KEY]?.takeIf { it.isNotBlank() }
+        // 注意:不能写成 payload?.takeIf { !it.isNullOrBlank() } — lambda 内 it 被收窄为非空,
+        // R8 会按非空类型删掉 isNullOrBlank 的 null 检查,payload 实际为 null(release 才崩)时
+        // isBlank(null) 抛 NPE。orNullIfBlank() 参数显式可空,空检查不会被优化掉。
+        val legacyPlaintextPayload = storedMetadata?.payload.orNullIfBlank()
+            ?: prefs[OLD_ADWMH_QR_PAYLOAD_KEY].orNullIfBlank()
         val payload = encryptedPayload ?: legacyPlaintextPayload ?: return@withLock null
-        val cache = storedMetadata?.copy(payload = payload) ?: CacheModule.QrCodeCache(
+        val cache = storedMetadata?.copy(payload = payload, serverText = storedMetadata.serverText ?: "") ?: CacheModule.QrCodeCache(
             payload = payload,
             serverText = prefs[OLD_ADWMH_QR_SERVER_TEXT_KEY] ?: "",
             fetchedAt = prefs[OLD_ADWMH_QR_FETCHED_AT_KEY] ?: 0L,
@@ -294,7 +300,7 @@ class CacheModuleImpl(
 
         // One-time compatibility migration. The DataStore metadata never retains the payload.
         if (storedMetadata == null || encryptedPayload == null || legacyPlaintextPayload != null) {
-            credentialStore.putString(EncryptedCredentialStore.ADWMH_QR_PAYLOAD, payload)
+            credentialStore.putString(EncryptedCredentialStore.ADWMH_QR_PAYLOAD, payload ?: return@withLock null)
             appDataStore.dataStore.edit { mutablePrefs ->
                 mutablePrefs[QR_CODE_CACHE_KEY] = gson.toJson(cache.copy(payload = ""))
                 mutablePrefs.remove(OLD_ADWMH_QR_PAYLOAD_KEY)

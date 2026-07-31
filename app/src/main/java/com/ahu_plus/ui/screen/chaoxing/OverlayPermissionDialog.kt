@@ -12,7 +12,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.ahu_plus.ui.theme.AhuPlusTheme
 import com.ahu_plus.util.OverlayWindow
 
 /**
@@ -70,4 +72,16 @@ fun OverlayPermissionDialog(
             }
         },
     )
+}
+
+@Preview(name = "Overlay Permission Dialog", showBackground = true)
+@Composable
+private fun PreviewOverlayPermissionDialog() {
+    AhuPlusTheme {
+        OverlayPermissionDialog(
+            onDismiss = {},
+            onGranted = {},
+            onSkipped = {}
+        )
+    }
 }

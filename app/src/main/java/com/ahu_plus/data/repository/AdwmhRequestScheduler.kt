@@ -35,8 +35,17 @@ internal class AdwmhRequestScheduler(
     private var running = false
     private var lastCompletedAtMs: Long? = null
 
+    /**
+     * 串行执行一个 adwmh 请求。
+     *
+     * @param enforceGap 是否在请求前后强制 [minGapMs] 间隔。认证类端点(login/authcode)
+     *  对突发请求敏感、易触发服务端限流,传 true 维持限速保护;读端点(qrcode/yue/session)
+     *  单次请求不触发限流,传 false 可省掉 1.5s 白等。无论取值如何,[running] 串行化
+     *  (同一时刻只有一个请求在执行)始终保留,避免并发请求导致服务端状态混乱。
+     */
     suspend fun <T> execute(
         priority: AdwmhRequestPriority,
+        enforceGap: Boolean = true,
         request: suspend () -> T,
     ): T {
         val ticket = stateMutex.withLock {
@@ -48,9 +57,12 @@ internal class AdwmhRequestScheduler(
         var requestStarted = false
         try {
             ticket.ready.await()
-            lastCompletedAtMs?.let { completedAt ->
-                val remaining = minGapMs - (nowMillis() - completedAt)
-                if (remaining > 0L) delayMillis(remaining)
+            // 仅认证类端点需要遵守最小间隔;读端点之间不强制等待。
+            if (enforceGap) {
+                lastCompletedAtMs?.let { completedAt ->
+                    val remaining = minGapMs - (nowMillis() - completedAt)
+                    if (remaining > 0L) delayMillis(remaining)
+                }
             }
             requestStarted = true
             return request()
@@ -60,7 +72,8 @@ internal class AdwmhRequestScheduler(
                     ticket.finished -> Unit
                     ticket.started -> {
                         ticket.finished = true
-                        if (requestStarted) lastCompletedAtMs = nowMillis()
+                        // 仅认证类端点完成时刷新间隔基准;读端点不更新,避免拖慢后续读端点。
+                        if (requestStarted && enforceGap) lastCompletedAtMs = nowMillis()
                         running = false
                         dispatchNextLocked()
                     }

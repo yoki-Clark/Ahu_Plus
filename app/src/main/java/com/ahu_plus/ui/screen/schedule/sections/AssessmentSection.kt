@@ -27,6 +27,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -35,8 +36,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,12 +48,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.graphics.Bitmap
 import com.ahu_plus.data.model.course.AssessmentPlan
 import com.ahu_plus.data.repository.AssessmentRepository
 import com.ahu_plus.ui.components.CollapsibleSection
 import com.ahu_plus.ui.theme.AhuShapes
 import kotlinx.coroutines.launch
-import android.graphics.BitmapFactory
 
 /** 考核方案文字最大字符数 */
 private const val TEXT_MAX_LEN = 1000
@@ -71,8 +74,8 @@ fun AssessmentSection(
     expanded: Boolean? = null,
     onToggle: ((Boolean) -> Unit)? = null,
 ) {
-    var text by remember(lessonId) { mutableStateOf(plan?.text.orEmpty()) }
-    var images by remember(lessonId) { mutableStateOf(plan?.imagePaths.orEmpty()) }
+    var text by rememberSaveable(lessonId) { mutableStateOf(plan?.text.orEmpty()) }
+    var images by rememberSaveable(lessonId) { mutableStateOf(plan?.imagePaths.orEmpty()) }
     var saving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -206,11 +209,8 @@ private fun AssessmentImageThumb(
     assessmentRepository: AssessmentRepository,
     onRemove: () -> Unit,
 ) {
-    val file = remember(path) { assessmentRepository.resolveImagePath(path) }
-    val bitmap = remember(path) {
-        runCatching {
-            BitmapFactory.decodeFile(file.absolutePath)
-        }.getOrNull()
+    val bitmap by produceState<Bitmap?>(initialValue = null, path) {
+        value = assessmentRepository.loadThumbnail(path)
     }
 
     Box(
@@ -219,9 +219,10 @@ private fun AssessmentImageThumb(
             .clip(AhuShapes.Card)
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        if (bitmap != null) {
+        val loadedBitmap = bitmap
+        if (loadedBitmap != null) {
             androidx.compose.foundation.Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = loadedBitmap.asImageBitmap(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -245,8 +246,9 @@ private fun AssessmentImageThumb(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(2.dp)
-                .size(20.dp)
-                .clickable { onRemove() },
+                .clickable { onRemove() }
+                .minimumInteractiveComponentSize()
+                .size(20.dp),
         ) {
             Icon(
                 imageVector = Icons.Filled.Close,

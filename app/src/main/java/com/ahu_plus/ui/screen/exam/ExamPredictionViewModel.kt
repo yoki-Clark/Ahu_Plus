@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.exam
 
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.GsonProvider
@@ -289,6 +290,7 @@ class ExamPredictionViewModel(
     }
 }
 
+@Immutable
 data class ExamPredictionUiState(
     val isLoading: Boolean = false,
     val aggregated: List<AggregatedCourse> = emptyList(),

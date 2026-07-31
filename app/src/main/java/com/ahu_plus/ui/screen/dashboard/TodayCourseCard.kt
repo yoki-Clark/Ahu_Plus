@@ -1,5 +1,6 @@
 package com.ahu_plus.ui.screen.dashboard
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,14 +21,13 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,8 +43,13 @@ import com.ahu_plus.data.debug.DebugClock
 import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.weather.WeatherFeed
 import com.ahu_plus.data.weather.WeatherManager
+import com.ahu_plus.ui.components.AhuHeroCard
 import com.ahu_plus.ui.components.WeatherPanel
+import com.ahu_plus.ui.theme.AhuGradient
+import com.ahu_plus.ui.theme.AhuMotion
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.tabularFigures
 import com.ahu_plus.data.model.jw.CourseUnit
 import com.ahu_plus.data.model.jw.parseTimeMinutes
 import kotlinx.coroutines.delay
@@ -76,15 +81,15 @@ fun TodayCourseCard(
     weatherManager: WeatherManager? = null,
     onOpenWeather: () -> Unit = {},
 ) {
-    // 每 30s tick 一次驱动倒计时/进度条重算；用 tick 当 remember 的 key,
-    // 比 @Suppress("UNUSED_EXPRESSION") 更可靠 — 不依赖编译器保留无意义读取。
+    // 秒级 tick 驱动倒计时/进度条重算(now 需秒级);today/todayItems 不以 tick 为 key,
+    // 避免每秒重做日期计算与列表 filter+sort(日期跨天才变、列表随数据变)。
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
-        while (true) { delay(30_000); tick++ }
+        while (true) { delay(1_000); tick++ }
     }
 
     val now = remember(tick) { DebugClock.nowTime() }
-    val today = remember(tick) { DebugClock.todayDate() }
+    val today = remember { DebugClock.todayDate() }
     val todayItems = remember(uiState.todayItems, today) {
         uiState.todayItems.filter { it.weekday == today.dayOfWeek.value }
             .sortedBy { it.startUnit }
@@ -96,12 +101,9 @@ fun TodayCourseCard(
         !isInClass(it, now, uiState.unitTimes) && isFuture(it, now, uiState.unitTimes)
     }
 
-    Card(
+    AhuHeroCard(
+        gradient = AhuGradient.Blue.brush,
         modifier = Modifier.fillMaxWidth(),
-        shape = AhuShapes.LargeCard,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -115,7 +117,7 @@ fun TodayCourseCard(
                 // 顶部状态行
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color.White.copy(alpha = 0.18f),
                         shape = RoundedCornerShape(6.dp),
                     ) {
                         Text(
@@ -126,7 +128,7 @@ fun TodayCourseCard(
                                 else -> "今日课程"
                             },
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = Color.White,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                             fontWeight = FontWeight.Medium,
                         )
@@ -139,9 +141,11 @@ fun TodayCourseCard(
                         val start = courseStartMinutes(currentCourse, uiState.unitTimes) ?: 0
                         val end = start + total
                         val nowMin = now.hour * 60 + now.minute
-                        val elapsed = (nowMin - start).coerceAtLeast(0)
+                        // 秒级分数,让进度条两 tick 间连续推进而非每分钟跳一档
+                        val nowMinF = nowMin + now.second / 60f
+                        val elapsedF = (nowMinF - start).coerceAtLeast(0f)
                         val remaining = (end - nowMin).coerceAtLeast(0)
-                        val progress = if (total > 0) (elapsed.toFloat() / total).coerceIn(0f, 1f) else 0f
+                        val progress = if (total > 0) (elapsedF / total).coerceIn(0f, 1f) else 0f
 
                         CourseSummary(currentCourse, uiState.unitTimes)
                         // 考勤状态 badge (从教务考勤系统匹配)
@@ -155,23 +159,36 @@ fun TodayCourseCard(
                                 .fillMaxWidth()
                                 .height(6.dp)
                                 .clip(RoundedCornerShape(3.dp)),
+                            color = Color.White,
+                            trackColor = Color.White.copy(alpha = 0.24f),
                         )
                         Text(
-                            text = "已上 ${elapsed} 分钟 · 还剩 ${remaining} 分钟",
+                            text = "已上 ${elapsedF.toInt()} 分钟 · 还剩 ${remaining} 分钟",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.86f),
+                            color = Color.White.copy(alpha = 0.86f),
                         )
                     }
                     nextCourse != null -> {
                         val startMin = courseStartMinutes(nextCourse, uiState.unitTimes) ?: 0
                         val nowMin = now.hour * 60 + now.minute
                         val diff = (startMin - nowMin).coerceAtLeast(0)
-                        val (label, color) = when {
-                            diff <= 0 -> "马上开始" to MaterialTheme.colorScheme.error
-                            diff < 60 -> "${diff} 分钟后开始" to MaterialTheme.colorScheme.error
-                            diff < 180 -> "${diff / 60} 小时 ${diff % 60} 分后" to MaterialTheme.colorScheme.tertiary
-                            else -> "${diff / 60} 小时后" to MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                        val label = when {
+                            diff <= 0 -> "马上开始"
+                            diff < 60 -> "${diff} 分钟后开始"
+                            diff < 180 -> "${diff / 60} 小时 ${diff % 60} 分后"
+                            else -> "${diff / 60} 小时后"
                         }
+                        // 颜色随紧急度分档,用 animateColorAsState 平滑过渡(批次二项30)
+                        val targetColor = when {
+                            diff < 60 -> MaterialTheme.colorScheme.error
+                            diff < 180 -> MaterialTheme.colorScheme.tertiary
+                            else -> Color.White.copy(alpha = 0.78f)
+                        }
+                        val color by animateColorAsState(
+                            targetValue = targetColor,
+                            animationSpec = AhuMotion.ColorSpring,
+                            label = "countdown-color",
+                        )
                         Text(label, style = MaterialTheme.typography.bodySmall, color = color)
                         CourseSummary(nextCourse, uiState.unitTimes)
                     }
@@ -179,14 +196,14 @@ fun TodayCourseCard(
                         Text(
                             text = "今天课程已结束,明天继续加油 💪",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                            color = Color.White.copy(alpha = 0.78f),
                         )
                     }
                     else -> {
                         Text(
                             text = "今天没课,好好休息 ✨",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                            color = Color.White.copy(alpha = 0.7f),
                         )
                     }
                 }
@@ -224,7 +241,7 @@ fun TodayCourseCard(
                     Text(
                         text = "查看完整课表",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = Color.White,
                         fontWeight = FontWeight.Medium,
                     )
                 }
@@ -238,6 +255,7 @@ fun TodayCourseCard(
                 unitTimes = uiState.unitTimes,
                 manager = weatherManager,
                 onClick = onOpenWeather,
+                contentColor = Color.White,
             )
         }
     }
@@ -255,32 +273,32 @@ private fun CourseSummary(course: CourseDisplayItem, unitTimes: List<CourseUnit>
         Text(
             text = course.courseName,
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            color = Color.White,
             fontWeight = FontWeight.SemiBold,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Filled.AccessTime, contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                tint = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.size(14.dp),
             )
             Text(
                 text = " $timeText",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                style = MaterialTheme.typography.bodySmall.tabularFigures(),
+                color = Color.White.copy(alpha = 0.78f),
             )
         }
         if (!course.room.isNullOrBlank()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Filled.LocationOn, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                    tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier.size(14.dp),
                 )
                 Text(
                     text = " ${course.room}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                    color = Color.White.copy(alpha = 0.78f),
                 )
             }
         }
@@ -288,13 +306,13 @@ private fun CourseSummary(course: CourseDisplayItem, unitTimes: List<CourseUnit>
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Filled.Person, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                    tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier.size(14.dp),
                 )
                 Text(
                     text = " ${course.teacherNames}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                    color = Color.White.copy(alpha = 0.78f),
                 )
             }
         }
@@ -302,6 +320,7 @@ private fun CourseSummary(course: CourseDisplayItem, unitTimes: List<CourseUnit>
 }
 
 /** 今日课程 UI 状态 (从 ScheduleUiState 派生) */
+@Immutable
 data class TodayCourseUiState(
     val todayItems: List<CourseDisplayItem>,
     val unitTimes: List<CourseUnit>,
@@ -345,8 +364,8 @@ private fun courseTotalMinutes(course: CourseDisplayItem, unitTimes: List<Course
 @Composable
 private fun AttendanceBadge(status: Int) {
     val (label, color) = when (status) {
-        1 -> "已签到" to Color(0xFF27AE60)
-        2 -> "迟到" to Color(0xFFE67E22)
+        1 -> "已签到" to AhuStatusColors.NormalGreen
+        2 -> "迟到" to AhuStatusColors.WarningOrange
         3 -> "缺勤" to MaterialTheme.colorScheme.error
         else -> return
     }

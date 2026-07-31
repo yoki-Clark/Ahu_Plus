@@ -1,8 +1,11 @@
 package com.ahu_plus.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Refresh
@@ -17,17 +20,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,30 +45,45 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+import com.ahu_plus.ui.theme.AhuPlusTheme
+import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.theme.AhuSpacing
+import com.ahu_plus.ui.theme.AhuElevation
+import com.ahu_plus.ui.theme.ahuShadow
 
+/** `AhuTopAppBar` 内容区固定高度(不含状态栏 inset)。 */
+private val AhuTopAppBarHeight: Dp = 56.dp
+
+/**
+ * 顶部应用栏。
+ *
+ * 静态实色背景 + 1dp 阴影,内容色为 `onSurface`。约 25 处调用方零配置使用。
+ * 标题/未着色 Icon 取 `LocalContentColor`(`onSurface`);带语义 tint 的 action(如 error/primary)
+ * 保持各自指定色。
+ */
 @Composable
 fun AhuTopAppBar(
     title: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     navigationIcon: (@Composable () -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {}
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.background,
-        shadowElevation = 1.dp
+        shadowElevation = 1.dp,
     ) {
-        Column {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .height(56.dp)
+                    .height(AhuTopAppBarHeight)
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -100,8 +123,44 @@ fun AhuCard(
     Card(
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = modifier.fillMaxWidth()
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .ahuShadow(AhuElevation.Low, AhuShapes.Card)
+    ) {
+        content()
+    }
+}
+
+/**
+ * 可点击的 [AhuCard] - 内置按压缩放反馈(批次二项17)。整卡 clickable + [pressableScale]。
+ *
+ * 替代之前"卡片无 onClick、调用方在 content 内自行包 clickable"的写法,统一全 App
+ * 可点击卡片的手感(轻微缩 0.98 + spring 回弹)。
+ */
+@Composable
+fun AhuCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+    content: @Composable () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Card(
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .ahuShadow(AhuElevation.Low, AhuShapes.Card)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                enabled = enabled,
+                onClick = onClick,
+            )
+            .pressableScale(interactionSource)
     ) {
         content()
     }
@@ -180,6 +239,30 @@ fun AhuSectionHeader(
             }
         }
         trailing?.invoke()
+    }
+}
+
+/**
+ * 分组吸顶标题(批次三项48)。`LazyColumn` 的 `stickyHeader` 槽用 -- 滚动时标题钉在顶部,
+ * 实色背景遮挡下方滚动内容,直到下一组顶上来。与 `AhuSectionHeader` 区别:后者是普通
+ * 内联分组标题(不吸顶、无强背景),本组件专供 `stickyHeader` 槽。
+ */
+@Composable
+fun AhuStickyHeader(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
@@ -283,6 +366,92 @@ fun AhuInfoRow(
     }
 }
 
+/**
+ * 统一横向列表行 - 图标盒 + 主副标题 + 尾部槽，收口之前 GradeRow/NoticeRow/SettingsRow
+ * 各自实现的"图标+文字+尾部"卡片行（批次一项73）。
+ *
+ * - [icon] + [iconTint]：可选前置图标盒（40dp，AhuShapes.IconBox，tint 0.14 底），统一之前
+ *   34dp 裸图标 / 38dp / 42dp 三种写法。
+ * - [title] / [subtitle]：主副标题，副标题空则不占位。
+ * - [trailing]：尾部槽（箭头/数值/Switch 等）。
+ * - [accentColor]：可选左侧 4dp 色条（分类标识，批次一项21 复用）。
+ * - [onClick]：非 null 则整行 clickable。
+ */
+@Composable
+fun AhuListRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
+    subtitle: String? = null,
+    accentColor: Color? = null,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable (RowScope.() -> Unit)? = null,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Card(
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .ahuShadow(AhuElevation.Low, AhuShapes.Card)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = ripple(),
+                        onClick = onClick,
+                    ).pressableScale(interactionSource)
+                } else Modifier
+            )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (accentColor != null) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 4.dp, height = 28.dp)
+                        .clip(AhuShapes.Pill)
+                        .background(accentColor),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+            }
+            if (icon != null) {
+                AhuIconBox(
+                    imageVector = icon,
+                    tint = iconTint,
+                    size = 40.dp,
+                    modifier = Modifier.padding(end = 12.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!subtitle.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (trailing != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                trailing()
+            }
+        }
+    }
+}
+
 @Composable
 fun AhuMetricStrip(
     metrics: List<Pair<String, String>>,
@@ -330,17 +499,23 @@ fun AhuHeroCard(
     content: @Composable () -> Unit
 ) {
     Card(
-        shape = AhuShapes.LargeCard,
+        shape = AhuShapes.HeroCard,
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        modifier = modifier.fillMaxWidth()
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .ahuShadow(AhuElevation.High, AhuShapes.HeroCard)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(gradient)
         ) {
-            content()
+            // 渐变底色较深,统一提供白色内容色:内部 Text/Icon 未显式指定 color 时自动取白,
+            // 避免浅色主题下默认 onSurface 深色字在渐变上不可见。
+            CompositionLocalProvider(LocalContentColor provides Color.White) {
+                content()
+            }
         }
     }
 }
@@ -350,6 +525,49 @@ fun AhuHeroCard(
  *
  * @param centered 是否居中铺满父容器(占位屏状态)。true 时外层套 fillMaxSize Box。
  */
+/**
+ * 状态图标 blob - 外柔光圆 + 内品牌渐变圆 + 放大图标(批次二项43/52 增强型图标态)。
+ *
+ * 替代之前"56dp 灰底 + 28dp 暗图标"的单调样式,用品牌渐变柔光圆 + 放大图标让空/错状态
+ * 有插画感而无插画资产成本。渐变取自 [AhuGradient.forTint](跟随 tint),tint 传 primary
+ * 即跟随用户主题色。
+ */
+@Composable
+private fun AhuStateIconBlob(
+    icon: ImageVector,
+    tint: Color,
+    iconTint: Color,
+) {
+    Box(
+        modifier = Modifier.size(96.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        // 外柔光圆
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(tint.copy(alpha = 0.10f)),
+        )
+        // 内品牌渐变 blob(brush 按 tint 记忆,避免每次重组分配新 Brush)
+        val blobBrush = remember(tint) { AhuGradient.forTint(tint) }
+        Box(
+            modifier = Modifier
+                .size(60.dp)
+                .clip(CircleShape)
+                .background(blobBrush),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+                tint = iconTint,
+            )
+        }
+    }
+}
+
 @Composable
 fun AhuEmptyState(
     icon: ImageVector,
@@ -368,20 +586,11 @@ fun AhuEmptyState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(AhuShapes.IconBox)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
+            AhuStateIconBlob(
+                icon = icon,
+                tint = MaterialTheme.colorScheme.primary,
+                iconTint = MaterialTheme.colorScheme.onPrimary,
+            )
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
@@ -421,6 +630,7 @@ fun AhuEmptyState(
 fun AhuErrorState(
     message: String,
     modifier: Modifier = Modifier,
+    icon: ImageVector = Icons.Filled.Refresh,
     onRetry: (() -> Unit)? = null,
     actionLabel: String = "重试",
     centered: Boolean = false,
@@ -433,20 +643,11 @@ fun AhuErrorState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(AhuSpacing.sm)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(AhuShapes.IconBox)
-                    .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Refresh,
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
-                )
-            }
+            AhuStateIconBlob(
+                icon = icon,
+                tint = MaterialTheme.colorScheme.error,
+                iconTint = MaterialTheme.colorScheme.onError,
+            )
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
@@ -553,6 +754,71 @@ fun CenteredMessage(text: String, modifier: Modifier = Modifier) {
             text = text,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Preview(name = "Ahu Icon Box", showBackground = true)
+@Composable
+private fun PreviewAhuIconBox() {
+    AhuPlusTheme {
+        AhuIconBox(
+            imageVector = Icons.Filled.School,
+            tint = Color(0xFF2196F3),
+            modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+
+@Preview(name = "Ahu Tag", showBackground = true)
+@Composable
+private fun PreviewAhuTag() {
+    AhuPlusTheme {
+        Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AhuTag(text = "必修", color = Color(0xFF4CAF50))
+            AhuTag(text = "选修", color = Color(0xFFFF9800))
+        }
+    }
+}
+
+@Preview(name = "Ahu Status Card - Loading", showBackground = true)
+@Composable
+private fun PreviewAhuStatusCardLoading() {
+    AhuPlusTheme {
+        AhuStatusCard(
+            text = "正在刷新课程数据...",
+            loading = true,
+            modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+
+@Preview(name = "Ahu Status Card - Action", showBackground = true)
+@Composable
+private fun PreviewAhuStatusCardAction() {
+    AhuPlusTheme {
+        AhuStatusCard(
+            text = "认证已过期",
+            tone = MaterialTheme.colorScheme.error,
+            actionText = "重新登录",
+            onAction = {},
+            modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+
+@Preview(name = "Ahu Empty State", showBackground = true)
+@Composable
+private fun PreviewAhuEmptyState() {
+    AhuPlusTheme {
+        AhuEmptyState(
+            icon = Icons.Filled.School,
+            title = "暂无课程",
+            subtitle = "当前学期还未录入课表",
+            actionText = "刷新",
+            onAction = {},
+            centered = false,
+            modifier = Modifier.padding(16.dp)
         )
     }
 }

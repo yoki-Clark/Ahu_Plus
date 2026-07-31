@@ -6,6 +6,7 @@ enum class TopLevelDestination {
     CHAOXING,
     WELEARN,
     APPS,
+    EMAIL,
     PROFILE,
 }
 
@@ -83,6 +84,23 @@ data class AppsTarget(
     override val topLevel: TopLevelDestination = TopLevelDestination.APPS
 }
 
+/**
+ * 教育邮箱 Tab(独立顶层入口,通过 WebVPN 反代访问 Sirius 教育版)。
+ *
+ * - [EmailRoute.ROOT] / [EmailRoute.INBOX]:收件箱列表
+ * - [EmailRoute.DETAIL]:邮件详情(需带 [mailId])
+ * - [EmailRoute.COMPOSE]:写信(首版未实现,预留)
+ */
+enum class EmailRoute { ROOT, INBOX, DETAIL, COMPOSE }
+
+data class EmailTarget(
+    val route: EmailRoute = EmailRoute.ROOT,
+    val folderId: String? = null,
+    val mailId: String? = null,
+) : NavigationTarget {
+    override val topLevel: TopLevelDestination = TopLevelDestination.EMAIL
+}
+
 enum class ProfileRoute {
     ROOT,
     BILLS,
@@ -119,6 +137,7 @@ internal fun rootTarget(topLevel: TopLevelDestination): NavigationTarget = when 
     TopLevelDestination.CHAOXING -> ChaoxingTarget()
     TopLevelDestination.WELEARN -> WeLearnTarget()
     TopLevelDestination.APPS -> AppsTarget()
+    TopLevelDestination.EMAIL -> EmailTarget()
     TopLevelDestination.PROFILE -> ProfileTarget()
 }
 

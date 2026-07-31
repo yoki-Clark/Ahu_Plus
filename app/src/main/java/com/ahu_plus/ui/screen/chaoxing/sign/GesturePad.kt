@@ -15,8 +15,18 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.tooling.preview.Preview
+import com.ahu_plus.ui.theme.AhuPlusTheme
+import com.ahu_plus.ui.theme.AhuToneColors
 import kotlin.math.hypot
 
 /**
@@ -31,35 +41,57 @@ import kotlin.math.hypot
 fun GesturePad(
     onPathChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    dotColor: Color = Color(0xFFBDBDBD),
-    activeColor: Color = Color(0xFF2196F3),
+    dotColor: Color = Color.Unspecified,
+    activeColor: Color = Color.Unspecified,
 ) {
+    // 默认色走深浅双档 token(默认参数不能调用 @Composable,故在体内 fallback)
+    val resolvedDotColor = if (dotColor != Color.Unspecified) dotColor else AhuToneColors.GestureDotGray.current
+    val resolvedActiveColor = if (activeColor != Color.Unspecified) activeColor else AhuToneColors.GestureActiveBlue.current
     // 当前已选点的编号路径(1-9)
     var path by remember { mutableStateOf<List<Int>>(emptyList()) }
     // 当前手指位置,用于画"正在连向手指"的活动线段
     var dragPoint by remember { mutableStateOf<Offset?>(null) }
+    // Canvas 实际尺寸,变化时才重新计算九点坐标(避免每次拖动/绘制都重新分配)
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    val centers = remember(canvasSize) {
+        dotCenters(canvasSize.width.toFloat(), canvasSize.height.toFloat())
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .padding(8.dp),
+            .padding(8.dp)
+            .semantics {
+                contentDescription = "九宫格手势签到板,请由他人协助按顺序点选正确的手势图案"
+                stateDescription = if (path.isEmpty()) {
+                    "尚未选择任何点"
+                } else {
+                    "已选择 ${path.size} 个点,顺序为 ${path.joinToString("-") { (it + 1).toString() }}"
+                }
+                customActions = listOf(
+                    CustomAccessibilityAction("清除已选手势") {
+                        path = emptyList()
+                        onPathChange("")
+                        true
+                    },
+                )
+            },
     ) {
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .pointerInput(Unit) {
+                .onSizeChanged { canvasSize = it }
+                .pointerInput(centers) {
                     detectDragGestures(
                         onDragStart = { offset ->
                             path = emptyList()
-                            val centers = dotCenters(size.width.toFloat(), size.height.toFloat())
                             val cell = size.width / 3f
                             hitIndex(offset, centers, cell * 0.33f)?.let { path = listOf(it) }
                             dragPoint = offset
                         },
                         onDrag = { change, _ ->
-                            val centers = dotCenters(size.width.toFloat(), size.height.toFloat())
                             val cell = size.width / 3f
                             dragPoint = change.position
                             hitIndex(change.position, centers, cell * 0.33f)?.let { idx ->
@@ -77,7 +109,6 @@ fun GesturePad(
                     )
                 },
         ) {
-            val centers = dotCenters(size.width, size.height)
             val cell = size.width / 3f
             val dotR = cell * 0.12f
             val ringR = cell * 0.30f
@@ -85,7 +116,7 @@ fun GesturePad(
             // 连线(已选点之间)
             for (i in 0 until path.size - 1) {
                 drawLine(
-                    color = activeColor,
+                    color = resolvedActiveColor,
                     start = centers[path[i]],
                     end = centers[path[i + 1]],
                     strokeWidth = 8f,
@@ -95,7 +126,7 @@ fun GesturePad(
             val last = path.lastOrNull()
             if (last != null && dragPoint != null) {
                 drawLine(
-                    color = activeColor.copy(alpha = 0.5f),
+                    color = resolvedActiveColor.copy(alpha = 0.5f),
                     start = centers[last],
                     end = dragPoint!!,
                     strokeWidth = 8f,
@@ -105,13 +136,13 @@ fun GesturePad(
             centers.forEachIndexed { idx, c ->
                 val selected = idx in path
                 drawCircle(
-                    color = if (selected) activeColor else dotColor,
+                    color = if (selected) resolvedActiveColor else resolvedDotColor,
                     radius = dotR,
                     center = c,
                 )
                 if (selected) {
                     drawCircle(
-                        color = activeColor,
+                        color = resolvedActiveColor,
                         radius = ringR,
                         center = c,
                         style = Stroke(width = 4f),
@@ -139,4 +170,15 @@ private fun hitIndex(p: Offset, centers: List<Offset>, radius: Float): Int? {
         if (hypot(p.x - c.x, p.y - c.y) <= radius) return idx
     }
     return null
+}
+
+@Preview(name = "Gesture Pad", showBackground = true)
+@Composable
+private fun PreviewGesturePad() {
+    AhuPlusTheme {
+        GesturePad(
+            onPathChange = {},
+            modifier = Modifier.padding(24.dp)
+        )
+    }
 }

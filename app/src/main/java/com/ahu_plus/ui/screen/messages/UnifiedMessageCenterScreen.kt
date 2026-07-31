@@ -1,7 +1,9 @@
 package com.ahu_plus.ui.screen.messages
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,6 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -38,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,6 +51,8 @@ import com.ahu_plus.data.model.CxMessage
 import com.ahu_plus.data.model.JwcNotice
 import com.ahu_plus.data.model.MarketNotice
 import com.ahu_plus.ui.components.AhuTopAppBar
+import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuToneColors
 import com.ahu_plus.data.local.MESSAGE_PREVIEW_COUNT_OPTIONS
 import java.time.Instant
 import java.time.ZoneId
@@ -112,6 +120,7 @@ fun UnifiedMessageCenterScreen(
                 },
             )
         },
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         AhuPullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -268,25 +277,41 @@ private fun MessagePreview(
     time: String,
     onClick: () -> Unit,
 ) {
-    Column(
+    // 按 source 分类的左侧色条(批次二项21:消息按类型色标)
+    val accent = when (source) {
+        "教务通知" -> MaterialTheme.colorScheme.primary
+        "集市" -> MaterialTheme.colorScheme.tertiary
+        "学习通" -> AhuToneColors.ThirdPartyPurple.current
+        else -> MaterialTheme.colorScheme.outline
+    }
+    Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Text(
-            "$source · $title",
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+        Box(
+            modifier = Modifier
+                .size(width = 3.dp, height = 36.dp)
+                .clip(AhuShapes.Pill)
+                .background(accent),
         )
-        if (body.isNotBlank()) {
-            Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-        if (time.isNotBlank()) {
+        Column(modifier = Modifier.padding(start = 10.dp)) {
             Text(
-                time,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                "$source · $title",
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (body.isNotBlank()) {
+                Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            if (time.isNotBlank()) {
+                Text(
+                    time,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }

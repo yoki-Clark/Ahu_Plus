@@ -1,22 +1,24 @@
 {
   "channel": "beta",
-  "latestVersion": "2.2.2.10",
-  "latestVersionCode": 34,
+  "latestVersion": "2.2.2.11",
+  "latestVersionCode": 35,
   "minSupportedVersionCode": 0,
   "downloadUrl": "https://gitee.com/yao-enqi/ahu-plus-update/raw/master/ahu_plus_beta.apk",
   "downloadUrlMirror": "https://gitee.com/yao-enqi/Ahu_Plus/raw/master/app-release.apk",
   "apkFileName": "ahu_plus_beta.apk",
   "releaseNotes": [
-    "本次为 v2.2.2.10 先行版，基于 v2.2.2.7 增量更新：",
-    "课程查询：新增全校开课、班级课表和教学班周网格，并提供按教室占用生成的蹭课推荐。",
-    "一卡通：支付码支持自动加载与刷新，优化展示速度；智慧安大验证码改为设备端识别或手动输入。",
-    "应用与导航：应用页支持布局配置，恢复填充图标和单列默认；完善多栈导航、错误分类与冷启动缓存。",
-    "安全与稳定性：移除旧集市外部身份深链和 Widget 闹钟迁移壳，完善后台任务、退出清理与 APK 分享校验。",
+    "本次为 v2.2.2.11 先行版，基于 v2.2.2.10 增量更新：",
+    "教育邮箱：新增安大教育邮箱完整阅读体验，打通 SSO 握手链与 js6 JSON 协议，支持详情加载与数据清理。",
+    "个人中心：我的页顶部展示真实头像，支持默认/真实相片/自定义多来源，名称卡片直达学生基本信息。",
+    "界面美化：完成设计系统还债、质感微交互、沉浸式布局与动效转场四批次升级，并整改回归、对比度与无障碍问题。",
+    "一卡通：支付码加载体感优化，对标安大通秒开；修复支付码缓存 release 闪退与 serverText 兜底。",
+    "设置与首页：新增下拉刷新样式（系统默认/渐变弧/弹跳点/轨道/脉冲环）、首页快捷栏与焦点轮播开关，设置支持折叠。",
+    "安全与稳定性：智慧安大验证码改为设备端本地识别；发布前审查整改 clearAll 清理、邮箱清理与日志脱敏。",
     "本先行版在线安装包面向 arm64-v8a 真机。"
   ],
   "forceUpdate": false,
-  "updateTime": "2026-07-25T09:38:30+08:00",
+  "updateTime": "2026-07-31T18:38:39+08:00",
   "updateUrl": "https://gitee.com/yao-enqi/Ahu_Plus",
-  "sha256": "C248E53B41B069D2209DE314722D337968FB8A9F14EFFD33EA4E5A3889674C67",
-  "fileSize": 8272557
+  "sha256": "C4561186150AE95A44B823FA41E9D201DFE5077CB6A8162AE2189DF29FCEE227",
+  "fileSize": 8375257
 }

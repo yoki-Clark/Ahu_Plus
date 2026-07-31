@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -61,6 +62,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,6 +76,7 @@ import com.ahu_plus.ui.components.DataStatusFooter
 import com.ahu_plus.ui.theme.AhuGreen
 import com.ahu_plus.ui.theme.AhuOrange
 import com.ahu_plus.ui.theme.AhuRed
+import com.ahu_plus.ui.theme.AhuToneColors
 import kotlinx.coroutines.delay
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -81,10 +85,6 @@ import java.time.temporal.ChronoUnit
 private val FreeGreen = AhuGreen
 private val FreeOrange = AhuOrange
 private val FreeRed = AhuRed
-private val BarBackground = Color(0xFFE0E0E0)
-private val PastUnitGray = Color(0xFFBDBDBD)
-private val BusyUnitGray = Color(0xFFEEEEEE)
-private val NowIndicatorColor = Color(0xFF1976D2)  // Material Blue 700,对比更强
 
 private val dateFormatter = DateTimeFormatter.ofPattern("M月d日")
 
@@ -128,7 +128,8 @@ fun EmptyClassroomScreen(
                 }
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         AhuPullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
@@ -690,6 +691,18 @@ private fun FreeTimeBar(
 ) {
     val totalUnits = AhuUnitTimes.totalUnits()
 
+    val barDescription = remember(freeSegments, currentUnit) {
+        if (freeSegments.isEmpty()) {
+            "空闲时间条,全天 $totalUnits 节课均被占用"
+        } else {
+            val segmentsText = freeSegments.joinToString("、") { range ->
+                if (range.first == range.last) "第${range.first}节" else "第${range.first}-${range.last}节"
+            }
+            val currentText = currentUnit?.let { "当前为第${it}节" } ?: ""
+            "空闲时间条,共 $totalUnits 节课,空闲节次:$segmentsText。$currentText"
+        }
+    }
+
     val nowLineFraction: Float? = remember(isToday, currentUnit) {
         if (!isToday) return@remember null
         val now = DebugClock.nowTime()
@@ -702,7 +715,12 @@ private fun FreeTimeBar(
         (nowMin - startMin).toFloat() / (endMin - startMin).toFloat()
     }
 
-    Canvas(modifier = modifier) {
+    // 深浅双档色:在 Composable 层取值后传入 DrawScope(Canvas 内非 Composable 作用域)
+    val pastGray = AhuToneColors.PastUnitGray.current
+    val busyGray = AhuToneColors.BusyUnitGray.current
+    val nowIndicator = AhuToneColors.NowIndicatorBlue.current
+
+    Canvas(modifier = modifier.semantics { contentDescription = barDescription }) {
         val barWidth = size.width
         val barHeight = size.height
         val cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
@@ -746,10 +764,10 @@ private fun FreeTimeBar(
             val isPast = isToday && currentUnit != null && unit < currentUnit
 
             val color = when {
-                isPast && !isFree -> PastUnitGray
+                isPast && !isFree -> pastGray
                 isPast && isFree -> freeColor.copy(alpha = 0.3f)
                 isFree -> freeColor
-                else -> BusyUnitGray
+                else -> busyGray
             }
 
             drawRoundRect(
@@ -767,7 +785,7 @@ private fun FreeTimeBar(
 
             // 2a. 加粗蓝色竖线 (3dp)
             drawLine(
-                color = NowIndicatorColor,
+                color = nowIndicator,
                 start = Offset(lineX, 0f),
                 end = Offset(lineX, barHeight),
                 strokeWidth = 3.dp.toPx()
@@ -782,7 +800,7 @@ private fun FreeTimeBar(
                 lineTo(lineX, -arrowHeight)
                 close()
             }
-            drawPath(path = arrowPath, color = NowIndicatorColor)
+            drawPath(path = arrowPath, color = nowIndicator)
         }
     }
 }

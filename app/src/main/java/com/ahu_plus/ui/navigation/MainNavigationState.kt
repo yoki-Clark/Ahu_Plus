@@ -186,6 +186,11 @@ internal object NavigationTargetCodec {
             target.route.name,
             mapOfNotNull("appKey" to target.appKey, "entityId" to target.entityId),
         )
+        is EmailTarget -> NavigationTargetRecord(
+            target.topLevel.name,
+            target.route.name,
+            mapOfNotNull("folderId" to target.folderId, "mailId" to target.mailId),
+        )
         is ProfileTarget -> NavigationTargetRecord(
             target.topLevel.name,
             target.route.name,
@@ -213,6 +218,9 @@ internal object NavigationTargetCodec {
             }
             TopLevelDestination.APPS -> enumValueOrNull<AppsRoute>(record.route)?.let {
                 AppsTarget(it, args["appKey"], args["entityId"])
+            }
+            TopLevelDestination.EMAIL -> enumValueOrNull<EmailRoute>(record.route)?.let {
+                EmailTarget(it, args["folderId"], args["mailId"])
             }
             TopLevelDestination.PROFILE -> enumValueOrNull<ProfileRoute>(record.route)?.let {
                 ProfileTarget(it, args["utility"])

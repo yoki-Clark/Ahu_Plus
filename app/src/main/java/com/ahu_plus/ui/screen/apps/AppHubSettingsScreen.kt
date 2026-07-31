@@ -1,6 +1,6 @@
 package com.ahu_plus.ui.screen.apps
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +36,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -48,8 +49,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.ahu_plus.ui.components.AhuIconBox
@@ -340,8 +345,14 @@ private fun ToggleRow(
     ListItem(
         headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
         supportingContent = { Text(description) },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
-        modifier = Modifier.clickable { onChange(!checked) },
+        // Switch 交出 onCheckedChange,由整行的 toggleable 统一承载语义:
+        // TalkBack 只读到一个节点,并会播报开/关状态。
+        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+        modifier = Modifier.toggleable(
+            value = checked,
+            role = Role.Switch,
+            onValueChange = onChange,
+        ),
     )
 }
 // ── 实时预览 ───────────────────────────────────────────────────────
@@ -497,6 +508,8 @@ private fun ReorderList(
                             moveState.value(start, end)
                         }
                     },
+                    onMoveUp = { if (index > 0) moveState.value(index, index - 1) },
+                    onMoveDown = { if (index < order.lastIndex) moveState.value(index, index + 1) },
                 )
             }
         }
@@ -511,11 +524,19 @@ private fun ReorderRow(
     onDragStart: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
 ) {
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(REORDER_ROW_HEIGHT),
+            .height(REORDER_ROW_HEIGHT)
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction("上移") { onMoveUp(); true },
+                    CustomAccessibilityAction("下移") { onMoveDown(); true },
+                )
+            },
         color = if (dragging) MaterialTheme.colorScheme.surfaceVariant
         else MaterialTheme.colorScheme.surface,
         tonalElevation = if (dragging) 4.dp else 0.dp,
@@ -538,9 +559,10 @@ private fun ReorderRow(
             )
             Icon(
                 imageVector = Icons.Filled.DragHandle,
-                contentDescription = "拖动排序",
+                contentDescription = "拖动排序,可用无障碍自定义操作上移或下移",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .size(24.dp)
                     .pointerInput(spec.key) {
                         detectDragGesturesAfterLongPress(
@@ -578,7 +600,11 @@ private fun VisibilityList(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onToggle(spec.key, !visible) }
+                        .toggleable(
+                            value = visible,
+                            role = Role.Switch,
+                            onValueChange = { onToggle(spec.key, it) },
+                        )
                         .padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -597,10 +623,7 @@ private fun VisibilityList(
                         color = if (visible) MaterialTheme.colorScheme.onSurface
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Switch(
-                        checked = visible,
-                        onCheckedChange = { onToggle(spec.key, it) },
-                    )
+                    Switch(checked = visible, onCheckedChange = null)
                 }
             }
         }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.Immutable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -51,7 +52,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -72,6 +72,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.developer.DeveloperCacheCategory
 import com.ahu_plus.data.developer.DeveloperCacheCategorySummary
@@ -106,8 +107,10 @@ import kotlinx.coroutines.launch
 internal sealed interface DeveloperDataUiState {
     data object Loading : DeveloperDataUiState
 
+    @Immutable
     data class Ready(val report: DeveloperCacheReport) : DeveloperDataUiState
 
+    @Immutable
     data class Failed(val message: String) : DeveloperDataUiState
 }
 
@@ -462,8 +465,8 @@ internal fun DeveloperToolsTab(
     app: AhuPlusApplication,
     viewModel: DeveloperCenterViewModel,
 ) {
-    val runtime by DeveloperRuntime.state.collectAsState()
-    val analysis by viewModel.payloadAnalysis.collectAsState()
+    val runtime by DeveloperRuntime.state.collectAsStateWithLifecycle()
+    val analysis by viewModel.payloadAnalysis.collectAsStateWithLifecycle()
     var targetHost by rememberSaveable { mutableStateOf(runtime.targetHost) }
     var latencyMillis by rememberSaveable { mutableFloatStateOf(runtime.latencyMillis.toFloat()) }
     var selectedFault by rememberSaveable { mutableStateOf(runtime.networkFault) }
@@ -898,7 +901,7 @@ private fun MaintenanceResultDialog(
 
 @Composable
 internal fun DeveloperLogsTab() {
-    val entries by DeveloperEventRecorder.entries.collectAsState()
+    val entries by DeveloperEventRecorder.entries.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipboard = remember(context) {
         context.getSystemService(android.content.ClipboardManager::class.java)
@@ -1193,14 +1196,13 @@ private fun DeveloperMaintenanceStatus.color(): Color = when (this) {
 private fun DeveloperLogEntry.asExportLine(): String =
     "${formatTime(timestampMillis)}\t$level\t$category\t$message\t$detail"
 
-private fun formatTime(timestampMillis: Long): String =
-    SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date(timestampMillis))
+private val TIME_FORMAT = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+private val DATE_TIME_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
 
-private fun formatDate(timestampMillis: Long): String =
-    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(timestampMillis))
-
-private fun formatDateTime(timestampMillis: Long): String =
-    SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date(timestampMillis))
+private fun formatTime(timestampMillis: Long): String = TIME_FORMAT.format(Date(timestampMillis))
+private fun formatDate(timestampMillis: Long): String = DATE_FORMAT.format(Date(timestampMillis))
+private fun formatDateTime(timestampMillis: Long): String = DATE_TIME_FORMAT.format(Date(timestampMillis))
 
 internal fun networkResultExportText(result: NetworkDiagnosticResult): String {
     val output = buildString {

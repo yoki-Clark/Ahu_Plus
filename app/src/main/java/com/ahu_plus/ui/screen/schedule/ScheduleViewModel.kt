@@ -2,6 +2,7 @@ package com.ahu_plus.ui.screen.schedule
 
 import android.app.Application
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.debug.DebugClock
@@ -17,6 +18,7 @@ import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.jw.CourseUnit
 import com.ahu_plus.data.model.jw.GetDataLesson
 import com.ahu_plus.data.model.jw.SemesterInfo
+import com.ahu_plus.data.model.jw.SemesterScheduleResolver
 import com.ahu_plus.data.model.jw.UserScheduleItem
 import com.ahu_plus.data.model.task.HomeworkRecord
 import com.ahu_plus.data.model.task.UserTask
@@ -167,11 +169,33 @@ class ScheduleViewModel(
             }
         }
         // 优先加载本地缓存，再尝试静默网络刷新
-        val requestId = beginScheduleRequest()
         scheduleRequestJob = viewModelScope.launch {
             // 先加载用户自定义课表
             loadUserItems()
             loadSemesterListFromCache()
+            // 假期感知:寒暑假期间默认展示下一个学期(用缓存学期日期 + 学期列表判断)
+            val cachedSchedule = readCachedScheduleData()
+            val resolution = SemesterScheduleResolver.resolveDefaultSemester(
+                semesters = _uiState.value.availableSemesters,
+                knownDatedSemesters = listOfNotNull(cachedSchedule?.semester),
+                today = DebugClock.todayDate(),
+                fallbackId = CourseRepository.DEFAULT_SEMESTER_ID,
+                // 缓存学期服务器周次已 >= 20 → 必然已结束(即使缺日期也算"已结束")
+                overrunSemesterIds = buildSet {
+                    val data = cachedSchedule ?: return@buildSet
+                    if (SemesterScheduleResolver.isVacationWeek(data.currentWeek)) {
+                        // 学校接口的 semester 字段可能为空,但 schedule_json 只写 DEFAULT 学期的缓存,
+                        // 所以周次超限时无论 semester 是否为空,都把默认学期记为"已结束"
+                        add(data.semester?.id ?: CourseRepository.DEFAULT_SEMESTER_ID)
+                    }
+                },
+            )
+            if (resolution.semesterId != CourseRepository.DEFAULT_SEMESTER_ID) {
+                // 假期 → 直接加载下一个学期(selectSemester 内部处理历史缓存/网络加载)
+                selectSemester(resolution.semesterId)
+                return@launch
+            }
+            val requestId = beginScheduleRequest()
             val cached = loadFromCache(requestId)
             val updatedToday = sessionManager?.let {
                 DataRefreshPolicy.wasUpdatedToday(it.getScheduleUpdatedAt())
@@ -188,6 +212,15 @@ class ScheduleViewModel(
                 loadScheduleData(isRefresh = false, requestId = requestId)
             }
         }
+    }
+
+    /** 读取缓存的本学期课表数据(学期详情 + 服务器周次),供假期判断使用;解析失败返回 null。 */
+    private fun readCachedScheduleData(): com.ahu_plus.data.model.jw.ScheduleData? {
+        val sm = sessionManager ?: return null
+        val json = sm.getScheduleJson() ?: return null
+        return runCatching {
+            gson.fromJson(json, com.ahu_plus.data.model.jw.ScheduleData::class.java)
+        }.getOrNull()
     }
 
     /**
@@ -274,9 +307,16 @@ class ScheduleViewModel(
             if (!isCurrentScheduleRequest(requestId, CourseRepository.DEFAULT_SEMESTER_ID)) {
                 false
             } else {
+                // 假期(缓存周次为 0)时仍展示第 1 周,但不标记"本周"/不画当前时间线
+                val effectiveWeek = SemesterScheduleResolver.effectiveCurrentWeek(
+                    semester = data.semester,
+                    serverWeek = data.currentWeek,
+                    today = DebugClock.todayDate(),
+                )
+                val displayWeek = effectiveWeek.coerceAtLeast(1)
                 val displayItems = buildDisplayItems(
                     activities = data.activities,
-                    selectedWeek = data.currentWeek,
+                    selectedWeek = displayWeek,
                     lessons = data.lessons
                 )
                 _uiState.update { state ->
@@ -296,12 +336,12 @@ class ScheduleViewModel(
                         displayItems = displayItems,
                         unitTimes = data.unitTimes,
                         semester = data.semester,
-                        currentWeek = data.currentWeek,
-                        selectedWeek = data.currentWeek,
+                        currentWeek = effectiveWeek,
+                        selectedWeek = displayWeek,
                         weekIndices = data.weekIndices,
                         lessons = data.lessons,
                         // 本地缓存始终是本学期数据(写缓存策略仅 DEFAULT_SEMESTER_ID) → 同步更新
-                        currentSemesterCurrentWeek = data.currentWeek,
+                        currentSemesterCurrentWeek = effectiveWeek,
                         dataStatus = DataSnapshotStatus.cache(sm.getScheduleUpdatedAt()),
                     )
                 }
@@ -421,11 +461,20 @@ class ScheduleViewModel(
             result.fold(
                 onSuccess = { data ->
                     if (!isCurrentScheduleRequest(requestId, semesterId)) return@fold
+                    // 假期感知:今天不在该学期教学周内时,当前周记为 0(不再误算成当天有课)
+                    val effectiveWeek = SemesterScheduleResolver.effectiveCurrentWeek(
+                        semester = data.semester,
+                        serverWeek = data.currentWeek,
+                        today = DebugClock.todayDate(),
+                    )
+                    val displayWeek = effectiveWeek.coerceAtLeast(1)
                     // ★ 仅本学期写入本地缓存(其他学期按需加载)
                     if (isCurrentSemester) {
                         val sm = sessionManager
                         if (sm != null) {
                             try {
+                                // 缓存保留服务器原始周次:下次启动靠 >= 20 周规则识别假期;
+                                // 展示层(loadFromCache/Widget/提醒)各自再算有效周次
                                 val json = com.ahu_plus.data.GsonProvider.instance.toJson(data)
                                 sm.saveScheduleJson(json)
                                 if (isCurrentScheduleRequest(requestId, semesterId)) {
@@ -440,7 +489,7 @@ class ScheduleViewModel(
                     if (!isCurrentScheduleRequest(requestId, semesterId)) return@fold
                     val displayItems = buildDisplayItems(
                         activities = data.activities,
-                        selectedWeek = data.currentWeek,
+                        selectedWeek = displayWeek,
                         lessons = data.lessons
                     )
                     _uiState.update { state ->
@@ -458,13 +507,13 @@ class ScheduleViewModel(
                             displayItems = displayItems,
                             unitTimes = data.unitTimes,
                             semester = data.semester,
-                            currentWeek = data.currentWeek,
-                            selectedWeek = data.currentWeek,
+                            currentWeek = effectiveWeek,
+                            selectedWeek = displayWeek,
                             weekIndices = data.weekIndices,
                             lessons = data.lessons,
                             // 仅本学期的"当前周"会持久化,其他学期不影响
                             currentSemesterCurrentWeek = if (isCurrentSemester)
-                                data.currentWeek
+                                effectiveWeek
                             else state.currentSemesterCurrentWeek,
                             dataStatus = DataSnapshotStatus.network(),
                         )
@@ -779,6 +828,8 @@ class ScheduleViewModel(
      */
     fun jumpToCurrentWeek() {
         val data = _uiState.value
+        // 假期(currentSemesterCurrentWeek == 0)时没有"本周"可跳,直接忽略
+        if (data.currentSemesterCurrentWeek < 1) return
         if (data.selectedSemesterId != CourseRepository.DEFAULT_SEMESTER_ID) {
             // 切回本学期;本学期的当前周在 loadScheduleData 完成后会自动同步 setSelectedWeek
             selectSemester(CourseRepository.DEFAULT_SEMESTER_ID)
@@ -1018,10 +1069,18 @@ class ScheduleViewModel(
         semesterId: Int,
     ) {
         if (!isCurrentScheduleRequest(requestId, semesterId)) return
+        // 假期感知:今天不在该学期教学周内时,当前周记为 0(不误算成当天有课)
+        val effectiveWeek = SemesterScheduleResolver.effectiveCurrentWeek(
+            semester = data.semester,
+            serverWeek = data.currentWeek,
+            today = DebugClock.todayDate(),
+        )
+        val displayWeek = effectiveWeek.coerceAtLeast(1)
         if (isCurrentSemester) {
             val sm = sessionManager
             if (sm != null) {
                 try {
+                    // 缓存保留服务器原始周次(理由同上:下次启动靠 >= 20 周规则识别假期)
                     val json = com.ahu_plus.data.GsonProvider.instance.toJson(data)
                     sm.saveScheduleJson(json)
                     getApplication<android.app.Application>().let { app ->
@@ -1033,7 +1092,7 @@ class ScheduleViewModel(
         if (!isCurrentScheduleRequest(requestId, semesterId)) return
         val displayItems = buildDisplayItems(
             activities = data.activities,
-            selectedWeek = data.currentWeek,
+            selectedWeek = displayWeek,
             lessons = data.lessons
         )
         _uiState.update { state ->
@@ -1051,11 +1110,11 @@ class ScheduleViewModel(
                 displayItems = displayItems,
                 unitTimes = data.unitTimes,
                 semester = data.semester,
-                currentWeek = data.currentWeek,
-                selectedWeek = data.currentWeek,
+                currentWeek = effectiveWeek,
+                selectedWeek = displayWeek,
                 weekIndices = data.weekIndices,
                 lessons = data.lessons,
-                currentSemesterCurrentWeek = if (isCurrentSemester) data.currentWeek else state.currentSemesterCurrentWeek,
+                currentSemesterCurrentWeek = if (isCurrentSemester) effectiveWeek else state.currentSemesterCurrentWeek,
             )
         }
     }
@@ -1075,6 +1134,7 @@ private data class Quad(
     val elapsed: Int,
 )
 
+@Immutable
 data class ScheduleUiState(
     val needsLogin: Boolean = false,
     val isLoading: Boolean = true,

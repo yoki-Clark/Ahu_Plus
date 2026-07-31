@@ -53,6 +53,8 @@ import com.ahu_plus.data.repository.AdwmhQrCode
 import com.ahu_plus.ui.components.CountdownArc
 import com.ahu_plus.ui.theme.AhuGradient
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.AhuToneColors
 import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 
@@ -154,7 +156,7 @@ fun QrCodeFullScreenDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 when {
-                    qrCode != null && !isStale -> {
+                    qrCode != null -> {
                         // 已有 QR 码 → 显示大码
                         val image = rememberQrCodeImage(qrCode.payload, 720)
                         Box(
@@ -207,7 +209,7 @@ fun QrCodeFullScreenDialog(
                             Row(
                                 modifier = Modifier
                                     .clip(AhuShapes.Pill)
-                                    .background(Color(0xFFFFA000).copy(alpha = 0.22f))
+                                    .background(AhuStatusColors.QrStaleAmberBg.copy(alpha = 0.22f))
                                     .padding(horizontal = 14.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -215,14 +217,14 @@ fun QrCodeFullScreenDialog(
                                 Icon(
                                     Icons.Filled.Refresh,
                                     contentDescription = null,
-                                    tint = Color(0xFFFFE082),
+                                    tint = AhuStatusColors.QrStaleAmber,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
                                     text = "${formatQrAge(ageSeconds)}的码，可能已失效，请点击刷新",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFFFE082),
+                                    color = AhuStatusColors.QrStaleAmber,
                                     textAlign = TextAlign.Center
                                 )
                             }
@@ -310,7 +312,7 @@ private fun ProgressView(
         if (qrError != null) {
             Text(
                 text = "⚠ 加载失败",
-                color = Color(0xFFEF5350),
+                color = AhuToneColors.QrErrorRed.current,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )

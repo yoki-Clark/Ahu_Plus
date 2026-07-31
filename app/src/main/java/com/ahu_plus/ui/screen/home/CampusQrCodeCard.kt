@@ -42,6 +42,8 @@ import com.ahu_plus.ui.components.AhuHeroCard
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.CountdownArc
 import com.ahu_plus.ui.theme.AhuGradient
+import com.ahu_plus.ui.theme.AhuStatusColors
+import com.ahu_plus.ui.theme.tabularFigures
 import com.ahu_plus.ui.components.rememberQrCodeImage
 import java.text.DecimalFormat
 
@@ -50,6 +52,8 @@ import java.text.DecimalFormat
  *
  * 新版主流程已迁移到「我的」页,这里保留为独立页面以便后续复用或调试。
  */
+
+private val QrStaleAmber = AhuStatusColors.QrStaleAmber
 
 @Composable
 fun CampusQrCodeCard(
@@ -62,7 +66,8 @@ fun CampusQrCodeCard(
     isStale: Boolean = false,
     ageSeconds: Int = 0,
     onRefresh: () -> Unit,
-    onQrClick: () -> Unit
+    onQrClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
 
     // 脉冲动画（仅在有 QR 码时生效）
@@ -79,7 +84,7 @@ fun CampusQrCodeCard(
 
     AhuHeroCard(
         gradient = AhuGradient.Teal.brush,
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
     ) {
         Column {
             // 顶部标签行
@@ -141,8 +146,8 @@ fun CampusQrCodeCard(
                         )
                     }
 
-                    // 已加载 QR 码
-                    qrCode != null && !isStale -> {
+                    // 已加载 QR 码（含 stale-while-revalidate：过期旧码保留展示 + 标黄）
+                    qrCode != null -> {
                         val image = rememberQrCodeImage(qrCode.payload, 720)
                         Box(
                             modifier = Modifier
@@ -175,7 +180,7 @@ fun CampusQrCodeCard(
                         if (balance != null) {
                             Text(
                                 text = "余额 ${DecimalFormat("¥#,##0.00").format(balance)}",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleMedium.tabularFigures(),
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color.White
                             )
@@ -187,7 +192,7 @@ fun CampusQrCodeCard(
                             Row(
                                 modifier = Modifier
                                     .clip(AhuShapes.Pill)
-                                    .background(Color(0xFFFFA000).copy(alpha = 0.22f))
+                                    .background(AhuStatusColors.QrStaleAmberBg.copy(alpha = 0.22f))
                                     .padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -195,14 +200,14 @@ fun CampusQrCodeCard(
                                 Icon(
                                     Icons.Filled.Refresh,
                                     contentDescription = null,
-                                    tint = Color(0xFFFFE082),
+                                    tint = QrStaleAmber,
                                     modifier = Modifier.size(15.dp)
                                 )
                                 Text(
                                     text = "${formatQrAge(ageSeconds)}的码，可能已失效，请刷新",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFFFE082)
+                                    color = QrStaleAmber
                                 )
                             }
                         } else {
@@ -230,7 +235,7 @@ fun CampusQrCodeCard(
                     error != null -> {
                         Text(
                             text = error,
-                            color = Color(0xFFFFCDD2),
+                            color = AhuStatusColors.UrgentPink,
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center
                         )

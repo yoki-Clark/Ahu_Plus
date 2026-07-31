@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,6 +67,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
@@ -433,7 +435,14 @@ private fun CalendarSourceRow(
     onToggle: (AgendaSource) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable { onToggle(source) }.padding(vertical = 6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = source in selectedSources,
+                role = Role.Checkbox,
+                onValueChange = { onToggle(source) },
+            )
+            .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(checked = source in selectedSources, onCheckedChange = null)

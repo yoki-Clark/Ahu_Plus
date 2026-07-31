@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.data.model.WeLearnCourse
 
 /**
@@ -35,9 +36,9 @@ fun WeLearnMainScreen(
     onCourseClick: (WeLearnCourse) -> Unit,
 ) {
     val isLoggedIn = remember { mutableStateOf(viewModel.isLoggedIn) }
-    val coursesState by viewModel.coursesState.collectAsState()
-    val loggingIn by viewModel.loggingIn.collectAsState()
-    val lastLoginError by viewModel.lastLoginError.collectAsState()
+    val coursesState by viewModel.coursesState.collectAsStateWithLifecycle()
+    val loggingIn by viewModel.loggingIn.collectAsStateWithLifecycle()
+    val lastLoginError by viewModel.lastLoginError.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var showLoginSheet by rememberSaveable { mutableStateOf(!viewModel.isLoggedIn) }
 

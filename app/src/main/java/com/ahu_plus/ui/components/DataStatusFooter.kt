@@ -16,9 +16,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.local.DataSnapshotOrigin
 import com.ahu_plus.data.local.DataSnapshotStatus
+import com.ahu_plus.ui.theme.AhuPlusTheme
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -129,3 +131,45 @@ internal fun formatDataTime(
 
 private val DATA_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 private val TIME_ONLY_FORMAT = DateTimeFormatter.ofPattern("HH:mm")
+
+@Preview(name = "Data Status Footer - Network Fresh", showBackground = true)
+@Composable
+private fun PreviewDataStatusFooterNetwork() {
+    AhuPlusTheme {
+        DataStatusFooter(
+            status = DataSnapshotStatus(
+                origin = DataSnapshotOrigin.NETWORK,
+                updatedAt = System.currentTimeMillis() - 300_000L, // 5 min ago
+                lastFailedRefreshAt = null
+            )
+        )
+    }
+}
+
+@Preview(name = "Data Status Footer - Cache with Failed Refresh", showBackground = true)
+@Composable
+private fun PreviewDataStatusFooterCacheFailed() {
+    AhuPlusTheme {
+        DataStatusFooter(
+            status = DataSnapshotStatus(
+                origin = DataSnapshotOrigin.CACHE,
+                updatedAt = System.currentTimeMillis() - 7200_000L, // 2 hours ago
+                lastFailedRefreshAt = System.currentTimeMillis() - 60_000L // 1 min ago
+            )
+        )
+    }
+}
+
+@Preview(name = "Compact Data Status Footer", showBackground = true)
+@Composable
+private fun PreviewCompactDataStatusFooter() {
+    AhuPlusTheme {
+        CompactDataStatusFooter(
+            status = DataSnapshotStatus(
+                origin = DataSnapshotOrigin.CACHE,
+                updatedAt = System.currentTimeMillis() - 3600_000L, // 1 hour ago
+                lastFailedRefreshAt = null
+            )
+        )
+    }
+}

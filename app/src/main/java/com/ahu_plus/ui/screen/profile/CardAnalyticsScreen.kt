@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -50,6 +51,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,6 +69,8 @@ import com.ahu_plus.data.model.toAnalyticsReport
 import com.ahu_plus.data.model.jw.SemesterInfo
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.AhuToneColors
+import com.ahu_plus.ui.theme.tabularFigures
 import java.text.DecimalFormat
 
 private val MoneyFormat = DecimalFormat("¥#,##0.00")
@@ -118,7 +123,8 @@ fun CardAnalyticsScreen(
                 }
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0),
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
@@ -400,7 +406,7 @@ private fun MetricCard(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text(value, style = MaterialTheme.typography.titleLarge.tabularFigures(), fontWeight = FontWeight.ExtraBold)
             Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         }
     }
@@ -425,13 +431,22 @@ private fun SmoothTrendChart(points: List<DailyPoint>) {
         EmptyBlock("该范围内暂无趋势数据")
         return
     }
-    val primary = Color(0xFF4F73C8)
+    val primary = AhuToneColors.TrendPrimary.current
     val grid = MaterialTheme.colorScheme.outlineVariant
+    val chartDescription = remember(points) {
+        val first = points.first()
+        val last = points.last()
+        val maxPoint = points.maxBy { it.totalExpense }
+        "每日支出趋势图,${first.date} 支出 ${"%.2f".format(first.totalExpense)} 元," +
+            "${last.date} 支出 ${"%.2f".format(last.totalExpense)} 元," +
+            "最高单日支出出现在 ${maxPoint.date},为 ${"%.2f".format(maxPoint.totalExpense)} 元"
+    }
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
             .height(210.dp)
             .padding(top = 8.dp, bottom = 8.dp)
+            .semantics { contentDescription = chartDescription }
     ) {
         val top = 12f
         val bottom = size.height - 24f
@@ -637,7 +652,10 @@ private fun TransactionListDialog(
                         .heightIn(max = 420.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(transactions.size) { index ->
+                    items(
+                        count = transactions.size,
+                        key = { index -> "${transactions[index].day}_${transactions[index].time}_${transactions[index].amount}_$index" },
+                    ) { index ->
                         val item = transactions[index]
                         TransactionRow(item)
                     }
@@ -714,7 +732,7 @@ private fun ProgressRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(6.dp),
-            color = Color(0xFF4F73C8),
+            color = AhuToneColors.TrendPrimary.current,
             trackColor = MaterialTheme.colorScheme.surfaceVariant
         )
         Text(

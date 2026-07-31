@@ -43,7 +43,7 @@ fun CProgLoginScreen(
     Scaffold(
         topBar = {
             AhuTopAppBar(
-                title = { Text("大学计算机平台", fontWeight = FontWeight.Bold) },
+                title = { Text("大机平台", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -51,6 +51,7 @@ fun CProgLoginScreen(
                 },
             )
         },
+        contentWindowInsets = WindowInsets(0),
     ) { inner ->
         Column(
             modifier = Modifier

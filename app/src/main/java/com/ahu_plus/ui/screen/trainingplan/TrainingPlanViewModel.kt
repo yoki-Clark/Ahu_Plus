@@ -1,6 +1,7 @@
 package com.ahu_plus.ui.screen.trainingplan
 
 import com.ahu_plus.data.diagnostic.SafeLog as Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahu_plus.data.GsonProvider
@@ -408,6 +409,7 @@ enum class CourseCompletion { NOT_TAKEN, IN_PROGRESS, PASSED, FAILED }
 internal fun uniqueUnmatched(a: List<CompletionCourse>, b: List<CompletionCourse>): List<CompletionCourse> =
     (a + b).distinctBy { it.code }
 
+@Immutable
 data class TrainingPlanUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,

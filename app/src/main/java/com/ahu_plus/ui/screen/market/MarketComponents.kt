@@ -46,6 +46,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -88,6 +89,7 @@ import com.ahu_plus.data.model.MarketComment
 import com.ahu_plus.data.model.MarketIdentity
 import com.ahu_plus.data.model.MarketTopic
 import com.ahu_plus.data.model.MarketUser
+import com.ahu_plus.ui.components.pressableScale
 import com.ahu_plus.ui.theme.AhuShapes
 import com.ahu_plus.ui.components.AhuTag
 import com.ahu_plus.ui.theme.MarketColors
@@ -351,15 +353,22 @@ internal fun MarketTopicCard(
     onClick: () -> Unit,
     school: String? = null,
     showTopComments: Boolean = true,
-    highlightQuery: String? = null
+    highlightQuery: String? = null,
+    modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Card(
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                onClick = onClick,
+            )
+            .pressableScale(interactionSource)
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -458,7 +467,7 @@ internal fun StaggerMarketTopicCard(
             if (topic.imgs.isNotEmpty()) {
                 AsyncImage(
                     model = topic.imgs.first(),
-                    contentDescription = null,
+                    contentDescription = "帖子配图",
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(0.75f)
@@ -650,7 +659,8 @@ private fun TopicImageGrid(
                         .fillMaxWidth()
                         .height(singleHeight)
                         .clip(corner)
-                        .clickable { onImageClick(visible[page], page) }
+                        .clickable { onImageClick(visible[page], page) },
+                    description = "帖子配图 ${page + 1}／${visible.size}",
                 )
             }
             if (visible.size > 1) {
@@ -692,10 +702,10 @@ private fun TopicImageGrid(
 }
 
 @Composable
-private fun TopicImage(url: String, modifier: Modifier) {
+private fun TopicImage(url: String, modifier: Modifier, description: String = "帖子配图") {
     AsyncImage(
         model = url,
-        contentDescription = null,
+        contentDescription = description,
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
         contentScale = ContentScale.Crop
     )

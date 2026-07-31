@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import com.ahu_plus.data.model.jw.CourseDisplayItem
 import com.ahu_plus.data.model.jw.CourseUnit
 import com.ahu_plus.data.model.weather.WeatherFeed
+import com.ahu_plus.data.weather.DynamicWeatherIcon
 import com.ahu_plus.data.weather.WeatherCode
 import com.ahu_plus.data.weather.WeatherManager
 
@@ -54,6 +55,7 @@ fun WeatherPanel(
     manager: WeatherManager?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    contentColor: Color = MaterialTheme.colorScheme.onPrimaryContainer,
 ) {
     Column(
         modifier = modifier
@@ -73,20 +75,20 @@ fun WeatherPanel(
                 Icon(
                     imageVector = WeatherCode.icon(0),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.35f),
+                    tint = contentColor.copy(alpha = 0.35f),
                     modifier = Modifier.size(28.dp),
                 )
             }
             Text(
                 text = "—°",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                color = contentColor.copy(alpha = 0.5f),
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = "天气加载中",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                color = contentColor.copy(alpha = 0.5f),
             )
             return@Column
         }
@@ -103,23 +105,22 @@ fun WeatherPanel(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Icon(
-                imageVector = WeatherCode.icon(currentCode),
-                contentDescription = WeatherCode.describe(currentCode),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            DynamicWeatherIcon(
+                code = currentCode,
+                tint = contentColor,
                 modifier = Modifier.size(28.dp),
             )
             Text(
                 text = "${temp}°",
                 style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = contentColor,
                 fontWeight = FontWeight.SemiBold,
             )
         }
         Text(
             text = rangeText,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+            color = contentColor.copy(alpha = 0.78f),
         )
 
         // 上下课天气提醒

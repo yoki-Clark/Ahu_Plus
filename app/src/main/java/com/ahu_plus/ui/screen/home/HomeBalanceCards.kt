@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.FeeItemOption
 import com.ahu_plus.data.model.InternetBalanceData
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.tabularFigures
 import java.text.DecimalFormat
 
 /**
@@ -143,7 +145,7 @@ fun BathroomBalanceCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = DecimalFormat("¥#,##0.00").format(data.cashYuan),
-                            style = MaterialTheme.typography.headlineLarge,
+                            style = MaterialTheme.typography.headlineLarge.tabularFigures(),
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
@@ -192,7 +194,7 @@ private fun PhoneInputDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    var input by remember { mutableStateOf(currentPhone) }
+    var input by rememberSaveable { mutableStateOf(currentPhone) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("设置浴室手机号") },
@@ -625,7 +627,7 @@ fun InternetBalanceCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "${DecimalFormat("#,##0.00").format(data.balanceYuan)} 元",
-                            style = MaterialTheme.typography.headlineLarge,
+                            style = MaterialTheme.typography.headlineLarge.tabularFigures(),
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )

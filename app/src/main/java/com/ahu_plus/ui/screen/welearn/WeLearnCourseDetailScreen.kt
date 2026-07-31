@@ -18,7 +18,6 @@ import androidx.compose.material3.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ahu_plus.AhuPlusApplication
 import com.ahu_plus.data.model.WeLearnCourse
 import com.ahu_plus.data.model.WeLearnSco
@@ -38,6 +38,7 @@ import com.ahu_plus.data.model.WeLearnScoStatus
 import com.ahu_plus.data.model.WeLearnUnitScos
 import com.ahu_plus.data.model.formatScoLearntime
 import com.ahu_plus.data.model.formatStudiedDuration
+import com.ahu_plus.ui.theme.ChaoxingColors
 
 /**
  * WeLearn 课程详情屏 (2026-06-28)。
@@ -60,7 +61,7 @@ fun WeLearnCourseDetailScreen(
     // 2026-06-28:刷全部章节 — 仅跳转 Study 屏,不启动 Service(由用户在 Study 屏手动点开始)
     onOpenStudy: () -> Unit,
 ) {
-    val treeState by viewModel.treeState.collectAsState()
+    val treeState by viewModel.treeState.collectAsStateWithLifecycle()
     val ctx = androidx.compose.ui.platform.LocalContext.current  // 2026-06-28:用于 LaunchedEffect 拿 applicationContext
     // 2026-06-28:单选 Dialog 开关(tap-to-confirm,无需持有选中状态)
     var showUnitSelector by remember { mutableStateOf(false) }
@@ -365,7 +366,7 @@ private fun ScoRow(sco: WeLearnSco) {
         else sco.location.substringBeforeLast(" > ", missingDelimiterValue = "")
     }
     val (iconTint, iconVec) = when (sco.status) {
-        WeLearnScoStatus.COMPLETED -> Color(0xFF4CAF50) to Icons.Filled.CheckCircle
+        WeLearnScoStatus.COMPLETED -> ChaoxingColors.Signin to Icons.Filled.CheckCircle
         WeLearnScoStatus.LOCKED -> MaterialTheme.colorScheme.outline to Icons.Filled.Lock
         WeLearnScoStatus.TODO -> MaterialTheme.colorScheme.primary to Icons.Filled.RadioButtonUnchecked
     }

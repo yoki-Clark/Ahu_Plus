@@ -49,7 +49,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.BillRecord
 import com.ahu_plus.ui.components.LoginRequiredCard
+import com.ahu_plus.ui.theme.AhuGreen
 import com.ahu_plus.ui.theme.AhuShapes
+import com.ahu_plus.ui.theme.tabularFigures
 import java.text.DecimalFormat
 import kotlin.math.abs
 
@@ -196,9 +198,9 @@ private fun BillDetailSheet(bill: BillRecord) {
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
                     text = if (isPayment) "-${formatter.format(amount)}" else "+${formatter.format(amount)}",
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.headlineMedium.tabularFigures(),
                     fontWeight = FontWeight.Bold,
-                    color = if (isPayment) MaterialTheme.colorScheme.error else Color(0xFF2A9D8F)
+                    color = if (isPayment) MaterialTheme.colorScheme.error else AhuGreen
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
@@ -291,14 +293,14 @@ fun BillRow(bill: BillRecord, onClick: () -> Unit = {}) {
                 .clip(CircleShape)
                 .background(
                     if (isPayment) MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
-                    else Color(0xFF2A9D8F).copy(alpha = 0.14f)
+                    else AhuGreen.copy(alpha = 0.14f)
                 ),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = if (isPayment) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
                 contentDescription = null,
-                tint = if (isPayment) MaterialTheme.colorScheme.error else Color(0xFF2A9D8F)
+                tint = if (isPayment) MaterialTheme.colorScheme.error else AhuGreen
             )
         }
         Column(
@@ -323,9 +325,9 @@ fun BillRow(bill: BillRecord, onClick: () -> Unit = {}) {
         }
         Text(
             text = if (isPayment) "-${formatter.format(amount)}" else "+${formatter.format(amount)}",
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyLarge.tabularFigures(),
             fontWeight = FontWeight.Bold,
-            color = if (isPayment) MaterialTheme.colorScheme.error else Color(0xFF2A9D8F)
+            color = if (isPayment) MaterialTheme.colorScheme.error else AhuGreen
         )
     }
 }
