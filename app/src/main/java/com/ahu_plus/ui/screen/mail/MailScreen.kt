@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -190,6 +191,9 @@ private fun MessageList(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            vertical = AhuSpacing.sm,
+        ),
     ) {
         items(messages, key = { it.id }) { message ->
             MessageItem(message = message, onClick = { onOpenDetail(message.id) })
@@ -203,26 +207,46 @@ private fun MessageItem(message: MailMessageSummary, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = AhuSpacing.md, vertical = AhuSpacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(
+                horizontal = AhuSpacing.ScreenHorizontal,
+                vertical = AhuSpacing.md,
+            ),
+        verticalAlignment = Alignment.Top,
     ) {
-        // 未读圆点
+        // 发件人首字母头像(未读用主色,已读用浅色)
+        val avatarText = (message.from.name ?: message.from.address)
+            .trim()
+            .take(1)
+            .uppercase()
+            .ifEmpty { "?" }
         Box(
             modifier = Modifier
-                .size(8.dp)
+                .size(40.dp)
                 .clip(CircleShape)
                 .background(
                     if (message.isRead) {
                         MaterialTheme.colorScheme.surfaceVariant
                     } else {
-                        MaterialTheme.colorScheme.primary
+                        MaterialTheme.colorScheme.primaryContainer
                     }
                 ),
-        )
-        Spacer(modifier = Modifier.size(AhuSpacing.sm))
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = avatarText,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (message.isRead) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                },
+            )
+        }
+        Spacer(modifier = Modifier.size(AhuSpacing.md))
         // 主体内容
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.weight(1f),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -237,6 +261,7 @@ private fun MessageItem(message: MailMessageSummary, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                Spacer(modifier = Modifier.size(AhuSpacing.sm))
                 Text(
                     text = formatMailDate(message.date),
                     style = MaterialTheme.typography.labelSmall,
@@ -247,16 +272,28 @@ private fun MessageItem(message: MailMessageSummary, onClick: () -> Unit) {
             Text(
                 text = message.subject,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.Medium,
-                maxLines = 1,
+                fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.SemiBold,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             if (message.hasAttachment) {
-                Text(
-                    text = "📎 附件",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Spacer(modifier = Modifier.height(AhuSpacing.xs))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.AttachFile,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.size(AhuSpacing.xs))
+                    Text(
+                        text = "附件",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

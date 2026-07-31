@@ -181,6 +181,7 @@ fun MainScreen(
     fun openApps(appKey: String? = null) {
         // 教育邮箱直接切换到 EMAIL tab,不走 AppsTarget
         if (appKey == AppRegistry.KEY_EMAIL) {
+            com.ahu_plus.data.diagnostic.SafeLog.d("MainScreen", "导航到 EMAIL tab")
             mainNavigationViewModel.navigate(
                 NavigationRequest(
                     EmailTarget(),
@@ -745,10 +746,12 @@ fun MainScreen(
                         requestedChaoxingSubTab = ChaoxingSubTab.MESSAGES
                         mainNavigationViewModel.navigate(NavigationRequest(ChaoxingTarget()))
                     },
+                    onOpenRegisteredApp = ::openApps,
                     onNeedsLogin = onReauth
                 )
                 // 教育邮箱(隐藏 Tab,通过应用聚合页 KEY_EMAIL 入口进入)
                 selectedTab == TAB_EMAIL -> {
+                    com.ahu_plus.data.diagnostic.SafeLog.d("MainScreen", "渲染 EMAIL tab 分支")
                     val context = androidx.compose.ui.platform.LocalContext.current
                     val mailViewModel = androidx.compose.runtime.remember {
                         com.ahu_plus.ui.screen.mail.MailViewModel(
@@ -757,6 +760,12 @@ fun MainScreen(
                     }
                     var selectedMailId by androidx.compose.runtime.remember {
                         androidx.compose.runtime.mutableStateOf<String?>(null)
+                    }
+                    // 系统返回键:详情页优先返回列表(详情不在导航栈中)
+                    androidx.activity.compose.BackHandler(
+                        enabled = selectedMailId != null,
+                    ) {
+                        selectedMailId = null
                     }
                     if (selectedMailId != null) {
                         com.ahu_plus.ui.screen.mail.MailDetailScreen(

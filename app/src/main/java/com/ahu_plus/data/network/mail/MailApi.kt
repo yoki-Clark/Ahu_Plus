@@ -27,7 +27,11 @@ object MailApi {
     /** one.ahu.edu.cn(智慧安大 tp_up 母站)的 hex 编码段,用于 SSO 入口跳转。 */
     const val HEX_ONE = "77726476706e69737468656265737421fff944d226387d1e7b0c9ce29b5b"
 
-    /** one.ahu.edu.cn 在 /domain/oa/Entry 路径中使用的 hex 编码段别名。 */
+    /**
+     * entryhz.qiye.163.com(网易企业邮箱 SSO 入口)的 hex 编码段。
+     * 2026-07-31 实测确认:SSO 链的 /domain/oa/Entry 与 /entry/door 都在此 hex 下,
+     * cookie 桥拉取的 host 也是 entryhz.qiye.163.com(见 7.31 抓包)。
+     */
     const val HEX_ONE_ENTRY = "77726476706e69737468656265737421f5f9558e3e38721e6f0190a9d6047566363d1097"
 
     /** one.ahu.edu.cn 在 /wengine-vpn-token-login 路径中使用的 hex 编码段别名。 */
@@ -72,17 +76,22 @@ object MailApi {
     fun businessUrl(path: String): String =
         "https://$HOST$BUSINESS_BASE$path"
 
-    /** 构造 SSO 入口完整 URL(在 wvpn 反代下的 one.ahu.edu.cn 命名空间)。 */
-    fun ssoEntryUrl(hexOne: String = HEX_ONE_ENTRY): String =
-        "https://$HOST/https/$hexOne$PATH_DOMAIN_OA_ENTRY"
-
-    /** 构造 entry/door 完整 URL。 */
-    fun entryDoorUrl(hexOne: String = HEX_ONE_ENTRY): String =
-        "https://$HOST/https/$hexOne$PATH_ENTRY_DOOR"
+    /**
+     * 把网易 generateSsoUrl 返回的 ssourl(entryhz.qiye.163.com/domain/oa/Entry?...)
+     * 转为 wvpn 反代 URL,保持 query 参数(domain/account_name/time/enc)不变。
+     */
+    fun wvpnSsoUrl(ssourl: String): String {
+        val base = ssourl.substringBefore('?')
+        val query = ssourl.substringAfter('?', "")
+        val host = base.substringAfter("://").substringBefore('/')
+        val path = base.substringAfter(host, PATH_DOMAIN_OA_ENTRY)
+        val proxied = "https://$HOST/https/$HEX_ONE_ENTRY$path"
+        return if (query.isNotEmpty()) "$proxied?$query" else proxied
+    }
 
     /** 构造 generateSsoUrl 完整 URL。 */
     fun generateSsoUrlUrl(hexOne: String = HEX_ONE): String =
-        "https://$HOST/https/$hexOne$PATH_GENERATE_SSO_URL"
+        "https://$HOST/https/$hexOne$PATH_GENERATE_SSO_URL?vpn-12-o2-one.ahu.edu.cn"
 
     /** 构造 wengine-vpn/cookie 中转桥完整 URL。 */
     fun cookieBridgeUrl(host: String, scheme: String, path: String, timestamp: Long): String {

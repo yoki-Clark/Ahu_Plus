@@ -138,8 +138,8 @@ fun MailDetailScreen(
                         Spacer(modifier = Modifier.height(AhuSpacing.md))
                         HorizontalDivider()
                         Spacer(modifier = Modifier.height(AhuSpacing.md))
-                        // HTML 邮件体
-                        HtmlMailBody(html = detail.htmlBody)
+                        // 邮件体:HTML 邮件渲染 WebView,纯文本邮件(无 html 字段)显示 textBody
+                        MailBody(html = detail.htmlBody, text = detail.textBody)
                         // 附件(首版只展示列表,不实现下载)
                         if (!detail.attachments.isNullOrEmpty()) {
                             Spacer(modifier = Modifier.height(AhuSpacing.md))
@@ -185,6 +185,24 @@ private fun AddressRow(label: String, address: MailAddress) {
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+@Composable
+private fun MailBody(html: String, text: String?) {
+    if (html.isNotBlank()) {
+        HtmlMailBody(html)
+        return
+    }
+    // 纯文本邮件(无 html 字段):直接显示文本,保留换行
+    if (!text.isNullOrBlank()) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        return
+    }
+    Text("(邮件内容为空)", style = MaterialTheme.typography.bodyMedium)
 }
 
 @Composable
