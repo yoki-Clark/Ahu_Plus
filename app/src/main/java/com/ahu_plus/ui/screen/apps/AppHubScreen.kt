@@ -211,6 +211,7 @@ fun AppHubScreen(
     onOpenWelearn: () -> Unit = {},
     onOpenMarketFromMessages: () -> Unit = {},
     onOpenChaoxingFromMessages: () -> Unit = {},
+    onOpenRegisteredApp: (String) -> Unit = {},
     onNeedsLogin: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as AhuPlusApplication
@@ -556,10 +557,14 @@ fun AppHubScreen(
                 onOpenChaoxing = onOpenChaoxing,
                 onOpenWelearn = onOpenWelearn,
                 onNavigate = { appKey ->
-                    appHubPageForAppKey(appKey)?.let { page ->
+                    val page = appHubPageForAppKey(appKey)
+                    if (page != null) {
                         analyticsFromBills = false
                         currentPage = page
                         onRecordApp(appKey)
+                    } else {
+                        // 不在 AppHub 内部的应用(如 KEY_EMAIL),委托给上层处理
+                        onOpenRegisteredApp(appKey)
                     }
                 }
             )
