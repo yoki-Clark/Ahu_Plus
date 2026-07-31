@@ -31,6 +31,9 @@ jobs:
       - name: Test repository scanner
         run: python -m unittest tools.ci.test_check_secrets -v
 
+      - name: Test docs sync tooling
+        run: python -m unittest tools.ci.test_check_docs -v
+
       - name: Scan tracked files
         run: python tools/ci/check_secrets.py
 

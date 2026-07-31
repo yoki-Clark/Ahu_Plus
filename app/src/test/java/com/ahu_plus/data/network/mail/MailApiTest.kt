@@ -37,16 +37,16 @@ class MailApiTest {
         val url = MailApi.businessGetUrl(
             "/commonweb/account/getAccountBaseInfo",
             deviceId = "dev",
-            extra = mapOf("domain" to "stu.ahu.edu.cn", "account_name" to "student_id"),
+            extra = mapOf("domain" to "stu.ahu.edu.cn", "account_name" to "test_student"),
         )
         assertTrue("URL 应包含 domain 参数", url.contains("domain=stu.ahu.edu.cn"))
-        assertTrue("URL 应包含 account_name 参数", url.contains("account_name=student_id"))
+        assertTrue("URL 应包含 account_name 参数", url.contains("account_name=test_student"))
     }
 
     @Test
     fun `wvpnSsoUrl 把网易 ssourl 转为 wvpn 反代 URL`() {
         val ssourl = "https://entryhz.qiye.163.com/domain/oa/Entry?" +
-            "domain=stu.ahu.edu.cn&account_name=student_id&time=1785463870171&enc=abc123"
+            "domain=stu.ahu.edu.cn&account_name=test_student&time=0&enc=abc123"
         val url = MailApi.wvpnSsoUrl(ssourl)
         assertTrue("URL 应以 wvpn.ahu.edu.cn 开头", url.startsWith("https://wvpn.ahu.edu.cn/"))
         assertTrue("URL 应包含 hex_one_entry", url.contains(MailApi.HEX_ONE_ENTRY))

@@ -79,6 +79,7 @@
 | 学生信息 | `StudentInfoRepository.kt` | `profile/MyInfoScreens.kt` |
 | 财务汇总 | `FinanceRepository.kt` | `profile/FinanceViewModel.kt` |
 | 校长信箱 | `XzxxRepository.kt` | `profile/XzxxScreen.kt` |
+| 教育邮箱 | `AhuMailRepository.kt`、`data/network/mail/MailApi.kt`、`data/repository/mail/` | `ui/screen/mail/` |
 
 ## 本地学习与日程
 

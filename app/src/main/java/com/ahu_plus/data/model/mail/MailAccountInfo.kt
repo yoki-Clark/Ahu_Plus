@@ -4,7 +4,7 @@ package com.ahu_plus.data.model.mail
  * 教育邮箱账户完整信息。
  *
  * 来源:`/cowork/api/biz/enter/accountInfo` 响应。
- * 抓包样本(student_id@stu.ahu.edu.cn,昵称,安徽大学)。
+ * 抓包样本已脱敏(示例账号,不包含真实学生信息)。
  */
 data class MailAccountInfo(
     /** 网易企业账号 ID,如 "123456789"。 */
