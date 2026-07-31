@@ -20,6 +20,16 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">adwmh.ahu.edu.cn</domain>
     </domain-config>
+    <!--
+        WebVPN (wvpn.ahu.edu.cn) 是教育邮箱访问的反向代理入口 (2026-07-31)。
+        Sirius 邮箱握手第 ⑦ 步 /entry/door 响应里的 meta refresh 会把 l 参数
+        设为 http://mail.stu.ahu.edu.cn/...,OkHttp 默认 followSslRedirects=true
+        会跟过去,需要此白名单允许 cleartext 跳转。
+        业务 API 本身都是 HTTPS,不会触发此白名单。
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">wvpn.ahu.edu.cn</domain>
+    </domain-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">welearn.sflep.com</domain>
         <domain includeSubdomains="false">sso.sflep.com</domain>
