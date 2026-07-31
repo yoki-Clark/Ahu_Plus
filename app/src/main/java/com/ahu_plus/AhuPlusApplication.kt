@@ -28,6 +28,7 @@ import com.ahu_plus.data.job.BackgroundJobController
 import com.ahu_plus.data.job.BackgroundJobPlatform
 import com.ahu_plus.data.legal.LegalConsentRepository
 import com.ahu_plus.data.repository.AdwmhCardRepository
+import com.ahu_plus.data.repository.AhuMailRepository
 import com.ahu_plus.data.repository.AdwmhCaptchaRecognizer
 import com.ahu_plus.data.repository.AiCommentRepository
 import com.ahu_plus.data.repository.AssessmentRepository
@@ -158,6 +159,13 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var adwmhCardRepository: AdwmhCardRepository
         private set
+    /**
+     * 教育邮箱 Repository(Sirius 教育版,通过 WebVPN 反代访问 mail.stu.ahu.edu.cn)。
+     * 复用 [casAuthRepository] 的 CAS TGT(通过组合 CookieJar 共享),不与 adwmh 共享 cookieJar。
+     * 持久化 4 个凭据到 EncryptedCredentialStore 的 MAIL_* key。
+     */
+    lateinit var ahuMailRepository: AhuMailRepository
+        private set
     lateinit var assessmentRepository: AssessmentRepository
         private set
     lateinit var recordRepository: RecordRepository
@@ -222,6 +230,8 @@ class AhuPlusApplication : Application() {
         weLearnAuthRepository.loadPersistedCookies()
         cProgAuthRepository.loadPersistedSession()
         jwAppAuthRepository.restoreSession()
+        // 教育邮箱 cookie 恢复是 lazy 的(CookieJar.loadForRequest 时自动从 SessionManager 恢复),
+        // 此处不需要显式调用;但如果要 eager 恢复可加 ahuMailRepository.warmUpPersistedCookies()
     }
 
     suspend fun clearAccountScopedRepositoryState() {
@@ -231,6 +241,9 @@ class AhuPlusApplication : Application() {
         avatarStore.clearAll()
         attendanceRepository.clearCookies()
         cProgAuthRepository.clearSession()
+        // 教育邮箱:清内存 Cookie + 清持久化凭据
+        ahuMailRepository.clearCookies()
+        sessionManager.clearMailSession()
         gradeRepository.clearAccountState()
         examRepository.clearAccountState()
         trainingPlanRepository.clearAccountState()
@@ -326,6 +339,8 @@ class AhuPlusApplication : Application() {
         // adwmh 验证码本地识别器（纯本地紧凑模型，模型缺失时自动回退手动输入）
         adwmhCaptchaRecognizer = AdwmhCaptchaRecognizer(this)
         adwmhCardRepository = AdwmhCardRepository(sessionManager, adwmhCaptchaRecognizer)
+        // 教育邮箱(依赖 casAuthRepository 共享 CAS TGT,构造在 cas 之后)
+        ahuMailRepository = AhuMailRepository(sessionManager, casAuthRepository)
         // 课表 2.0 仓储 (2026-06-17)
         assessmentRepository = AssessmentRepository(appDataStore, this)
         recordRepository = RecordRepository(sessionManager)

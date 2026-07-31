@@ -107,6 +107,15 @@ class EncryptedCredentialStore(context: Context) {
         const val CPROG_USERNAME = "cprog_username"
         const val CPROG_IDNO = "cprog_idno"
         const val ADWMH_QR_PAYLOAD = "adwmh_qr_payload"
+        // 教育邮箱(WebVPN + Sirius)凭据,2026-07-31 新增
+        // wengine_vpn_ticket: WebVPN 会话 ticket(贯穿整个握手链)
+        const val MAIL_WVPN_TICKET = "mail_wvpn_ticket"
+        // Coremail: Sirius 邮箱主会话 cookie
+        const val MAIL_COREMAIL = "mail_coremail"
+        // mCoremail: Sirius 邮箱辅助会话 cookie
+        const val MAIL_MCOREMAIL = "mail_mcoremail"
+        // QIYE_SESS: 网易企业会话(部分 API 校验)
+        const val MAIL_QIYE_SESS = "mail_qiye_sess"
 
         val ACCOUNT_KEYS = setOf(
             CAS_USERNAME,
@@ -118,6 +127,10 @@ class EncryptedCredentialStore(context: Context) {
             KQ_SESSION,
             EVALUATION_JWT,
             ADWMH_QR_PAYLOAD,
+            MAIL_WVPN_TICKET,
+            MAIL_COREMAIL,
+            MAIL_MCOREMAIL,
+            MAIL_QIYE_SESS,
         )
         val THIRD_PARTY_KEYS = setOf(
             JWAPP_USERNAME,

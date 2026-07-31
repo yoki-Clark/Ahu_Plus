@@ -8,6 +8,12 @@ import com.ahu_plus.data.network.ChaoxingTrafficBusyException
 import com.ahu_plus.data.network.ChaoxingTrafficCooldownException
 import com.ahu_plus.data.network.ChaoxingTrafficException
 import com.ahu_plus.data.network.SessionExpiredException as NetworkSessionExpiredException
+import com.ahu_plus.data.repository.mail.MailApiException
+import com.ahu_plus.data.repository.mail.MailAuthException
+import com.ahu_plus.data.repository.mail.MailCaptchaRequiredException
+import com.ahu_plus.data.repository.mail.MailHandshakeFailedException
+import com.ahu_plus.data.repository.mail.MailRateLimitedException
+import com.ahu_plus.data.repository.mail.MailSessionExpiredException
 import kotlinx.coroutines.CancellationException
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -69,6 +75,38 @@ object ErrorClassifier {
         // Adwmh: 验证码需要用户输入,其余 auth 错误按消息分类
         if (throwable is AdwmhCaptchaRequiredException) return ErrorKind.INVALID_INPUT
         if (throwable is AdwmhAuthException) return classifyMessage(throwable.message)
+
+        // Mail(教育邮箱):具体子类必须在基类 MailAuthException 之前
+        // 模式参考 ChaoxingTrafficCooldownException(具体子类优先于基类)
+        when (throwable) {
+            // 验证码 → 需要用户输入
+            is MailCaptchaRequiredException -> return ErrorKind.INVALID_INPUT
+            // 限流
+            is MailRateLimitedException -> return ErrorKind.RATE_LIMITED
+            // 会话过期 → 触发后台静默重新登录
+            is MailSessionExpiredException -> return ErrorKind.AUTH_EXPIRED
+        }
+        // 握手失败:按消息细分(验证码/限流/网络)
+        if (throwable is MailHandshakeFailedException) {
+            val msg = throwable.message.orEmpty().lowercase()
+            return when {
+                throwable.message?.contains("验证码") == true -> ErrorKind.INVALID_INPUT
+                msg.contains("限流") || msg.contains("rate limit") || throwable.httpStatus == 429 ->
+                    ErrorKind.RATE_LIMITED
+                throwable.httpStatus in setOf(401, 403) -> ErrorKind.AUTH_EXPIRED
+                throwable.httpStatus in setOf(500, 502, 503, 504) -> ErrorKind.PLATFORM_FAILURE
+                else -> ErrorKind.NETWORK_UNREACHABLE
+            }
+        }
+        // Sirius 业务 API 错误:按 code 分流
+        if (throwable is MailApiException) return when (throwable.code) {
+            401, 403, 440 -> ErrorKind.AUTH_EXPIRED
+            429 -> ErrorKind.RATE_LIMITED
+            500, 502, 503, 504 -> ErrorKind.PLATFORM_FAILURE
+            else -> ErrorKind.UNKNOWN
+        }
+        // Mail 基类:按消息兜底
+        if (throwable is MailAuthException) return classifyMessage(throwable.message)
 
         // 领域异常:限流(具体子类优先于基类,因 Forbidden/RiskChallenge/AuthExpired 继承 Cooldown)
         when (throwable) {

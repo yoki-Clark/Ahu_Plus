@@ -11,6 +11,11 @@ internal const val TAB_CHAOXING = 2
 internal const val TAB_WELEARN = 3
 internal const val TAB_APPS = 4
 internal const val TAB_PROFILE = 5
+/**
+ * 教育邮箱 Tab(隐藏 Tab,不在底栏显示;通过应用聚合页入口卡片进入)。
+ * 保留独立 Tab 是为了导航栈隔离——邮件列表/详情不与 Apps 栈混在一起。
+ */
+internal const val TAB_EMAIL = 6
 
 internal data class TopLevelNavItem(
     val tab: Int,
@@ -36,6 +41,7 @@ internal fun TopLevelDestination.toLegacyTab(): Int = when (this) {
     TopLevelDestination.CHAOXING -> TAB_CHAOXING
     TopLevelDestination.WELEARN -> TAB_WELEARN
     TopLevelDestination.APPS -> TAB_APPS
+    TopLevelDestination.EMAIL -> TAB_EMAIL
     TopLevelDestination.PROFILE -> TAB_PROFILE
 }
 
@@ -44,6 +50,7 @@ internal fun Int.toTopLevelDestination(): TopLevelDestination = when (this) {
     TAB_CHAOXING -> TopLevelDestination.CHAOXING
     TAB_WELEARN -> TopLevelDestination.WELEARN
     TAB_APPS -> TopLevelDestination.APPS
+    TAB_EMAIL -> TopLevelDestination.EMAIL
     TAB_PROFILE -> TopLevelDestination.PROFILE
     else -> TopLevelDestination.HOME
 }

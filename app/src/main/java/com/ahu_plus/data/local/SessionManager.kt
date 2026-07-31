@@ -304,6 +304,21 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
     @Volatile private var cachedAdwmhQrServerText: String = ""
     @Volatile private var cachedAdwmhQrFetchedAt: Long = 0L
     /**
+     * 教育邮箱(WebVPN + Sirius)会话凭据缓存。
+     *
+     * 三层认证链:
+     * - [cachedMailWvpnTicket] WebVPN 会话 ticket(贯穿握手链)
+     * - [cachedMailCoremail] / [cachedMailMCoremail] Sirius 主/辅助会话 cookie
+     * - [cachedMailQiyeSess] 网易企业会话(部分 API 校验)
+     *
+     * 来源:握手成功后由 [com.ahu_plus.data.repository.AhuMailRepository] 写入。
+     * 持久化到 [EncryptedCredentialStore] 的 MAIL_* key,退登时一并清除。
+     */
+    @Volatile private var cachedMailWvpnTicket: String? = null
+    @Volatile private var cachedMailCoremail: String? = null
+    @Volatile private var cachedMailMCoremail: String? = null
+    @Volatile private var cachedMailQiyeSess: String? = null
+    /**
      * 排考预测 Gitee JSON 缓存:
      * 由 [com.ahu_plus.data.repository.ExamDataRepository]
      * 从 Gitee `yao-enqi/ahu-plus-update` 仓库的
@@ -896,6 +911,24 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedAdwmhQrPayload = prefs[ADWMH_QR_PAYLOAD_KEY]
         cachedAdwmhQrServerText = prefs[ADWMH_QR_SERVER_TEXT_KEY] ?: ""
         cachedAdwmhQrFetchedAt = prefs[ADWMH_QR_FETCHED_AT_KEY] ?: 0L
+
+        // 教育邮箱凭据(从 EncryptedCredentialStore 恢复)
+        cachedMailWvpnTicket = encryptedOrLegacy(
+            EncryptedCredentialStore.MAIL_WVPN_TICKET,
+            MAIL_WVPN_TICKET_KEY,
+        )
+        cachedMailCoremail = encryptedOrLegacy(
+            EncryptedCredentialStore.MAIL_COREMAIL,
+            MAIL_COREMAIL_KEY,
+        )
+        cachedMailMCoremail = encryptedOrLegacy(
+            EncryptedCredentialStore.MAIL_MCOREMAIL,
+            MAIL_MCOREMAIL_KEY,
+        )
+        cachedMailQiyeSess = encryptedOrLegacy(
+            EncryptedCredentialStore.MAIL_QIYE_SESS,
+            MAIL_QIYE_SESS_KEY,
+        )
 
         cachedExamPredictionsJson = prefs[EXAM_PREDICTIONS_JSON_KEY]
         cachedEvaluationJwt = encryptedOrLegacy(
@@ -2557,6 +2590,94 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
     }
 
+    // ── 教育邮箱会话凭据(WebVPN ticket + Sirius Coremail/mCoremail/QIYE_SESS) ──
+
+    fun getMailWvpnTicket(): String? = cachedMailWvpnTicket
+    fun getMailCoremail(): String? = cachedMailCoremail
+    fun getMailMCoremail(): String? = cachedMailMCoremail
+    fun getMailQiyeSess(): String? = cachedMailQiyeSess
+
+    /** WebVPN ticket 与是否仍有效(供 AhuMailRepository 在内存中快速判断)。 */
+    fun hasMailWvpnTicket(): Boolean = !cachedMailWvpnTicket.isNullOrBlank()
+
+    suspend fun saveMailWvpnTicket(value: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
+        cachedMailWvpnTicket = value
+        saveEncrypted(EncryptedCredentialStore.MAIL_WVPN_TICKET, MAIL_WVPN_TICKET_KEY, value)
+    }
+
+    suspend fun saveMailCoremail(value: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
+        cachedMailCoremail = value
+        saveEncrypted(EncryptedCredentialStore.MAIL_COREMAIL, MAIL_COREMAIL_KEY, value)
+    }
+
+    suspend fun saveMailMCoremail(value: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
+        cachedMailMCoremail = value
+        saveEncrypted(EncryptedCredentialStore.MAIL_MCOREMAIL, MAIL_MCOREMAIL_KEY, value)
+    }
+
+    suspend fun saveMailQiyeSess(value: String, generation: Long? = null) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
+        cachedMailQiyeSess = value
+        saveEncrypted(EncryptedCredentialStore.MAIL_QIYE_SESS, MAIL_QIYE_SESS_KEY, value)
+    }
+
+    /** 一次性写入全部邮箱凭据(握手成功后调用,避免 4 次加锁)。 */
+    suspend fun saveMailSession(
+        wvpnTicket: String?,
+        coremail: String?,
+        mCoremail: String?,
+        qiyeSess: String?,
+        generation: Long? = null,
+    ) = accountStateMutex.withLock {
+        if (!isCurrentGeneration(generation)) return@withLock
+        cachedMailWvpnTicket = wvpnTicket
+        cachedMailCoremail = coremail
+        cachedMailMCoremail = mCoremail
+        cachedMailQiyeSess = qiyeSess
+        val keysToRemove = listOf(
+            EncryptedCredentialStore.MAIL_WVPN_TICKET,
+            EncryptedCredentialStore.MAIL_COREMAIL,
+            EncryptedCredentialStore.MAIL_MCOREMAIL,
+            EncryptedCredentialStore.MAIL_QIYE_SESS,
+        )
+        if (wvpnTicket != null) credentialStore.putString(EncryptedCredentialStore.MAIL_WVPN_TICKET, wvpnTicket)
+        if (coremail != null) credentialStore.putString(EncryptedCredentialStore.MAIL_COREMAIL, coremail)
+        if (mCoremail != null) credentialStore.putString(EncryptedCredentialStore.MAIL_MCOREMAIL, mCoremail)
+        if (qiyeSess != null) credentialStore.putString(EncryptedCredentialStore.MAIL_QIYE_SESS, qiyeSess)
+        // 清除未提供的字段(避免旧凭据残留)
+        val provided = mapOf(
+            EncryptedCredentialStore.MAIL_WVPN_TICKET to wvpnTicket,
+            EncryptedCredentialStore.MAIL_COREMAIL to coremail,
+            EncryptedCredentialStore.MAIL_MCOREMAIL to mCoremail,
+            EncryptedCredentialStore.MAIL_QIYE_SESS to qiyeSess,
+        )
+        keysToRemove.forEach { k -> if (provided[k] == null) credentialStore.remove(k) }
+    }
+
+    suspend fun clearMailSession() {
+        cachedMailWvpnTicket = null
+        cachedMailCoremail = null
+        cachedMailMCoremail = null
+        cachedMailQiyeSess = null
+        credentialStore.remove(
+            listOf(
+                EncryptedCredentialStore.MAIL_WVPN_TICKET,
+                EncryptedCredentialStore.MAIL_COREMAIL,
+                EncryptedCredentialStore.MAIL_MCOREMAIL,
+                EncryptedCredentialStore.MAIL_QIYE_SESS,
+            )
+        )
+        appDataStore.dataStore.edit {
+            it.remove(MAIL_WVPN_TICKET_KEY)
+            it.remove(MAIL_COREMAIL_KEY)
+            it.remove(MAIL_MCOREMAIL_KEY)
+            it.remove(MAIL_QIYE_SESS_KEY)
+        }
+    }
+
     // \u2500\u2500 \u652F\u4ED8\u7801\u662F\u5426\u81EA\u52A8\u8C03\u9AD8\u5C4F\u5E55\u4EAE\u5EA6\uFF08\u9ED8\u8BA4\u5F00\u542F\uFF09 \u2500\u2500
 
     fun getQrBrightnessBoost(): Boolean = cachedQrBrightnessBoost
@@ -3177,6 +3298,10 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         cachedAdwmhQrPayload = null
         cachedAdwmhQrServerText = ""
         cachedAdwmhQrFetchedAt = 0L
+        cachedMailWvpnTicket = null
+        cachedMailCoremail = null
+        cachedMailMCoremail = null
+        cachedMailQiyeSess = null
         cachedExamPredictionsJson = null
 
         cachedTrainingPlanJson = null
@@ -4013,6 +4138,11 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
         val ADWMH_QR_PAYLOAD_KEY = stringPreferencesKey("adwmh_qr_payload")
         val ADWMH_QR_SERVER_TEXT_KEY = stringPreferencesKey("adwmh_qr_server_text")
         val ADWMH_QR_FETCHED_AT_KEY = longPreferencesKey("adwmh_qr_fetched_at")
+        // 教育邮箱凭据(从 EncryptedCredentialStore 迁移前的旧明文 key 兼容,新写入走加密)
+        val MAIL_WVPN_TICKET_KEY = stringPreferencesKey("mail_wvpn_ticket")
+        val MAIL_COREMAIL_KEY = stringPreferencesKey("mail_coremail")
+        val MAIL_MCOREMAIL_KEY = stringPreferencesKey("mail_mcoremail")
+        val MAIL_QIYE_SESS_KEY = stringPreferencesKey("mail_qiye_sess")
         val EXAM_PREDICTIONS_JSON_KEY = stringPreferencesKey("exam_predictions_json")
         val EVALUATION_JWT_KEY = stringPreferencesKey("evaluation_jwt")
         /** 用户自定义评教一键填写评语选项(JSON 数组)。退登保留。 */
@@ -4247,6 +4377,7 @@ class SessionManager(private val appDataStore: AppDataStore) : JwcNoticeCache {
 
             ADWMH_SESSION_KEY, EXAM_PREDICTIONS_JSON_KEY, EVALUATION_JWT_KEY,
             ADWMH_QR_PAYLOAD_KEY, ADWMH_QR_SERVER_TEXT_KEY, ADWMH_QR_FETCHED_AT_KEY,
+            MAIL_WVPN_TICKET_KEY, MAIL_COREMAIL_KEY, MAIL_MCOREMAIL_KEY, MAIL_QIYE_SESS_KEY,
 
             TRAINING_PLAN_JSON_KEY, TRAINING_PLAN_UPDATED_AT_KEY, TRAINING_PLAN_CACHE_VERSION_KEY,
 

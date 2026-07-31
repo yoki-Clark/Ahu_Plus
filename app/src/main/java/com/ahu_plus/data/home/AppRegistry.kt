@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Info
@@ -80,6 +81,8 @@ object AppRegistry {
     const val KEY_STUDENT_INFO = "studentInfo"
     const val KEY_FINANCE = "finance"
     const val KEY_ATTENDANCE = "attendance"
+    /** 教育邮箱(通过 WebVPN 反代访问 Sirius 教育版)。 */
+    const val KEY_EMAIL = "email"
 
     /** 默认显示顺序(用于 AppDock 未配置最近使用时的回退顺序) */
     private val DEFAULT_RECENT_KEYS = listOf(KEY_SCHEDULE, KEY_GRADE, KEY_EXAM)
@@ -89,6 +92,8 @@ object AppRegistry {
     const val CAMPUS_CARD = "校园卡"
     const val LIFE = "生活"
     const val PERSONAL = "个人信息"
+    /** 通讯分组(教育邮箱专属)。 */
+    const val COMMUNICATION = "通讯"
 
     private val specs: List<AppSpec> = listOf(
         // 学习
@@ -265,6 +270,14 @@ object AppRegistry {
             icon = Icons.Filled.EventBusy,
             tint = AhuRed,
             group = PERSONAL,
+        ),
+        // 教育邮箱(Sirius 教育版,通过 WebVPN 反代)
+        AppSpec(
+            key = KEY_EMAIL,
+            title = "教育邮箱",
+            icon = Icons.Filled.Email,
+            tint = AhuBlue,
+            group = COMMUNICATION,
         ),
     )
 
