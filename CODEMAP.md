@@ -9,7 +9,6 @@
 | `release/release-state.json` | 构建版本、候选版本、stable/beta 已发布元数据和签名证书 allowlist 的唯一来源 |
 | `tools/release/release.py` | 清单一致性、APK 签名/包名/版本/ABI/SHA-256 校验、dry-run 和晋升预览 |
 | `tools/ci/check_secrets.py` | 跟踪文件路径与高置信度凭据内容扫描 |
-| `tools/captcha_collector/` | 智慧安大验证码本地采集、双模型伪标注、人工真值标注、紧凑 CNN 训练与量化导出 |
 | `.github/workflows/android-ci.yml` | JVM 测试、Lint、Debug 构建和敏感信息门禁 |
 
 ## 入口与组装

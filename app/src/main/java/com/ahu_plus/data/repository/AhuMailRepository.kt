@@ -355,6 +355,8 @@ class AhuMailRepository(
     /** 清除所有内存 Cookie(退登时调用)。 */
     fun clearCookies() {
         synchronized(cookieLock) { cookieStore.clear() }
+        synchronized(seedLock) { seeded = false }
+        cachedSid = null
     }
 
     // ══════════════════════════════════════════════════════
@@ -379,12 +381,12 @@ class AhuMailRepository(
 
         // Step 2: 访问 tp_up/view 建立 wvpn ticket + tp_up 会话,再调用 generateSsoUrl
         val ssourl = ensureWvpnLoginAndGenerateSsoUrl(generation)
-        Log.d(TAG, "handshake: ssourl=${ssourl.take(80)}...")
+        Log.d(TAG, "handshake: ssourl 已获取,length=${ssourl.length}")
 
         // Step 3-8: 跟 302 跳转链(Entry → /login → CAS → token → entry/door),
         // 提取 sid 并跟随 /redirect 设置 Coremail cookie
         val doorParams = followSsoRedirectChain(ssourl)
-        Log.d(TAG, "handshake: door params sid=${doorParams.sid?.take(20)}")
+        Log.d(TAG, "handshake: door params sid=${if (doorParams.sid != null) "present" else "null"}")
         doorParams.sid?.let { cachedSid = it }
 
         // Step 9: cookie 中转桥
