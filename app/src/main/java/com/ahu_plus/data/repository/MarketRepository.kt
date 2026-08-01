@@ -568,81 +568,6 @@ class MarketRepository(
         }
     }
 
-    private fun parseNotices(body: String, fallbackPage: Int): MarketNoticePage {
-        val root = JsonParser.parseString(body)
-        if (!root.isJsonObject) throw Exception("通知列表返回格式异常")
-        val obj = root.asJsonObject
-        val status = obj.get("status")?.asString
-        if (status != null && status != "success") {
-            val msg = obj.get("msg")?.asString ?: "通知列表加载失败"
-            throw Exception("通知列表加载失败：$msg")
-        }
-        val data = obj.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
-            ?: throw Exception("通知列表响应缺少 data 字段")
-        val count = data.get("count")?.asInt ?: 0
-        val page = data.get("page")?.asInt ?: fallbackPage
-        val rowsArray = data.getAsJsonArray("rows")
-        val rows = rowsArray?.mapNotNull { element ->
-            runCatching { parseNoticeElement(element) }.getOrNull()
-        }.orEmpty()
-        return MarketNoticePage(count = count, page = page, rows = rows)
-    }
-
-    private fun parseNoticeElement(element: JsonElement): MarketNotice? {
-        if (!element.isJsonObject) return null
-        val obj = element.asJsonObject
-        return MarketNotice(
-            id = obj.get("id")?.asLong ?: 0L,
-            actionType = obj.get("actionType")?.asInt ?: 0,
-            actionTypeText = obj.get("actionTypeText")?.asString.orEmpty(),
-            type = obj.get("type")?.asString.orEmpty(),
-            createTime = obj.get("createTime")?.asString.orEmpty(),
-            topic = parseNoticeTopic(obj.get("topic")),
-            senderUserInfo = parseUserInfo(obj.getAsJsonObject("senderUserInfo")),
-            sendContent = parseNoticeContent(obj.get("sendContent")),
-            targetContent = parseNoticeContent(obj.get("targetContent")),
-            commentContent = parseNoticeContent(obj.get("commentContent")),
-            replyContent = parseNoticeContent(obj.get("replyContent"))
-        )
-    }
-
-    private fun parseNoticeTopic(element: JsonElement?): MarketNoticeTopic? {
-        if (element == null || !element.isJsonObject) return null
-        val obj = element.asJsonObject
-        // topic.data.imgs → 展平为 List<String>
-        val imgs = obj.getAsJsonObject("data")
-            ?.getAsJsonArray("imgs")
-            ?.mapNotNull { it.takeIf(JsonElement::isJsonPrimitive)?.asString }
-            .orEmpty()
-        return MarketNoticeTopic(
-            id = obj.get("id")?.asLong ?: 0L,
-            title = obj.get("title")?.asString.orEmpty(),
-            content = obj.get("content")?.asString.orEmpty(),
-            imgs = imgs
-        )
-    }
-
-    private fun parseNoticeContent(element: JsonElement?): MarketNoticeContent? {
-        if (element == null || !element.isJsonObject) return null
-        val obj = element.asJsonObject
-        return MarketNoticeContent(
-            id = obj.get("id")?.asLong ?: 0L,
-            content = obj.get("content")?.asString.orEmpty(),
-            topicId = obj.get("topicId")?.asLong ?: 0L,
-            commentId = obj.get("commentId")?.asLong ?: 0L,
-            replyId = obj.get("replyId")?.asLong ?: 0L
-        )
-    }
-
-    private fun parseUserInfo(element: JsonObject?): MarketUser? {
-        if (element == null) return null
-        return MarketUser(
-            uuid = element.get("uuid")?.asLong ?: 0L,
-            nickname = element.get("nickname")?.asString.orEmpty(),
-            avatar = element.get("avatar")?.asString.orEmpty()
-        )
-    }
-
     private fun parseCreatedTopicId(body: String): Long {
         val root = JsonParser.parseString(body)
         if (!root.isJsonObject) {
@@ -710,3 +635,85 @@ private data class IdentityTopics(
     val identity: MarketIdentity,
     val topics: List<MarketTopic>
 )
+
+// ══════════════════════════════════════════════════════
+//  通知列表解析（顶层函数，与 parseMarketTopicDetail 同模式，可纯 JVM 测试）
+// ══════════════════════════════════════════════════════
+
+internal fun parseNotices(body: String, fallbackPage: Int = 1): MarketNoticePage {
+    val root = JsonParser.parseString(body)
+    if (!root.isJsonObject) throw Exception("通知列表返回格式异常")
+    val obj = root.asJsonObject
+    val status = obj.get("status")?.asString
+    if (status != null && status != "success") {
+        val msg = obj.get("msg")?.asString ?: "通知列表加载失败"
+        throw Exception("通知列表加载失败：$msg")
+    }
+    val data = obj.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
+        ?: throw Exception("通知列表响应缺少 data 字段")
+    val count = data.get("count")?.asInt ?: 0
+    val page = data.get("page")?.asInt ?: fallbackPage
+    val rowsArray = data.getAsJsonArray("rows")
+    val rows = rowsArray?.mapNotNull { element ->
+        runCatching { parseNoticeElement(element) }.getOrNull()
+    }?.filter { it.id > 0L }.orEmpty()
+    return MarketNoticePage(count = count, page = page, rows = rows)
+}
+
+private fun parseNoticeElement(element: JsonElement): MarketNotice? {
+    if (!element.isJsonObject) return null
+    val obj = element.asJsonObject
+    // 匿名用户的字段可能是 JSON null（JsonNull ≠ Kotlin null）：
+    // 直接 getAsJsonObject()/asLong()/asString() 会抛异常导致整行被吞。
+    // 一律先 isJsonPrimitive/isJsonObject 判断，缺字段走 UI 兜底（“匿名同学”等）。
+    return MarketNotice(
+        id = obj.get("id")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0L,
+        actionType = obj.get("actionType")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0,
+        actionTypeText = obj.get("actionTypeText")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
+        type = obj.get("type")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
+        createTime = obj.get("createTime")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
+        topic = parseNoticeTopic(obj.get("topic")),
+        senderUserInfo = obj.get("senderUserInfo")?.takeIf { it.isJsonObject }?.asJsonObject?.let(::parseUserInfo),
+        sendContent = parseNoticeContent(obj.get("sendContent")),
+        targetContent = parseNoticeContent(obj.get("targetContent")),
+        commentContent = parseNoticeContent(obj.get("commentContent")),
+        replyContent = parseNoticeContent(obj.get("replyContent"))
+    )
+}
+
+private fun parseNoticeTopic(element: JsonElement?): MarketNoticeTopic? {
+    if (element == null || !element.isJsonObject) return null
+    val obj = element.asJsonObject
+    // topic.data.imgs → 展平为 List<String>；data 可能是 JSON null
+    val imgs = obj.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
+        ?.get("imgs")?.takeIf { it.isJsonArray }?.asJsonArray
+        ?.mapNotNull { it.takeIf(JsonElement::isJsonPrimitive)?.asString }
+        .orEmpty()
+    return MarketNoticeTopic(
+        id = obj.get("id")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0L,
+        title = obj.get("title")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
+        content = obj.get("content")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
+        imgs = imgs
+    )
+}
+
+private fun parseNoticeContent(element: JsonElement?): MarketNoticeContent? {
+    if (element == null || !element.isJsonObject) return null
+    val obj = element.asJsonObject
+    return MarketNoticeContent(
+        id = obj.get("id")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0L,
+        content = obj.get("content")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
+        topicId = obj.get("topicId")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0L,
+        commentId = obj.get("commentId")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0L,
+        replyId = obj.get("replyId")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0L
+    )
+}
+
+private fun parseUserInfo(element: JsonObject?): MarketUser? {
+    if (element == null) return null
+    return MarketUser(
+        uuid = element.get("uuid")?.takeIf { it.isJsonPrimitive }?.asLong ?: 0L,
+        nickname = element.get("nickname")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
+        avatar = element.get("avatar")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+    )
+}
