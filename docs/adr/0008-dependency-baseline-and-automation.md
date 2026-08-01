@@ -1,4 +1,4 @@
-# ADR-0008：依赖基线由 compileSdk 约束，升级由 Dependabot 驱动
+# ADR-0008：依赖基线由 compileSdk 约束，升级人工执行（Dependabot 已移除）
 
 - 状态：Accepted
 - 关联：[ADR-0007](./0007-ci-unsigned-release-verification.md)、[基础欠账-4-依赖治理](../plan/基础欠账-4-依赖治理.md)
@@ -23,9 +23,10 @@ wrapper 发行版下载没有完整性校验。
 3. **升级前逐版本核对 Aliyun 镜像可用性。** 国内构建以 Aliyun 镜像为主源；镜像未同步的版本
    不纳入升级，避免国内用户构建失败。plugin marker 缺失时才回退
    `plugins.gradle.org/m2/`（见 `settings.gradle.kts`）。
-4. **Dependabot 只负责 minor/patch，major 一律人工。** 每周一开 PR，androidx 与 kotlin 分组，
-   `open-pull-requests-limit: 5`，`version-update:semver-major` 全部 ignore。Dependabot PR
-   不得在 CI 未通过时合并。
+4. **Dependabot 自动升级（2026-08-01 启用后同日移除）。** 启用即开 4 个初始 PR，暴露两个
+   问题：①semver-minor ignore 挡不住 compileSdk 约束——androidx 组 PR 含 core-ktx 1.19.0 /
+   lifecycle 2.11.0（要求 compileSdk 37），CI 在 checkDebugAarMetadata 必然失败；②维护者
+   不需要自动化升级噪音。结论：升级回归人工，按下方 SOP 手动执行，Dependabot 不再启用。
 5. **wrapper 发行版必须校验 SHA-256。** `distributionSha256Sum` +
    `validateDistributionUrl=true`，升级 Gradle 时同步更新校验和。
 6. **`security-crypto` 升到 1.1.0 并接受其已废弃状态。** 该版本是终版（Google 在
@@ -36,9 +37,9 @@ wrapper 发行版下载没有完整性校验。
 ## 影响
 
 - 版本基线可解释：任何"为什么不升到最新"都能回答到 compileSdk 约束或镜像可用性，不再靠记忆。
-- 升级不再依赖人工巡检；但 Dependabot 生效的前提是 `.github/dependabot.yml` 已在默认分支。
+- 升级回归人工巡检（`dependabot.yml` 已于 2026-08-01 移除）；版本约束与验证步骤见下方 SOP。
 - `security-crypto` 不会再收到上游补丁，凭据存储的安全维护责任转移到本项目：需按
-  `BUG_REVIEW.md` 的触发条件定期复核，而非等待 Dependabot 提示。
+  `BUG_REVIEW.md` 的触发条件定期复核（原"等待 Dependabot 提示"的路径已不存在）。
 - Compose BOM 升级引入若干 deprecation 警告（`rememberTransformableState` 离心参数版、
   `Icons.Filled.ArrowBack` → AutoMirrored），不影响功能，随后续 UI 改动清理。
 - 升级操作流程见 [docs/ops/dependency-upgrade-process.md](../ops/dependency-upgrade-process.md)。
