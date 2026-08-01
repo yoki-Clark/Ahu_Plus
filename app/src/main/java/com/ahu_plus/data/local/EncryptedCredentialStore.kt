@@ -1,3 +1,9 @@
+// security-crypto 在 1.1.0-alpha07 被 Google 废弃，1.1.0（当前版本）是终版，整套
+// EncryptedSharedPreferences / MasterKey API 均标记 deprecated。此处显式抑制警告，避免它
+// 淹没其他编译信号；替代方案与触发条件见 BUG_REVIEW.md「security-crypto 已停止维护」。
+// 不要因为警告消失就认为无需迁移：DataStore 加密转 stable 或 tink 1.8.0 出漏洞时必须重新评估。
+@file:Suppress("DEPRECATION")
+
 package com.ahu_plus.data.local
 
 import android.content.Context
@@ -11,6 +17,9 @@ import androidx.security.crypto.MasterKey
  *
  * Business caches and ordinary preferences remain in DataStore. If the device Keystore is
  * unavailable, secrets stay in memory for the current process and are not written as plaintext.
+ *
+ * 格式决定参数（prefs 文件名、MasterKey 别名、key/value 加密方案）由
+ * `EncryptedCredentialStoreCompatTest` 锁定：任何一处变化都会让老用户已有密文不可读。
  */
 class EncryptedCredentialStore(context: Context) {
     private val preferences: SharedPreferences? = runCatching {

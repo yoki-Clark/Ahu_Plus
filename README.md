@@ -3,7 +3,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 ![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?logo=kotlin&logoColor=white)
-![Compose](https://img.shields.io/badge/Compose_BOM-2026.02.01-4285F4)
+![Compose](https://img.shields.io/badge/Compose_BOM-2026.06.01-4285F4)
 
 安徽大学校园助手 Android 应用。项目把学校门户、教务、一卡通、学习平台和若干公开数据源整合到一个 Jetpack Compose 客户端中。
 
@@ -44,7 +44,7 @@
 | 项目 | 当前配置 |
 |---|---|
 | 语言 | Kotlin 2.2.10 |
-| UI | Jetpack Compose + Material 3，Compose BOM 2026.02.01 |
+| UI | Jetpack Compose + Material 3，Compose BOM 2026.06.01 |
 | 构建 | Gradle 9.4.1、AGP 9.2.1、Daemon JVM 21 |
 | Android | compileSdk/targetSdk 36，minSdk 24 |
 | Java 字节码 | Java 11，启用 core library desugaring |
