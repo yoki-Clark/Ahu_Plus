@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -146,14 +147,15 @@ private fun RecordRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            val locale = LocalConfiguration.current.locales[0]
             val sub = buildString {
                 entry.deadline?.let {
                     append("截止: ")
-                    append(SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(it)))
+                    append(SimpleDateFormat("MM-dd HH:mm", locale).format(Date(it)))
                 }
                 if (entry.createdAt > 0) {
                     if (isNotEmpty()) append(" · ")
-                    append(SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+                    append(SimpleDateFormat("MM-dd HH:mm", locale)
                         .format(Date(entry.createdAt)))
                 }
             }

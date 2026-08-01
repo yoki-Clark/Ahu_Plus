@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -190,7 +191,7 @@ fun AddHomeworkDialog(
                             },
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text(String.format(Locale.getDefault(), "%02d:%02d", pickedHour, pickedMinute))
+                            Text(String.format(LocalConfiguration.current.locales[0], "%02d:%02d", pickedHour, pickedMinute))
                         }
                     }
                 }

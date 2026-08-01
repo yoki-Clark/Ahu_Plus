@@ -25,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.debug.DebugClock
@@ -184,11 +185,11 @@ fun AddAgendaEventSheet(
             if (!allDay) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { showStartTime = true }, modifier = Modifier.weight(1f)) {
-                        Text(String.format(Locale.getDefault(), "开始 %02d:%02d", startHour, startMinute))
+                        Text(String.format(LocalConfiguration.current.locales[0], "开始 %02d:%02d", startHour, startMinute))
                     }
                     OutlinedButton(onClick = { showEndTime = true }, modifier = Modifier.weight(1f)) {
                         Text(
-                            if (hasEnd) String.format(Locale.getDefault(), "结束 %02d:%02d", endHour, endMinute)
+                            if (hasEnd) String.format(LocalConfiguration.current.locales[0], "结束 %02d:%02d", endHour, endMinute)
                             else "结束时间"
                         )
                     }
