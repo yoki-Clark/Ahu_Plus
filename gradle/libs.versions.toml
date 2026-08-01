@@ -25,6 +25,8 @@ glance = "1.1.1"
 work = "2.11.2"
 conscrypt = "2.5.2"
 desugarJdkLibs = "2.1.4"  # 让 minSdk 24 也能用 java.time (LocalDate/LocalTime/ZoneOffset 等)
+kover = "0.9.9"  # 与 Gradle 9 / Kotlin 2.2 / AGP 9 兼容；修复 AGP 9 下 variant 报告任务缺失与全零报告（kotlinx-kover#785）；Aliyun plugin marker 缓存上限 0.7.6，经 plugins.gradle.org 兜底仓库解析
+robolectric = "4.16.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -66,7 +68,9 @@ androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", ve
 androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "work" }
 conscrypt-android = { group = "org.conscrypt", name = "conscrypt-android", version.ref = "conscrypt" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }

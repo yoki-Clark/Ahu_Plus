@@ -6,6 +6,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kover)
     // 2026-06-22 AboutLibraries: 离线仓库未提供 plugin marker,改为手动生成 aboutlibraries.json
     // (运行时库 aboutlibraries-compose 仍可用)
 }
@@ -85,8 +86,10 @@ android {
     }
 
     // 2026-06-29: 让 unit test 不抛 android.util.Log not mocked 异常
+    // 2026-07-31: Robolectric 需要资源合并(isIncludeAndroidResources),与 isReturnDefaultValues 兼容
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
     }
 
     // ── 签名配置 ─────────────────────────────────────────
@@ -150,6 +153,15 @@ android {
         jniLibs {
             useLegacyPackaging = true
         }
+    }
+}
+
+configurations.configureEach {
+    if (name.endsWith("UnitTestRuntimeClasspath")) {
+    // Robolectric 环境需要 Windows/JVM 原生库;conscrypt-android 只带 Android ABI,
+    // 与 Robolectric 传递依赖 conscrypt-openjdk-uber 的类冲突会导致
+    // UnsatisfiedLinkError(no conscrypt_jni)。两者 Java API 一致,测试期排除 android 版。
+        exclude(group = "org.conscrypt", module = "conscrypt-android")
     }
 }
 
@@ -229,6 +241,19 @@ tasks.configureEach {
     }
 }
 
+kover {
+    reports {
+        total {
+            html {
+                onCheck = true  // ./gradlew check 时自动生成报告
+            }
+            xml {
+                onCheck = true  // 为 CI/SonarQube 准备
+            }
+        }
+    }
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
@@ -265,6 +290,9 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
     testImplementation(libs.androidx.work.testing)
+    testImplementation(libs.robolectric)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

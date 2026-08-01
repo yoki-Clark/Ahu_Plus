@@ -86,6 +86,18 @@ jobs:
       - name: Run JVM tests
         run: ./gradlew :app:testDebugUnitTest --console=plain
 
+      - name: Generate coverage reports
+        run: ./gradlew :app:koverHtmlReport :app:koverXmlReport --console=plain
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-reports
+          path: |
+            app/build/reports/kover/html/
+            app/build/reports/kover/report.xml
+
       - name: Run Android Lint
         run: ./gradlew :app:lintDebug --console=plain
 
