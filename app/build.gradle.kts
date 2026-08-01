@@ -169,7 +169,20 @@ val validateReleaseSigning by tasks.registering {
     group = "verification"
     description = "Fails unless the configured Release keystore matches the certificate allowlist."
 
+    // 校验闭包引用脚本级签名配置与 keystore 密码；若开启配置缓存，Gradle 会把密码
+    // 序列化进本地缓存文件。显式声明不兼容，让 release 构建回退到常规配置流程
+    // （release 构建低频，配置开销可接受；debug/CI 主链路仍使用配置缓存）。
+    notCompatibleWithConfigurationCache("签名校验引用脚本级签名配置与密码")
+
     doLast {
+        if (!hasCompleteReleaseSigning) {
+            // CI / 本地无签名配置：跳过校验，assembleRelease 产出未签名 APK。
+            // 未签名 APK 仅用于 R8/混淆/资源收缩的构建校验，不可安装、不可分发。
+            // 签名 allowlist 校验仍然在本地 release.py 签名流程（packageRelease）生效。
+            logger.lifecycle("Release signing not configured; skipping signing validation (unsigned APK)")
+            return@doLast
+        }
+
         val missing = releaseSigningValues.filterValues { it.isNullOrBlank() }.keys.sorted()
         if (missing.isNotEmpty()) {
             throw GradleException("Release 签名配置缺失: ${missing.joinToString()}")
@@ -206,9 +219,12 @@ val validateReleaseSigning by tasks.registering {
 }
 
 tasks.configureEach {
-    val releaseArtifactTask = name == "preReleaseBuild" ||
-        Regex("^(assemble|bundle|package|sign|makeApk|zipApks).*Release.*$").matches(name)
-    if (releaseArtifactTask) {
+    // 只有涉及"签名产物输出"的任务才校验签名；assembleRelease 允许产出未签名 APK，
+    // 让 CI 能暴露 R8/混淆/资源收缩错误。无签名配置时 validateReleaseSigning 自身跳过。
+    val needsSigningValidation = name == "packageRelease" ||
+        name == "signReleaseBundle" ||
+        Regex("^(bundle|makeApk|zipApks).*Release.*$").matches(name)
+    if (needsSigningValidation) {
         dependsOn(validateReleaseSigning)
     }
 }

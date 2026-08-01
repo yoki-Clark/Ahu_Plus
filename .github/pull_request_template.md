@@ -35,6 +35,8 @@
 
 - [ ] `./gradlew :app:testDebugUnitTest` 通过
 - [ ] `./gradlew assembleDebug` 通过
+- [ ] CI 的 `Assemble Release APKs (unsigned)` 通过
+- [ ] 若修改了 data model / Repository，本地运行过 Release 构建
 - [ ] 新增网络调用在 IO 调度器执行，并正确分类会话过期、非预期 HTML 和 HTTP 错误
 - [ ] 敏感凭据使用 `EncryptedCredentialStore`，没有新增 DataStore 明文凭据
 - [ ] 没有提交账号、密码、JWT、Cookie、学生数据、`.env`、`local.properties` 或签名文件

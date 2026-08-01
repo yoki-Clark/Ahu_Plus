@@ -92,6 +92,20 @@ jobs:
       - name: Assemble Debug APKs
         run: ./gradlew assembleDebug --console=plain
 
+      - name: Assemble Release APKs (unsigned)
+        run: ./gradlew assembleRelease --console=plain
+
+      - name: Upload Release build artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-build-failure-artifacts
+          if-no-files-found: ignore
+          path: |
+            app/build/outputs/apk/release/
+            app/build/outputs/mapping/release/
+            app/build/reports/
+
       - name: Upload verification reports
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
