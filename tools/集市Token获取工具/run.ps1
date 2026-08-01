@@ -18,6 +18,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# 中文 Windows 用户名下，Python 默认按 GBK 输出 sys.executable，PowerShell 按
+# UTF-8 解码会乱码导致路径存在性检查失败（误判无系统 Python）。强制两端统一
+# UTF-8；ASCII 用户名不受影响。只改 Python 端在 GBK 控制台上反而会制造乱码。
+$env:PYTHONIOENCODING = "utf-8"
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+
 $ProxyPort   = 8080
 $ProxyHost   = "127.0.0.1"
 $Root        = Split-Path -Parent $MyInvocation.MyCommand.Path
