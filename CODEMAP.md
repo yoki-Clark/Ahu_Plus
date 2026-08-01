@@ -2,6 +2,18 @@
 
 本文是当前源码的文件级导航。路径均相对 `app/src/main/java/com/ahu_plus/`，内容只描述仓库中已经存在的实现。
 
+## 主题文档地图
+
+`docs/` 是本地 Obsidian 知识库（不入库，除 `adr/` 外）。任务定位先读
+`docs/agents/00-检索导航.md`（任务 → 文档路由表），再按分区找主题文档：
+
+- 基础：`docs/agents/01-项目总览.md`、`02-启动与导航.md`、`03-认证体系.md`、`04-数据层基础设施.md`
+- 业务：`docs/agents/05-课表模块.md` ～ `13-任务与日程.md`
+- UI：`docs/agents/14-主题与设计Token.md`、`15-公共组件与应用中心.md`、`16-布局与动效.md`
+- 平台：`docs/agents/17-设置项汇总.md`、`18-Widget与通知.md`
+- 系统与第三方：`docs/agents/19-学习通.md`、`20-WeLearn.md`、`21-应用更新与分发.md`、`22-教育邮箱.md`、`23-隐私与法律.md`
+- 运维：`docs/ops/01-服务器基础设施.md`；用户文档：`docs/user/`；归档：`docs/archive/`
+
 ## 发布与工程门禁
 
 | 文件 | 职责 |

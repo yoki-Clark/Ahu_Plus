@@ -132,6 +132,9 @@ app/src/main/java/com/ahu_plus/
 
 文件级索引见 [CODEMAP.md](CODEMAP.md)。
 
+本地架构与主题文档在 `docs/`（Obsidian 知识库，不入库）；agent 检索入口为
+`docs/agents/00-检索导航.md`，用户文档入口为 `docs/user/README.md`。
+
 ## 认证与网络
 
 | 系统 | 主域名 | 认证/会话 |
