@@ -30,7 +30,8 @@ except Exception:  # pragma: no cover - 仅自检时走到
     _HAS_MITM = False
 
 # ---- 配置 ----
-TARGET_HOST = "api.zxs-bbs.cn"        # 集市后端域名
+TARGET_HOST = "api.zxs-bbs.cn"        # 集市后端主域名
+TARGET_DOMAIN_SUFFIX = "zxs-bbs.cn"   # 同域后端任意子域均视为集市流量
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT_FILE = os.path.join(OUT_DIR, "我的集市Token.txt")
 QR_FILE = os.path.join(OUT_DIR, "集市身份导入二维码.png")
@@ -134,7 +135,9 @@ class TokenCatcher:
             host = flow.request.pretty_host
         except Exception:
             return
-        if host.lower().rstrip(".") != TARGET_HOST:
+        # 放宽到 zxs-bbs.cn 任意子域：只要同一后端栈、带了身份头，都视为可捕获。
+        h = host.lower().rstrip(".")
+        if h != TARGET_HOST and not h.endswith("." + TARGET_DOMAIN_SUFFIX):
             return
 
         _mark(TARGET_SEEN_FLAG)
