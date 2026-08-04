@@ -128,9 +128,6 @@ fun MarketScreen(
                 uiState = uiState,
                 listState = listState,
                 staggerListState = staggerListState,
-                onIdentityChanged = viewModel::onIdentityInputChanged,
-                onSaveIdentity = viewModel::saveIdentity,
-                onClearIdentity = viewModel::clearIdentity,
                 onRefresh = viewModel::refreshTopics,
                 onLoadMore = viewModel::loadNextPage,
                 onOpenHot = viewModel::openHotTopics,
@@ -144,7 +141,8 @@ fun MarketScreen(
                 onSearchClose = viewModel::closeSearch,
                 onLoadMoreSearch = viewModel::loadMoreSearchResults,
                 onToggleSchool = viewModel::toggleIdentitySelection,
-                onSelectAllSchools = viewModel::selectAllIdentities
+                onSelectAllSchools = viewModel::selectAllIdentities,
+                onSelectReadOnlyNode = viewModel::selectReadOnlyNode
             )
         }
     }

@@ -9,6 +9,7 @@ import com.ahu_plus.data.diagnostic.SafeLog as Log
 import android.webkit.CookieManager
 import android.webkit.WebStorage
 import com.ahu_plus.data.local.AppDataStore
+import com.ahu_plus.data.local.MarketReadOnlyCache
 import com.ahu_plus.data.local.CourseNoteRepository
 import com.ahu_plus.data.local.EncryptedCredentialStore
 import com.ahu_plus.data.local.JwcWafCookieStore
@@ -176,6 +177,8 @@ class AhuPlusApplication : Application() {
         private set
     lateinit var marketRepository: MarketRepository
         private set
+    lateinit var marketReadOnlyCache: MarketReadOnlyCache
+        private set
     lateinit var aiCommentRepository: AiCommentRepository
         private set
     lateinit var jwcNoticeRepository: JwcNoticeRepository
@@ -315,7 +318,8 @@ class AhuPlusApplication : Application() {
         cardRepository = CardRepository(
             portalJsessionIdProvider = { casAuthRepository.getJsessionid() }
         )
-        marketRepository = MarketRepository(sessionManager)
+        marketReadOnlyCache = MarketReadOnlyCache(appDataStore)
+        marketRepository = MarketRepository(sessionManager, marketReadOnlyCache)
         aiCommentRepository = AiCommentRepository(this, sessionManager)
         jwcNoticeRepository = JwcNoticeRepository(JwcWafCookieStore(appDataStore))
         xzxxRepository = XzxxRepository(XzxxWafCookieStore(appDataStore))

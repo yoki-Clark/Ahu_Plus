@@ -40,9 +40,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Card
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator as M3CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -107,6 +109,7 @@ internal fun MarketDetailScreen(
     onCommentSuccessShown: () -> Unit
 ) {
     val topic = uiState.topicDetail ?: uiState.selectedTopic
+    val readOnlyMode = uiState.identities.isEmpty()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val commentsListState = rememberLazyListState()
@@ -212,17 +215,20 @@ internal fun MarketDetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { topic?.let { exportTopicImage(it) } },
-                        enabled = topic != null && !isExporting
-                    ) {
-                        if (isExporting) {
-                            M3CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(Icons.Filled.Image, contentDescription = "导出图片")
+                    // 只读模式隐藏导出:导出需要 token 拉全量评论
+                    if (!readOnlyMode) {
+                        IconButton(
+                            onClick = { topic?.let { exportTopicImage(it) } },
+                            enabled = topic != null && !isExporting
+                        ) {
+                            if (isExporting) {
+                                M3CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Filled.Image, contentDescription = "导出图片")
+                            }
                         }
                     }
                 }
@@ -231,20 +237,23 @@ internal fun MarketDetailScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets.systemBars,
         bottomBar = {
-            CommentComposerBar(
-                draft = uiState.commentDraft,
-                replyingTo = uiState.replyingTo,
-                isPosting = uiState.isPostingComment,
-                error = uiState.postCommentError,
-                onDraftChanged = onCommentDraftChanged,
-                onSubmit = onCommentSubmit,
-                aiEnabled = uiState.aiCommentEnabled,
-                isGeneratingAi = uiState.isGeneratingAiComment,
-                aiTemplates = uiState.aiTemplates,
-                selectedAiTemplateId = uiState.aiSelectedTemplateId,
-                onGenerateAiComment = onGenerateAiComment,
-                onCancelReply = onCancelReply
-            )
+            // 只读模式无身份,不能发评论,隐藏输入栏
+            if (!readOnlyMode) {
+                CommentComposerBar(
+                    draft = uiState.commentDraft,
+                    replyingTo = uiState.replyingTo,
+                    isPosting = uiState.isPostingComment,
+                    error = uiState.postCommentError,
+                    onDraftChanged = onCommentDraftChanged,
+                    onSubmit = onCommentSubmit,
+                    aiEnabled = uiState.aiCommentEnabled,
+                    isGeneratingAi = uiState.isGeneratingAiComment,
+                    aiTemplates = uiState.aiTemplates,
+                    selectedAiTemplateId = uiState.aiSelectedTemplateId,
+                    onGenerateAiComment = onGenerateAiComment,
+                    onCancelReply = onCancelReply
+                )
+            }
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
@@ -299,52 +308,66 @@ internal fun MarketDetailScreen(
                     )
                 }
 
-                if (uiState.commentsLoading && uiState.comments.isEmpty()) {
-                    item { LoadingRow("正在加载评论...") }
-                }
-
-                uiState.commentsError?.let { error ->
+                if (readOnlyMode) {
+                    // 只读模式:无 token 评论接口恒空,不渲染空列表(避免误以为没评论)。
+                    // 展示评论数 + 登录后可见占位,再附只读说明卡。
                     item {
-                        StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
-                            TextButton(onClick = onRefresh) { Text("重试") }
-                        }
-                    }
-                }
-
-                if (!uiState.commentsLoading && uiState.commentsError == null && uiState.comments.isEmpty()) {
-                    item {
+                        val count = topic?.commentCount ?: 0
                         StatusCard(
-                            text = "暂无评论",
+                            text = if (count > 0) "共 $count 条评论 · 登录后可见"
+                            else "暂无评论",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                }
+                    item { ReadOnlyNoticeCard() }
+                } else {
+                    if (uiState.commentsLoading && uiState.comments.isEmpty()) {
+                        item { LoadingRow("正在加载评论...") }
+                    }
 
-                items(uiState.comments, key = { it.id }) { comment ->
-                    CommentCard(
-                        comment = comment,
-                        isLoadingReplies = uiState.replyLoadingCommentIds.contains(comment.id),
-                        replyError = uiState.replyErrors[comment.id],
-                        onLoadMoreReplies = { onLoadMoreReplies(comment) },
-                        onReplyClick = { onStartReplyingToComment(comment) },
-                        onReplyReplyClick = { reply -> onStartReplyingToReply(comment, reply) },
-                        onImageClick = { _, index ->
-                            previewImage = ImagePreviewState(
-                                urls = comment.imgs.filter { it.isNotBlank() },
-                                initialIndex = index
+                    uiState.commentsError?.let { error ->
+                        item {
+                            StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
+                                TextButton(onClick = onRefresh) { Text("重试") }
+                            }
+                        }
+                    }
+
+                    if (!uiState.commentsLoading && uiState.commentsError == null && uiState.comments.isEmpty()) {
+                        item {
+                            StatusCard(
+                                text = "暂无评论",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    )
-                }
+                    }
 
-                if (uiState.comments.isNotEmpty()) {
-                    item {
-                        AutoLoadFooter(
-                            isLoading = uiState.commentsLoadingMore,
-                            hasMore = uiState.hasMoreComments,
-                            loadingText = "正在加载更多评论...",
-                            emptyText = "没有更多评论了"
+                    items(uiState.comments, key = { it.id }) { comment ->
+                        CommentCard(
+                            comment = comment,
+                            isLoadingReplies = uiState.replyLoadingCommentIds.contains(comment.id),
+                            replyError = uiState.replyErrors[comment.id],
+                            onLoadMoreReplies = { onLoadMoreReplies(comment) },
+                            onReplyClick = { onStartReplyingToComment(comment) },
+                            onReplyReplyClick = { reply -> onStartReplyingToReply(comment, reply) },
+                            onImageClick = { _, index ->
+                                previewImage = ImagePreviewState(
+                                    urls = comment.imgs.filter { it.isNotBlank() },
+                                    initialIndex = index
+                                )
+                            }
                         )
+                    }
+
+                    if (uiState.comments.isNotEmpty()) {
+                        item {
+                            AutoLoadFooter(
+                                isLoading = uiState.commentsLoadingMore,
+                                hasMore = uiState.hasMoreComments,
+                                loadingText = "正在加载更多评论...",
+                                emptyText = "没有更多评论了"
+                            )
+                        }
                     }
                 }
 
@@ -359,6 +382,50 @@ internal fun MarketDetailScreen(
             onDismiss = { previewImage = null },
             onSave = { index -> saveImageAt(index) }
         )
+    }
+}
+
+/**
+ * 只读模式详情页底部说明:告知无身份能看什么、登录后能做什么,以及内容来源。
+ * 文案基于实测的无 token 接口能力(见 read_only/{id} 与 topics/top 字段)。
+ */
+@Composable
+private fun ReadOnlyNoticeCard() {
+    OutlinedCard(
+        shape = AhuShapes.Card,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "当前为只读模式",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = "未导入集市身份时，可以看到：帖子正文、图片、所属板块、发布时间、发帖人昵称与头像、点赞数与评论条数。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "需要导入身份后才能使用：查看评论内容、发帖、评论与回复、点赞收藏、消息通知、热榜与多身份切换。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "只读模式的帖子来自安大圈子与安大校友圈的热门榜单，按发布时间倒序展示，不是全部帖子。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

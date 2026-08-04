@@ -31,6 +31,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -56,8 +58,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,9 +84,6 @@ internal fun MarketListScreen(
     uiState: MarketUiState,
     listState: LazyListState,
     staggerListState: androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState? = null,
-    onIdentityChanged: (String) -> Unit,
-    onSaveIdentity: () -> Unit,
-    onClearIdentity: () -> Unit,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onOpenHot: () -> Unit,
@@ -96,9 +97,31 @@ internal fun MarketListScreen(
     onSearchClose: () -> Unit,
     onLoadMoreSearch: () -> Unit,
     onToggleSchool: (String, Boolean) -> Unit = { _, _ -> },
-    onSelectAllSchools: () -> Unit = {}
+    onSelectAllSchools: () -> Unit = {},
+    onSelectReadOnlyNode: (String?) -> Unit = {},
 ) {
     val isSingleSchool = uiState.selectedIdentityIds.size <= 1
+    // 只读模式:无身份,展示安大热榜累积流(替代旧的身份输入卡空态)
+    val readOnlyMode = !uiState.hasSavedIdentity
+    // 只读板块筛选(纯本地):从累积帖动态汇总,按帖子数排序
+    val readOnlyNodes = if (readOnlyMode) {
+        uiState.readOnlyTopics
+            .map { it.node }
+            .filter { it.isNotBlank() }
+            .groupingBy { it }
+            .eachCount()
+            .entries
+            .sortedByDescending { it.value }
+            .map { it.key }
+    } else emptyList()
+    val displayTopics = when {
+        readOnlyMode && uiState.readOnlySelectedNode != null ->
+            uiState.readOnlyTopics.filter { it.node == uiState.readOnlySelectedNode }
+        readOnlyMode -> uiState.readOnlyTopics
+        else -> uiState.topics
+    }
+    val displayLoading = if (readOnlyMode) uiState.readOnlyLoading else uiState.isLoading
+    val displayError = if (readOnlyMode) uiState.readOnlyError else uiState.error
     // 2026-06-17 Bug5: 优先用外部传入的 state (MarketScreen 已将 state 提升, 返回时可恢复位置)
     val staggerState = staggerListState ?: rememberLazyStaggeredGridState()
     val shouldLoadMore by remember(uiState.topics.size, uiState.hasMoreTopics) {
@@ -117,7 +140,7 @@ internal fun MarketListScreen(
     }
 
     LaunchedEffect(shouldLoadMore, uiState.topics.size, uiState.hasMoreTopics) {
-        if (shouldLoadMore && !uiState.isSearching) onLoadMore()
+        if (shouldLoadMore && !uiState.isSearching && !readOnlyMode) onLoadMore()
     }
 
     // 搜索防抖:query 稳定 500ms 后自动提交。键值变化会取消上一次 delay,避免每次按键都打接口
@@ -195,6 +218,11 @@ internal fun MarketListScreen(
                                     Icon(Icons.Filled.Notifications, contentDescription = "消息")
                                 }
                             }
+                        } else {
+                            // 只读模式:仅保留设置入口(导入身份/清除数据等)
+                            IconButton(onClick = onOpenSettings) {
+                                Icon(Icons.Filled.Settings, contentDescription = "设置")
+                            }
                         }
                     }
                 )
@@ -214,7 +242,7 @@ internal fun MarketListScreen(
             )
         } else {
             AhuPullToRefreshBox(
-                isRefreshing = uiState.isLoading,
+                isRefreshing = displayLoading,
                 onRefresh = onRefresh,
                 modifier = Modifier
                     .fillMaxSize()
@@ -231,16 +259,20 @@ internal fun MarketListScreen(
                         verticalItemSpacing = 10.dp,
                         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
                     ) {
-                        if (!uiState.hasSavedIdentity) {
+                        if (readOnlyMode) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
-                                IdentityCard(
-                                    uiState = uiState,
-                                    onIdentityChanged = onIdentityChanged,
-                                    onSave = onSaveIdentity,
-                                    onClear = onClearIdentity,
-                                )
+                                ReadOnlyBanner(onImport = onOpenSettings)
                             }
-                        } else {
+                            if (readOnlyNodes.size > 1) {
+                                item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                    ReadOnlyNodeFilterRow(
+                                        nodes = readOnlyNodes,
+                                        selected = uiState.readOnlySelectedNode,
+                                        onSelect = onSelectReadOnlyNode
+                                    )
+                                }
+                            }
+                        } else if (uiState.hasSavedIdentity) {
                             if (uiState.identities.size > 1) {
                                 item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
                                     SchoolSwitcherRow(
@@ -258,7 +290,7 @@ internal fun MarketListScreen(
                             }
                         }
 
-                        if (uiState.isLoading && uiState.topics.isEmpty()) {
+                        if (displayLoading && displayTopics.isEmpty()) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
                                 AhuSkeletonList(itemCount = 4)
                             }
@@ -266,8 +298,8 @@ internal fun MarketListScreen(
 
                         // 有缓存(topics 非空)刷新失败不插全宽错误卡,避免打断已加载内容(项55);
                         // 无缓存时才全屏错误+重试。
-                        if (uiState.error != null && uiState.topics.isEmpty()) {
-                            uiState.error?.let { error ->
+                        if (displayError != null && displayTopics.isEmpty()) {
+                            displayError?.let { error ->
                                 item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
                                     StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
                                         TextButton(onClick = onRefresh) { Text("重试") }
@@ -282,27 +314,28 @@ internal fun MarketListScreen(
                             }
                         }
 
-                        if (uiState.hasSavedIdentity && !uiState.isLoading && uiState.error == null &&
-                            uiState.topics.isEmpty()
-                        ) {
+                        if (!displayLoading && displayError == null && displayTopics.isEmpty()) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
                                 AhuEmptyState(
                                     icon = Icons.Filled.Storefront,
-                                    title = "暂时没有内容",
-                                    subtitle = "换个学校或稍后再来看看",
+                                    title = if (readOnlyMode) "暂时没有内容" else "暂时没有内容",
+                                    subtitle = if (readOnlyMode) "下拉刷新可拉取最新帖子，多刷几次内容会越来越多"
+                                    else "换个学校或稍后再来看看",
                                 )
                             }
                         }
 
-                        staggerItems(uiState.topics, key = { it.id }) { topic ->
+                        staggerItems(displayTopics, key = { it.id }) { topic ->
                             StaggerMarketTopicCard(
                                 topic = topic,
                                 onClick = { onOpenTopic(topic) },
-                                school = if (isSingleSchool) null
+                                // 只读模式始终显示来源 chip(圈子/校友圈);单身份登录模式不显示
+                                school = if (readOnlyMode) uiState.topicSchoolMap[topic.id]
+                                else if (isSingleSchool) null
                                 else uiState.topicSchoolMap[topic.id]
                             )
                         }
-                        if (uiState.topics.isNotEmpty()) {
+                        if (displayTopics.isNotEmpty() && !readOnlyMode) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
                                 AutoLoadFooter(
                                     isLoading = uiState.isLoadingMore,
@@ -310,6 +343,11 @@ internal fun MarketListScreen(
                                     loadingText = "正在加载更多...",
                                     emptyText = "没有更多帖子了"
                                 )
+                            }
+                        }
+                        if (readOnlyMode && displayTopics.isNotEmpty()) {
+                            item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                ReadOnlyFooterHint()
                             }
                         }
                         item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
@@ -325,16 +363,18 @@ internal fun MarketListScreen(
                             .padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(AhuSpacing.CardGap)
                     ) {
-                        if (!uiState.hasSavedIdentity) {
-                            item {
-                                IdentityCard(
-                                    uiState = uiState,
-                                    onIdentityChanged = onIdentityChanged,
-                                    onSave = onSaveIdentity,
-                                    onClear = onClearIdentity
-                                )
+                        if (readOnlyMode) {
+                            item { ReadOnlyBanner(onImport = onOpenSettings) }
+                            if (readOnlyNodes.size > 1) {
+                                item {
+                                    ReadOnlyNodeFilterRow(
+                                        nodes = readOnlyNodes,
+                                        selected = uiState.readOnlySelectedNode,
+                                        onSelect = onSelectReadOnlyNode
+                                    )
+                                }
                             }
-                        } else {
+                        } else if (uiState.hasSavedIdentity) {
                             if (uiState.identities.size > 1) {
                                 item {
                                     SchoolSwitcherRow(
@@ -351,13 +391,13 @@ internal fun MarketListScreen(
                             }
                         }
 
-                        if (uiState.isLoading && uiState.topics.isEmpty()) {
+                        if (displayLoading && displayTopics.isEmpty()) {
                             item { AhuSkeletonList(itemCount = 4) }
                         }
 
                         // 有缓存(topics 非空)刷新失败不插全宽错误卡(项55)。
-                        if (uiState.error != null && uiState.topics.isEmpty()) {
-                            uiState.error?.let { error ->
+                        if (displayError != null && displayTopics.isEmpty()) {
+                            displayError?.let { error ->
                                 item {
                                     StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
                                         TextButton(onClick = onRefresh) { Text("重试") }
@@ -370,30 +410,30 @@ internal fun MarketListScreen(
                             item { StatusCard(text = message, color = MarketColors.Success) }
                         }
 
-                        if (uiState.hasSavedIdentity && !uiState.isLoading && uiState.error == null &&
-                            uiState.topics.isEmpty()
-                        ) {
+                        if (!displayLoading && displayError == null && displayTopics.isEmpty()) {
                             item {
                                 AhuEmptyState(
                                     icon = Icons.Filled.Storefront,
                                     title = "暂时没有内容",
-                                    subtitle = "换个学校或稍后再来看看",
+                                    subtitle = if (readOnlyMode) "下拉刷新可拉取最新帖子，多刷几次内容会越来越多"
+                                    else "换个学校或稍后再来看看",
                                 )
                             }
                         }
 
-                        items(uiState.topics, key = { it.id }) { topic ->
+                        items(displayTopics, key = { it.id }) { topic ->
                             MarketTopicCard(
                                 topic = topic,
                                 onClick = { onOpenTopic(topic) },
-                                // 单校模式不显示学校标签(避免重复),多校模式显示
-                                school = if (isSingleSchool) null
+                                // 只读模式始终显示来源 chip(圈子/校友圈);单身份登录模式不显示
+                                school = if (readOnlyMode) uiState.topicSchoolMap[topic.id]
+                                else if (isSingleSchool) null
                                 else uiState.topicSchoolMap[topic.id],
                                 modifier = Modifier.animateItem(),
                             )
                         }
 
-                        if (uiState.topics.isNotEmpty()) {
+                        if (displayTopics.isNotEmpty() && !readOnlyMode) {
                             item {
                                 AutoLoadFooter(
                                     isLoading = uiState.isLoadingMore,
@@ -402,6 +442,9 @@ internal fun MarketListScreen(
                                     emptyText = "没有更多帖子了"
                                 )
                             }
+                        }
+                        if (readOnlyMode && displayTopics.isNotEmpty()) {
+                            item { ReadOnlyFooterHint() }
                         }
 
                         item { Spacer(modifier = Modifier.height(72.dp)) }
@@ -571,6 +614,104 @@ private fun SchoolSwitcherRow(
                 }
             }
         }
+    }
+}
+
+/**
+ * 只读模式顶部横幅:提示当前未登录,只看安大热榜累积流;「导入身份」进设置页。
+ * 可折叠(本会话生效,离开页面再进会重新出现--不永久关闭)。
+ */
+@Composable
+internal fun ReadOnlyBanner(onImport: () -> Unit) {
+    var collapsed by remember { mutableStateOf(false) }
+    Card(
+        shape = AhuShapes.Card,
+        colors = CardDefaults.cardColors(
+            containerColor = MarketColors.HotEntryIconBg.copy(alpha = 0.10f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Storefront,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "只读模式 · 未登录",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onImport) { Text("导入身份") }
+                IconButton(onClick = { collapsed = !collapsed }, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        if (collapsed) Icons.Filled.KeyboardArrowDown
+                        else Icons.Filled.KeyboardArrowUp,
+                        contentDescription = if (collapsed) "展开" else "收起",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            if (!collapsed) {
+                Text(
+                    text = "当前展示安大圈子与安大校友圈的热门帖子，按发布时间倒序。" +
+                        "下拉刷新可拉取最新帖子，多次刷新内容会累积增多。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+/** 只读流板块筛选行:板块从累积帖动态汇总,纯本地过滤不产生请求。 */
+@Composable
+private fun ReadOnlyNodeFilterRow(
+    nodes: List<String>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scrollState),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        FilterChip(
+            selected = selected == null,
+            onClick = { onSelect(null) },
+            label = { Text("全部") }
+        )
+        nodes.forEach { node ->
+            FilterChip(
+                selected = selected == node,
+                onClick = { onSelect(if (selected == node) null else node) },
+                label = { Text(node, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            )
+        }
+    }
+}
+
+/** 只读流列表底部提示:说明无分页,刷新拉新帖。 */
+@Composable
+private fun ReadOnlyFooterHint() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "下拉刷新拉取更多最新帖子",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

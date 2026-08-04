@@ -22,3 +22,22 @@ fun Request.Builder.applyMarketHeaders(identity: String): Request.Builder =
         .header("Accept-Language", "zh-CN,zh;q=0.9")
         .header("User-Agent", MarketApi.USER_AGENT)
         .header("Authorization", MarketApi.normalizeIdentity(identity))
+
+/**
+ * 只读接口（[MarketApi.READ_ONLY_TOPIC_URL] / `topics/top?school_id=`）无需 Bearer,
+ * 打上与 [applyMarketHeaders] 相同的站点头但不带 Authorization。只读流在未导入身份时
+ * 也要能用,所以这条路径绝不能依赖 [com.ahu_plus.data.local.SessionManager] 里的 token。
+ */
+fun Request.Builder.applyMarketHeadersNoAuth(): Request.Builder =
+    header("Host", "api.zxs-bbs.cn")
+        .header("Connection", "keep-alive")
+        .header("xweb_xhr", "1")
+        .header("Content-Type", "application/json")
+        .header("Tenant", "7")
+        .header("Accept", "*/*")
+        .header("Sec-Fetch-Site", "cross-site")
+        .header("Sec-Fetch-Mode", "cors")
+        .header("Sec-Fetch-Dest", "empty")
+        .header("Referer", MarketApi.REFERER)
+        .header("Accept-Language", "zh-CN,zh;q=0.9")
+        .header("User-Agent", MarketApi.USER_AGENT)

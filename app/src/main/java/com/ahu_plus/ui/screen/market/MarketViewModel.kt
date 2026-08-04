@@ -11,12 +11,15 @@ import com.ahu_plus.data.model.MarketCommentReplies
 import com.ahu_plus.data.model.MarketIdentity
 import com.ahu_plus.data.model.MarketNode
 import com.ahu_plus.data.model.MarketNotice
+import com.ahu_plus.data.model.MarketReadOnlyCacheEntry
 import com.ahu_plus.data.model.MarketTopic
 import com.ahu_plus.data.remote.market.MarketApi
 import com.ahu_plus.data.repository.MarketRepository
 import com.ahu_plus.data.repository.AiCommentRepository
 import com.ahu_plus.data.repository.MarketTopicBatch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +35,7 @@ class MarketViewModel(
     private val _uiState = MutableStateFlow(MarketUiState())
     val uiState: StateFlow<MarketUiState> = _uiState.asStateFlow()
     private var lastTopicsLoadedAt: Long = 0L
+    private var lastReadOnlyLoadedAt: Long = 0L
     private var searchJob: Job? = null
     private var searchRequestId = 0L
     private var topicJob: Job? = null
@@ -63,6 +67,12 @@ class MarketViewModel(
     }
 
     fun activate() {
+        if (_uiState.value.identities.isEmpty()) {
+            // 只读模式:无身份时展示安大热帖累积流
+            val stale = System.currentTimeMillis() - lastReadOnlyLoadedAt >= 2L * 60 * 1000
+            if (_uiState.value.readOnlyTopics.isEmpty() || stale) refreshReadOnlyTopics()
+            return
+        }
         val stale = System.currentTimeMillis() - lastTopicsLoadedAt >= 2L * 60 * 1000
         if (_uiState.value.identities.isNotEmpty() && (_uiState.value.topics.isEmpty() || stale)) {
             refreshTopics()
@@ -327,10 +337,17 @@ class MarketViewModel(
             _uiState.update {
                 MarketUiState(saveMessage = "已清除")
             }
+            // 身份清除后回到只读模式,补一次只读流加载(不阻塞"已清除"提示)
+            refreshReadOnlyTopics()
         }
     }
 
     fun refreshTopics() {
+        // 无身份时走只读流,列表页的下拉刷新统一入口
+        if (_uiState.value.identities.isEmpty()) {
+            refreshReadOnlyTopics()
+            return
+        }
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -353,6 +370,81 @@ class MarketViewModel(
             _uiState.update { it.copy(isLoadingMore = true, error = null) }
             loadTopicsPage(page = state.currentPage + 1, append = true)
         }
+    }
+
+    // ── 只读流（无 token）────────────────────────────────
+
+    /**
+     * 刷新只读流:先回放本地累积缓存(立即展示),再并发拉安大两个社区的热榜,
+     * 合并去重后按发布时间倒序,并入本地库持久化。
+     *
+     * 一次刷新只发 2 个请求(圈子 + 校友圈),远低于服务端 ~150/窗口的限流阈值,
+     * 不做 id 扫描--全平台 2000+ 校共享自增 id,安大命中率仅 0.56%,扫 id 不现实。
+     */
+    fun refreshReadOnlyTopics() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(readOnlyLoading = true, readOnlyError = null) }
+            // 先回放缓存,让列表立刻有内容
+            val cached = runCatching { repository.loadReadOnlyCache() }.getOrDefault(emptyList())
+            applyReadOnlyEntries(cached)
+
+            val results = MarketApi.READ_ONLY_SCHOOLS.map { school ->
+                async { school to repository.getReadOnlyTopTopics(school.schoolId) }
+            }.awaitAll()
+
+            val fresh = mutableListOf<Pair<MarketTopic, String>>()
+            var anySuccess = false
+            for ((school, result) in results) {
+                result.onSuccess { topics ->
+                    anySuccess = true
+                    topics.forEach { fresh += it to school.label }
+                }
+            }
+
+            if (!anySuccess && cached.isEmpty()) {
+                val err = results.firstNotNullOfOrNull { it.second.exceptionOrNull() }
+                    ?.message ?: "只读内容加载失败"
+                _uiState.update { it.copy(readOnlyLoading = false, readOnlyError = err) }
+                return@launch
+            }
+            // 有缓存但本次全失败:保留缓存,提示但不清空
+            if (!anySuccess) {
+                val err = results.firstNotNullOfOrNull { it.second.exceptionOrNull() }
+                    ?.message ?: "刷新失败,展示的是上次缓存"
+                _uiState.update { it.copy(readOnlyLoading = false, readOnlyError = err) }
+                return@launch
+            }
+
+            val merged = runCatching { repository.mergeReadOnlyTopics(fresh) }.getOrDefault(cached)
+            lastReadOnlyLoadedAt = System.currentTimeMillis()
+            applyReadOnlyEntries(merged, clearError = true)
+        }
+    }
+
+    private fun applyReadOnlyEntries(
+        entries: List<MarketReadOnlyCacheEntry>,
+        clearError: Boolean = false,
+    ) {
+        val topics = entries.map { it.topic }
+        val labelMap = entries.map { it.topic.id to it.label }.toMap()
+        _uiState.update { st ->
+            // 累积帖变化后,若当前选中的板块已不存在则重置为全部
+            val nodeStillValid = st.readOnlySelectedNode?.let { sel ->
+                topics.any { it.node == sel }
+            } ?: true
+            st.copy(
+                readOnlyTopics = topics,
+                topicSchoolMap = st.topicSchoolMap + labelMap,
+                readOnlyLoading = if (clearError) false else st.readOnlyLoading,
+                readOnlyError = if (clearError) null else st.readOnlyError,
+                readOnlySelectedNode = if (nodeStillValid) st.readOnlySelectedNode else null,
+            )
+        }
+    }
+
+    /** 只读流板块筛选(纯本地)。null = 全部。 */
+    fun selectReadOnlyNode(node: String?) {
+        _uiState.update { it.copy(readOnlySelectedNode = node) }
     }
 
     // ── 设置页面 ────────────────────────────────────────
@@ -771,6 +863,35 @@ class MarketViewModel(
     fun openTopic(topic: MarketTopic) {
         val identity = identityTokenForTopic(topic.id)
         val requestId = beginTopicRequest()
+        // 只读模式:无身份,走 read_only/{id} 拿详情,不加载评论(无 token 评论接口恒空)
+        if (_uiState.value.identities.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    selectedTopic = topic,
+                    selectedTopicIdentity = null,
+                    topicDetail = topic,
+                    detailLoading = true,
+                    detailError = null,
+                    comments = emptyList(),
+                    commentsPage = 0,
+                    hasMoreComments = false,
+                    commentsLoading = false,
+                    replyLoadingCommentIds = emptySet(),
+                    replyErrors = emptyMap(),
+                    commentsError = null,
+                    commentDraft = "",
+                    replyingTo = null,
+                    isPostingComment = false,
+                    isGeneratingAiComment = false,
+                    postCommentError = null,
+                    postCommentSuccessMessage = null,
+                )
+            }
+            topicJob = viewModelScope.launch {
+                loadReadOnlyTopicDetail(topic.id, requestId)
+            }
+            return
+        }
         _uiState.update {
             it.copy(
                 selectedTopic = topic,
@@ -803,6 +924,30 @@ class MarketViewModel(
                 requestId = requestId,
             )
         }
+    }
+
+    private suspend fun loadReadOnlyTopicDetail(topicId: Long, requestId: Long) {
+        repository.getReadOnlyTopic(topicId).fold(
+            onSuccess = { detail ->
+                _uiState.update { state ->
+                    if (!isCurrentTopicRequest(requestId, topicId)) return@update state
+                    state.copy(topicDetail = detail, detailLoading = false, detailError = null)
+                }
+            },
+            onFailure = { e ->
+                _uiState.update { state ->
+                    if (!isCurrentTopicRequest(requestId, topicId)) return@update state
+                    state.copy(
+                        detailLoading = false,
+                        detailError = if (state.topicDetail == null) {
+                            e.message ?: "帖子详情加载失败"
+                        } else {
+                            null
+                        }
+                    )
+                }
+            }
+        )
     }
 
     fun openHotTopics() {
@@ -1278,9 +1423,19 @@ class MarketViewModel(
 
     fun retryDetail() {
         val topicId = _uiState.value.selectedTopic?.id ?: return
+        val requestId = beginTopicRequest()
+        // 只读模式:只重拉 read_only 详情,不碰评论
+        if (_uiState.value.identities.isEmpty()) {
+            _uiState.update {
+                it.copy(detailLoading = true, detailError = null)
+            }
+            topicJob = viewModelScope.launch {
+                loadReadOnlyTopicDetail(topicId, requestId)
+            }
+            return
+        }
         val identity = identityTokenForTopic(topicId)
         val shouldLoadComments = _uiState.value.comments.isEmpty()
-        val requestId = beginTopicRequest()
         _uiState.update {
             it.copy(
                 detailLoading = true,
@@ -1461,6 +1616,13 @@ data class MarketUiState(
     val school: String? = null,
     val saveMessage: String? = null,
     val identityError: String? = null,
+    // ── 只读流(无 token)──────────────────────────────
+    // 无身份时以安大热榜累积流作为默认态;readOnlyMode = !hasSavedIdentity
+    val readOnlyTopics: List<MarketTopic> = emptyList(),
+    val readOnlyLoading: Boolean = false,
+    val readOnlyError: String? = null,
+    // 板块筛选(纯本地,从累积帖动态汇总,不产生请求)
+    val readOnlySelectedNode: String? = null,
     val topics: List<MarketTopic> = emptyList(),
     val topicSchoolMap: Map<Long, String> = emptyMap(),
     val topicIdentityMap: Map<Long, String> = emptyMap(),

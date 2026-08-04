@@ -6,7 +6,11 @@ data class MarketTopic(
     val id: Long = 0,
     val title: String = "",
     val content: String = "",
-    val status: Int = 0,
+    /**
+     * 帖子状态。接口在不同端点返回类型不一致:列表/热榜给 int(1),只读详情给 "normal"。
+     * UI 不读取此字段,统一用 String 容纳两种形态,避免 Gson 类型不匹配抛异常。
+     */
+    val status: String = "",
     val imgs: List<String> = emptyList(),
     val node: String = "",
     val isAnon: Int = 0,
@@ -83,6 +87,26 @@ data class MarketCommentReplies(
 data class MarketNode(
     val id: Long,
     val name: String
+)
+
+/**
+ * 只读模式下的安大社区来源。无 token 可访问 `topics/top?school_id=` 与 `topics/read_only/{id}`。
+ *
+ * 10681 = 安大圈子, 11327 = 安大校友圈;两者 `schoolName` 都是「安徽大学」,
+ * 但内容社区独立,[label] 用于列表/详情里区分来源的小 chip。
+ */
+data class MarketReadOnlySchool(
+    val schoolId: Long,
+    val label: String,
+)
+
+/**
+ * 只读流本地缓存条目。`topics/top` 每次只回 10 条且会轮换,把每次拉到的帖
+ * 按 `topic_id` 并入本地库累积展示,[label] 随帖一起持久化,避免历史缓存丢来源。
+ */
+data class MarketReadOnlyCacheEntry(
+    val topic: MarketTopic,
+    val label: String,
 )
 
 /**

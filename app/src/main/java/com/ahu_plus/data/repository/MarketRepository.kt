@@ -5,6 +5,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.ahu_plus.data.GsonProvider
+import com.ahu_plus.data.local.MarketReadOnlyCache
 import com.ahu_plus.data.local.SessionManager
 import com.ahu_plus.data.model.MarketComment
 import com.ahu_plus.data.model.MarketCommentReplies
@@ -13,12 +14,14 @@ import com.ahu_plus.data.model.MarketNotice
 import com.ahu_plus.data.model.MarketNoticeContent
 import com.ahu_plus.data.model.MarketNoticePage
 import com.ahu_plus.data.model.MarketNoticeTopic
+import com.ahu_plus.data.model.MarketReadOnlyCacheEntry
 import com.ahu_plus.data.model.MarketTopic
 import com.ahu_plus.data.model.MarketUser
 import com.ahu_plus.data.network.SecureHttpClientFactory
 import com.ahu_plus.data.remote.JsonUtils
 import com.ahu_plus.data.remote.market.MarketApi
 import com.ahu_plus.data.remote.market.applyMarketHeaders
+import com.ahu_plus.data.remote.market.applyMarketHeadersNoAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -40,7 +43,8 @@ internal fun parseMarketTopicDetail(body: String): MarketTopic {
 }
 
 class MarketRepository(
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val readOnlyCache: MarketReadOnlyCache,
 ) {
     private val gson = GsonProvider.instance
     private val client = SecureHttpClientFactory.create()
@@ -69,6 +73,33 @@ class MarketRepository(
         requestMarketJson("${MarketApi.TOPICS_URL}/$topicId", identity)
             .mapCatching(::parseMarketTopicDetail)
     }
+
+    // ══════════════════════════════════════════════════════
+    //  只读流（无 token）
+    // ══════════════════════════════════════════════════════
+
+    /**
+     * 无 token 拉某校热榜（`topics/top?school_id=`，实测返回 10 条且会轮换）。
+     * 安大两个社区（圈子 10681 / 校友圈 11327）分别调用后由 ViewModel 合并。
+     */
+    suspend fun getReadOnlyTopTopics(schoolId: Long): Result<List<MarketTopic>> = withContext(Dispatchers.IO) {
+        requestMarketJsonNoAuth("${MarketApi.TOPICS_TOP_URL}?school_id=$schoolId")
+            .mapCatching { body -> JsonUtils.parseRowsSafe<MarketTopic>(body) }
+    }
+
+    /** 无 token 拉单帖只读详情（`topics/read_only/{id}`）。 */
+    suspend fun getReadOnlyTopic(topicId: Long): Result<MarketTopic> = withContext(Dispatchers.IO) {
+        requestMarketJsonNoAuth("${MarketApi.READ_ONLY_TOPIC_URL}/$topicId")
+            .mapCatching(::parseMarketTopicDetail)
+    }
+
+    /** 只读缓存:首次访问从 DataStore 读取内存快照,供列表立即展示。 */
+    suspend fun loadReadOnlyCache(): List<MarketReadOnlyCacheEntry> = readOnlyCache.load()
+
+    /** 只读缓存:把新拉的 (topic, label) 并入并持久化,返回最新全集(按发布时间倒序)。 */
+    suspend fun mergeReadOnlyTopics(
+        fresh: List<Pair<MarketTopic, String>>,
+    ): List<MarketReadOnlyCacheEntry> = readOnlyCache.merge(fresh)
 
     suspend fun getComments(
         topicId: Long,
@@ -280,6 +311,18 @@ class MarketRepository(
         }
     }
 
+    /**
+     * 只读路径:不带 Authorization。401/403 表示只读口子被收紧,文案要引导登录
+     * 而不是「身份失效」(用户根本没身份)。
+     */
+    private fun requestMarketJsonNoAuth(url: String): Result<String> = try {
+        val request = Request.Builder().url(url).applyMarketHeadersNoAuth().build()
+        executeAndReadNoAuth(url, request)
+    } catch (e: Exception) {
+        Log.e(TAG, "集市只读加载失败", e)
+        Result.failure(e)
+    }
+
     private fun postMarketJson(url: String, jsonBody: String, identity: String? = null): Result<String> {
         val token = resolveToken(identity)
             ?: return Result.failure(Exception("请先填写集市 API 身份字段"))
@@ -318,6 +361,20 @@ class MarketRepository(
             }
             if (!response.isSuccessful) {
                 return Result.failure(Exception("集市加载失败 HTTP ${response.code}"))
+            }
+            Result.success(body)
+        }
+    }
+
+    private fun executeAndReadNoAuth(url: String, request: Request): Result<String> {
+        return client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            Log.i(TAG, "market(read_only) ${response.request.url.encodedPath} HTTP ${response.code}")
+            if (response.code == 401 || response.code == 403) {
+                return Result.failure(Exception("只读接口暂时不可用，请导入身份登录"))
+            }
+            if (!response.isSuccessful) {
+                return Result.failure(Exception("集市只读加载失败 HTTP ${response.code}"))
             }
             Result.success(body)
         }

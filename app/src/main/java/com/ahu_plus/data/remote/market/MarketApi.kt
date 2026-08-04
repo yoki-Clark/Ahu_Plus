@@ -2,6 +2,7 @@ package com.ahu_plus.data.remote.market
 
 import com.google.gson.JsonParser
 import com.ahu_plus.data.model.MarketNode
+import com.ahu_plus.data.model.MarketReadOnlySchool
 import okhttp3.MediaType.Companion.toMediaType
 import java.time.Instant
 import java.time.ZoneId
@@ -64,6 +65,12 @@ object MarketApi {
     const val COMMENTS_URL = "$BASE_URL/comments"
     const val USER_NOTICES_URL = "$BASE_URL/user_notices"
 
+    /**
+     * 无 token 只读端点：`GET /topics/read_only/{id}` 返回单帖完整详情。
+     * 与 [TOPICS_TOP_URL] 配合构成只读流——热榜拿列表,只读详情拿全文。
+     */
+    const val READ_ONLY_TOPIC_URL = "$BASE_URL/topics/read_only"
+
     // ── Header / UA ──────────────────────────────────
     const val USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -87,6 +94,15 @@ object MarketApi {
     )
 
     const val DEFAULT_NODE_ID: Long = 3727L
+
+    /**
+     * 只读模式覆盖的安大社区(无 token 可访问)。实测两个社区内容独立,
+     * 合并展示并按发布时间倒序。schoolId 取自 `topics/top?school_id=` 参数。
+     */
+    val READ_ONLY_SCHOOLS: List<MarketReadOnlySchool> = listOf(
+        MarketReadOnlySchool(schoolId = 10681L, label = "圈子"),
+        MarketReadOnlySchool(schoolId = 11327L, label = "校友圈"),
+    )
 
     // ── 身份字段（Bearer JWT）归一化 / 解析 ──────────
 
