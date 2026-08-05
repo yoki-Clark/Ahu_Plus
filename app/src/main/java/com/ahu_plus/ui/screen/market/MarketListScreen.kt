@@ -101,7 +101,7 @@ internal fun MarketListScreen(
     onSelectReadOnlyNode: (String?) -> Unit = {},
 ) {
     val isSingleSchool = uiState.selectedIdentityIds.size <= 1
-    // 只读模式:无身份,展示安大热榜累积流(替代旧的身份输入卡空态)
+    // 只读模式：无身份时展示服务器索引提供的安大圈子内容。
     val readOnlyMode = !uiState.hasSavedIdentity
     // 只读板块筛选(纯本地):从累积帖动态汇总,按帖子数排序
     val readOnlyNodes = if (readOnlyMode) {
@@ -124,7 +124,12 @@ internal fun MarketListScreen(
     val displayError = if (readOnlyMode) uiState.readOnlyError else uiState.error
     // 2026-06-17 Bug5: 优先用外部传入的 state (MarketScreen 已将 state 提升, 返回时可恢复位置)
     val staggerState = staggerListState ?: rememberLazyStaggeredGridState()
-    val shouldLoadMore by remember(uiState.topics.size, uiState.hasMoreTopics) {
+    val shouldLoadMore by remember(
+        displayTopics.size,
+        uiState.readOnlyHasMore,
+        uiState.hasMoreTopics,
+        readOnlyMode,
+    ) {
         derivedStateOf {
             // 瀑布流与单列模式共用一个判断：取两个 state 中实际有数据的那个来计算
             val staggerInfo = staggerState.layoutInfo
@@ -139,8 +144,8 @@ internal fun MarketListScreen(
         }
     }
 
-    LaunchedEffect(shouldLoadMore, uiState.topics.size, uiState.hasMoreTopics) {
-        if (shouldLoadMore && !uiState.isSearching && !readOnlyMode) onLoadMore()
+    LaunchedEffect(shouldLoadMore, displayTopics.size, uiState.readOnlyHasMore, uiState.hasMoreTopics) {
+        if (shouldLoadMore && !uiState.isSearching) onLoadMore()
     }
 
     // 搜索防抖:query 稳定 500ms 后自动提交。键值变化会取消上一次 delay,避免每次按键都打接口
@@ -319,7 +324,7 @@ internal fun MarketListScreen(
                                 AhuEmptyState(
                                     icon = Icons.Filled.Storefront,
                                     title = if (readOnlyMode) "暂时没有内容" else "暂时没有内容",
-                                    subtitle = if (readOnlyMode) "下拉刷新可拉取最新帖子，多刷几次内容会越来越多"
+                                    subtitle = if (readOnlyMode) "服务器索引准备好后会自动加载帖子"
                                     else "换个学校或稍后再来看看",
                                 )
                             }
@@ -329,7 +334,7 @@ internal fun MarketListScreen(
                             StaggerMarketTopicCard(
                                 topic = topic,
                                 onClick = { onOpenTopic(topic) },
-                                // 只读模式始终显示来源 chip(圈子/校友圈);单身份登录模式不显示
+                                // 只读模式显示服务器索引来源 chip;单身份登录模式不显示
                                 school = if (readOnlyMode) uiState.topicSchoolMap[topic.id]
                                 else if (isSingleSchool) null
                                 else uiState.topicSchoolMap[topic.id]
@@ -347,7 +352,7 @@ internal fun MarketListScreen(
                         }
                         if (readOnlyMode && displayTopics.isNotEmpty()) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
-                                ReadOnlyFooterHint()
+                                ReadOnlyFooterHint(uiState = uiState, onRetry = onLoadMore)
                             }
                         }
                         item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
@@ -415,7 +420,7 @@ internal fun MarketListScreen(
                                 AhuEmptyState(
                                     icon = Icons.Filled.Storefront,
                                     title = "暂时没有内容",
-                                    subtitle = if (readOnlyMode) "下拉刷新可拉取最新帖子，多刷几次内容会越来越多"
+                                    subtitle = if (readOnlyMode) "服务器索引准备好后会自动加载帖子"
                                     else "换个学校或稍后再来看看",
                                 )
                             }
@@ -425,7 +430,7 @@ internal fun MarketListScreen(
                             MarketTopicCard(
                                 topic = topic,
                                 onClick = { onOpenTopic(topic) },
-                                // 只读模式始终显示来源 chip(圈子/校友圈);单身份登录模式不显示
+                                // 只读模式显示服务器索引来源 chip;单身份登录模式不显示
                                 school = if (readOnlyMode) uiState.topicSchoolMap[topic.id]
                                 else if (isSingleSchool) null
                                 else uiState.topicSchoolMap[topic.id],
@@ -444,7 +449,7 @@ internal fun MarketListScreen(
                             }
                         }
                         if (readOnlyMode && displayTopics.isNotEmpty()) {
-                            item { ReadOnlyFooterHint() }
+                            item { ReadOnlyFooterHint(uiState = uiState, onRetry = onLoadMore) }
                         }
 
                         item { Spacer(modifier = Modifier.height(72.dp)) }
@@ -618,7 +623,7 @@ private fun SchoolSwitcherRow(
 }
 
 /**
- * 只读模式顶部横幅:提示当前未登录,只看安大热榜累积流;「导入身份」进设置页。
+ * 只读模式顶部横幅：提示当前未登录，只看服务器索引提供的安大圈子内容；「导入身份」进设置页。
  * 可折叠(本会话生效,离开页面再进会重新出现--不永久关闭)。
  */
 @Composable
@@ -659,10 +664,9 @@ internal fun ReadOnlyBanner(onImport: () -> Unit) {
             }
             if (!collapsed) {
                 Text(
-                    text = "当前展示安大圈子与安大校友圈的热门帖子，按发布时间倒序。" +
-                        "下拉刷新可拉取最新帖子，多次刷新内容会累积增多。",
+                    text = "安大圈子只读流由服务器索引分页提供，帖子正文仍从公开详情接口读取。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -698,9 +702,26 @@ private fun ReadOnlyNodeFilterRow(
     }
 }
 
-/** 只读流列表底部提示:说明无分页,刷新拉新帖。 */
+/** 只读流列表底部提示：展示索引状态和详情加载结果。 */
 @Composable
-private fun ReadOnlyFooterHint() {
+private fun ReadOnlyFooterHint(
+    uiState: MarketUiState,
+    onRetry: () -> Unit,
+) {
+    val statusText = when {
+        uiState.readOnlyLoadingMore -> "正在加载更多只读内容…"
+        uiState.readOnlyError != null -> "加载失败，点击重试"
+        uiState.readOnlyIndexStatus == com.ahu_plus.data.model.MarketReadOnlyIndexStatus.INITIALIZING ->
+            "服务器正在初始化帖子索引"
+        uiState.readOnlyIndexStatus == com.ahu_plus.data.model.MarketReadOnlyIndexStatus.PAUSED ->
+            "只读内容暂时暂停更新"
+        uiState.readOnlyIndexStatus == com.ahu_plus.data.model.MarketReadOnlyIndexStatus.STALE ->
+            "内容可能不是最新"
+        !uiState.readOnlyHasMore -> "没有更多只读内容了"
+        uiState.readOnlyPartialFailureCount > 0 ->
+            "部分帖子暂时无法加载，仍可继续浏览"
+        else -> "继续下滑自动加载更多"
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -708,10 +729,13 @@ private fun ReadOnlyFooterHint() {
         horizontalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "下拉刷新拉取更多最新帖子",
+            text = statusText,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (uiState.readOnlyError != null) {
+            TextButton(onClick = onRetry) { Text("重试") }
+        }
     }
 }
 

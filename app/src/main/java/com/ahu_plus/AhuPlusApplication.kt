@@ -67,6 +67,7 @@ import com.ahu_plus.data.repository.JwAuthRepository
 import com.ahu_plus.data.repository.JwAppAuthRepository
 import com.ahu_plus.data.repository.RoomCourseTableRepository
 import com.ahu_plus.data.repository.MarketRepository
+import com.ahu_plus.data.repository.MarketReadOnlyIndexRepository
 import com.ahu_plus.data.repository.RecordRepository
 import com.ahu_plus.data.repository.StudentInfoRepository
 import com.ahu_plus.data.repository.UserTaskRepository
@@ -176,6 +177,8 @@ class AhuPlusApplication : Application() {
     lateinit var userTaskRepository: UserTaskRepository
         private set
     lateinit var marketRepository: MarketRepository
+        private set
+    lateinit var marketReadOnlyIndexRepository: MarketReadOnlyIndexRepository
         private set
     lateinit var marketReadOnlyCache: MarketReadOnlyCache
         private set
@@ -320,6 +323,7 @@ class AhuPlusApplication : Application() {
         )
         marketReadOnlyCache = MarketReadOnlyCache(appDataStore)
         marketRepository = MarketRepository(sessionManager, marketReadOnlyCache)
+        marketReadOnlyIndexRepository = MarketReadOnlyIndexRepository()
         aiCommentRepository = AiCommentRepository(this, sessionManager)
         jwcNoticeRepository = JwcNoticeRepository(JwcWafCookieStore(appDataStore))
         xzxxRepository = XzxxRepository(XzxxWafCookieStore(appDataStore))

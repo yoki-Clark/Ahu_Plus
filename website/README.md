@@ -88,3 +88,19 @@ docker compose ps
 - **公安联网备案**：`皖公网安备34020302000359号`，前置备案图标 `/assets/beian.png`，链接 `https://beian.mps.gov.cn/#/query/webSearch?code=34020302000359`。
 
 备案号或图标变更时，需同步更新 `public/index.html` 中 `.footer-filings` 内的链接文字与图标，图标文件位于 `public/assets/beian.png`。
+
+## Market API deployment
+
+The website Caddy container also terminates HTTPS for `api.ahuplus.online`. The market index service is deployed from `server/market_index/compose.yaml` and joins the external `ahu-plus-net` network. Caddy proxies only `/market/*` to `market-api:8000`; the API and worker do not publish host ports.
+
+Before deployment, apply `server/market_index/migrations/001_market_readonly_index.sql` and `002_market_readonly_topic_archive.sql`, create the untracked server `.env` from `.env.example`, and verify:
+
+```bash
+docker compose -f server/market_index/compose.yaml config
+docker compose -f server/market_index/compose.yaml up -d
+curl -fsS https://api.ahuplus.online/health
+curl -fsS 'https://api.ahuplus.online/market/readonly/feed?limit=20'
+curl -fsS 'https://api.ahuplus.online/market/readonly/archive/<known-topic-id>'
+```
+
+The collector performs a resumable initial backfill, stores one latest gzip-compressed source-row snapshot per topic (including the source comment preview), then performs incremental synchronization. The archive endpoint is an explicit fallback for topics removed from the source. Never place `MARKET_SOURCE_TOKEN` or the cursor-signing secret in this repository, the Android APK, Caddy configuration, logs, or API responses.

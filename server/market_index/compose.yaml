@@ -1,0 +1,48 @@
+services:
+  market-api:
+    build:
+      context: ../..
+      dockerfile: server/market_index/Dockerfile
+    container_name: ahu-plus-market-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: ["uvicorn", "server.market_index.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    networks:
+      - ahu-plus-net
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
+  market-worker:
+    build:
+      context: ../..
+      dockerfile: server/market_index/Dockerfile
+    container_name: ahu-plus-market-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: ["python", "-m", "server.market_index.runner"]
+    networks:
+      - ahu-plus-net
+    depends_on:
+      market-api:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  ahu-plus-net:
+    external: true
+    name: ahu-plus-net

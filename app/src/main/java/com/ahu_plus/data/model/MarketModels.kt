@@ -22,6 +22,10 @@ data class MarketTopic(
     val schoolSubAddress: String? = null,
     val likeCount: Int = 0,
     val commentCount: Int = 0,
+    @SerializedName("source")
+    val source: String = "",
+    @SerializedName("capturedAt")
+    val capturedAt: String = "",
     /**
      * 列表接口返回的「前两条热门评论」(如果后端有给)。
      * - 默认 emptyList() 兜底,Gson 宽容解析接口不返回也不会报错
@@ -31,7 +35,10 @@ data class MarketTopic(
      */
     @SerializedName(value = "comments", alternate = ["top_comments", "preview_comments", "hot_comments"])
     val topComments: List<MarketComment> = emptyList()
-)
+) {
+    val isArchived: Boolean
+        get() = source.equals("archive", ignoreCase = true)
+}
 
 /**
  * 校园身份标识，对应一个 Bearer JWT token。
@@ -90,19 +97,8 @@ data class MarketNode(
 )
 
 /**
- * 只读模式下的安大社区来源。无 token 可访问 `topics/top?school_id=` 与 `topics/read_only/{id}`。
- *
- * 10681 = 安大圈子, 11327 = 安大校友圈;两者 `schoolName` 都是「安徽大学」,
- * 但内容社区独立,[label] 用于列表/详情里区分来源的小 chip。
- */
-data class MarketReadOnlySchool(
-    val schoolId: Long,
-    val label: String,
-)
-
-/**
- * 只读流本地缓存条目。`topics/top` 每次只回 10 条且会轮换,把每次拉到的帖
- * 按 `topic_id` 并入本地库累积展示,[label] 随帖一起持久化,避免历史缓存丢来源。
+ * 只读流本地缓存条目。服务器只读索引返回帖子 ID，详情仍由客户端按 ID 拉取；
+ * [label] 保留为 UI 来源 chip 的兼容字段。
  */
 data class MarketReadOnlyCacheEntry(
     val topic: MarketTopic,

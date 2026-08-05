@@ -78,15 +78,6 @@ class MarketRepository(
     //  只读流（无 token）
     // ══════════════════════════════════════════════════════
 
-    /**
-     * 无 token 拉某校热榜（`topics/top?school_id=`，实测返回 10 条且会轮换）。
-     * 安大两个社区（圈子 10681 / 校友圈 11327）分别调用后由 ViewModel 合并。
-     */
-    suspend fun getReadOnlyTopTopics(schoolId: Long): Result<List<MarketTopic>> = withContext(Dispatchers.IO) {
-        requestMarketJsonNoAuth("${MarketApi.TOPICS_TOP_URL}?school_id=$schoolId")
-            .mapCatching { body -> JsonUtils.parseRowsSafe<MarketTopic>(body) }
-    }
-
     /** 无 token 拉单帖只读详情（`topics/read_only/{id}`）。 */
     suspend fun getReadOnlyTopic(topicId: Long): Result<MarketTopic> = withContext(Dispatchers.IO) {
         requestMarketJsonNoAuth("${MarketApi.READ_ONLY_TOPIC_URL}/$topicId")

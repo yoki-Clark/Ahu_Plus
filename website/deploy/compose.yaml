@@ -22,7 +22,14 @@ services:
       start_period: 15s
     security_opt:
       - no-new-privileges:true
+    networks:
+      - ahu-plus-net
 
 volumes:
   caddy_data:
   caddy_config:
+
+networks:
+  ahu-plus-net:
+    external: true
+    name: ahu-plus-net

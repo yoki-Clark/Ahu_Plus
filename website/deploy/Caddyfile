@@ -30,6 +30,30 @@ ahuplus.online {
 	}
 }
 
+api.ahuplus.online {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	handle /market/* {
+		reverse_proxy market-api:8000
+	}
+
+	handle /healthz {
+		reverse_proxy market-api:8000
+	}
+
+	handle /health {
+		reverse_proxy market-api:8000
+	}
+
+	respond 404
+}
+
 http://127.0.0.1:8080 {
 	respond /healthz 200
 }

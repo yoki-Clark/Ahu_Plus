@@ -88,6 +88,7 @@ fun MarketScreen(
                 uiState = uiState,
                 onBack = viewModel::closeTopic,
                 onRefresh = viewModel::retryDetail,
+                onLoadArchivedTopic = viewModel::loadArchivedTopic,
                 onLoadMoreComments = viewModel::loadMoreComments,
                 onLoadMoreReplies = viewModel::loadMoreReplies,
                 onLoadFullCommentsForExport = viewModel::loadFullCommentsForExport,

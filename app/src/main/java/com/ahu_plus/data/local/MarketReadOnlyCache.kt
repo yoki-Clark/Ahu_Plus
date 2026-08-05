@@ -16,9 +16,8 @@ import java.util.concurrent.TimeUnit
 /**
  * 集市只读流的本地累积缓存。
  *
- * `topics/top?school_id=` 每次只回 10 条且会轮换,单次刷新拿不到「时间流」。
- * 这里把每次刷新拉到的帖按 `topic_id` 并入本地库,UI 始终展示累积全集并按
- * 发布时间倒序--多次刷新后内容会越来越多,近似一个安大专属的最新流。
+ * 这里把服务器索引分页拉到的帖按 `topic_id` 并入本地缓存，UI 始终展示本地
+ * 可回放内容并按发布时间倒序。
  *
  * 纯 JVM 可测:只依赖 [AppDataStore] 与标准库,不触及 Android UI。
  */
@@ -87,7 +86,7 @@ class MarketReadOnlyCache(
     }
 
     companion object {
-        private val KEY = stringPreferencesKey("market_readonly_cache")
+        private val KEY = stringPreferencesKey("market_readonly_cache_v2")
         const val MAX_ENTRIES = 500
         const val TTL_DAYS = 30L
         private val TTL_MS = TimeUnit.DAYS.toMillis(TTL_DAYS)

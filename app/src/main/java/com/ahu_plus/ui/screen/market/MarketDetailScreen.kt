@@ -97,6 +97,7 @@ internal fun MarketDetailScreen(
     uiState: MarketUiState,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
+    onLoadArchivedTopic: () -> Unit,
     onLoadMoreComments: () -> Unit,
     onLoadMoreReplies: (MarketComment) -> Unit,
     onLoadFullCommentsForExport: suspend (Long, String?) -> Result<List<MarketComment>>,
@@ -273,6 +274,12 @@ internal fun MarketDetailScreen(
             ) {
                 if (topic != null) {
                     item {
+                        if (topic.isArchived) {
+                            StatusCard(
+                                text = "这是服务器保存的历史快照，源站可能已经删除或不再提供。",
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
                         MarketTopicDetailCard(
                             topic = topic,
                             school = uiState.topicSchoolMap[topic.id],
@@ -296,7 +303,25 @@ internal fun MarketDetailScreen(
                         StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
                             TextButton(onClick = onRefresh) { Text("重试") }
                         }
+                        if (readOnlyMode && topic?.isArchived != true) {
+                            TextButton(
+                                onClick = onLoadArchivedTopic,
+                                enabled = !uiState.detailArchiveLoading,
+                            ) {
+                                Text(
+                                    if (uiState.detailArchiveLoading) {
+                                        "正在查询服务器历史快照..."
+                                    } else {
+                                        "查看服务器历史快照"
+                                    }
+                                )
+                            }
+                        }
                     }
+                }
+
+                uiState.detailArchiveError?.let { error ->
+                    item { StatusCard(text = error, color = MaterialTheme.colorScheme.error) }
                 }
 
                 item {
@@ -387,7 +412,7 @@ internal fun MarketDetailScreen(
 
 /**
  * 只读模式详情页底部说明:告知无身份能看什么、登录后能做什么,以及内容来源。
- * 文案基于实测的无 token 接口能力(见 read_only/{id} 与 topics/top 字段)。
+ * 文案基于实测的无 token 详情接口能力(见 read_only/{id} 字段)。
  */
 @Composable
 private fun ReadOnlyNoticeCard() {
@@ -421,7 +446,7 @@ private fun ReadOnlyNoticeCard() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "只读模式的帖子来自安大圈子与安大校友圈的热门榜单，按发布时间倒序展示，不是全部帖子。",
+                text = "只读模式的帖子来自服务器索引，按发布时间倒序展示；评论等互动功能需要导入身份。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

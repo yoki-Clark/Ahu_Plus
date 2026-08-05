@@ -1,5 +1,20 @@
 # CODEMAP
 
+## Market read-only index stream
+
+- `data/model/MarketReadOnlyIndexModels.kt`: signed-cursor feed and source status models.
+- `data/remote/market/MarketReadOnlyIndexApi.kt`: public index endpoint.
+- `data/repository/MarketReadOnlyIndexRepository.kt`: 20-ID page and archived-topic request/response parsing.
+- `data/repository/MarketReadOnlyPageLoader.kt`: ordered detail loading with a six-request concurrency cap.
+- `ui/screen/market/MarketViewModel.kt`: cursor pagination, cache replay, request generations, and partial failures.
+
+Server-side market index:
+
+- `server/market_index/source.py`: source-page parsing and `school_id=10681` filtering.
+- `server/market_index/store.py`: MySQL/SQLite-compatible ID index, compressed snapshot archive, and sync checkpoint persistence.
+- `server/market_index/worker.py`: resumable bootstrap, incremental polling, pacing, backoff, and auth pause.
+- `server/market_index/api.py`: signed-cursor feed, explicit archive lookup, health endpoint, and IP rate limit.
+
 本文是当前源码的文件级导航。路径均相对 `app/src/main/java/com/ahu_plus/`，内容只描述仓库中已经存在的实现。
 
 ## 主题文档地图

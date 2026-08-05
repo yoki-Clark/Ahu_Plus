@@ -96,7 +96,11 @@ class MainScreenViewModelFactory(
                 userTaskRepository = app.userTaskRepository,
                 homeworkRepository = app.homeworkRepository,
             ) as T
-            MarketViewModel::class.java -> MarketViewModel(marketRepository, app.aiCommentRepository) as T
+            MarketViewModel::class.java -> MarketViewModel(
+                repository = marketRepository,
+                aiCommentRepository = app.aiCommentRepository,
+                readOnlyIndexRepository = app.marketReadOnlyIndexRepository,
+            ) as T
             JwcNoticeViewModel::class.java -> JwcNoticeViewModel(jwcNoticeRepository, sessionManager) as T
             JwcNoticeListViewModel::class.java -> JwcNoticeListViewModel(jwcNoticeRepository, sessionManager) as T
             StudentInfoViewModel::class.java -> StudentInfoViewModel(studentInfoRepository, sessionManager) as T
