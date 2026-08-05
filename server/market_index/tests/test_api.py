@@ -4,6 +4,7 @@ import json
 import httpx
 
 from server.market_index.api import create_app
+from server.market_index.api import _RateLimiter
 from server.market_index.config import Settings
 from server.market_index.store import InMemoryIndexStore
 from server.market_index.source import TopicRecord
@@ -45,7 +46,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("RATE_LIMITED", second.json()["code"])
         self.assertEqual("60", second.headers["Retry-After"])
 
-    async def test_feed_rate_limit_uses_forwarded_client_ip(self):
+    async def test_feed_rate_limit_ignores_forwarded_client_ip_from_untrusted_peer(self):
         store = InMemoryIndexStore()
         store.add_topics(10681, [1])
         app = create_app(
@@ -64,7 +65,40 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(200, first.status_code)
+        self.assertEqual(429, second.status_code)
+
+    async def test_feed_rate_limit_uses_forwarded_client_ip_from_trusted_proxy(self):
+        store = InMemoryIndexStore()
+        store.add_topics(10681, [1])
+        app = create_app(
+            store,
+            Settings(
+                index_cursor_secret="test-secret",
+                public_rate_limit_per_minute=1,
+                trusted_proxy_cidrs=("127.0.0.1/32",),
+            ),
+        )
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            first = await client.get(
+                "/market/readonly/feed", headers={"X-Forwarded-For": "198.51.100.10"}
+            )
+            second = await client.get(
+                "/market/readonly/feed", headers={"X-Forwarded-For": "198.51.100.11"}
+            )
+
+        self.assertEqual(200, first.status_code)
         self.assertEqual(200, second.status_code)
+
+    def test_rate_limiter_bounds_distinct_client_key_memory(self):
+        limiter = _RateLimiter(limit=1, max_keys=2, clock=iter([0.0, 0.0, 0.0]).__next__)
+
+        self.assertTrue(limiter.allow("client-a"))
+        self.assertTrue(limiter.allow("client-b"))
+        self.assertTrue(limiter.allow("client-c"))
+        self.assertLessEqual(len(limiter.hits), 2)
 
     async def test_feed_returns_at_most_20_ids_and_signed_next_cursor(self):
         store = InMemoryIndexStore()

@@ -23,7 +23,11 @@ python -m unittest discover -s server/market_index/tests -p "test_*.py" -v
 2. As a database administrator, apply `migrations/001_market_readonly_index.sql`
    and `migrations/002_market_readonly_topic_archive.sql`.
 3. Copy `.env.example` to an untracked `.env` and fill in the private database
-   endpoint, cursor secret and manually rotated market token.
+   endpoint, cursor secret and manually rotated market token. Set
+   `MARKET_TRUSTED_PROXY_CIDRS` to the CIDR of the controlled Docker network
+   containing Caddy and `market-api`; do not use a broad public network. If it
+   is empty, the API safely rate-limits by the direct proxy peer instead of
+   trusting forwarded client headers.
 4. Validate and start the service:
 
    ```bash

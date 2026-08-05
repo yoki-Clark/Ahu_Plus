@@ -93,7 +93,7 @@ docker compose ps
 
 The website Caddy container also terminates HTTPS for `api.ahuplus.online`. The market index service is deployed from `server/market_index/compose.yaml` and joins the external `ahu-plus-net` network. Caddy proxies only `/market/*` to `market-api:8000`; the API and worker do not publish host ports.
 
-Before deployment, apply `server/market_index/migrations/001_market_readonly_index.sql` and `002_market_readonly_topic_archive.sql`, create the untracked server `.env` from `.env.example`, and verify:
+Before deployment, apply `server/market_index/migrations/001_market_readonly_index.sql` and `002_market_readonly_topic_archive.sql`, create the untracked server `.env` from `.env.example`, and set `MARKET_TRUSTED_PROXY_CIDRS` to the controlled `ahu-plus-net` CIDR. Caddy overwrites forwarded client headers before proxying; do not configure a broad public CIDR. Verify:
 
 ```bash
 docker compose -f server/market_index/compose.yaml config

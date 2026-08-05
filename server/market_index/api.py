@@ -1,4 +1,6 @@
+from collections import OrderedDict, deque
 from datetime import datetime
+from ipaddress import ip_address, ip_network
 from time import monotonic
 from zoneinfo import ZoneInfo
 
@@ -11,26 +13,42 @@ from .store import InMemoryIndexStore
 
 
 class _RateLimiter:
-    def __init__(self, limit: int, clock=monotonic):
+    def __init__(self, limit: int, max_keys: int = 10_000, clock=monotonic):
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        if max_keys <= 0:
+            raise ValueError("max_keys must be positive")
         self.limit = limit
+        self.max_keys = max_keys
         self.clock = clock
-        self.hits: dict[str, list[float]] = {}
+        self.hits: OrderedDict[str, deque[float]] = OrderedDict()
 
     def allow(self, key: str) -> bool:
         now = self.clock()
-        values = [value for value in self.hits.get(key, []) if now - value < 60]
-        if len(values) >= self.limit:
+        values = self.hits.get(key)
+        if values is None:
+            if len(self.hits) >= self.max_keys:
+                self.hits.popitem(last=False)
+            values = deque()
             self.hits[key] = values
+        else:
+            self.hits.move_to_end(key)
+        while values and now - values[0] >= 60:
+            values.popleft()
+        if len(values) >= self.limit:
             return False
         values.append(now)
-        self.hits[key] = values
         return True
 
 
 def create_app(store=None, settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = store or InMemoryIndexStore()
-    limiter = _RateLimiter(settings.public_rate_limit_per_minute)
+    limiter = _RateLimiter(
+        settings.public_rate_limit_per_minute,
+        settings.public_rate_limit_max_keys,
+    )
+    trusted_proxy_networks = _parse_networks(settings.trusted_proxy_cidrs)
     app = FastAPI(title="Ahu Plus Market Index", docs_url=None, redoc_url=None)
 
     @app.get("/health")
@@ -40,7 +58,7 @@ def create_app(store=None, settings: Settings | None = None) -> FastAPI:
 
     @app.get("/market/readonly/feed")
     async def feed(request: Request, cursor: str | None = None, limit: int = Query(20)):
-        client_host = _client_key(request)
+        client_host = _client_key(request, trusted_proxy_networks)
         if not limiter.allow(client_host):
             return JSONResponse(
                 status_code=429,
@@ -105,7 +123,7 @@ def create_app(store=None, settings: Settings | None = None) -> FastAPI:
 
     @app.get("/market/readonly/archive/{topic_id}")
     async def archive(request: Request, topic_id: int):
-        client_host = _client_key(request)
+        client_host = _client_key(request, trusted_proxy_networks)
         if not limiter.allow(client_host):
             return JSONResponse(
                 status_code=429,
@@ -138,14 +156,50 @@ def _now() -> datetime:
     return datetime.now(ZoneInfo("Asia/Shanghai"))
 
 
-def _client_key(request: Request) -> str:
-    """Use the client address forwarded by the trusted Caddy reverse proxy."""
+def _parse_networks(values: tuple[str, ...]):
+    try:
+        return tuple(ip_network(value, strict=False) for value in values)
+    except ValueError as exc:
+        raise RuntimeError("MARKET_TRUSTED_PROXY_CIDRS contains an invalid network") from exc
+
+
+def _is_trusted_proxy(value: str, networks) -> bool:
+    try:
+        address = ip_address(value)
+    except ValueError:
+        return False
+    return any(address in network for network in networks)
+
+
+def _first_untrusted_forwarded_ip(value: str, trusted_proxy_networks) -> str | None:
+    addresses = []
+    for candidate in value.split(","):
+        try:
+            addresses.append(ip_address(candidate.strip()))
+        except ValueError:
+            continue
+    for address in reversed(addresses):
+        if not any(address in network for network in trusted_proxy_networks):
+            return str(address)
+    return None
+
+
+def _client_key(request: Request, trusted_proxy_networks=()) -> str:
+    """Use forwarded addresses only when the direct peer is trusted."""
+    peer = request.client.host if request.client else "unknown"
+    if not _is_trusted_proxy(peer, trusted_proxy_networks):
+        return peer
+
     forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",", 1)[0].strip() or "unknown"
-    return request.headers.get("x-real-ip") or (
-        request.client.host if request.client else "unknown"
-    )
+    client_ip = _first_untrusted_forwarded_ip(forwarded, trusted_proxy_networks)
+    if client_ip:
+        return client_ip
+
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    try:
+        return str(ip_address(real_ip))
+    except ValueError:
+        return peer
 
 
 def _public_source_status(mode: str) -> str:

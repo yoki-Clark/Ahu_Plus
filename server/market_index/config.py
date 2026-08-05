@@ -12,6 +12,8 @@ class Settings:
     source_poll_interval_seconds: float = 120.0
     source_min_interval_seconds: float = 1.0
     public_rate_limit_per_minute: int = 30
+    public_rate_limit_max_keys: int = 10_000
+    trusted_proxy_cidrs: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -36,5 +38,13 @@ class Settings:
             ),
             public_rate_limit_per_minute=int(
                 os.environ.get("MARKET_PUBLIC_RATE_LIMIT_PER_MINUTE", "30")
+            ),
+            public_rate_limit_max_keys=int(
+                os.environ.get("MARKET_PUBLIC_RATE_LIMIT_MAX_KEYS", "10000")
+            ),
+            trusted_proxy_cidrs=tuple(
+                value.strip()
+                for value in os.environ.get("MARKET_TRUSTED_PROXY_CIDRS", "").split(",")
+                if value.strip()
             ),
         )
