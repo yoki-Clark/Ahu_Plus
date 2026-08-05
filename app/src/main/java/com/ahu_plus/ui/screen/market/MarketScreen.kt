@@ -143,7 +143,6 @@ fun MarketScreen(
                 onLoadMoreSearch = viewModel::loadMoreSearchResults,
                 onToggleSchool = viewModel::toggleIdentitySelection,
                 onSelectAllSchools = viewModel::selectAllIdentities,
-                onSelectReadOnlyTab = viewModel::selectReadOnlyTab,
                 onSelectReadOnlyNode = viewModel::selectReadOnlyNode
             )
         }

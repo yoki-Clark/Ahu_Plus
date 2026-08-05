@@ -13,7 +13,6 @@ import com.ahu_plus.data.model.MarketNode
 import com.ahu_plus.data.model.MarketNotice
 import com.ahu_plus.data.model.MarketReadOnlyCacheEntry
 import com.ahu_plus.data.model.MarketReadOnlyIndexStatus
-import com.ahu_plus.data.model.MarketReadOnlyTab
 import com.ahu_plus.data.model.MarketTopic
 import com.ahu_plus.data.remote.market.MarketApi
 import com.ahu_plus.data.repository.MarketRepository
@@ -100,9 +99,7 @@ class MarketViewModel(
         if (_uiState.value.identities.isEmpty()) {
             // 只读模式：无身份时展示服务器索引流
             val stale = System.currentTimeMillis() - lastReadOnlyLoadedAt >= 2L * 60 * 1000
-            if (_uiState.value.readOnlyTab == MarketReadOnlyTab.HOT) {
-                if (_uiState.value.readOnlyHotTopics.isEmpty() || stale) refreshReadOnlyHotTopics()
-            } else if (_uiState.value.readOnlyTopics.isEmpty() || stale) {
+            if (_uiState.value.readOnlyTopics.isEmpty() || stale) {
                 refreshReadOnlyTopics()
             }
             return
@@ -379,11 +376,7 @@ class MarketViewModel(
     fun refreshTopics() {
         // 无身份时走只读流,列表页的下拉刷新统一入口
         if (_uiState.value.identities.isEmpty()) {
-            if (_uiState.value.readOnlyTab == MarketReadOnlyTab.HOT) {
-                refreshReadOnlyHotTopics()
-            } else {
-                refreshReadOnlyTopics()
-            }
+            refreshReadOnlyTopics()
             return
         }
         viewModelScope.launch {
@@ -404,7 +397,7 @@ class MarketViewModel(
     fun loadNextPage() {
         val state = _uiState.value
         if (!state.hasSavedIdentity) {
-            if (state.readOnlyTab != MarketReadOnlyTab.HOT) loadNextReadOnlyPage()
+            loadNextReadOnlyPage()
             return
         }
         if (state.isLoadingMore || state.isLoading || !state.hasMoreTopics) return
@@ -419,19 +412,6 @@ class MarketViewModel(
     /** 先回放缓存，再从服务器索引加载第一页；后续页面由列表滚动触发。 */
     fun refreshReadOnlyTopics() {
         refreshReadOnlyTopicsWithIndex()
-    }
-
-    fun selectReadOnlyTab(tab: MarketReadOnlyTab) {
-        if (_uiState.value.hasSavedIdentity || _uiState.value.readOnlyTab == tab) return
-        _uiState.update { it.copy(readOnlyTab = tab) }
-        when (tab) {
-            MarketReadOnlyTab.INDEX -> {
-                if (_uiState.value.readOnlyTopics.isEmpty()) refreshReadOnlyTopics()
-            }
-            MarketReadOnlyTab.HOT -> {
-                if (_uiState.value.readOnlyHotTopics.isEmpty()) refreshReadOnlyHotTopics()
-            }
-        }
     }
 
     fun refreshReadOnlyHotTopics() {
@@ -1144,7 +1124,11 @@ class MarketViewModel(
 
     fun openHotTopics() {
         _uiState.update { it.copy(showHotTopics = true, hotError = null) }
-        if (_uiState.value.hotTopics.isEmpty()) refreshHotTopics()
+        if (_uiState.value.hasSavedIdentity) {
+            if (_uiState.value.hotTopics.isEmpty()) refreshHotTopics()
+        } else if (_uiState.value.readOnlyHotTopics.isEmpty()) {
+            refreshReadOnlyHotTopics()
+        }
     }
 
     fun closeHotTopics() {
@@ -1231,7 +1215,10 @@ class MarketViewModel(
     }
 
     fun refreshHotTopics() {
-        if (!_uiState.value.hasSavedIdentity) return
+        if (!_uiState.value.hasSavedIdentity) {
+            refreshReadOnlyHotTopics()
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(hotLoading = true, hotError = null) }
             val identities = selectedIdentities()
@@ -1819,7 +1806,6 @@ data class MarketUiState(
     val readOnlyIndexStatus: MarketReadOnlyIndexStatus = MarketReadOnlyIndexStatus.IDLE,
     val readOnlyPartialFailureCount: Int = 0,
     val readOnlyGeneration: Long = 0L,
-    val readOnlyTab: MarketReadOnlyTab = MarketReadOnlyTab.INDEX,
     val readOnlyHotTopics: List<MarketTopic> = emptyList(),
     val readOnlyHotLoading: Boolean = false,
     val readOnlyHotError: String? = null,

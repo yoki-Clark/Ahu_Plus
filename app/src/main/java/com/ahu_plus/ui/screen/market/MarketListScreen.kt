@@ -47,10 +47,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import com.ahu_plus.ui.components.AhuEmptyState
@@ -73,7 +71,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.MarketIdentity
-import com.ahu_plus.data.model.MarketReadOnlyTab
 import com.ahu_plus.data.model.MarketTopic
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
@@ -101,15 +98,13 @@ internal fun MarketListScreen(
     onLoadMoreSearch: () -> Unit,
     onToggleSchool: (String, Boolean) -> Unit = { _, _ -> },
     onSelectAllSchools: () -> Unit = {},
-    onSelectReadOnlyTab: (MarketReadOnlyTab) -> Unit = {},
     onSelectReadOnlyNode: (String?) -> Unit = {},
 ) {
     val isSingleSchool = uiState.selectedIdentityIds.size <= 1
     // 只读模式：无身份时展示服务器索引提供的安大圈子内容。
     val readOnlyMode = !uiState.hasSavedIdentity
-    val readOnlyHotMode = readOnlyMode && uiState.readOnlyTab == MarketReadOnlyTab.HOT
     // 只读板块筛选(纯本地):从累积帖动态汇总,按帖子数排序
-    val readOnlyNodes = if (readOnlyMode && !readOnlyHotMode) {
+    val readOnlyNodes = if (readOnlyMode) {
         uiState.readOnlyTopics
             .map { it.node }
             .filter { it.isNotBlank() }
@@ -120,19 +115,16 @@ internal fun MarketListScreen(
             .map { it.key }
     } else emptyList()
     val displayTopics = when {
-        readOnlyHotMode -> uiState.readOnlyHotTopics
         readOnlyMode && uiState.readOnlySelectedNode != null ->
             uiState.readOnlyTopics.filter { it.node == uiState.readOnlySelectedNode }
         readOnlyMode -> uiState.readOnlyTopics
         else -> uiState.topics
     }
     val displayLoading = when {
-        readOnlyHotMode -> uiState.readOnlyHotLoading
         readOnlyMode -> uiState.readOnlyLoading
         else -> uiState.isLoading
     }
     val displayError = when {
-        readOnlyHotMode -> uiState.readOnlyHotError
         readOnlyMode -> uiState.readOnlyError
         else -> uiState.error
     }
@@ -143,7 +135,6 @@ internal fun MarketListScreen(
         uiState.readOnlyHasMore,
         uiState.hasMoreTopics,
         readOnlyMode,
-        readOnlyHotMode,
     ) {
         derivedStateOf {
             // 瀑布流与单列模式共用一个判断：取两个 state 中实际有数据的那个来计算
@@ -155,12 +146,12 @@ internal fun MarketListScreen(
             } else {
                 listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             }
-            !readOnlyHotMode && total > 0 && lastVisible >= total - 5
+            total > 0 && lastVisible >= total - 5
         }
     }
 
-    LaunchedEffect(shouldLoadMore, displayTopics.size, uiState.readOnlyHasMore, uiState.hasMoreTopics, readOnlyHotMode) {
-        if (shouldLoadMore && !uiState.isSearching && !readOnlyHotMode) onLoadMore()
+    LaunchedEffect(shouldLoadMore, displayTopics.size, uiState.readOnlyHasMore, uiState.hasMoreTopics) {
+        if (shouldLoadMore && !uiState.isSearching) onLoadMore()
     }
 
     // 搜索防抖:query 稳定 500ms 后自动提交。键值变化会取消上一次 delay,避免每次按键都打接口
@@ -222,7 +213,6 @@ internal fun MarketListScreen(
                     }
                 )
             } else {
-                Column {
                 AhuTopAppBar(
                     title = { Text("校园集市") },
                     actions = {
@@ -247,23 +237,6 @@ internal fun MarketListScreen(
                         }
                     }
                 )
-                if (readOnlyMode) {
-                    PrimaryTabRow(
-                        selectedTabIndex = if (uiState.readOnlyTab == MarketReadOnlyTab.HOT) 1 else 0,
-                    ) {
-                        Tab(
-                            selected = uiState.readOnlyTab == MarketReadOnlyTab.INDEX,
-                            onClick = { onSelectReadOnlyTab(MarketReadOnlyTab.INDEX) },
-                            text = { Text("安大圈子") },
-                        )
-                        Tab(
-                            selected = uiState.readOnlyTab == MarketReadOnlyTab.HOT,
-                            onClick = { onSelectReadOnlyTab(MarketReadOnlyTab.HOT) },
-                            text = { Text("安大热榜") },
-                        )
-                    }
-                }
-                }
             }
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -309,6 +282,13 @@ internal fun MarketListScreen(
                                         onSelect = onSelectReadOnlyNode
                                     )
                                 }
+                            }
+                            item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
+                                HotEntryCard(
+                                    title = "安大热榜",
+                                    subtitle = "查看安大圈子近期讨论最热的帖子",
+                                    onClick = onOpenHot,
+                                )
                             }
                         } else if (uiState.hasSavedIdentity) {
                             if (uiState.identities.size > 1) {
@@ -383,7 +363,7 @@ internal fun MarketListScreen(
                                 )
                             }
                         }
-                        if (readOnlyMode && !readOnlyHotMode && displayTopics.isNotEmpty()) {
+                        if (readOnlyMode && displayTopics.isNotEmpty()) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
                                 ReadOnlyFooterHint(uiState = uiState, onRetry = onLoadMore)
                             }
@@ -411,6 +391,13 @@ internal fun MarketListScreen(
                                         onSelect = onSelectReadOnlyNode
                                     )
                                 }
+                            }
+                            item {
+                                HotEntryCard(
+                                    title = "安大热榜",
+                                    subtitle = "查看安大圈子近期讨论最热的帖子",
+                                    onClick = onOpenHot,
+                                )
                             }
                         } else if (uiState.hasSavedIdentity) {
                             if (uiState.identities.size > 1) {
@@ -481,7 +468,7 @@ internal fun MarketListScreen(
                                 )
                             }
                         }
-                        if (readOnlyMode && !readOnlyHotMode && displayTopics.isNotEmpty()) {
+                        if (readOnlyMode && displayTopics.isNotEmpty()) {
                             item { ReadOnlyFooterHint(uiState = uiState, onRetry = onLoadMore) }
                         }
 
@@ -773,7 +760,11 @@ private fun ReadOnlyFooterHint(
 }
 
 @Composable
-internal fun HotEntryCard(onClick: () -> Unit) {
+internal fun HotEntryCard(
+    title: String = "集市热榜",
+    subtitle: String = "查看近期讨论最热的帖子",
+    onClick: () -> Unit,
+) {
     Card(
         shape = AhuShapes.Card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -806,12 +797,12 @@ internal fun HotEntryCard(onClick: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
-                    text = "集市热榜",
+                    text = title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "查看近期讨论最热的帖子",
+                    text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

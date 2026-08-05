@@ -45,10 +45,12 @@ internal fun MarketHotScreen(
     onRefresh: () -> Unit,
     onOpenTopic: (MarketTopic) -> Unit
 ) {
+    val display = marketHotDisplay(uiState)
+
     Scaffold(
         topBar = {
             AhuTopAppBar(
-                title = { Text("集市热榜") },
+                title = { Text(display.title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -94,13 +96,14 @@ internal fun MarketHotScreen(
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
-                                text = "十大热帖",
+                                text = if (display.readOnly) "安大热帖" else "十大热帖",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MarketColors.HotFlameText
                             )
                             Text(
-                                text = "按热度展示近期讨论最多的帖子",
+                                text = if (display.readOnly) "按热度展示安大圈子近期讨论最多的帖子"
+                                else "按热度展示近期讨论最多的帖子",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MarketColors.HotFlameSubText
                             )
@@ -109,11 +112,13 @@ internal fun MarketHotScreen(
                 }
             }
 
-            if (uiState.hotLoading && uiState.hotTopics.isEmpty()) {
-                item { LoadingRow("正在加载热榜...") }
+            if (display.loading && display.topics.isEmpty()) {
+                item {
+                    LoadingRow(if (display.readOnly) "正在加载安大热榜..." else "正在加载热榜...")
+                }
             }
 
-            uiState.hotError?.let { error ->
+            display.error?.let { error ->
                 item {
                     StatusCard(text = error, color = MaterialTheme.colorScheme.error) {
                         TextButton(onClick = onRefresh) { Text("重试") }
@@ -121,16 +126,16 @@ internal fun MarketHotScreen(
                 }
             }
 
-            if (!uiState.hotLoading && uiState.hotError == null && uiState.hotTopics.isEmpty()) {
+            if (!display.loading && display.error == null && display.topics.isEmpty()) {
                 item {
                     StatusCard(
-                        text = "暂时没有热榜内容",
+                        text = if (display.readOnly) "暂时没有安大热榜内容" else "暂时没有热榜内容",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            itemsIndexed(uiState.hotTopics, key = { _, topic -> topic.id }) { index, topic ->
+            itemsIndexed(display.topics, key = { _, topic -> topic.id }) { index, topic ->
                 HotTopicCard(
                     topic = topic,
                     rank = index + 1,
