@@ -47,8 +47,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import com.ahu_plus.ui.components.AhuEmptyState
@@ -71,6 +73,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ahu_plus.data.model.MarketIdentity
+import com.ahu_plus.data.model.MarketReadOnlyTab
 import com.ahu_plus.data.model.MarketTopic
 import com.ahu_plus.ui.components.AhuTopAppBar
 import com.ahu_plus.ui.theme.AhuShapes
@@ -98,13 +101,15 @@ internal fun MarketListScreen(
     onLoadMoreSearch: () -> Unit,
     onToggleSchool: (String, Boolean) -> Unit = { _, _ -> },
     onSelectAllSchools: () -> Unit = {},
+    onSelectReadOnlyTab: (MarketReadOnlyTab) -> Unit = {},
     onSelectReadOnlyNode: (String?) -> Unit = {},
 ) {
     val isSingleSchool = uiState.selectedIdentityIds.size <= 1
     // 只读模式：无身份时展示服务器索引提供的安大圈子内容。
     val readOnlyMode = !uiState.hasSavedIdentity
+    val readOnlyHotMode = readOnlyMode && uiState.readOnlyTab == MarketReadOnlyTab.HOT
     // 只读板块筛选(纯本地):从累积帖动态汇总,按帖子数排序
-    val readOnlyNodes = if (readOnlyMode) {
+    val readOnlyNodes = if (readOnlyMode && !readOnlyHotMode) {
         uiState.readOnlyTopics
             .map { it.node }
             .filter { it.isNotBlank() }
@@ -115,13 +120,22 @@ internal fun MarketListScreen(
             .map { it.key }
     } else emptyList()
     val displayTopics = when {
+        readOnlyHotMode -> uiState.readOnlyHotTopics
         readOnlyMode && uiState.readOnlySelectedNode != null ->
             uiState.readOnlyTopics.filter { it.node == uiState.readOnlySelectedNode }
         readOnlyMode -> uiState.readOnlyTopics
         else -> uiState.topics
     }
-    val displayLoading = if (readOnlyMode) uiState.readOnlyLoading else uiState.isLoading
-    val displayError = if (readOnlyMode) uiState.readOnlyError else uiState.error
+    val displayLoading = when {
+        readOnlyHotMode -> uiState.readOnlyHotLoading
+        readOnlyMode -> uiState.readOnlyLoading
+        else -> uiState.isLoading
+    }
+    val displayError = when {
+        readOnlyHotMode -> uiState.readOnlyHotError
+        readOnlyMode -> uiState.readOnlyError
+        else -> uiState.error
+    }
     // 2026-06-17 Bug5: 优先用外部传入的 state (MarketScreen 已将 state 提升, 返回时可恢复位置)
     val staggerState = staggerListState ?: rememberLazyStaggeredGridState()
     val shouldLoadMore by remember(
@@ -129,6 +143,7 @@ internal fun MarketListScreen(
         uiState.readOnlyHasMore,
         uiState.hasMoreTopics,
         readOnlyMode,
+        readOnlyHotMode,
     ) {
         derivedStateOf {
             // 瀑布流与单列模式共用一个判断：取两个 state 中实际有数据的那个来计算
@@ -140,12 +155,12 @@ internal fun MarketListScreen(
             } else {
                 listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             }
-            total > 0 && lastVisible >= total - 5
+            !readOnlyHotMode && total > 0 && lastVisible >= total - 5
         }
     }
 
-    LaunchedEffect(shouldLoadMore, displayTopics.size, uiState.readOnlyHasMore, uiState.hasMoreTopics) {
-        if (shouldLoadMore && !uiState.isSearching) onLoadMore()
+    LaunchedEffect(shouldLoadMore, displayTopics.size, uiState.readOnlyHasMore, uiState.hasMoreTopics, readOnlyHotMode) {
+        if (shouldLoadMore && !uiState.isSearching && !readOnlyHotMode) onLoadMore()
     }
 
     // 搜索防抖:query 稳定 500ms 后自动提交。键值变化会取消上一次 delay,避免每次按键都打接口
@@ -207,6 +222,7 @@ internal fun MarketListScreen(
                     }
                 )
             } else {
+                Column {
                 AhuTopAppBar(
                     title = { Text("校园集市") },
                     actions = {
@@ -231,6 +247,23 @@ internal fun MarketListScreen(
                         }
                     }
                 )
+                if (readOnlyMode) {
+                    PrimaryTabRow(
+                        selectedTabIndex = if (uiState.readOnlyTab == MarketReadOnlyTab.HOT) 1 else 0,
+                    ) {
+                        Tab(
+                            selected = uiState.readOnlyTab == MarketReadOnlyTab.INDEX,
+                            onClick = { onSelectReadOnlyTab(MarketReadOnlyTab.INDEX) },
+                            text = { Text("安大圈子") },
+                        )
+                        Tab(
+                            selected = uiState.readOnlyTab == MarketReadOnlyTab.HOT,
+                            onClick = { onSelectReadOnlyTab(MarketReadOnlyTab.HOT) },
+                            text = { Text("安大热榜") },
+                        )
+                    }
+                }
+                }
             }
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -350,7 +383,7 @@ internal fun MarketListScreen(
                                 )
                             }
                         }
-                        if (readOnlyMode && displayTopics.isNotEmpty()) {
+                        if (readOnlyMode && !readOnlyHotMode && displayTopics.isNotEmpty()) {
                             item(span = androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan.FullLine) {
                                 ReadOnlyFooterHint(uiState = uiState, onRetry = onLoadMore)
                             }
@@ -448,7 +481,7 @@ internal fun MarketListScreen(
                                 )
                             }
                         }
-                        if (readOnlyMode && displayTopics.isNotEmpty()) {
+                        if (readOnlyMode && !readOnlyHotMode && displayTopics.isNotEmpty()) {
                             item { ReadOnlyFooterHint(uiState = uiState, onRetry = onLoadMore) }
                         }
 

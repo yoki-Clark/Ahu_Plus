@@ -13,6 +13,7 @@ import com.ahu_plus.data.model.MarketNode
 import com.ahu_plus.data.model.MarketNotice
 import com.ahu_plus.data.model.MarketReadOnlyCacheEntry
 import com.ahu_plus.data.model.MarketReadOnlyIndexStatus
+import com.ahu_plus.data.model.MarketReadOnlyTab
 import com.ahu_plus.data.model.MarketTopic
 import com.ahu_plus.data.remote.market.MarketApi
 import com.ahu_plus.data.repository.MarketRepository
@@ -52,6 +53,8 @@ class MarketViewModel(
     private var topicRequestId = 0L
     private var readOnlyJob: Job? = null
     private var readOnlyRequestId = 0L
+    private var readOnlyHotJob: Job? = null
+    private var readOnlyHotRequestId = 0L
 
     private fun beginSearchRequest(): Long {
         searchJob?.cancel()
@@ -81,6 +84,14 @@ class MarketViewModel(
 
     private fun isCurrentReadOnlyRequest(requestId: Long): Boolean = requestId == readOnlyRequestId
 
+    private fun beginReadOnlyHotRequest(): Long {
+        readOnlyHotJob?.cancel()
+        return ++readOnlyHotRequestId
+    }
+
+    private fun isCurrentReadOnlyHotRequest(requestId: Long): Boolean =
+        requestId == readOnlyHotRequestId
+
     init {
         refreshSettingsState()
     }
@@ -89,7 +100,11 @@ class MarketViewModel(
         if (_uiState.value.identities.isEmpty()) {
             // 只读模式：无身份时展示服务器索引流
             val stale = System.currentTimeMillis() - lastReadOnlyLoadedAt >= 2L * 60 * 1000
-            if (_uiState.value.readOnlyTopics.isEmpty() || stale) refreshReadOnlyTopics()
+            if (_uiState.value.readOnlyTab == MarketReadOnlyTab.HOT) {
+                if (_uiState.value.readOnlyHotTopics.isEmpty() || stale) refreshReadOnlyHotTopics()
+            } else if (_uiState.value.readOnlyTopics.isEmpty() || stale) {
+                refreshReadOnlyTopics()
+            }
             return
         }
         val stale = System.currentTimeMillis() - lastTopicsLoadedAt >= 2L * 60 * 1000
@@ -364,7 +379,11 @@ class MarketViewModel(
     fun refreshTopics() {
         // 无身份时走只读流,列表页的下拉刷新统一入口
         if (_uiState.value.identities.isEmpty()) {
-            refreshReadOnlyTopics()
+            if (_uiState.value.readOnlyTab == MarketReadOnlyTab.HOT) {
+                refreshReadOnlyHotTopics()
+            } else {
+                refreshReadOnlyTopics()
+            }
             return
         }
         viewModelScope.launch {
@@ -385,7 +404,7 @@ class MarketViewModel(
     fun loadNextPage() {
         val state = _uiState.value
         if (!state.hasSavedIdentity) {
-            loadNextReadOnlyPage()
+            if (state.readOnlyTab != MarketReadOnlyTab.HOT) loadNextReadOnlyPage()
             return
         }
         if (state.isLoadingMore || state.isLoading || !state.hasMoreTopics) return
@@ -400,6 +419,53 @@ class MarketViewModel(
     /** 先回放缓存，再从服务器索引加载第一页；后续页面由列表滚动触发。 */
     fun refreshReadOnlyTopics() {
         refreshReadOnlyTopicsWithIndex()
+    }
+
+    fun selectReadOnlyTab(tab: MarketReadOnlyTab) {
+        if (_uiState.value.hasSavedIdentity || _uiState.value.readOnlyTab == tab) return
+        _uiState.update { it.copy(readOnlyTab = tab) }
+        when (tab) {
+            MarketReadOnlyTab.INDEX -> {
+                if (_uiState.value.readOnlyTopics.isEmpty()) refreshReadOnlyTopics()
+            }
+            MarketReadOnlyTab.HOT -> {
+                if (_uiState.value.readOnlyHotTopics.isEmpty()) refreshReadOnlyHotTopics()
+            }
+        }
+    }
+
+    fun refreshReadOnlyHotTopics() {
+        if (_uiState.value.hasSavedIdentity) return
+        val requestId = beginReadOnlyHotRequest()
+        readOnlyHotJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(readOnlyHotLoading = true, readOnlyHotError = null)
+            }
+            repository.getReadOnlyHotTopics().fold(
+                onSuccess = { topics ->
+                    if (!isCurrentReadOnlyHotRequest(requestId)) return@fold
+                    lastReadOnlyLoadedAt = System.currentTimeMillis()
+                    _uiState.update {
+                        it.copy(
+                            readOnlyHotTopics = topics,
+                            readOnlyHotLoading = false,
+                            readOnlyHotError = null,
+                            topicSchoolMap = it.topicSchoolMap +
+                                topics.associate { topic -> topic.id to "安大圈子" },
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    if (!isCurrentReadOnlyHotRequest(requestId)) return@fold
+                    _uiState.update {
+                        it.copy(
+                            readOnlyHotLoading = false,
+                            readOnlyHotError = error.message ?: "只读热榜加载失败",
+                        )
+                    }
+                },
+            )
+        }
     }
 
     private fun refreshReadOnlyTopicsWithIndex() {
@@ -1753,6 +1819,10 @@ data class MarketUiState(
     val readOnlyIndexStatus: MarketReadOnlyIndexStatus = MarketReadOnlyIndexStatus.IDLE,
     val readOnlyPartialFailureCount: Int = 0,
     val readOnlyGeneration: Long = 0L,
+    val readOnlyTab: MarketReadOnlyTab = MarketReadOnlyTab.INDEX,
+    val readOnlyHotTopics: List<MarketTopic> = emptyList(),
+    val readOnlyHotLoading: Boolean = false,
+    val readOnlyHotError: String? = null,
     // 板块筛选(纯本地,从累积帖动态汇总,不产生请求)
     val readOnlySelectedNode: String? = null,
     val topics: List<MarketTopic> = emptyList(),

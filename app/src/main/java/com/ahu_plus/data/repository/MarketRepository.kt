@@ -42,6 +42,14 @@ internal fun parseMarketTopicDetail(body: String): MarketTopic {
     }
 }
 
+internal fun parseReadOnlyHotTopics(body: String): List<MarketTopic> =
+    JsonUtils.parseRowsSafe<MarketTopic>(body)
+        .asSequence()
+        .filter { it.id > 0L }
+        .distinctBy { it.id }
+        .take(10)
+        .toList()
+
 class MarketRepository(
     private val sessionManager: SessionManager,
     private val readOnlyCache: MarketReadOnlyCache,
@@ -82,6 +90,13 @@ class MarketRepository(
     suspend fun getReadOnlyTopic(topicId: Long): Result<MarketTopic> = withContext(Dispatchers.IO) {
         requestMarketJsonNoAuth("${MarketApi.READ_ONLY_TOPIC_URL}/$topicId")
             .mapCatching(::parseMarketTopicDetail)
+    }
+
+    suspend fun getReadOnlyHotTopics(
+        schoolId: Long = 10681L,
+    ): Result<List<MarketTopic>> = withContext(Dispatchers.IO) {
+        requestMarketJsonNoAuth(MarketApi.readOnlyHotTopicsUrl(schoolId))
+            .mapCatching(::parseReadOnlyHotTopics)
     }
 
     /** 只读缓存:首次访问从 DataStore 读取内存快照,供列表立即展示。 */

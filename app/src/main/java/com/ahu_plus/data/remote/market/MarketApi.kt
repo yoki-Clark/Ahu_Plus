@@ -67,6 +67,9 @@ object MarketApi {
     /** 无 token 只读端点：`GET /topics/read_only/{id}` 返回单帖完整详情。 */
     const val READ_ONLY_TOPIC_URL = "$BASE_URL/topics/read_only"
 
+    fun readOnlyHotTopicsUrl(schoolId: Long): String =
+        "$TOPICS_TOP_URL?school_id=$schoolId"
+
     // ── Header / UA ──────────────────────────────────
     const val USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +

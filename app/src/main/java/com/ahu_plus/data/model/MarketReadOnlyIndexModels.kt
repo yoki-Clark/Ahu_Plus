@@ -8,6 +8,11 @@ enum class MarketReadOnlyIndexStatus {
     PAUSED,
 }
 
+enum class MarketReadOnlyTab {
+    INDEX,
+    HOT,
+}
+
 data class MarketReadOnlyIndexPage(
     val ids: List<Long>,
     val nextCursor: String?,
