@@ -96,9 +96,9 @@ class MarketReadOnlyCacheTest {
             topic(2, "not-a-date") to "圈子",
         )
         val merged = MarketReadOnlyCache.mergeEntries(emptyList(), fresh, now(2026, 8, 4))
-        // 解析失败 -> Long.MAX_VALUE -> 置顶,且不被 TTL 剔除
-        assertEquals(2L, merged.first().topic.id)
-        assertEquals(2, merged.size)
+        // 解析失败 -> 0L -> 被 TTL 剔除或排最后
+        assertEquals(1L, merged.first().topic.id)
+        assertEquals(1, merged.size)
     }
 
     @Test
@@ -109,10 +109,10 @@ class MarketReadOnlyCacheTest {
 
     @Test
     fun parseCreateTimeMs_blankOrInvalid_returnsMax() {
-        // 通过 mergeEntries 间接验证:空白时间不被剔除(视为最新)
+        // 空白时间返回 0L(最旧),会被 TTL 剔除
         val fresh = listOf(topic(1, "") to "圈子")
         val merged = MarketReadOnlyCache.mergeEntries(emptyList(), fresh, now(2025, 1, 1))
-        assertEquals(1, merged.size)
+        assertEquals(0, merged.size)
     }
 
     @Test

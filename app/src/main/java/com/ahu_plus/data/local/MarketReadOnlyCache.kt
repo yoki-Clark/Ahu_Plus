@@ -79,10 +79,10 @@ class MarketReadOnlyCache(
         }.getOrDefault(emptyList())
     }
 
-    /** 解析 `createTime`("yyyy-MM-dd HH:mm:ss")为毫秒;失败返回 [Long.MAX_VALUE](视为最新,保留并置顶)。 */
+    /** 解析 `createTime`("yyyy-MM-dd HH:mm:ss")为毫秒;失败返回 0L(视为最旧,不保留)。 */
     internal fun parseCreateTimeMs(raw: String): Long {
-        if (raw.isBlank()) return Long.MAX_VALUE
-        return runCatching { timeFormat.parse(raw)?.time ?: Long.MAX_VALUE }.getOrDefault(Long.MAX_VALUE)
+        if (raw.isBlank()) return 0L
+        return runCatching { timeFormat.parse(raw)?.time ?: 0L }.getOrDefault(0L)
     }
 
     companion object {
@@ -93,8 +93,8 @@ class MarketReadOnlyCache(
 
         /**
          * 纯函数:把 [existing] 与 [fresh] 按 `topic_id` 合并去重(同 id 覆盖,
-         * 保留已缓存标签),剔除超过 30 天的旧帖,按发布时间倒序,裁剪到 [MAX_ENTRIES]。
-         * 不触碰存储,便于纯 JVM 测试。
+         * 保留已缓存标签),剔除超过 30 天的旧帖和无效时间戳的帖子,按发布时间倒序,
+         * 裁剪到 [MAX_ENTRIES]。不触碰存储,便于纯 JVM 测试。
          */
         fun mergeEntries(
             existing: List<MarketReadOnlyCacheEntry>,
@@ -103,12 +103,21 @@ class MarketReadOnlyCache(
         ): List<MarketReadOnlyCacheEntry> {
             val parser = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
             fun ms(raw: String): Long {
-                if (raw.isBlank()) return Long.MAX_VALUE
-                return runCatching { parser.parse(raw)?.time ?: Long.MAX_VALUE }.getOrDefault(Long.MAX_VALUE)
+                if (raw.isBlank()) return 0L
+                return runCatching { parser.parse(raw)?.time ?: 0L }.getOrDefault(0L)
             }
             val byId = LinkedHashMap<Long, MarketReadOnlyCacheEntry>()
             existing.forEach { byId[it.topic.id] = it }
-            fresh.forEach { (topic, label) ->
+
+            // Filter fresh topics for basic integrity: valid ID, valid timestamp
+            val validFresh = fresh.filter { (topic, _) ->
+                val createMs = ms(topic.createTime)
+                topic.id > 0L &&
+                createMs > 0L &&
+                createMs <= nowMs + 86400_000L  // Not more than 1 day in future
+            }
+
+            validFresh.forEach { (topic, label) ->
                 val cached = byId[topic.id]
                 val resolvedLabel = label.ifBlank { cached?.label ?: "" }
                 byId[topic.id] = MarketReadOnlyCacheEntry(topic = topic, label = resolvedLabel)

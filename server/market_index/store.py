@@ -1,8 +1,12 @@
+# SECURITY: All SQL statements MUST use text() with :param placeholders.
+# Never use f-strings or .format() with user-controlled values to prevent SQL injection.
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import gzip
 import hashlib
 import json
+import zlib
 from typing import Iterable
 
 from sqlalchemy import Engine, create_engine, text
@@ -10,6 +14,34 @@ from sqlalchemy.exc import IntegrityError
 
 from .cursor import CursorPosition
 from .source import TopicRecord
+
+
+# Maximum decompressed payload size to prevent zip bombs (10 MB)
+MAX_DECOMPRESSED_SIZE = 10 * 1024 * 1024
+
+
+def _safe_decompress(compressed: bytes, max_size: int = MAX_DECOMPRESSED_SIZE) -> bytes:
+    """
+    Decompress gzip data with size limit to prevent zip bomb attacks.
+
+    Raises ValueError if decompressed size exceeds max_size.
+    """
+    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    result = bytearray()
+    chunk_size = 8192
+    for i in range(0, len(compressed), chunk_size):
+        chunk = compressed[i : i + chunk_size]
+        try:
+            decompressed_chunk = decompressor.decompress(chunk, max_size - len(result))
+        except zlib.error as exc:
+            raise ValueError("Decompression failed") from exc
+        result.extend(decompressed_chunk)
+        if len(result) > max_size:
+            raise ValueError(f"Decompressed size exceeds {max_size} bytes limit")
+    result.extend(decompressor.flush())
+    if len(result) > max_size:
+        raise ValueError(f"Decompressed size exceeds {max_size} bytes limit")
+    return bytes(result)
 
 
 @dataclass
@@ -356,7 +388,7 @@ class SqlAlchemyIndexStore:
         if row is None:
             return None
         compressed = bytes(row["payload_compressed"])
-        payload_json = gzip.decompress(compressed).decode("utf-8")
+        payload_json = _safe_decompress(compressed).decode("utf-8")
         return ArchiveRecord(
             topic_id=int(row["topic_id"]),
             school_id=int(row["school_id"]),

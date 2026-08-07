@@ -12,6 +12,26 @@ from .cursor import CursorPosition, decode_cursor, encode_cursor
 from .store import InMemoryIndexStore
 
 
+class _GlobalRateLimiter:
+    """Global QPS limiter to prevent resource exhaustion attacks."""
+
+    def __init__(self, max_qps: int, clock=monotonic):
+        if max_qps <= 0:
+            raise ValueError("max_qps must be positive")
+        self.max_qps = max_qps
+        self.clock = clock
+        self.recent_requests: deque[float] = deque(maxlen=max_qps)
+
+    def allow(self) -> bool:
+        now = self.clock()
+        while self.recent_requests and now - self.recent_requests[0] > 1.0:
+            self.recent_requests.popleft()
+        if len(self.recent_requests) >= self.max_qps:
+            return False
+        self.recent_requests.append(now)
+        return True
+
+
 class _RateLimiter:
     def __init__(self, limit: int, max_keys: int = 10_000, clock=monotonic):
         if limit <= 0:
@@ -44,6 +64,7 @@ class _RateLimiter:
 def create_app(store=None, settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = store or InMemoryIndexStore()
+    global_limiter = _GlobalRateLimiter(settings.global_rate_limit_qps)
     limiter = _RateLimiter(
         settings.public_rate_limit_per_minute,
         settings.public_rate_limit_max_keys,
@@ -58,6 +79,12 @@ def create_app(store=None, settings: Settings | None = None) -> FastAPI:
 
     @app.get("/market/readonly/feed")
     async def feed(request: Request, cursor: str | None = None, limit: int = Query(20)):
+        if not global_limiter.allow():
+            return JSONResponse(
+                status_code=503,
+                headers={"Retry-After": "1"},
+                content={"status": "error", "code": "GLOBAL_RATE_LIMIT"},
+            )
         client_host = _client_key(request, trusted_proxy_networks)
         if not limiter.allow(client_host):
             return JSONResponse(
@@ -123,6 +150,12 @@ def create_app(store=None, settings: Settings | None = None) -> FastAPI:
 
     @app.get("/market/readonly/archive/{topic_id}")
     async def archive(request: Request, topic_id: int):
+        if not global_limiter.allow():
+            return JSONResponse(
+                status_code=503,
+                headers={"Retry-After": "1"},
+                content={"status": "error", "code": "GLOBAL_RATE_LIMIT"},
+            )
         client_host = _client_key(request, trusted_proxy_networks)
         if not limiter.allow(client_host):
             return JSONResponse(

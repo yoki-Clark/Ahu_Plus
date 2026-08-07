@@ -13,6 +13,7 @@ class Settings:
     source_min_interval_seconds: float = 1.0
     public_rate_limit_per_minute: int = 30
     public_rate_limit_max_keys: int = 10_000
+    global_rate_limit_qps: int = 500
     trusted_proxy_cidrs: tuple[str, ...] = ()
 
     @classmethod
@@ -41,6 +42,9 @@ class Settings:
             ),
             public_rate_limit_max_keys=int(
                 os.environ.get("MARKET_PUBLIC_RATE_LIMIT_MAX_KEYS", "10000")
+            ),
+            global_rate_limit_qps=int(
+                os.environ.get("MARKET_GLOBAL_RATE_LIMIT_QPS", "500")
             ),
             trusted_proxy_cidrs=tuple(
                 value.strip()

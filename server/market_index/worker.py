@@ -14,10 +14,27 @@ class SourceHttpError(RuntimeError):
         self.status_code = status_code
 
 
+def _sanitize_request(request: httpx.Request) -> None:
+    """Redact sensitive headers from logs to prevent credential leaks."""
+    if "Authorization" in request.headers:
+        request.headers["Authorization"] = "Bearer ***REDACTED***"
+
+
+def _sanitize_response(response: httpx.Response) -> None:
+    """Redact sensitive headers from response logs."""
+    pass  # Response typically doesn't contain credentials, but hook is required
+
+
 class HttpSourceClient:
     def __init__(self, settings: Settings, client: httpx.Client | None = None):
         self.settings = settings
-        self.client = client or httpx.Client(timeout=15.0)
+        self.client = client or httpx.Client(
+            timeout=15.0,
+            event_hooks={
+                "request": [_sanitize_request],
+                "response": [_sanitize_response],
+            },
+        )
 
     def fetch_page(self, page: int) -> SourcePage:
         response = self.client.get(
